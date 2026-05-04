@@ -22,6 +22,7 @@ const tests = [
   'tests/localWorkspace.test.ts',
   'tests/llmProvider.test.ts',
   'tests/llmProviderSmoke.test.ts',
+  'tests/profileEnv.test.ts',
   'tests/healthPolling.test.ts',
   'tests/diagnose.test.ts',
   'tests/creatorMissionStatus.test.ts',
