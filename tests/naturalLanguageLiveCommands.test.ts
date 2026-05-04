@@ -40,6 +40,9 @@ test('memory architecture live deck covers source and promotion boundary probes'
     'memory-architecture-001c',
     'memory-architecture-001d',
     'memory-architecture-001e',
+    'memory-architecture-001f',
+    'memory-architecture-001g',
+    'memory-architecture-001h',
     'memory-architecture-002',
     'memory-architecture-003',
     'memory-architecture-004',
@@ -62,6 +65,9 @@ test('memory architecture live deck covers source and promotion boundary probes'
   assert.match(byId.get('memory-architecture-001c')?.expectedOutcome || '', /Refuses to invent a decision/i);
   assert.match(byId.get('memory-architecture-001d')?.expectedOutcome || '', /discussion-only context/i);
   assert.match(byId.get('memory-architecture-001e')?.expectedOutcome || '', /old recall alone cannot close work/i);
+  assert.match(byId.get('memory-architecture-001f')?.expectedOutcome || '', /retirement decision must beat older Sol/i);
+  assert.match(byId.get('memory-architecture-001g')?.expectedOutcome || '', /retirement decision/i);
+  assert.match(byId.get('memory-architecture-001h')?.expectedOutcome || '', /not current/i);
   assert.match(byId.get('memory-architecture-007')?.expectedOutcome || '', /supporting_not_authoritative/i);
   assert.match(byId.get('memory-architecture-008')?.expectedOutcome || '', /selected route|bridge mode/i);
   assert.match(byId.get('memory-architecture-008b')?.expectedOutcome || '', /short wording/i);

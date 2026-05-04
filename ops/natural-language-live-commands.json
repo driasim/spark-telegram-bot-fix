@@ -424,6 +424,30 @@
     "expectedOutcome": "Names open memory work from current or source-labeled recall while preserving that old recall alone cannot close work. Must not fall back to a missing project trace."
   },
   {
+    "id": "memory-architecture-001f",
+    "suite": "memory_architecture",
+    "risk": "safe",
+    "prompt": "what is the active memory test label now?",
+    "expectedRoute": "memory_open_recall_query",
+    "expectedOutcome": "Uses source-labeled memory freshness logic. The explicit Blue Lantern retirement decision must beat older Sol and Blue Lantern probe mentions, which should be labeled stale or supporting."
+  },
+  {
+    "id": "memory-architecture-001g",
+    "suite": "memory_architecture",
+    "risk": "safe",
+    "prompt": "what did we retire?",
+    "expectedRoute": "memory_open_recall_query",
+    "expectedOutcome": "Recalls the explicit memory-label retirement decision without treating nearby discussion as a decision."
+  },
+  {
+    "id": "memory-architecture-001h",
+    "suite": "memory_architecture",
+    "risk": "safe",
+    "prompt": "what should you not treat as current anymore?",
+    "expectedRoute": "memory_open_recall_query",
+    "expectedOutcome": "Names stale memory-test-label context as not current, with current/newest user correction still reserved as the top authority."
+  },
+  {
     "id": "memory-architecture-002",
     "suite": "memory_architecture",
     "risk": "safe",
