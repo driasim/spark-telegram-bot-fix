@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { sparkSecretPythonBridgeCommand } from '../src/profileEnv';
 
 function test(name: string, fn: () => void): void {
@@ -31,4 +32,11 @@ test('prefers explicit Spark CLI Python over Builder Python', () => {
   } as NodeJS.ProcessEnv);
 
   assert.equal(command.python, 'C:\\SparkPython\\python.exe');
+});
+
+test('runtime health wrapper forwards profile arguments', () => {
+  const wrapper = readFileSync('scripts/run-health-runtime.cjs', 'utf-8');
+
+  assert.match(wrapper, /process\.argv\.slice\(2\)/);
+  assert.match(wrapper, /\.\.\.forwardedArgs/);
 });
