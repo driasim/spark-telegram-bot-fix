@@ -1,9 +1,8 @@
 import { config as loadEnv } from 'dotenv';
-import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { Telegraf } from 'telegraf';
+import { argValue, loadSparkTelegramProfileEnv } from '../src/profileEnv';
 
 loadEnv({ path: path.join(__dirname, '..', '.env'), quiet: true });
 loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true, quiet: true });
@@ -17,60 +16,8 @@ interface CommandCase {
   expectedOutcome: string;
 }
 
-function argValue(name: string): string | null {
-  const prefix = `--${name}=`;
-  const inline = process.argv.find((arg) => arg.startsWith(prefix));
-  if (inline) return inline.slice(prefix.length);
-  const index = process.argv.indexOf(`--${name}`);
-  if (index >= 0 && process.argv[index + 1] && !process.argv[index + 1].startsWith('--')) {
-    return process.argv[index + 1];
-  }
-  return null;
-}
-
 function hasFlag(name: string): boolean {
   return process.argv.includes(`--${name}`);
-}
-
-function loadEnvFile(file: string): void {
-  if (!fs.existsSync(file)) return;
-  for (const line of fs.readFileSync(file, 'utf-8').split(/\r?\n/)) {
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) continue;
-    process.env[match[1]] = match[2];
-  }
-}
-
-function readSparkSecret(secretId: string): string | null {
-  try {
-    const output = execFileSync('spark', ['secrets', 'get', '--reveal', secretId], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe']
-    }).trim();
-    return output || null;
-  } catch {
-    return null;
-  }
-}
-
-function loadSparkProfileEnv(): string | null {
-  const profile = argValue('profile');
-  if (!profile) return null;
-
-  const configDir = path.join(os.homedir(), '.spark', 'config', 'modules');
-  loadEnvFile(path.join(configDir, 'spark-telegram-bot.env'));
-  loadEnvFile(path.join(configDir, `spark-telegram-bot.${profile}.env`));
-
-  const profileSecretId = `telegram.profiles.${profile}.bot_token`;
-  const profileToken = readSparkSecret(profileSecretId) || (profile === 'default' ? readSparkSecret('telegram.bot_token') : null);
-  if (profileToken) {
-    process.env.BOT_TOKEN = profileToken;
-    delete process.env.SPARK_PROFILE_TOKEN_MISSING;
-  } else {
-    process.env.SPARK_PROFILE_TOKEN_MISSING = profileSecretId;
-    if (!process.env.TEST_BOT_TOKEN) delete process.env.BOT_TOKEN;
-  }
-  return profile;
 }
 
 function loadCases(): CommandCase[] {
@@ -79,8 +26,8 @@ function loadCases(): CommandCase[] {
 }
 
 function selectCases(cases: CommandCase[]): CommandCase[] {
-  const caseId = argValue('case');
-  const suite = argValue('suite');
+  const caseId = argValue(process.argv, 'case');
+  const suite = argValue(process.argv, 'suite');
   const includeRisky = hasFlag('include-risky');
 
   let selected = cases;
@@ -117,7 +64,7 @@ function defaultChatId(): string | null {
 
 async function sendPromptCards(selected: CommandCase[]): Promise<void> {
   const token = process.env.TEST_BOT_TOKEN?.trim() || process.env.BOT_TOKEN?.trim();
-  const chatId = argValue('chat') || defaultChatId();
+  const chatId = argValue(process.argv, 'chat') || defaultChatId();
   const missingProfileToken = process.env.SPARK_PROFILE_TOKEN_MISSING?.trim();
   if (!token && missingProfileToken) {
     throw new Error(
@@ -128,7 +75,7 @@ async function sendPromptCards(selected: CommandCase[]): Promise<void> {
   if (!chatId) throw new Error('Set TEST_TELEGRAM_CHAT_ID, ADMIN_TELEGRAM_IDS, or pass --chat <id>.');
 
   const bot = new Telegraf(token);
-  const delayMs = Number(argValue('delay-ms') || '1200');
+  const delayMs = Number(argValue(process.argv, 'delay-ms') || '1200');
   for (const entry of selected) {
     await bot.telegram.sendMessage(chatId, renderOutgoingMessage(entry));
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -136,7 +83,7 @@ async function sendPromptCards(selected: CommandCase[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const profile = loadSparkProfileEnv();
+  const profile = loadSparkTelegramProfileEnv(process.argv);
   const cases = loadCases();
   const selected = selectCases(cases);
 
