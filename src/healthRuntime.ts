@@ -1,4 +1,5 @@
 import { runTelegramPollingHealth } from './healthPolling';
+import { loadSparkTelegramProfileEnv } from './profileEnv';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 
 export function relayHealthUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -38,6 +39,13 @@ export async function validateRelayRuntime(
 }
 
 async function main(): Promise<void> {
+  loadSparkTelegramProfileEnv(process.argv.slice(2));
+  const missingProfileToken = process.env.SPARK_PROFILE_TOKEN_MISSING?.trim();
+  if (missingProfileToken && !process.env.BOT_TOKEN?.trim()) {
+    throw new Error(
+      `Could not load ${missingProfileToken}. Run this from an approved Spark secret session, or set TEST_BOT_TOKEN for token health checks.`
+    );
+  }
   await runTelegramPollingHealth();
   const detail = await validateRelayRuntime();
   console.log(`Relay runtime: OK (${detail})`);
