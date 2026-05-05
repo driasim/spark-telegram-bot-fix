@@ -146,6 +146,7 @@ import {
   isTelegramImageMessage,
   telegramImageMemoryText
 } from './telegramImageBridge';
+import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 
@@ -366,6 +367,8 @@ bot.use(async (ctx, next) => {
 bot.start(async (ctx) => {
   const user = ctx.from;
   const name = user.first_name || user.username || 'friend';
+  const startText = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+  const onboardingSession = extractStartSession(startText);
 
   const builderBridge = await getBuilderBridgeStatus();
 
@@ -401,7 +404,7 @@ bot.start(async (ctx) => {
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
-      '/access <1|2|3|4> - Choose Chat Only, Build When Asked, Research + Build, or Full Access',
+      '/access <1|2|3|4> - Choose what this Telegram chat can do',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
@@ -412,6 +415,19 @@ bot.start(async (ctx) => {
   }
 
   await ctx.reply(lines.join('\n'));
+  if (onboardingSession) {
+    await recordTelegramFirstMessage({
+      event: 'telegram_first_message',
+      session: onboardingSession,
+      replied: true,
+      ts: new Date().toISOString(),
+      chat_id: String(ctx.chat?.id ?? ''),
+      user_id: String(user.id ?? ''),
+      profile: process.env.SPARK_TELEGRAM_PROFILE || 'default'
+    }).catch((error) => {
+      console.warn('[Onboarding] failed to write first-message event:', error);
+    });
+  }
   if (!spawnerAvailable && conversation.isAdmin(user)) {
     await ctx.reply('Spawner orchestration is offline.');
   }
@@ -1787,7 +1803,7 @@ bot.command('access', async (ctx) => {
 
   const next = normalizeSparkAccessProfile(raw);
   if (!next) {
-    await ctx.reply('Choose an access level: /access 1 Chat Only, /access 2 Build When Asked, /access 3 Research + Build, or /access 4 Full Access.');
+    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, or /access 4 local projects and files.');
     return;
   }
 
@@ -1809,7 +1825,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
 
   const next = normalizeSparkAccessProfile(raw);
   if (!next) {
-    await ctx.reply('Choose an access level: /access 1 Chat Only, /access 2 Build When Asked, /access 3 Research + Build, or /access 4 Full Access.');
+    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, or /access 4 local projects and files.');
     return true;
   }
 
