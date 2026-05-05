@@ -5,10 +5,12 @@ import {
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
   formatProviderCompletionForTelegram,
+  isCompletionDeliveryCachedForTests,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
   resetMissionRelayDeliveryStateForTests,
+  sendFetchedCompletionSummaryForTests,
   shouldAcknowledgeRelayWithoutTelegramDelivery,
   shouldAcceptRelayEventForThisBot,
   shouldSkipDuplicateForTests,
@@ -49,7 +51,7 @@ test('formats structured provider JSON as readable Telegram text', () => {
 
   assert.match(message, /✨ Spark/);
   assert.match(message, /Implemented the requested static board/);
-  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:5555\/preview\/[A-Za-z0-9_-]+\/index\.html/);
+  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed/);
   assert.match(message, /keep polishing/);
   assert.doesNotMatch(message, /Files updated/);
@@ -104,7 +106,7 @@ test('keeps verbose completion summaries readable and non-console-like', () => {
 
   assert.match(message, /Spark/);
   assert.match(message, /Built the dashboard and verified the main workflow/);
-  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:5555\/preview\/[A-Za-z0-9_-]+\/index\.html/);
+  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed \(3 checks\)\./);
   assert.doesNotMatch(message, /Verification commands run/);
   assert.doesNotMatch(message, /npm run|playwright|Changed files|README\.md/);
@@ -132,7 +134,7 @@ test('formats structured provider failures without raw JSON noise', () => {
 
   assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
   assert.match(message, /final browser verification failed/);
-  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:5555\/preview\/[A-Za-z0-9_-]+\/index\.html/);
+  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed/);
   assert.doesNotMatch(message, /Files updated/);
   assert.doesNotMatch(message, /npm run smoke/);
@@ -202,7 +204,7 @@ test('summarizes freeform Codex build output without dumping file links', () => 
   assert.match(message, /Full-viewport Three\.js orbital forge/);
   assert.match(message, /Quality checks passed/);
   assert.doesNotMatch(message, /Headless Chrome desktop\/mobile/);
-  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:5555\/preview\/[A-Za-z0-9_-]+\/index\.html/);
+  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.doesNotMatch(message, /\[index\.html\]/);
   assert.doesNotMatch(message, /<\/c\/Users/);
   assert.doesNotMatch(message, /Mission: mission-orbit/);
@@ -277,7 +279,7 @@ test('uses the public Spawner URL for generated project preview links when confi
     });
 
     assert.match(message, /Open it here:\nhttps:\/\/spark-spawner-test\.up\.railway\.app\/preview\/[A-Za-z0-9_-]+\/index\.html/);
-    assert.doesNotMatch(message, /127\.0\.0\.1:5555/);
+    assert.doesNotMatch(message, /127\.0\.0\.1:3333/);
     assert.doesNotMatch(message, /spawner-ui\.railway\.internal/);
   } finally {
     if (originalPreviewUrl === undefined) delete process.env.SPARK_PROJECT_PREVIEW_URL;
@@ -805,6 +807,16 @@ test('requires relay events to match registered Telegram identity', () => {
     missionId: 'spark-1',
     data: { chatId: '12345' }
   }, subscription), false);
+
+  assert.equal(relayEventMatchesSubscription({
+    type: 'task_completed',
+    missionId: 'spark-1'
+  }, subscription), true);
+
+  assert.equal(relayEventMatchesSubscription({
+    type: 'task_completed',
+    missionId: 'spark-2'
+  }, subscription), false);
 });
 
 test('suppresses hosted preview generation progress in Telegram', () => {
@@ -878,3 +890,67 @@ test('reports this relay identity from env', () => {
     else process.env.TELEGRAM_RELAY_URL = originalUrl;
   }
 });
+
+void (async () => {
+  const name = 'does not cache fetched completion summaries until Telegram delivery succeeds';
+  try {
+    resetMissionRelayDeliveryStateForTests();
+    const subscription = {
+      missionId: 'spark-delivery-retry',
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-delivery-retry',
+      goal: 'Build a retryable completion.',
+      createdAt: '2026-05-05T00:00:00Z'
+    };
+    const event = {
+      type: 'mission_completed' as const,
+      missionId: subscription.missionId
+    };
+    const completion = {
+      providerLabel: 'codex',
+      response: JSON.stringify({
+        summary: 'Built the retryable completion handoff.',
+        status: 'completed'
+      })
+    };
+    const failingBot = {
+      telegram: {
+        sendMessage: async () => {
+          throw new Error('telegram unavailable');
+        }
+      }
+    };
+
+    await assert.rejects(
+      sendFetchedCompletionSummaryForTests(failingBot as any, 12345, subscription, event, 'normal', completion),
+      /telegram unavailable/
+    );
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+
+    const sent: string[] = [];
+    const workingBot = {
+      telegram: {
+        sendMessage: async (_chatId: number, message: string) => {
+          sent.push(message);
+        }
+      }
+    };
+    const chunks = await sendFetchedCompletionSummaryForTests(
+      workingBot as any,
+      12345,
+      subscription,
+      event,
+      'normal',
+      completion
+    );
+
+    assert.equal(chunks, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
+    console.log(`ok - ${name}`);
+  } catch (error) {
+    console.error(`not ok - ${name}`);
+    throw error;
+  }
+})();

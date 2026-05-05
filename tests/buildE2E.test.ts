@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import { getTierForUser } from '../src/userTier';
+import { readJsonFile, resolveStatePath } from '../src/jsonState';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -58,6 +59,10 @@ function restoreEnv(): void {
 interface CapturedCall {
 	url: string;
 	body: any;
+}
+
+async function readMissionRelayRegistry(): Promise<any[]> {
+	return (await readJsonFile<any[]>(resolveStatePath('.spark-spawner-missions.json'))) || [];
 }
 
 function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[]) {
@@ -138,6 +143,7 @@ async function run(): Promise<void> {
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 555, replies);
 
+		let caughtError: unknown = null;
 		try {
 			await callHandleBuildIntent({
 				ctx,
@@ -148,10 +154,14 @@ async function run(): Promise<void> {
 		} catch (err) {
 			// Acceptable: post-write polling may fail because we stub get/post minimally.
 			// We only care about the first POST to /api/prd-bridge/write.
+			caughtError = err;
 		}
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
-		assert.ok(writeCall, 'expected POST to /api/prd-bridge/write');
+		assert.ok(
+			writeCall,
+			`expected POST to /api/prd-bridge/write; replies=${JSON.stringify(replies)} caught=${caughtError instanceof Error ? caughtError.message : String(caughtError)}`
+		);
 		assert.equal(writeCall!.body.tier, 'pro', 'admin user should resolve to pro tier');
 		assert.equal(typeof writeCall!.body.requestId, 'string');
 		assert.match(writeCall!.body.requestId, /^tg-build-/);
@@ -165,6 +175,12 @@ async function run(): Promise<void> {
 		assert.match(replies[0] || '', new RegExp(`Mission: ${missionId}`));
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
 		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		const registry = await readMissionRelayRegistry();
+		const subscription = registry.find((entry) => entry.missionId === missionId);
+		assert.ok(subscription, 'PRD build mission should be registered for Telegram relay progress');
+		assert.equal(subscription.chatId, '8319079055');
+		assert.equal(subscription.userId, '8319079055');
+		assert.equal(subscription.requestId, writeCall!.body.requestId);
 
 		restoreAxios();
 		restoreEnv();
@@ -334,9 +350,14 @@ async function run(): Promise<void> {
 		await indexModule.handleTextMessage(ctx);
 
 		const reply = replies.join('\n');
-		assert.match(reply, /Spark chip status/);
-		assert.match(reply, /Registered or attached means discoverable/);
-		assert.match(reply, /Working means a recent authorized route succeeded/);
+		assert.match(reply, /Spark (?:chip status|self-awareness)/);
+		if (/Spark self-awareness/.test(reply)) {
+			assert.match(reply, /current-state evidence wins/i);
+			assert.match(reply, /What looks live/);
+		} else {
+			assert.match(reply, /Registered or attached means discoverable/);
+			assert.match(reply, /Working means a recent authorized route succeeded/);
+		}
 		assert.doesNotMatch(reply, /Missing provider keys/i);
 		assert.doesNotMatch(reply, /provider authentication/i);
 
@@ -587,6 +608,12 @@ async function run(): Promise<void> {
 		assert.match(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
 		assert.doesNotMatch(replies.join('\n'), /Canvas:/);
 		assert.match(replies.join('\n'), /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		const registry = await readMissionRelayRegistry();
+		const subscription = registry.find((entry) => entry.missionId === clarifiedMissionId);
+		assert.ok(subscription, 'clarified PRD build mission should be registered for Telegram relay progress');
+		assert.equal(subscription.chatId, '8319079055');
+		assert.equal(subscription.userId, '8319079055');
+		assert.equal(subscription.requestId, dispatchCall!.body.requestId);
 
 		restoreAxios();
 		restoreEnv();
