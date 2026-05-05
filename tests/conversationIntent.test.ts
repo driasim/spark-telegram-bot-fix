@@ -43,6 +43,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   renderChatRuntimeFailureReply,
   shouldSuppressBuilderReplyForPlainChat,
+  shouldUseBuilderReplyForMemoryDirective,
   shouldPreferConversationalIdeation
 } from '../src/conversationIntent';
 import { buildConversationFrame } from '../src/conversationFrame';
@@ -707,6 +708,20 @@ test('extracts explicit plain-chat memory directives', () => {
   assert.equal(extractPlainChatMemoryDirective('remember: my preferred reply style is concise'), 'my preferred reply style is concise');
   assert.equal(extractPlainChatMemoryDirective('what do you remember about me'), null);
   assert.equal(extractPlainChatMemoryDirective('do you have memory right now'), null);
+});
+
+test('memory directives only accept Builder memory-route confirmations', () => {
+  assert.equal(
+    shouldUseBuilderReplyForMemoryDirective('Memory saved: preferred mission updates are concise.', 'memory_open_save'),
+    true
+  );
+  assert.equal(
+    shouldUseBuilderReplyForMemoryDirective(
+      'We were shaping passive Spark bug recognition.',
+      'provider_fallback_chat'
+    ),
+    false
+  );
 });
 
 test('memory fallback does not claim a no-op save succeeded', () => {

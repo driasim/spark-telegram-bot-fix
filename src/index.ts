@@ -124,6 +124,7 @@ import {
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
   shouldSuppressBuilderReplyForPlainChat,
+  shouldUseBuilderReplyForMemoryDirective,
   shouldPreferConversationalIdeation
 } from './conversationIntent';
 import { getLatestShippedProjectContext } from './shippedProjectContext';
@@ -318,6 +319,44 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   }
   await ctx.reply(builderReply.responseText);
   return true;
+}
+
+function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
+  return `Saved in Telegram memory: ${directive.replace(/[.!?]+$/g, '').trim()}.`;
+}
+
+async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string, directive: string): Promise<void> {
+  let localSaved = false;
+  try {
+    await conversation.remember(user, text);
+    await conversation.learnAboutUser(user, `User asked Spark to remember: ${directive}`);
+    localSaved = true;
+  } catch (error) {
+    console.warn('[MemoryDirective] local memory save failed:', error);
+  }
+
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
+    if (
+      builderReply.used &&
+      builderReply.bridgeMode !== 'bridge_error' &&
+      shouldUseBuilderReplyForMemoryDirective(builderReply.responseText, builderReply.routingDecision)
+    ) {
+      await ctx.reply(builderReply.responseText);
+      await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      return;
+    }
+  } catch (error) {
+    console.warn('[MemoryDirective] Builder memory confirmation unavailable:', error);
+  }
+
+  const reply = localSaved
+    ? formatLocalMemoryDirectiveAcknowledgement(directive)
+    : buildMemoryBridgeUnavailableReply('remember');
+  await ctx.reply(reply);
+  await conversation.rememberAssistantReply(user, reply).catch(() => {});
 }
 
 // Error handler
@@ -1848,7 +1887,10 @@ function answerFromRememberTurns(text: string, turns: ReadonlyArray<{ role: stri
     return null;
   }
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!/\b(?:asked you to remember|told you to remember|session test code word|code word)\b/.test(normalized)) {
+  const asksRememberedPreference =
+    /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission updates?|updates?)\b/.test(normalized) ||
+    /\bwhat\b.*\b(?:prefer|preferred|preference)\b.*\bremember\b/.test(normalized);
+  if (!asksRememberedPreference && !/\b(?:asked you to remember|told you to remember|session test code word|code word)\b/.test(normalized)) {
     return null;
   }
 
@@ -1861,6 +1903,12 @@ function answerFromRememberTurns(text: string, turns: ReadonlyArray<{ role: stri
     const codeWord = cleaned.match(/\b(?:session\s+test\s+)?code\s+word\s*[:\-]\s*(.+)$/i);
     if (codeWord?.[1]?.trim()) {
       return codeWord[1].trim().replace(/^["']|["']$/g, '');
+    }
+    if (asksRememberedPreference) {
+      const userFacing = cleaned
+        .replace(/^my\b/i, 'your')
+        .replace(/^i\b/i, 'you');
+      return `You told me ${userFacing}.`;
     }
     return cleaned;
   }
@@ -1993,6 +2041,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  const memoryDirective = earlyBuildIntent ? null : extractPlainChatMemoryDirective(text);
+  if (memoryDirective) {
+    await handlePlainChatMemoryDirective(ctx, user, text, memoryDirective);
     return;
   }
   const selfImprovementGoal = earlyBuildIntent ? null : extractSparkSelfImprovementGoal(text);
@@ -2421,11 +2474,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
   try {
-    const memoryDirective = extractPlainChatMemoryDirective(text);
-    if (memoryDirective) {
-      await conversation.learnAboutUser(user, `User asked Spark to remember: ${memoryDirective}`).catch(() => {});
-    }
-
     let bridgeFailed = false;
     let builderReply = {
       used: false,
@@ -2445,9 +2493,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
         /\b(?:no prior list|what are you choosing between|which one|which option)\b/i.test(builderReply.responseText);
       if (!contradictsResolvedList && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
-        if (memoryDirective) {
-          await conversation.remember(user, text).catch(() => {});
-        }
         await ctx.reply(builderReply.responseText);
         await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
         return;

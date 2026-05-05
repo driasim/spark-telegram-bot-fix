@@ -1082,6 +1082,10 @@ export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDec
   return isLowInformationLlmReply(reply) || isMemoryAcknowledgementReply(reply);
 }
 
+export function shouldUseBuilderReplyForMemoryDirective(reply: string, routingDecision: string = ''): boolean {
+  return /^memory(?:_|$)/i.test(routingDecision.trim()) && !isLowInformationLlmReply(reply);
+}
+
 export function renderChatRuntimeFailureReply(isAdmin: boolean, bridgeFailed: boolean = false): string {
   const base = bridgeFailed
     ? 'Spark can see the chat, but its reasoning path is not healthy right now.'

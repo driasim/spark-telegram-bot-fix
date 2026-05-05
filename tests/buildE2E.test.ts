@@ -37,6 +37,7 @@ const originalEnv = {
 	BOT_PRO_USER_IDS: process.env.BOT_PRO_USER_IDS,
 	ADMIN_TELEGRAM_IDS: process.env.ADMIN_TELEGRAM_IDS,
 	SPARK_AGENT_ACCESS_PROFILE: process.env.SPARK_AGENT_ACCESS_PROFILE,
+	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
@@ -287,6 +288,33 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
 		assert.match(replies[0] || '', /Project: terminal chef clock/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('explicit memory preference save and recall beats stale project context', async () => {
+		restoreAxios();
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const indexModule: any = await import('../src/index');
+
+		const saveReplies: string[] = [];
+		const saveCtx = makeFakeCtx(8319079055, 8319079055, 562, saveReplies);
+		saveCtx.message.text = 'remember this: my preferred mission updates are concise and outcome-focused';
+		await indexModule.handleTextMessage(saveCtx);
+
+		const recallReplies: string[] = [];
+		const recallCtx = makeFakeCtx(8319079055, 8319079055, 563, recallReplies);
+		recallCtx.message.text = 'what do you remember about how I like mission updates?';
+		await indexModule.handleTextMessage(recallCtx);
+
+		assert.match(saveReplies.join('\n'), /Saved in Telegram memory/i);
+		assert.doesNotMatch(saveReplies.join('\n'), /passive Spark bug recognition/i);
+		assert.match(recallReplies.join('\n'), /concise and outcome-focused/i);
+		assert.doesNotMatch(recallReplies.join('\n'), /passive Spark bug recognition/i);
 
 		restoreAxios();
 		restoreEnv();
