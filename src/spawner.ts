@@ -17,6 +17,7 @@ type CreatorRiskLevel = 'low' | 'medium' | 'high';
 
 interface RunGoalInput {
   goal: string;
+  missionName?: string;
   chatId: string;
   userId: string;
   requestId: string;
@@ -538,6 +539,7 @@ export const spawner = {
         `${SPAWNER_UI_URL}/api/spark/run`,
         {
           goal: input.goal,
+          ...(input.missionName?.trim() ? { missionName: input.missionName.trim() } : {}),
           chatId: input.chatId,
           userId: input.userId,
           requestId: input.requestId,

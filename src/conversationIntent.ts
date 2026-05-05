@@ -347,7 +347,12 @@ function isLowSignalPlanningTurn(text: string): boolean {
   );
 }
 
-export function inferMissionGoalFromRecentContext(currentText: string, recentMessages: string[]): string | null {
+export interface InferredMissionFromContext {
+  goal: string;
+  missionName: string;
+}
+
+export function inferMissionFromRecentContext(currentText: string, recentMessages: string[]): InferredMissionFromContext | null {
   if (!isMissionExecutionConfirmation(currentText) && !isExplicitContextualBuildRequest(currentText)) return null;
 
   const usefulTurns = recentMessages
@@ -367,27 +372,40 @@ export function inferMissionGoalFromRecentContext(currentText: string, recentMes
   }
 
   if ((sparkTopic || chipTopic) && bugTopic) {
-    return [
+    return {
+      missionName: 'Spark Bug Recognition Domain Chip',
+      goal: [
       'Deeply analyze the local Spark stack, including spark-telegram-bot, spark-intelligence-builder, domain-chip-memory, spark-researcher, and spawner-ui.',
       'Then design and scaffold a passive Spark bug-recognition domain chip that identifies recurring bugs, silent failures, degraded health, routing issues, memory failures, and mission-control problems.',
       'The first version should write Obsidian-friendly Markdown diagnostics and include clear setup, usage, and verification steps.',
       `Recent Telegram planning context:\n${context}`
-    ].join('\n\n');
+      ].join('\n\n')
+    };
   }
 
   if (chipTopic) {
-    return [
+    return {
+      missionName: 'Spark Domain Chip',
+      goal: [
       'Create a new Spark domain chip from the recent Telegram planning context.',
       'Analyze the relevant Spark systems first, then produce a concrete v1 chip design, files, setup notes, and tests.',
       `Recent Telegram planning context:\n${context}`
-    ].join('\n\n');
+      ].join('\n\n')
+    };
   }
 
-  return [
-    'Create a Spawner mission from the recent Telegram planning context.',
-    'Analyze the relevant Spark systems first, then build the smallest useful v1 and include verification steps.',
-    `Recent Telegram planning context:\n${context}`
-  ].join('\n\n');
+  return {
+    missionName: sparkTopic || bugTopic ? 'Spark Diagnostic Mission' : 'Spawner Context Mission',
+    goal: [
+      'Create a Spawner mission from the recent Telegram planning context.',
+      'Analyze the relevant Spark systems first, then build the smallest useful v1 and include verification steps.',
+      `Recent Telegram planning context:\n${context}`
+    ].join('\n\n')
+  };
+}
+
+export function inferMissionGoalFromRecentContext(currentText: string, recentMessages: string[]): string | null {
+  return inferMissionFromRecentContext(currentText, recentMessages)?.goal || null;
 }
 
 export interface InferredDefaultBuild {
