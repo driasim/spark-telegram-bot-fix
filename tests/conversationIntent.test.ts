@@ -457,16 +457,16 @@ test('keeps build flow language from becoming access changes', () => {
     null
   );
   assert.equal(
-    parseContextualAccessChangeIntent('let us do it', ['Done - I changed this chat to Level 4 - Full Access.']),
+    parseContextualAccessChangeIntent('let us do it', ['Done - I changed this chat to Access level 4.']),
     null
   );
   assert.equal(
-    parseContextualAccessChangeIntent('level 3', ['Done - I changed this chat to Level 4 - Full Access.']),
+    parseContextualAccessChangeIntent('level 3', ['Done - I changed this chat to Access level 4.']),
     '3'
   );
 
   const frame = buildConversationFrame('let us do it', [
-    { role: 'assistant', text: 'Done - I changed this chat to Level 4 - Full Access.' }
+    { role: 'assistant', text: 'Done - I changed this chat to Access level 4.' }
   ]);
   assert.equal(frame.referenceResolution.kind, 'none');
 });
@@ -751,7 +751,7 @@ test('parses natural access change requests', () => {
 test('resolves contextual access change follow-ups from recent access turns', () => {
   const recent = [
     'User: Change my access level to three please',
-    'Spark: Done - I changed this chat to Level 3 - Research + Build.'
+    'Spark: Done - I changed this chat to Access level 3.'
   ];
 
   assert.equal(hasRecentAccessConversation(recent), true);
