@@ -102,7 +102,7 @@ import {
   extractPlainChatMemoryDirective,
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
-  inferMissionGoalFromRecentContext,
+  inferMissionFromRecentContext,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
@@ -1333,6 +1333,7 @@ export function formatCanvasReadySummary(args: {
 
 interface RunCommandOptions {
   allowBuildIntent?: boolean;
+  missionName?: string;
 }
 
 export async function handleRunCommand(
@@ -1374,7 +1375,8 @@ export async function handleRunCommand(
     userId: String(ctx.from.id),
     tier: getTierForUser(ctx.from.id),
     providers,
-    promptMode: 'simple'
+    promptMode: 'simple',
+    missionName: options.missionName
   });
 
   if (!result.success || !result.missionId) {
@@ -2453,7 +2455,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       if (improvementGoal) {
         console.log(`[ConversationIntent] inferred contextual improvement mission user=${ctx.from?.id} textLen=${text.length}`);
         await conversation.remember(user, text).catch(() => {});
-        const missionId = await handleRunCommand(ctx, improvementGoal, [missionDefaultProvider()]);
+        const missionId = await handleRunCommand(ctx, improvementGoal, [missionDefaultProvider()], undefined, {
+          missionName: 'Spark Diagnostic Agent Integration'
+        });
         if (missionId) {
           await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} to improve the Spark Diagnostic Agent integration from Telegram context.`).catch(() => {});
         }
@@ -2475,13 +2479,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const inferredMissionGoal = inferMissionGoalFromRecentContext(text, recentMessages);
-    if (inferredMissionGoal) {
+    const inferredMission = inferMissionFromRecentContext(text, recentMessages);
+    if (inferredMission) {
       console.log(`[ConversationIntent] inferred mission from follow-up user=${ctx.from?.id} textLen=${text.length}`);
       await conversation.remember(user, text).catch(() => {});
-      const missionId = await handleRunCommand(ctx, inferredMissionGoal, [missionDefaultProvider()]);
+      const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
+        missionName: inferredMission.missionName
+      });
       if (missionId) {
-        await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} from Telegram follow-up: ${inferredMissionGoal.slice(0, 220)}`).catch(() => {});
+        await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} from Telegram follow-up: ${inferredMission.goal.slice(0, 220)}`).catch(() => {});
       }
       return;
     }

@@ -70,6 +70,7 @@ async function run(): Promise<void> {
 
     const result = await spawner.runGoal({
       goal: 'Build a Kanban board from this Telegram message.',
+      missionName: 'Telegram Kanban Board',
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',
@@ -84,6 +85,7 @@ async function run(): Promise<void> {
     assert.match(capturedUrl, /\/api\/spark\/run$/);
     assert.deepEqual(capturedBody, {
       goal: 'Build a Kanban board from this Telegram message.',
+      missionName: 'Telegram Kanban Board',
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',

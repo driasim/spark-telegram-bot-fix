@@ -179,6 +179,29 @@ The bet: most founders already have the raw material. They just need it compress
   assert.doesNotMatch(intent.projectName, /^A narrow tool that takes/i);
 });
 
+test('infers clean product names from paragraph-style build prompts', () => {
+  const memoryIntent = parseBuildIntent(`Build a memory quality dashboard. It should test natural recall, stale context avoidance, current-state priority, source-aware recall, and whether Spark can explain where an answer came from.
+
+The first version should be local-first, practical, and focused on showing pass/fail signals without needing a hosted service.`);
+
+  assert.ok(memoryIntent);
+  assert.equal(memoryIntent.projectName, 'Memory Quality Dashboard');
+  assert.doesNotMatch(memoryIntent.projectName, /^Build a memory/i);
+
+  const chipIntent = parseBuildIntent(`Build a passive Spark bug-recognition domain chip for Mission Control. It should notice recurring relay gaps, degraded health, routing mistakes, and memory failures from local traces, then write Obsidian-friendly diagnostics.`);
+
+  assert.ok(chipIntent);
+  assert.equal(chipIntent.projectName, 'Spark Bug Recognition Domain Chip');
+  assert.doesNotMatch(chipIntent.projectName, /^Build a passive/i);
+});
+
+test('avoids over-naming generic paragraph prompts without domain signal', () => {
+  const intent = parseBuildIntent('Build a private local-first dashboard that lets me organize cards, filters, and notes.');
+
+  assert.ok(intent);
+  assert.notEqual(intent.projectName, 'Dashboard');
+});
+
 test('parses Telegram-style greeting with curly apostrophe and mission link preferences', () => {
   const intent = parseBuildIntent(`Hey Spark, let’s build a real project called Founder Signal Room.
 

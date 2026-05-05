@@ -46,6 +46,13 @@ function isInsideWorkspace(candidate: string): boolean {
 function inferConceptualProjectName(prd: string): string | null {
   const lower = prd.toLowerCase();
   if (
+    /\bspark\b/.test(lower) &&
+    /\b(?:bug|bugs|diagnos|anomal|failure|failures|health|logs?|monitor|troubleshoot|issue|issues)\b/.test(lower) &&
+    (/\bdomain[-\s]*chip\b/.test(lower) || /\bchip\b/.test(lower))
+  ) {
+    return 'Spark Bug Recognition Domain Chip';
+  }
+  if (
     /\bfounders?\b/.test(lower) &&
     /\b(?:strategy|strategic|operating picture)\b/.test(lower) &&
     /\b(?:notes?|memos?|document|ledger)\b/.test(lower)
@@ -60,6 +67,73 @@ function inferConceptualProjectName(prd: string): string | null {
     return `${landingPageForMatch[1].trim()} Landing Page`
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
+  return null;
+}
+
+function titleCaseProjectName(value: string): string {
+  return value
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => {
+      if (/^[A-Z0-9]{2,}$/.test(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+function inferProductPhraseProjectName(prd: string): string | null {
+  const normalized = prd.replace(/\s+/g, ' ').trim();
+  const productType = '(?:domain[-\\s]*chip|landing\\s+page|dashboard|workbench|agent|tool|app|game|system|tracker|planner|timer|clock|site|website|page)';
+  const patterns = [
+    new RegExp(`^(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
+  ];
+  const genericLeadingWords = new Set([
+    'a',
+    'an',
+    'the',
+    'new',
+    'private',
+    'local',
+    'local-first',
+    'simple',
+    'tiny',
+    'quick',
+    'polished',
+    'real',
+    'full',
+    'static',
+    'responsive',
+    'playful',
+    'passive',
+    'narrow',
+    'vanilla',
+    'browser',
+    'based'
+  ]);
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    let phrase = match[1].replace(/\bvanilla[-\s]*js\b/gi, '').replace(/\bbrowser[-\s]*based\b/gi, '').trim();
+    let words = phrase.split(/\s+/).filter(Boolean);
+    while (words.length > 1 && genericLeadingWords.has(words[0].toLowerCase())) {
+      words = words.slice(1);
+    }
+    phrase = words.join(' ').replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, '');
+    const productMatch = phrase.match(new RegExp(`\\b${productType}\\b$`, 'i'));
+    if (!productMatch) continue;
+    const qualifier = phrase.slice(0, productMatch.index).trim();
+    const meaningfulQualifier = qualifier
+      .split(/\s+/)
+      .filter((word) => word && !genericLeadingWords.has(word.toLowerCase()));
+    if (meaningfulQualifier.length === 0) continue;
+    return titleCaseProjectName(phrase);
+  }
+
   return null;
 }
 
@@ -87,6 +161,8 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   if (quotedHeadingName) return quotedHeadingName;
   const conceptualName = inferConceptualProjectName(prd);
   if (conceptualName) return conceptualName;
+  const productPhraseName = inferProductPhraseProjectName(prd);
+  if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');
   return firstWords.slice(0, 60) || 'Untitled Project';
 }
