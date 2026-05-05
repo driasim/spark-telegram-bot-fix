@@ -26,6 +26,7 @@ const originalPort = process.env.TELEGRAM_RELAY_PORT;
 const originalProfile = process.env.SPARK_TELEGRAM_PROFILE;
 const originalBridgeKey = process.env.SPARK_BRIDGE_API_KEY;
 const originalUiKey = process.env.SPARK_UI_API_KEY;
+const originalWorkspaceId = process.env.SPARK_WORKSPACE_ID;
 
 function restoreAxios(): void {
   (axios as any).get = originalGet;
@@ -41,6 +42,8 @@ function restoreEnv(): void {
   else process.env.SPARK_BRIDGE_API_KEY = originalBridgeKey;
   if (originalUiKey === undefined) delete process.env.SPARK_UI_API_KEY;
   else process.env.SPARK_UI_API_KEY = originalUiKey;
+  if (originalWorkspaceId === undefined) delete process.env.SPARK_WORKSPACE_ID;
+  else process.env.SPARK_WORKSPACE_ID = originalWorkspaceId;
 }
 
 async function run(): Promise<void> {
@@ -50,6 +53,7 @@ async function run(): Promise<void> {
     process.env.SPARK_TELEGRAM_PROFILE = 'spark-agi';
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
     process.env.SPARK_UI_API_KEY = 'ui-secret-for-tests';
+    process.env.SPARK_WORKSPACE_ID = 'workspace-for-tests';
 
     let capturedUrl = '';
     let capturedBody: any = null;
@@ -94,12 +98,14 @@ async function run(): Promise<void> {
     assert.equal(capturedOptions.timeout, 1800000);
     assert.equal(capturedOptions.headers['x-api-key'], 'bridge-secret-for-tests');
     assert.equal(capturedOptions.headers['x-spawner-ui-key'], 'ui-secret-for-tests');
+    assert.equal(capturedOptions.headers['x-spawner-workspace-id'], 'workspace-for-tests');
   });
 
   await test('runGoal falls back to the bridge key for hosted UI auth when no UI key is configured', async () => {
     restoreAxios();
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
     delete process.env.SPARK_UI_API_KEY;
+    delete process.env.SPARK_WORKSPACE_ID;
 
     let capturedOptions: any = null;
     (axios as any).post = async (_url: string, _body: unknown, options: unknown) => {
@@ -117,6 +123,7 @@ async function run(): Promise<void> {
     assert.equal(result.success, true);
     assert.equal(capturedOptions.headers['x-api-key'], 'bridge-secret-for-tests');
     assert.equal(capturedOptions.headers['x-spawner-ui-key'], 'bridge-secret-for-tests');
+    assert.equal(capturedOptions.headers['x-spawner-workspace-id'], undefined);
   });
 
   await test('runGoal retries once when local Spawner request times out', async () => {
