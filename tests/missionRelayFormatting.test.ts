@@ -6,6 +6,7 @@ import {
   getTelegramRelayIdentity,
   formatProviderCompletionForTelegram,
   isCompletionDeliveryCachedForTests,
+  markMissionRelayCancelled,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
@@ -14,6 +15,7 @@ import {
   shouldAcknowledgeRelayWithoutTelegramDelivery,
   shouldAcceptRelayEventForThisBot,
   shouldSkipDuplicateForTests,
+  shouldSuppressMissionHandoff,
   shouldStopMissionHeartbeat
 } from '../src/missionRelay';
 
@@ -729,6 +731,17 @@ test('stops mission heartbeats for terminal or stale runs', () => {
     staleMs: 30 * 60_000,
     snapshot: { missionId: 'spark-3', status: 'running' }
   }), false);
+});
+
+test('cancelled missions suppress delayed build handoffs', () => {
+  resetMissionRelayDeliveryStateForTests();
+  assert.equal(shouldSuppressMissionHandoff('mission-123'), false);
+
+  markMissionRelayCancelled('mission-123');
+
+  assert.equal(shouldSuppressMissionHandoff('mission-123'), true);
+  assert.equal(shouldSuppressMissionHandoff('mission-456'), false);
+  resetMissionRelayDeliveryStateForTests();
 });
 
 test('ignores mission relay events targeted at another Telegram profile', () => {

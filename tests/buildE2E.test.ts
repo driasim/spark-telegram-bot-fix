@@ -619,6 +619,56 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('pending clarification keeps project title for pronoun-heavy build followup', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/prd-bridge/write') && !body.forceDispatch) {
+				return {
+					data: {
+						success: true,
+						needsClarification: true,
+						requestId: body.requestId,
+						openQuestions: ['What decision should a bad metric score trigger?'],
+						addedAssumptions: ['Assume this is an internal developer dashboard.']
+					}
+				};
+			}
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'codex', started: true } } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 559, replies);
+		await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a memory quality dashboard. It should test natural recall, stale context avoidance, current-state priority, source-aware recall, and whether Spark can explain where an answer came from.',
+			projectName: 'Memory Quality Dashboard',
+			buildMode: 'advanced_prd'
+		});
+
+		const indexModule: any = await import('../src/index');
+		const followupCtx = makeFakeCtx(8319079055, 8319079055, 560, replies);
+		followupCtx.message.text = "yes let's do it create it after analyzing our systems deeply please";
+		await indexModule.handleTextMessage(followupCtx);
+
+		const dispatchCall = captured.find((c) => c.body?.forceDispatch === true);
+		assert.ok(dispatchCall, 'expected pronoun-heavy follow-up to answer the pending clarification');
+		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
+		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
+		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);
+		assert.match(replies.join('\n'), /Project: Memory Quality Dashboard/);
+		assert.doesNotMatch(replies.join('\n'), /Project: it after analyzing our systems deeply/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('build intent for non-admin uses default tier (base)', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
