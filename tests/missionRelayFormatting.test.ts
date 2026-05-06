@@ -944,65 +944,114 @@ async function asyncTest(name: string, fn: () => Promise<void>): Promise<void> {
 
 void (async () => {
   await asyncTest('does not cache fetched completion summaries until Telegram delivery succeeds', async () => {
-    resetJsonStateForTests();
-    process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-delivery-test-'));
-    resetMissionRelayDeliveryStateForTests();
-    const subscription = {
-      missionId: 'spark-delivery-retry',
-      chatId: '12345',
-      userId: '67890',
-      requestId: 'req-delivery-retry',
-      goal: 'Build a retryable completion.',
-      createdAt: '2026-05-05T00:00:00Z'
-    };
-    const event = {
-      type: 'mission_completed' as const,
-      missionId: subscription.missionId
-    };
-    const completion = {
-      providerLabel: 'codex',
-      response: JSON.stringify({
-        summary: 'Built the retryable completion handoff.',
-        status: 'completed'
-      })
-    };
-    const failingBot = {
-      telegram: {
-        sendMessage: async () => {
-          throw new Error('telegram unavailable');
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-delivery-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-delivery-retry',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-delivery-retry',
+        goal: 'Build a retryable completion.',
+        createdAt: '2026-05-05T00:00:00Z'
+      };
+      const event = {
+        type: 'mission_completed' as const,
+        missionId: subscription.missionId
+      };
+      const completion = {
+        providerLabel: 'codex',
+        response: JSON.stringify({
+          summary: 'Built the retryable completion handoff.',
+          status: 'completed'
+        })
+      };
+      const failingBot = {
+        telegram: {
+          sendMessage: async () => {
+            throw new Error('telegram unavailable');
+          }
         }
-      }
-    };
+      };
 
-    await assert.rejects(
-      sendFetchedCompletionSummaryForTests(failingBot as any, 12345, subscription, event, 'normal', completion),
-      /telegram unavailable/
-    );
-    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+      await assert.rejects(
+        sendFetchedCompletionSummaryForTests(failingBot as any, 12345, subscription, event, 'normal', completion),
+        /telegram unavailable/
+      );
+      assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
 
-    const sent: string[] = [];
-    const workingBot = {
-      telegram: {
-        sendMessage: async (_chatId: number, message: string) => {
-          sent.push(message);
+      const sent: string[] = [];
+      const workingBot = {
+        telegram: {
+          sendMessage: async (_chatId: number, message: string) => {
+            sent.push(message);
+          }
         }
-      }
-    };
-    const chunks = await sendFetchedCompletionSummaryForTests(
-      workingBot as any,
-      12345,
-      subscription,
-      event,
-      'normal',
-      completion
-    );
+      };
+      const chunks = await sendFetchedCompletionSummaryForTests(
+        workingBot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        completion
+      );
 
-    assert.equal(chunks, 1);
-    assert.equal(sent.length, 2);
-    assert.match(sent[1], /Mission lesson candidate/);
-    assert.match(sent[1], /I will not save the completion log as memory automatically/);
-    assert.match(sent[1], /\/remember 1/);
-    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
+      assert.equal(chunks, 1);
+      assert.equal(sent.length, 1);
+      assert.doesNotMatch(sent.join('\n'), /Mission lesson candidate/);
+      assert.doesNotMatch(sent.join('\n'), /I will not save the completion log as memory automatically/);
+      assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
+  await asyncTest('mission lesson prompt can be enabled explicitly for experiments', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      process.env.SPARK_MISSION_LESSON_PROMPTS = '1';
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-lesson-prompt-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-lesson-prompt',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-lesson-prompt',
+        goal: 'Build mission-memory approval prompt.',
+        createdAt: '2026-05-05T00:00:00Z'
+      };
+      const sent: string[] = [];
+      await sendFetchedCompletionSummaryForTests(
+        {
+          telegram: {
+            sendMessage: async (_chatId: number, message: string) => {
+              sent.push(message);
+            }
+          }
+        } as any,
+        12345,
+        subscription,
+        { type: 'mission_completed' as const, missionId: subscription.missionId },
+        'normal',
+        {
+          providerLabel: 'codex',
+          response: JSON.stringify({ summary: 'Built prompt-gated mission lessons.', status: 'completed' })
+        }
+      );
+
+      assert.equal(sent.length, 2);
+      assert.match(sent[1], /Mission lesson candidate/);
+      assert.match(sent[1], /\/remember 1/);
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
   });
 
   await asyncTest('mission lesson approval writes only the approved lesson', async () => {

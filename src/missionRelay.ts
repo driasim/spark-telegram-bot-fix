@@ -1526,7 +1526,10 @@ async function handleMissionCompletionMemory(
   response: string
 ): Promise<void> {
   await stageMissionLessonCandidate(subscription, event, providerLabel, response)
-    .then((approval) => bot.telegram.sendMessage(chatId, formatMissionLessonApprovalPrompt(approval)))
+    .then((approval) => {
+      if (!missionLessonApprovalPromptEnabled()) return;
+      return bot.telegram.sendMessage(chatId, formatMissionLessonApprovalPrompt(approval));
+    })
     .catch((error) => {
       console.warn('[MissionRelay] Failed to stage mission lesson candidate:', error);
   });
@@ -1542,6 +1545,10 @@ async function handleMissionCompletionMemory(
   }).catch((error) => {
     console.warn('[MissionRelay] Failed to record shipped project context:', error);
   });
+}
+
+function missionLessonApprovalPromptEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_MISSION_LESSON_PROMPTS || '').trim().toLowerCase());
 }
 
 async function readMissionLessonApprovalState(): Promise<MissionLessonApprovalState> {
