@@ -180,9 +180,12 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('context', handleAgentOperatingContextCommand\)/);
     assert.match(indexSource, /bot\.command\('operating_context', handleAgentOperatingContextCommand\)/);
     assert.match(indexSource, /bot\.command\('agent_context', handleAgentOperatingContextCommand\)/);
+    assert.match(indexSource, /bot\.command\('probe', handleAgentRouteProbeCommand\)/);
+    assert.match(indexSource, /bot\.command\('route_probe', handleAgentRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('conversation_context'/);
     assert.doesNotMatch(indexSource, /bot\.command\('operating-context'/);
     assert.doesNotMatch(indexSource, /bot\.command\('agent-context'/);
+    assert.doesNotMatch(indexSource, /bot\.command\('route-probe'/);
   });
 
   await test('renders runtime access hints that prevent filesystem access contradictions', () => {

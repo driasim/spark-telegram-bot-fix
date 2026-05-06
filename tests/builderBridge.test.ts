@@ -3,6 +3,7 @@ import {
   compactColdMemoryQuery,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
+  formatRouteProbeReply,
   formatSelfImprovementPlanReply,
   formatSelfAwarenessReply,
   formatWikiAnswerReply,
@@ -65,6 +66,26 @@ test('compacts large cold memory queries before invoking Builder memory', () => 
   assert.ok(query.length <= 120);
   assert.match(query, /\[truncated\]$/);
   assert.doesNotMatch(query, /\n/);
+});
+
+test('formats route probe replies with evidence boundary', () => {
+  const reply = formatRouteProbeReply({
+    event_id: 'evt-123',
+    capability_key: 'spark_memory',
+    status: 'success',
+    event_type: 'tool_result_received',
+    route_latency_ms: 3837,
+    eval_ref: 'self.route-probe.run',
+    probe_summary: 'memory smoke write=succeeded/1 read_records=1 cleanup=ok',
+  });
+
+  assert.match(reply, /Route probe/);
+  assert.match(reply, /Route: spark_memory/);
+  assert.match(reply, /Status: success/);
+  assert.match(reply, /Latency: 3837ms/);
+  assert.match(reply, /Evidence: memory smoke write=succeeded\/1 read_records=1 cleanup=ok/);
+  assert.match(reply, /Event: evt-123 \(tool_result_received\)/);
+  assert.match(reply, /Run \/aoc/);
 });
 
 test('formats authoritative cold memory context for prompt injection', () => {

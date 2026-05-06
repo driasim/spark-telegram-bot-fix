@@ -20,6 +20,7 @@ import {
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
+  runBuilderRouteProbe,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
   runBuilderTelegramBridge,
@@ -467,6 +468,7 @@ bot.start(async (ctx) => {
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
       '/context - Show Agent Operating Context',
+      '/probe <route> - Run a route probe and record AOC evidence',
       '/operating_context or /agent_context - Same, Telegram-safe aliases',
       '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
@@ -628,6 +630,72 @@ bot.command('context', handleAgentOperatingContextCommand);
 bot.command('operating_context', handleAgentOperatingContextCommand);
 bot.command('agent_context', handleAgentOperatingContextCommand);
 bot.command('aoc', handleAgentOperatingContextCommand);
+
+const AOC_ROUTE_ALIASES: Record<string, string> = {
+  builder: 'spark_intelligence_builder',
+  sib: 'spark_intelligence_builder',
+  spark_builder: 'spark_intelligence_builder',
+  spark_intelligence_builder: 'spark_intelligence_builder',
+  spawner: 'spark_spawner',
+  spark_spawner: 'spark_spawner',
+  memory: 'spark_memory',
+  spark_memory: 'spark_memory',
+  researcher: 'spark_researcher',
+  spark_researcher: 'spark_researcher',
+  swarm: 'spark_swarm',
+  spark_swarm: 'spark_swarm',
+  browser: 'spark_browser',
+  spark_browser: 'spark_browser',
+  local: 'spark_local_work',
+  local_work: 'spark_local_work',
+  spark_local_work: 'spark_local_work',
+};
+
+function normalizeAocProbeRoute(raw: string): string {
+  const key = raw.trim().toLowerCase().replace(/-/g, '_');
+  return AOC_ROUTE_ALIASES[key] || '';
+}
+
+function renderAocProbeHelp(): string {
+  return [
+    'Route probe',
+    'Usage: /probe <route>',
+    '',
+    'Routes:',
+    '- builder',
+    '- spawner',
+    '- memory',
+    '- researcher',
+    '- swarm',
+    '- browser',
+    '- local_work',
+  ].join('\n');
+}
+
+async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const routeArg = text.replace(/^\/(?:probe|route_probe)(?:@\w+)?\s*/i, '').trim();
+    if (!routeArg || /^(?:help|routes?|list)$/i.test(routeArg)) {
+      await ctx.reply(renderAocProbeHelp());
+      return;
+    }
+    const routeKey = normalizeAocProbeRoute(routeArg.split(/\s+/)[0] || '');
+    if (!routeKey) {
+      await ctx.reply(renderAocProbeHelp());
+      return;
+    }
+    const result = await runBuilderRouteProbe(routeKey);
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+bot.command('probe', handleAgentRouteProbeCommand);
+bot.command('route_probe', handleAgentRouteProbeCommand);
 
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
