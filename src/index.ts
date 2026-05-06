@@ -77,6 +77,7 @@ import {
   getTelegramRelayVerbosity,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
+  approvePendingMissionLesson,
   getTelegramRelayIdentity,
   markMissionRelayCancelled,
   registerMissionRelay,
@@ -859,6 +860,11 @@ bot.command('remember', async (ctx) => {
   }
 
   try {
+    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
+    if (missionLessonReply) {
+      await ctx.reply(missionLessonReply);
+      return;
+    }
     if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
       return;
     }

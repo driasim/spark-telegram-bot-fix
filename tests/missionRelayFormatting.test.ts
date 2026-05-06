@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
+  approvePendingMissionLesson,
+  buildMissionLessonCandidates,
   buildMissionSurfaceLinks,
   formatMissionHeartbeatForTelegram,
   formatProgressMessageForTelegram,
@@ -18,6 +23,7 @@ import {
   shouldSuppressMissionHandoff,
   shouldStopMissionHeartbeat
 } from '../src/missionRelay';
+import { resetJsonStateForTests } from '../src/jsonState';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -645,6 +651,25 @@ test('normal mission completion waits for the handoff summary', () => {
   assert.equal(message, null);
 });
 
+test('builds reusable mission lesson candidates without saving completion logs', () => {
+  const candidates = buildMissionLessonCandidates({
+    goal: 'Build the mission-memory loop.',
+    providerLabel: 'codex',
+    response: JSON.stringify({
+      summary: 'Staged mission lessons for approval before memory writes.',
+      status: 'completed',
+      changed_files: ['src/missionRelay.ts', 'tests/missionRelayFormatting.test.ts'],
+      verification: ['Mission relay test passed.']
+    })
+  });
+
+  assert.equal(candidates.length, 3);
+  assert.match(candidates[0], /Build the mission-memory loop/);
+  assert.match(candidates[1], /verification evidence/);
+  assert.match(candidates[2], /changed-file or preview evidence/);
+  assert.doesNotMatch(candidates.join('\n'), /Completed Spawner mission/);
+});
+
 test('formats mission heartbeat as useful work narration', () => {
   const message = formatMissionHeartbeatForTelegram({
     missionId: 'spark-123',
@@ -904,9 +929,20 @@ test('reports this relay identity from env', () => {
   }
 });
 
-void (async () => {
-  const name = 'does not cache fetched completion summaries until Telegram delivery succeeds';
+async function asyncTest(name: string, fn: () => Promise<void>): Promise<void> {
   try {
+    await fn();
+    console.log(`ok - ${name}`);
+  } catch (error) {
+    console.error(`not ok - ${name}`);
+    throw error;
+  }
+}
+
+void (async () => {
+  await asyncTest('does not cache fetched completion summaries until Telegram delivery succeeds', async () => {
+    resetJsonStateForTests();
+    process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-delivery-test-'));
     resetMissionRelayDeliveryStateForTests();
     const subscription = {
       missionId: 'spark-delivery-retry',
@@ -959,11 +995,53 @@ void (async () => {
     );
 
     assert.equal(chunks, 1);
-    assert.equal(sent.length, 1);
+    assert.equal(sent.length, 2);
+    assert.match(sent[1], /Mission lesson candidate/);
+    assert.match(sent[1], /I will not save the completion log as memory automatically/);
+    assert.match(sent[1], /\/remember 1/);
     assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
-    console.log(`ok - ${name}`);
-  } catch (error) {
-    console.error(`not ok - ${name}`);
-    throw error;
-  }
+  });
+
+  await asyncTest('mission lesson approval writes only the approved lesson', async () => {
+    resetJsonStateForTests();
+    process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-lesson-test-'));
+    resetMissionRelayDeliveryStateForTests();
+    const subscription = {
+      missionId: 'spark-lesson-approval',
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-lesson-approval',
+      goal: 'Build mission-memory approval.',
+      createdAt: '2026-05-05T00:00:00Z'
+    };
+    const event = {
+      type: 'mission_completed' as const,
+      missionId: subscription.missionId
+    };
+    const sent: string[] = [];
+    const bot = {
+      telegram: {
+        sendMessage: async (_chatId: number, message: string) => {
+          sent.push(message);
+        }
+      }
+    };
+
+    await sendFetchedCompletionSummaryForTests(bot as any, 12345, subscription, event, 'normal', {
+      providerLabel: 'codex',
+      response: JSON.stringify({
+        summary: 'Built approval-gated mission lessons.',
+        status: 'completed',
+        verification: ['Approval test passed.']
+      })
+    });
+    const reply = await approvePendingMissionLesson(subscription.userId, '2');
+
+    assert.ok(reply);
+    assert.match(reply || '', /Saved mission lesson/);
+    assert.match(reply || '', /Source: mission spark-lesson-approval/);
+    assert.doesNotMatch(reply || '', /Completed Spawner mission/);
+    const secondReply = await approvePendingMissionLesson(subscription.userId, '1');
+    assert.equal(secondReply, null);
+  });
 })();
