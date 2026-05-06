@@ -651,6 +651,30 @@ const AOC_ROUTE_ALIASES: Record<string, string> = {
   spark_local_work: 'spark_local_work',
 };
 
+const AOC_CORE_ROUTE_KEYS = [
+  'spark_memory',
+  'spark_researcher',
+  'spark_swarm',
+  'spark_spawner',
+  'spark_intelligence_builder',
+];
+
+const AOC_ALL_ROUTE_KEYS = [
+  ...AOC_CORE_ROUTE_KEYS,
+  'spark_browser',
+  'spark_local_work',
+];
+
+const AOC_ROUTE_LABELS: Record<string, string> = {
+  spark_intelligence_builder: 'Builder',
+  spark_spawner: 'Spawner',
+  spark_memory: 'Memory',
+  spark_researcher: 'Researcher',
+  spark_swarm: 'Swarm',
+  spark_browser: 'Browser',
+  spark_local_work: 'Local Work',
+};
+
 function normalizeAocProbeRoute(raw: string): string {
   const key = raw.trim().toLowerCase().replace(/-/g, '_');
   return AOC_ROUTE_ALIASES[key] || '';
@@ -660,8 +684,11 @@ function renderAocProbeHelp(): string {
   return [
     'Route probe',
     'Usage: /probe <route>',
+    'Batch: /probe core or /probe all',
     '',
     'Routes:',
+    '- core',
+    '- all',
     '- builder',
     '- spawner',
     '- memory',
@@ -670,6 +697,33 @@ function renderAocProbeHelp(): string {
     '- browser',
     '- local_work',
   ].join('\n');
+}
+
+function aocProbeSummaryLine(routeKey: string, payload: Record<string, unknown>): string {
+  const label = AOC_ROUTE_LABELS[routeKey] || routeKey;
+  const status = String(payload.status || 'unknown').trim() || 'unknown';
+  const latency = typeof payload.route_latency_ms === 'number' ? `, ${payload.route_latency_ms}ms` : '';
+  const failure = String(payload.failure_reason || '').trim();
+  const summary = String(payload.probe_summary || failure || '').trim();
+  const evidence = summary ? ` - ${summary.slice(0, 110)}` : '';
+  return `- ${label}: ${status}${latency}${evidence}`;
+}
+
+async function runAocProbeBatch(ctx: any, routeKeys: string[]): Promise<void> {
+  await ctx.reply(`Running ${routeKeys.length} route probes. This can take a little while...`);
+  const lines = ['Route probes'];
+  for (const routeKey of routeKeys) {
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const result = await runBuilderRouteProbe(routeKey);
+      lines.push(aocProbeSummaryLine(routeKey, result.payload));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lines.push(`- ${AOC_ROUTE_LABELS[routeKey] || routeKey}: failed - ${message.slice(0, 120)}`);
+    }
+  }
+  lines.push('', 'Run /aoc to see the refreshed Agent Operating Context.');
+  await ctx.reply(lines.join('\n'));
 }
 
 async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
@@ -682,7 +736,16 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
       await ctx.reply(renderAocProbeHelp());
       return;
     }
-    const routeKey = normalizeAocProbeRoute(routeArg.split(/\s+/)[0] || '');
+    const firstArg = routeArg.split(/\s+/)[0]?.trim().toLowerCase().replace(/-/g, '_') || '';
+    if (firstArg === 'core') {
+      await runAocProbeBatch(ctx, AOC_CORE_ROUTE_KEYS);
+      return;
+    }
+    if (firstArg === 'all') {
+      await runAocProbeBatch(ctx, AOC_ALL_ROUTE_KEYS);
+      return;
+    }
+    const routeKey = normalizeAocProbeRoute(firstArg);
     if (!routeKey) {
       await ctx.reply(renderAocProbeHelp());
       return;
