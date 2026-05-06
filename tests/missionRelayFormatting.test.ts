@@ -664,8 +664,11 @@ test('builds reusable mission lesson candidates without saving completion logs',
   });
 
   assert.equal(candidates.length, 3);
+  assert.match(candidates[0], /^Workflow lesson:/);
   assert.match(candidates[0], /Build the mission-memory loop/);
+  assert.match(candidates[1], /^Verification lesson:/);
   assert.match(candidates[1], /verification evidence/);
+  assert.match(candidates[2], /^Evidence lesson:/);
   assert.match(candidates[2], /changed-file or preview evidence/);
   assert.doesNotMatch(candidates.join('\n'), /Completed Spawner mission/);
 });

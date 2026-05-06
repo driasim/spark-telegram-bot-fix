@@ -1602,13 +1602,13 @@ export function buildMissionLessonCandidates(input: {
   const goal = clipText(input.goal, 140);
   const provider = humanizeProviderLabel(input.providerLabel || 'provider');
   const rawCandidates = [
-    `For future missions like "${goal}", reuse the approach that worked here: ${clipText(summary, 220)}`,
+    `Workflow lesson: for future missions like "${goal}", reuse the approach that worked here: ${clipText(summary, 220)}`,
     verification.length
-      ? `Before closing similar missions, include verification evidence like: ${clipText(verification[0], 180)}`
-      : `Before closing similar missions, include the result, route, and verification evidence instead of only the mission id.`,
+      ? `Verification lesson: before closing similar missions, include verification evidence like: ${clipText(verification[0], 180)}`
+      : `Verification lesson: before closing similar missions, include the result, route, and verification evidence instead of only the mission id.`,
     changedFiles.length
-      ? `For build missions, preserve changed-file or preview evidence before reusing the lesson: ${clipText(changedFiles.slice(0, 4).join(', '), 180)}`
-      : `When ${provider} finishes a mission, turn only reusable operating guidance into memory; keep raw completion logs as operational state.`
+      ? `Evidence lesson: for build missions, preserve changed-file or preview evidence before reusing the lesson: ${clipText(changedFiles.slice(0, 4).join(', '), 180)}`
+      : `Memory hygiene lesson: when ${provider} finishes a mission, turn only reusable operating guidance into memory; keep raw completion logs as operational state.`
   ];
   return dedupeMissionLessons(rawCandidates.map((candidate) => clipText(candidate, 360))).slice(0, 3);
 }
