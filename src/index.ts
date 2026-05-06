@@ -17,6 +17,7 @@ import {
 import { renderChoiceContextAcknowledgement, renderConversationFrameContext, type ConversationFrame } from './conversationFrame';
 import {
   getBuilderBridgeStatus,
+  runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
   runBuilderSelfImprovementPlan,
@@ -64,6 +65,7 @@ import {
   renderSparkAccessStatus,
   setSparkAccessProfile,
   sparkAccessAllows,
+  sparkAccessLevel,
   sparkMissionNeedsOperatingSystemAccess,
   validateSparkAccessProfileForRuntime,
   type SparkAccessRequirement
@@ -462,6 +464,9 @@ bot.start(async (ctx) => {
       '/model - Show or change Agent/Mission model routing',
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
+      '/context - Show Agent Operating Context',
+      '/operating_context or /agent_context - Same, Telegram-safe aliases',
+      '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
       '/access <1|2|3|4> - Choose what this Telegram chat can do',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
@@ -597,7 +602,31 @@ bot.command('wiki', async (ctx) => {
   }
 });
 
-bot.command('context', async (ctx) => {
+async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const result = await runBuilderAgentOperatingContext({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      currentMessage: text,
+      sparkAccessLevel: sparkAccessLevel(accessProfile),
+      runnerWritable: 'unknown',
+      runnerLabel: 'telegram bot runner unknown',
+    });
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+bot.command('context', handleAgentOperatingContextCommand);
+bot.command('operating_context', handleAgentOperatingContextCommand);
+bot.command('agent_context', handleAgentOperatingContextCommand);
+bot.command('aoc', handleAgentOperatingContextCommand);
+
+bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
   const report = await conversation.getConversationFrameDiagnostics(ctx.from);
   await ctx.reply(report);

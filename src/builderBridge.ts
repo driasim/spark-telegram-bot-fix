@@ -87,6 +87,16 @@ export interface BuilderSelfImprovementPlanResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessInput {
+  sparkAccessLevel?: number | string;
+  runnerWritable?: 'yes' | 'no' | 'unknown';
+  runnerLabel?: string;
+}
+
+export interface BuilderAgentOperatingContextResult {
+  replyText: string;
+}
+
 export interface BuilderWikiStatusResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -1257,6 +1267,57 @@ export async function runBuilderSelfImprovementPlan(
     payload,
     replyText: formatSelfImprovementPlanReply(payload),
   };
+}
+
+export async function runBuilderAgentOperatingContext(
+  input: BuilderAgentOperatingContextInput
+): Promise<BuilderAgentOperatingContextResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'context',
+    '--home',
+    config.builderHome,
+    '--human-id',
+    `human:telegram:${String(input.userId).trim()}`,
+    '--session-id',
+    `session:telegram:${String(input.chatId).trim()}:${String(input.userId).trim()}`,
+    '--channel-kind',
+    'telegram',
+    '--user-message',
+    input.currentMessage || 'Show the agent operating context.',
+    '--runner-writable',
+    input.runnerWritable || 'unknown',
+  ];
+  const accessLevel = String(input.sparkAccessLevel || '').trim();
+  if (accessLevel) {
+    args.push('--spark-access-level', accessLevel);
+  }
+  const runnerLabel = String(input.runnerLabel || '').trim();
+  if (runnerLabel) {
+    args.push('--runner-label', runnerLabel);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder agent operating context returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  return { replyText: trimmedStdout };
 }
 
 export async function runBuilderWikiStatus(input: { refresh?: boolean } = {}): Promise<BuilderWikiStatusResult> {

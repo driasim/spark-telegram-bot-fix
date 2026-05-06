@@ -175,6 +175,16 @@ async function main(): Promise<void> {
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
   });
 
+  await test('agent operating context uses Telegram-safe command aliases', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    assert.match(indexSource, /bot\.command\('context', handleAgentOperatingContextCommand\)/);
+    assert.match(indexSource, /bot\.command\('operating_context', handleAgentOperatingContextCommand\)/);
+    assert.match(indexSource, /bot\.command\('agent_context', handleAgentOperatingContextCommand\)/);
+    assert.match(indexSource, /bot\.command\('conversation_context'/);
+    assert.doesNotMatch(indexSource, /bot\.command\('operating-context'/);
+    assert.doesNotMatch(indexSource, /bot\.command\('agent-context'/);
+  });
+
   await test('renders runtime access hints that prevent filesystem access contradictions', () => {
     assert.match(renderSparkAccessRuntimeHint('developer'), /Current Spark access: Access level 4/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /do not say you cannot inspect local files/);
