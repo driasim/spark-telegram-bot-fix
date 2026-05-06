@@ -259,6 +259,7 @@ interface PendingClarification {
   projectPath: string | null;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  capabilityProposalPacket?: Record<string, unknown>;
   questions: string[];
   addedAssumptions: string[];
   timestamp: number;
@@ -270,6 +271,7 @@ interface PendingDomainChipBuild {
   projectName: string;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  capabilityProposalPacket?: Record<string, unknown>;
   timestamp: number;
 }
 const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
@@ -683,6 +685,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         forceDispatch: true,
+        ...(pending.capabilityProposalPacket ? { capabilityProposalPacket: pending.capabilityProposalPacket } : {}),
         missionId,
         options: { includeSkills: true, includeMCPs: false }
       },
@@ -1223,6 +1226,26 @@ export function projectNameForDomainChipBrief(brief: string): string {
   return base.startsWith('domain-chip-') ? base : `domain-chip-${base}`;
 }
 
+export function buildDomainChipCapabilityProposalPacket(brief: string): Record<string, unknown> {
+  const chipKey = projectNameForDomainChipBrief(brief);
+  return {
+    schema_version: 'spark.capability_proposal.v1',
+    status: 'proposal_plan_only',
+    capability_goal: brief,
+    recipient: 'Spark',
+    implementation_route: 'domain_chip',
+    owner_system: 'Spark domain chip runtime',
+    permissions_required: ['operator_approval_to_activate'],
+    safe_probe: 'Create the chip in a local or shadow route first, then prove only matching domain language invokes it.',
+    human_approval_boundary: 'Operator approval is required before activating the chip in the live Spark router.',
+    rollback_path: `Disable or remove ${chipKey} from the chip registry and delete its runtime attachment.`,
+    activation_path: 'Register the chip manifest through the Spark chip attachment contract after tests pass.',
+    eval_or_smoke_test: 'Router-invocation smoke test plus a fallthrough test for unrelated natural language.',
+    capability_ledger_key: `domain_chip:${chipKey}`,
+    claim_boundary: 'This packet is a proposal plan, not proof that Spark has gained the capability.'
+  };
+}
+
 export function buildDomainChipPrd(brief: string): string {
   const chipKey = projectNameForDomainChipBrief(brief);
   return [
@@ -1231,6 +1254,7 @@ export function buildDomainChipPrd(brief: string): string {
     `Natural-language chip brief: ${brief}`,
     '',
     'This must use the current Spark-compatible domain chip standards, not the older domain-chip-labs-only assumptions.',
+    'If this chip adds an executable Spark capability, follow Builder docs/CAPABILITY_PROPOSAL_STANDARD_V1.md: classify the route, name permissions, safe probe, approval boundary, rollback, eval, activation path, and capability ledger key before claiming the capability is live.',
     '',
     'Requirements:',
     '- Scaffold or update the chip under the active Spark chip runtime location.',
@@ -1312,7 +1336,8 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pending.projectName,
     null,
     pending.buildMode,
-    pending.buildModeReason
+    pending.buildModeReason,
+    pending.capabilityProposalPacket
   );
   return true;
 }
@@ -1327,6 +1352,23 @@ function isPendingClarificationFollowup(text: string): boolean {
   const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
   const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
+}
+
+export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
+  if (!pending) return false;
+  const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
+  if (!expired) return true;
+  return isPendingClarificationFollowup(text);
+}
+
+function pendingClarificationForMessage(key: string, text: string): PendingClarification | null {
+  const pending = pendingClarifications.get(key);
+  if (!pending) return null;
+  if (!shouldUsePendingClarificationForMessage(pending, text)) {
+    pendingClarifications.delete(key);
+    return null;
+  }
+  return pending;
 }
 
 export function formatCanvasReadySummary(args: {
@@ -1430,7 +1472,8 @@ export async function handleBuildIntent(
   projectName: string,
   projectPath: string | null,
   buildMode: 'direct' | 'advanced_prd',
-  buildModeReason: string
+  buildModeReason: string,
+  capabilityProposalPacket?: Record<string, unknown>
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -1466,6 +1509,7 @@ export async function handleBuildIntent(
         userId: String(ctx.from.id),
         telegramRelay: getTelegramRelayIdentity(),
         tier,
+        ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),
         options: { includeSkills: true, includeMCPs: false }
       },
       localServiceTimeoutMs('SPARK_SPAWNER_PRD_WRITE_TIMEOUT_MS')
@@ -1487,6 +1531,7 @@ export async function handleBuildIntent(
         projectPath,
         buildMode,
         buildModeReason,
+        capabilityProposalPacket,
         questions: res.data.openQuestions,
         addedAssumptions: res.data.addedAssumptions ?? [],
         timestamp: Date.now()
@@ -2269,7 +2314,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
-    const pendingClarification = pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`);
+    const pendingClarification = pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
@@ -2405,6 +2450,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         projectName: projectNameForDomainChipBrief(naturalChipBrief),
         buildMode: mode.buildMode,
         buildModeReason: mode.reason,
+        capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(naturalChipBrief),
         timestamp: Date.now()
       });
       await ctx.reply(formatDomainChipBuildPreview(naturalChipBrief));

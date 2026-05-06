@@ -161,6 +161,29 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(intent, null);
   assert.equal(parseBuildIntent('Give me three build ideas for a memory dashboard'), null);
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
+  assert.equal(
+    parseBuildIntent(
+      'sure, lets make today also about improving your capabilities of action taking and improving yourself while talking together, for example can you install a voice to yourself right now?'
+    ),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('lets make today about improving your capabilities\u2026 can you install a voice to yourself?'),
+    null
+  );
+  assert.equal(parseBuildIntent('lets make this chat about improving Spark in convos'), null);
+  assert.equal(parseBuildIntent('make Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make my Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make your brain handle my workflow differently'), null);
+  assert.equal(parseBuildIntent('make daily reports of my memories work differently'), null);
+  assert.equal(parseBuildIntent("Okay let's build this for you, Spark: a way to read my emails and summarize them."), null);
+  assert.equal(parseBuildIntent("Let's build you an email reader so you can summarize my inbox."), null);
+  assert.equal(parseBuildIntent('Create a capability for Spark to read my calendar.'), null);
+  assert.equal(parseBuildIntent('Build a skill that lets you browse my project files.'), null);
+  assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
+  assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
+  assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));
+  assert.ok(parseBuildIntent('Build a tool for Spark users to manage reminders.'));
 });
 
 test('infers a compact product name for long conceptual build briefs', () => {

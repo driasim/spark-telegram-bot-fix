@@ -168,6 +168,7 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.chatId, '8319079055');
 		assert.equal(writeCall!.body.userId, '8319079055');
 		assert.equal(writeCall!.body.buildMode, 'direct');
+		assert.equal(writeCall!.body.capabilityProposalPacket, undefined);
 		assert.ok(writeCall!.body.content.includes('saas-billing-test'), 'PRD content includes project name header');
 		assert.ok(writeCall!.body.telegramRelay, 'telegramRelay block present');
 		assert.equal(typeof writeCall!.body.options, 'object');
@@ -375,6 +376,7 @@ async function run(): Promise<void> {
 		const indexModule: any = await import('../src/index');
 		const prd = indexModule.buildDomainChipPrd('creates weird poster prompts from dream fragments');
 		const projectName = indexModule.projectNameForDomainChipBrief('creates weird poster prompts from dream fragments');
+		const capabilityProposalPacket = indexModule.buildDomainChipCapabilityProposalPacket('creates weird poster prompts from dream fragments');
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
 			captured.push({ url, body });
@@ -392,7 +394,8 @@ async function run(): Promise<void> {
 			projectName,
 			null,
 			'advanced_prd',
-			'Natural-language domain-chip creation should use the Spawner PRD/canvas/mission-control build flow.'
+			'Natural-language domain-chip creation should use the Spawner PRD/canvas/mission-control build flow.',
+			capabilityProposalPacket
 		);
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
@@ -401,6 +404,11 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.match(writeCall!.body.content, /Create a Spark domain chip named domain-chip-creates-weird-poster-prompts-from/);
 		assert.match(writeCall!.body.content, /current Spark-compatible domain chip standards/);
+		assert.match(writeCall!.body.content, /CAPABILITY_PROPOSAL_STANDARD_V1/);
+		assert.equal(writeCall!.body.capabilityProposalPacket.schema_version, 'spark.capability_proposal.v1');
+		assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
+		assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
+		assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
 		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
 
@@ -617,6 +625,20 @@ async function run(): Promise<void> {
 
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('expired pending clarification does not steal a new voice request', async () => {
+		const indexModule: any = await import('../src/index');
+		const expiredPending = { timestamp: Date.now() - (31 * 60 * 1000) };
+
+		assert.equal(
+			indexModule.shouldUsePendingClarificationForMessage(
+				expiredPending,
+				'can you actually install a voice to youself?'
+			),
+			false
+		);
+		assert.equal(indexModule.shouldUsePendingClarificationForMessage(expiredPending, 'go'), true);
 	});
 
 	await test('pending clarification keeps project title for pronoun-heavy build followup', async () => {
