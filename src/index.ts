@@ -51,6 +51,7 @@ import {
   summarizeLocalWorkspaces
 } from './localWorkspace';
 import { createSchedule, deleteSchedule, listSchedules, formatScheduleList, humanizeCron, formatNextFireLocal } from './schedule';
+import { probeTelegramRunnerWritability } from './runnerPreflight';
 import {
   describeSparkAccessProfile,
   getConfiguredSparkAccessProfile,
@@ -608,13 +609,14 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
   try {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const runnerPreflight = await probeTelegramRunnerWritability();
     const result = await runBuilderAgentOperatingContext({
       userId: ctx.from.id,
       chatId: ctx.chat.id,
       currentMessage: text,
       sparkAccessLevel: sparkAccessLevel(accessProfile),
-      runnerWritable: 'unknown',
-      runnerLabel: 'telegram bot runner unknown',
+      runnerWritable: runnerPreflight.runnerWritable,
+      runnerLabel: runnerPreflight.runnerLabel,
     });
     await ctx.reply(result.replyText);
   } catch (err: any) {
