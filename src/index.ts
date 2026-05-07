@@ -82,6 +82,8 @@ import {
   approvePendingMissionLesson,
   getTelegramRelayIdentity,
   markMissionRelayCancelled,
+  markMissionRelayPaused,
+  markMissionRelayResumed,
   registerMissionRelay,
   shouldSuppressMissionHandoff,
   setTelegramMissionLinkPreference,
@@ -2251,6 +2253,12 @@ bot.command('mission', async (ctx) => {
   const result = await spawner.missionCommand(action, missionId);
   if (result.success && action === 'kill') {
     markMissionRelayCancelled(missionId);
+  }
+  if (result.success && action === 'pause') {
+    markMissionRelayPaused(missionId);
+  }
+  if (result.success && action === 'resume') {
+    markMissionRelayResumed(missionId);
   }
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
 });

@@ -89,10 +89,11 @@ const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
 const cancelledMissionCache = new Map<string, number>();
+const pausedMissionCache = new Map<string, number>();
 const heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
 const heartbeatLastMessages = new Map<string, string>();
 const registry = new Map<string, MissionSubscription>();
-const CANCELLED_MISSION_CACHE_TTL_MS = 6 * 60 * 60_000;
+const MISSION_STATE_CACHE_TTL_MS = 6 * 60 * 60_000;
 let registryLoaded = false;
 let relayServer: Server | null = null;
 const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -308,8 +309,16 @@ export async function registerMissionRelay(input: MissionSubscription): Promise<
 
 function pruneCancelledMissionCache(now = Date.now()): void {
   for (const [missionId, timestamp] of cancelledMissionCache.entries()) {
-    if (now - timestamp > CANCELLED_MISSION_CACHE_TTL_MS) {
+    if (now - timestamp > MISSION_STATE_CACHE_TTL_MS) {
       cancelledMissionCache.delete(missionId);
+    }
+  }
+}
+
+function prunePausedMissionCache(now = Date.now()): void {
+  for (const [missionId, timestamp] of pausedMissionCache.entries()) {
+    if (now - timestamp > MISSION_STATE_CACHE_TTL_MS) {
+      pausedMissionCache.delete(missionId);
     }
   }
 }
@@ -319,12 +328,34 @@ export function markMissionRelayCancelled(missionId: string): void {
   if (!normalized) return;
   pruneCancelledMissionCache();
   cancelledMissionCache.set(normalized, Date.now());
+  pausedMissionCache.delete(normalized);
   clearHeartbeatForMission(normalized);
+}
+
+export function markMissionRelayPaused(missionId: string): void {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  prunePausedMissionCache();
+  pausedMissionCache.set(normalized, Date.now());
+  clearHeartbeatForMission(normalized);
+}
+
+export function markMissionRelayResumed(missionId: string): void {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  pausedMissionCache.delete(normalized);
+}
+
+export function isMissionRelayPaused(missionId: string): boolean {
+  prunePausedMissionCache();
+  return pausedMissionCache.has(missionId.trim());
 }
 
 export function shouldSuppressMissionHandoff(missionId: string): boolean {
   pruneCancelledMissionCache();
-  return cancelledMissionCache.has(missionId.trim());
+  prunePausedMissionCache();
+  const normalized = missionId.trim();
+  return cancelledMissionCache.has(normalized) || pausedMissionCache.has(normalized);
 }
 
 function subscriptionBelongsToThisRelay(entry: MissionSubscription): boolean {
@@ -353,7 +384,9 @@ function shouldDeliverEvent(event: RelayWebhookPayload['event']): event is Deliv
     'task_cancelled',
     'mission_completed',
     'mission_failed',
-    'mission_cancelled'
+    'mission_cancelled',
+    'mission_paused',
+    'mission_resumed'
   ].includes(event.type);
 }
 
@@ -1347,6 +1380,7 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   openTaskStartCache.clear();
   completionDeliveryCache.clear();
   cancelledMissionCache.clear();
+  pausedMissionCache.clear();
 }
 
 export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
@@ -1854,8 +1888,56 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       const linkPreference = await getTelegramMissionLinkPreference(subscription.chatId);
 
       if (event.type === 'mission_cancelled') {
+        const alreadySuppressed = shouldSuppressMissionHandoff(event.missionId);
         markMissionRelayCancelled(event.missionId);
+        if (!alreadySuppressed) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission cancelled.',
+              '',
+              `Mission: ${event.missionId}`,
+              'I will suppress any late handoff messages for this run.'
+            ].join('\n')
+          );
+        }
         writeJson(res, 200, { ok: true, cancelled: true });
+        return;
+      }
+
+      if (event.type === 'mission_paused') {
+        const alreadyPaused = isMissionRelayPaused(event.missionId);
+        markMissionRelayPaused(event.missionId);
+        if (!alreadyPaused) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission paused.',
+              '',
+              `Mission: ${event.missionId}`,
+              'I will hold Telegram auto-handoffs until it resumes.'
+            ].join('\n')
+          );
+        }
+        writeJson(res, 200, { ok: true, paused: true });
+        return;
+      }
+
+      if (event.type === 'mission_resumed') {
+        const wasPaused = isMissionRelayPaused(event.missionId);
+        markMissionRelayResumed(event.missionId);
+        if (wasPaused) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission resumed.',
+              '',
+              `Mission: ${event.missionId}`,
+              'Telegram handoffs are enabled again.'
+            ].join('\n')
+          );
+        }
+        writeJson(res, 200, { ok: true, resumed: true });
         return;
       }
 
@@ -1876,6 +1958,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       if (event.type === 'task_completed') {
         const extracted = extractProviderResponse(event);
         if (extracted) {
+          if (shouldSuppressMissionHandoff(event.missionId)) {
+            writeJson(res, 200, { ok: true, suppressed: true });
+            return;
+          }
           clearHeartbeatForMission(event.missionId);
           const hasProjectLink = !!(previewLinkFromEvent(event) || projectPathFromEvent(event));
           const openLink = hasProjectLink ? await readyProjectOpenLinkFromEvent(event) : undefined;
