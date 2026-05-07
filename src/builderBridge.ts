@@ -87,6 +87,21 @@ export interface BuilderSelfImprovementPlanResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessInput {
+  sparkAccessLevel?: number | string;
+  runnerWritable?: 'yes' | 'no' | 'unknown';
+  runnerLabel?: string;
+}
+
+export interface BuilderAgentOperatingContextResult {
+  replyText: string;
+}
+
+export interface BuilderRouteProbeResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderWikiStatusResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -1256,6 +1271,128 @@ export async function runBuilderSelfImprovementPlan(
   return {
     payload,
     replyText: formatSelfImprovementPlanReply(payload),
+  };
+}
+
+export async function runBuilderAgentOperatingContext(
+  input: BuilderAgentOperatingContextInput
+): Promise<BuilderAgentOperatingContextResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'context',
+    '--home',
+    config.builderHome,
+    '--human-id',
+    `human:telegram:${String(input.userId).trim()}`,
+    '--session-id',
+    `session:telegram:${String(input.chatId).trim()}:${String(input.userId).trim()}`,
+    '--channel-kind',
+    'telegram',
+    '--user-message',
+    input.currentMessage || 'Show the agent operating context.',
+    '--runner-writable',
+    input.runnerWritable || 'unknown',
+  ];
+  const accessLevel = String(input.sparkAccessLevel || '').trim();
+  if (accessLevel) {
+    args.push('--spark-access-level', accessLevel);
+  }
+  const runnerLabel = String(input.runnerLabel || '').trim();
+  if (runnerLabel) {
+    args.push('--runner-label', runnerLabel);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder agent operating context returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  return { replyText: trimmedStdout };
+}
+
+export function formatRouteProbeReply(payload: Record<string, unknown>): string {
+  const route = String(payload.capability_key || 'unknown').trim() || 'unknown';
+  const status = String(payload.status || 'unknown').trim() || 'unknown';
+  const eventId = String(payload.event_id || '').trim();
+  const eventType = String(payload.event_type || '').trim();
+  const latency = typeof payload.route_latency_ms === 'number' ? payload.route_latency_ms : null;
+  const failure = String(payload.failure_reason || '').trim();
+  const summary = String(payload.probe_summary || '').trim();
+  const lines = [
+    'Route probe',
+    `- Route: ${route}`,
+    `- Status: ${status}`,
+  ];
+  if (latency !== null) {
+    lines.push(`- Latency: ${latency}ms`);
+  }
+  if (failure) {
+    lines.push(`- Failure: ${failure}`);
+  }
+  if (summary) {
+    lines.push(`- Evidence: ${summary}`);
+  }
+  if (eventId) {
+    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType})` : ''}`);
+  }
+  lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
+  return lines.join('\n');
+}
+
+export async function runBuilderRouteProbe(capabilityKey: string): Promise<BuilderRouteProbeResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const routeKey = String(capabilityKey || '').trim();
+  if (!routeKey) {
+    throw new Error('Route key is required.');
+  }
+  const args = [
+    'self',
+    'route-probe',
+    routeKey,
+    '--home',
+    config.builderHome,
+    '--run',
+    '--json',
+  ];
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder route probe returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatRouteProbeReply(payload),
   };
 }
 

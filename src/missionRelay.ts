@@ -7,6 +7,8 @@ import { relaySecretMatches, requireRelaySecret } from './launchMode';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { recordShippedProjectFromMission } from './shippedProjectContext';
 
+const MISSION_LESSON_APPROVAL_PATH = resolveStatePath('.spark-mission-lesson-approvals.json');
+
 type RelayEventType =
   | 'mission_created'
   | 'mission_started'
@@ -521,6 +523,22 @@ interface MissionCompletionSummary {
   previewPending?: boolean;
 }
 
+interface MissionLessonApproval {
+  missionId: string;
+  chatId: string;
+  userId: string;
+  requestId: string;
+  goal: string;
+  providerLabel: string;
+  candidates: string[];
+  sourceRefs: string[];
+  stagedAt: string;
+}
+
+interface MissionLessonApprovalState {
+  pendingByUserId?: Record<string, MissionLessonApproval>;
+}
+
 interface MissionCompletionFetchOptions {
   attempts?: number;
   delayMs?: number;
@@ -621,7 +639,7 @@ async function sendFetchedCompletionSummary(
     await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
   }
   completionDeliveryCache.add(event.missionId);
-  await rememberMissionCompletion(subscription, event, completion.providerLabel, completion.response);
+  await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
   return chunks.length;
 }
 
@@ -1499,27 +1517,21 @@ async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise
   });
 }
 
-async function rememberMissionCompletion(
+async function handleMissionCompletionMemory(
+  bot: Telegraf,
+  chatId: number,
   subscription: MissionSubscription,
   event: DeliverableRelayEvent,
   providerLabel: string,
   response: string
 ): Promise<void> {
-  const userId = Number(subscription.userId);
-  if (!Number.isFinite(userId)) return;
-
-  const summaryLine = response
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith('-')) || response;
-  const note = [
-    `Completed Spawner mission ${event.missionId} via ${humanizeProviderLabel(providerLabel)}.`,
-    `Goal: ${clipText(subscription.goal, 260)}`,
-    `Result: ${clipText(summaryLine, 500)}`
-  ].join(' ');
-
-  await conversation.learnAboutUser({ id: userId }, note).catch((error) => {
-    console.warn('[MissionRelay] Failed to remember mission completion:', error);
+  await stageMissionLessonCandidate(subscription, event, providerLabel, response)
+    .then((approval) => {
+      if (!missionLessonApprovalPromptEnabled()) return;
+      return bot.telegram.sendMessage(chatId, formatMissionLessonApprovalPrompt(approval));
+    })
+    .catch((error) => {
+      console.warn('[MissionRelay] Failed to stage mission lesson candidate:', error);
   });
 
   await recordShippedProjectFromMission({
@@ -1533,6 +1545,152 @@ async function rememberMissionCompletion(
   }).catch((error) => {
     console.warn('[MissionRelay] Failed to record shipped project context:', error);
   });
+}
+
+function missionLessonApprovalPromptEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_MISSION_LESSON_PROMPTS || '').trim().toLowerCase());
+}
+
+async function readMissionLessonApprovalState(): Promise<MissionLessonApprovalState> {
+  return (await readJsonFile<MissionLessonApprovalState>(MISSION_LESSON_APPROVAL_PATH)) || { pendingByUserId: {} };
+}
+
+async function writeMissionLessonApprovalState(state: MissionLessonApprovalState): Promise<void> {
+  await writeJsonAtomic(MISSION_LESSON_APPROVAL_PATH, {
+    pendingByUserId: state.pendingByUserId || {}
+  });
+}
+
+async function stageMissionLessonCandidate(
+  subscription: MissionSubscription,
+  event: DeliverableRelayEvent,
+  providerLabel: string,
+  response: string
+): Promise<MissionLessonApproval> {
+  const userId = String(subscription.userId || '').trim();
+  if (!userId) {
+    throw new Error('mission_lesson_missing_user');
+  }
+  const candidates = buildMissionLessonCandidates({
+    goal: subscription.goal,
+    response,
+    providerLabel
+  });
+  const approval: MissionLessonApproval = {
+    missionId: event.missionId,
+    chatId: subscription.chatId,
+    userId,
+    requestId: subscription.requestId,
+    goal: subscription.goal,
+    providerLabel,
+    candidates,
+    sourceRefs: [`mission:${event.missionId}`, `request:${subscription.requestId}`],
+    stagedAt: new Date().toISOString()
+  };
+  const state = await readMissionLessonApprovalState();
+  const pendingByUserId = pruneOldMissionLessonApprovals(state.pendingByUserId || {});
+  pendingByUserId[userId] = approval;
+  await writeMissionLessonApprovalState({ pendingByUserId });
+  return approval;
+}
+
+export function buildMissionLessonCandidates(input: {
+  goal: string;
+  response: string;
+  providerLabel?: string;
+}): string[] {
+  const parsed = parseJsonObject(input.response);
+  const summary =
+    (parsed && (stringField(parsed, 'summary') || stringField(parsed, 'result'))) ||
+    extractFreeformLeadSummary(input.response) ||
+    input.response;
+  const verification = parsed ? stringArray(parsed.verification) : extractSectionBullets(input.response, /^verification\b/i, 2);
+  const changedFiles = parsed ? stringArray(parsed.changed_files).concat(stringArray(parsed.files_changed)) : [];
+  const goal = clipText(input.goal, 140);
+  const provider = humanizeProviderLabel(input.providerLabel || 'provider');
+  const rawCandidates = [
+    `Workflow lesson: for future missions like "${goal}", reuse the approach that worked here: ${clipText(summary, 220)}`,
+    verification.length
+      ? `Verification lesson: before closing similar missions, include verification evidence like: ${clipText(verification[0], 180)}`
+      : `Verification lesson: before closing similar missions, include the result, route, and verification evidence instead of only the mission id.`,
+    changedFiles.length
+      ? `Evidence lesson: for build missions, preserve changed-file or preview evidence before reusing the lesson: ${clipText(changedFiles.slice(0, 4).join(', '), 180)}`
+      : `Memory hygiene lesson: when ${provider} finishes a mission, turn only reusable operating guidance into memory; keep raw completion logs as operational state.`
+  ];
+  return dedupeMissionLessons(rawCandidates.map((candidate) => clipText(candidate, 360))).slice(0, 3);
+}
+
+function dedupeMissionLessons(candidates: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of candidates) {
+    const normalized = compactWhitespace(candidate).toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function formatMissionLessonApprovalPrompt(approval: MissionLessonApproval): string {
+  return compactTelegramBlocks(
+    'Mission lesson candidate',
+    'I will not save the completion log as memory automatically.',
+    [
+      'What should I remember from this mission?',
+      ...approval.candidates.map((candidate, index) => `${index + 1}. ${candidate}`)
+    ].join('\n'),
+    'Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.',
+    'Shipped-project context was recorded separately as operational state.'
+  );
+}
+
+export async function approvePendingMissionLesson(userId: string | number, rememberText: string): Promise<string | null> {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return null;
+  const state = await readMissionLessonApprovalState();
+  const pendingByUserId = state.pendingByUserId || {};
+  const approval = pendingByUserId[normalizedUserId];
+  if (!approval) return null;
+
+  const text = rememberText.trim();
+  if (!text) return null;
+  const selection = text.match(/^(\d+)$/);
+  const selectedIndex = selection ? Number(selection[1]) - 1 : -1;
+  if (selection && (selectedIndex < 0 || selectedIndex >= approval.candidates.length)) {
+    return `Pick 1-${approval.candidates.length}, or send /remember <edited lesson>.`;
+  }
+  const lesson = selection ? approval.candidates[selectedIndex] : text.replace(/^lesson:\s*/i, '').trim();
+  if (!lesson) return null;
+
+  const numericUserId = Number(normalizedUserId);
+  if (!Number.isFinite(numericUserId)) return null;
+  const note = [
+    `Approved mission lesson from Spawner mission ${approval.missionId} via ${humanizeProviderLabel(approval.providerLabel)}.`,
+    `Lesson: ${clipText(lesson, 700)}`,
+    `Source refs: ${approval.sourceRefs.join(', ')}.`,
+    `Goal: ${clipText(approval.goal, 220)}`
+  ].join(' ');
+  await conversation.learnAboutUser({ id: numericUserId }, note);
+
+  delete pendingByUserId[normalizedUserId];
+  await writeMissionLessonApprovalState({ pendingByUserId });
+  return [
+    `Saved mission lesson: ${clipText(lesson, 700)}`,
+    `Source: mission ${approval.missionId}`
+  ].join('\n');
+}
+
+function pruneOldMissionLessonApprovals(pendingByUserId: Record<string, MissionLessonApproval>): Record<string, MissionLessonApproval> {
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const next: Record<string, MissionLessonApproval> = {};
+  for (const [userId, approval] of Object.entries(pendingByUserId)) {
+    const stagedAt = Date.parse(approval.stagedAt);
+    if (!Number.isFinite(stagedAt) || stagedAt >= cutoff) {
+      next[userId] = approval;
+    }
+  }
+  return next;
 }
 
 function readJsonBody(req: IncomingMessage): Promise<RelayWebhookPayload | null> {
@@ -1733,7 +1891,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
             const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
             await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
           }
-          await rememberMissionCompletion(subscription, event, extracted.providerLabel, extracted.response);
+          await handleMissionCompletionMemory(bot, chatId, subscription, event, extracted.providerLabel, extracted.response);
           writeJson(res, 200, { ok: true, chunks: chunks.length });
           return;
         }

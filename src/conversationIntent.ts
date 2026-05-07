@@ -173,25 +173,41 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (/^(?:can|could|would|should)\s+you\s+improve\b/i.test(normalized)) {
     return null;
   }
+  const asksSparkToChooseImprovement =
+    /\b(?:what|which)\b.{0,40}\b(?:you|spark|agent)\b.{0,40}\b(?:improve|upgrade|repair|fix|work\s+on)\b/i.test(normalized) ||
+    /\b(?:what|which)\b.{0,40}\b(?:should|would|could)\b.{0,20}\b(?:you|spark|agent)\b.{0,40}\b(?:improve|upgrade|repair|fix|work\s+on)\b/i.test(normalized) ||
+    /\b(?:choose|pick|decide)\b.{0,40}\b(?:improvement|upgrade|capability|weak\s*spot)\b/i.test(normalized);
+  if (asksSparkToChooseImprovement) {
+    return 'Choose the highest-leverage Spark self-improvement for this user, using recent weak-spot evidence, safe probes, rollback, and eval coverage before changing behavior.';
+  }
+
   const mentionsSparkSelf =
-    /\b(?:spark|you|your|agent|self[-\s]*awareness|introspection|capabilit(?:y|ies)|tools?|routes?|systems?)\b/i.test(normalized);
+    /\b(?:spark|you|your|yourself|agent|agents?|self[-\s]*awareness|introspection|capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?|tools?|routes?|systems?|brain|memory|memories|reports?|daily\s+reports?|workflow|workflows?)\b/i.test(normalized);
   const mentionsImprove =
     /\b(?:improve|upgrade|tighten|fix|repair|strengthen|make better|close|reduce)\b/i.test(normalized);
   const mentionsGap =
     /\b(?:weak\s*spots?|gaps?|lacks?|limitations?|missing|where\s+(?:you|it)\s+lack|not\s+good|confidence|evidence|probes?)\b/i.test(normalized);
-  if (!mentionsSparkSelf || !mentionsImprove || !mentionsGap) {
-    return null;
+  if (mentionsSparkSelf && mentionsImprove && mentionsGap) {
+    const cleanupPatterns = [
+      /^(?:can\s+you\s+|please\s+|spark[, ]*)?/i,
+      /\b(?:from|using|with)\s+(?:your\s+)?(?:llm\s+)?(?:wiki|knowledge\s*base|kb|obsidian\s+vault)\b/ig,
+    ];
+    let goal = normalized;
+    for (const pattern of cleanupPatterns) {
+      goal = goal.replace(pattern, '').trim();
+    }
+    goal = goal.replace(/[?.!]+$/, '').trim();
+    return goal.length >= 6 ? goal : 'Improve Spark weak spots with probe-first evidence';
   }
-  const cleanupPatterns = [
-    /^(?:can\s+you\s+|please\s+|spark[, ]*)?/i,
-    /\b(?:from|using|with)\s+(?:your\s+)?(?:llm\s+)?(?:wiki|knowledge\s*base|kb|obsidian\s+vault)\b/ig,
-  ];
-  let goal = normalized;
-  for (const pattern of cleanupPatterns) {
-    goal = goal.replace(pattern, '').trim();
+
+  const asksCapabilityChange =
+    /\b(?:add|install|enable|connect|wire|integrate|give|build|create|scaffold|develop|ship|set\s+up|schedule|automate|make|change|upgrade|improve)\b/i.test(normalized) &&
+    /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?|tools?|routes?|systems?|brain|memory|memories|reports?|daily\s+reports?|email|emails|gmail|calendar|inbox|voice|speech|notifications?|reminders?|workflow|workflows?|browser|browse|files?|filesystem|agents?)\b/i.test(normalized);
+  if (mentionsSparkSelf && asksCapabilityChange) {
+    return `Improve Spark capability safely: ${normalized.replace(/[?.!]+$/, '').trim()}. Treat this as a capability proposal: identify the owner system, required permissions, safe probe, human approval boundary, rollback path, and smallest implementation/eval before claiming it is live.`;
   }
-  goal = goal.replace(/[?.!]+$/, '').trim();
-  return goal.length >= 6 ? goal : 'Improve Spark weak spots with probe-first evidence';
+
+  return null;
 }
 
 export function isSparkSelfMemoryDiagnosticQuestion(text: string): boolean {

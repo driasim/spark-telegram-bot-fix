@@ -684,6 +684,50 @@ test('extracts natural Spark self-improvement goals without stealing builds or w
   );
   assert.equal(extractSparkSelfImprovementGoal('search your wiki for weak spots'), null);
   assert.equal(extractSparkSelfImprovementGoal('build me a self-improvement dashboard'), null);
+  assert.match(
+    extractSparkSelfImprovementGoal('Can you add a capability for Spark to read my emails?') || '',
+    /Improve Spark capability safely/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('lets make today about improving your capabilities\u2026 can you install a voice to yourself?') || '',
+    /install a voice/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('make my Spark read my emails as a new capability') || '',
+    /read my emails/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal("Okay let's build this for you, Spark: a way to read my emails and summarize them.") || '',
+    /read my emails/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal("Let's build you an email reader so you can summarize my inbox.") || '',
+    /email reader/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('Create a capability for Spark to read my calendar.') || '',
+    /read my calendar/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('Build a skill that lets you browse my project files.') || '',
+    /project files/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('Set up daily reports of my memories so I know what changed.') || '',
+    /daily reports of my memories/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('make daily reports of my memories work differently') || '',
+    /daily reports of my memories/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('Change your brain so you handle my workflow differently.') || '',
+    /capability proposal/
+  );
+  assert.match(
+    extractSparkSelfImprovementGoal('Okay Spark, what do you want to improve today?') || '',
+    /highest-leverage Spark self-improvement/
+  );
 });
 
 test('recognizes chip status overclaim questions as anti-drift probes', () => {
