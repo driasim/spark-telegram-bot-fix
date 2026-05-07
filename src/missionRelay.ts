@@ -622,6 +622,9 @@ async function sendFetchedCompletionSummary(
   verbosity: TelegramRelayVerbosity,
   completion: MissionCompletionSummary
 ): Promise<number> {
+  if (shouldSuppressMissionHandoff(event.missionId)) {
+    return 0;
+  }
   clearHeartbeatForMission(event.missionId);
   const message = formatProviderCompletionForTelegram({
     providerLabel: completion.providerLabel,
@@ -652,9 +655,9 @@ function scheduleDelayedCompletionSummary(
 ): void {
   setTimeout(() => {
     void (async () => {
-      if (completionDeliveryCache.has(event.missionId)) return;
+      if (completionDeliveryCache.has(event.missionId) || shouldSuppressMissionHandoff(event.missionId)) return;
       const completion = await fetchMissionCompletionSummary(event.missionId, { attempts: 12, delayMs: 5000 });
-      if (!completion || completionDeliveryCache.has(event.missionId)) return;
+      if (!completion || completionDeliveryCache.has(event.missionId) || shouldSuppressMissionHandoff(event.missionId)) return;
       await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
     })().catch(() => {});
   }, 1000);
