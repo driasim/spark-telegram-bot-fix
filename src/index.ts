@@ -76,7 +76,9 @@ import {
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   getTelegramRelayIdentity,
+  markMissionRelayCancelled,
   registerMissionRelay,
+  shouldSuppressMissionHandoff,
   setTelegramMissionLinkPreference,
   setTelegramRelayVerbosity,
   startMissionRelay
@@ -749,6 +751,9 @@ function startPrdCanvasReadyNotifier(args: {
     let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
+      if (shouldSuppressMissionHandoff(args.missionId)) {
+        return;
+      }
       try {
         const elapsedMs = Date.now() - started;
         if (heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
@@ -763,11 +768,17 @@ function startPrdCanvasReadyNotifier(args: {
         const poll = await axios.get(resultUrl, spawnerAxiosOptions(3000));
         if (poll.data?.found && poll.data?.result?.success) {
           try {
+            if (shouldSuppressMissionHandoff(args.missionId)) {
+              return;
+            }
             const queue = await axios.post(
               `${args.spawnerUrl}/api/prd-bridge/load-to-canvas`,
               { requestId: args.requestId, missionId: args.missionId, autoRun: true, telegramRelay: getTelegramRelayIdentity() },
               spawnerAxiosOptions(8000)
             );
+            if (shouldSuppressMissionHandoff(args.missionId)) {
+              return;
+            }
             const taskCount = queue.data?.taskCount;
             const readyCanvasUrl = queue.data?.canvasUrl
               ? `${args.publicSpawnerUrl.replace(/\/+$/, '')}${queue.data.canvasUrl}`
@@ -792,6 +803,9 @@ function startPrdCanvasReadyNotifier(args: {
       } catch {
         // keep polling
       }
+    }
+    if (shouldSuppressMissionHandoff(args.missionId)) {
+      return;
     }
     await bot.telegram.sendMessage(
       args.chatId,
@@ -1301,6 +1315,18 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pending.buildModeReason
   );
   return true;
+}
+
+function isPendingClarificationFollowup(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return false;
+  if (/^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)$/i.test(normalized)) {
+    return true;
+  }
+  const startsWithConfirmation = /^(?:yes|yeah|yep|ok|okay|sure|perfect|sounds good|great|cool)\b/.test(normalized);
+  const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
+  const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
+  return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
 }
 
 export function formatCanvasReadySummary(args: {
@@ -2010,6 +2036,9 @@ bot.command('mission', async (ctx) => {
 
   await safeSendChatAction(ctx, 'typing');
   const result = await spawner.missionCommand(action, missionId);
+  if (result.success && action === 'kill') {
+    markMissionRelayCancelled(missionId);
+  }
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
 });
 
@@ -2240,10 +2269,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
+    const pendingClarification = pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
+    if (pendingClarification && isPendingClarificationFollowup(text)) {
+      await handleClarificationAnswers(ctx, text);
+      return;
+    }
+
     if (buildIntent) {
       console.log(`[BuildIntent] route user=${ctx.from?.id} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
       const accessPreference = parseNaturalAccessChangeIntent(text);
@@ -2299,7 +2334,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const pendingClarification = pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`);
     if (pendingClarification && !buildIntent) {
       await handleClarificationAnswers(ctx, text);
       return;
