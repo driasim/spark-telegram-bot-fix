@@ -11,7 +11,10 @@ import {
   getTelegramRelayIdentity,
   formatProviderCompletionForTelegram,
   isCompletionDeliveryCachedForTests,
+  isMissionRelayPaused,
   markMissionRelayCancelled,
+  markMissionRelayPaused,
+  markMissionRelayResumed,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
@@ -772,6 +775,33 @@ test('cancelled missions suppress delayed build handoffs', () => {
   resetMissionRelayDeliveryStateForTests();
 });
 
+test('paused missions suppress handoffs until resume', () => {
+  resetMissionRelayDeliveryStateForTests();
+  assert.equal(isMissionRelayPaused('mission-paused'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), false);
+
+  markMissionRelayPaused('mission-paused');
+
+  assert.equal(isMissionRelayPaused('mission-paused'), true);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), true);
+
+  markMissionRelayResumed('mission-paused');
+
+  assert.equal(isMissionRelayPaused('mission-paused'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), false);
+  resetMissionRelayDeliveryStateForTests();
+});
+
+test('cancelled missions clear paused handoff suppression state', () => {
+  resetMissionRelayDeliveryStateForTests();
+  markMissionRelayPaused('mission-cancelled-after-pause');
+  markMissionRelayCancelled('mission-cancelled-after-pause');
+
+  assert.equal(isMissionRelayPaused('mission-cancelled-after-pause'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-cancelled-after-pause'), true);
+  resetMissionRelayDeliveryStateForTests();
+});
+
 test('ignores mission relay events targeted at another Telegram profile', () => {
   const originalPort = process.env.TELEGRAM_RELAY_PORT;
   const originalProfile = process.env.SPARK_TELEGRAM_PROFILE;
@@ -1045,6 +1075,61 @@ void (async () => {
     assert.equal(chunks, 0);
     assert.equal(sent.length, 0);
     assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+    resetMissionRelayDeliveryStateForTests();
+  });
+
+  await asyncTest('paused missions suppress fetched completion summaries until resumed', async () => {
+    resetMissionRelayDeliveryStateForTests();
+    const subscription = {
+      missionId: 'spark-paused-completion',
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-paused-completion',
+      goal: 'Pause before completion.',
+      createdAt: '2026-05-07T00:00:00Z'
+    };
+    const sent: string[] = [];
+    const bot = {
+      telegram: {
+        sendMessage: async (_chatId: number, message: string) => {
+          sent.push(message);
+        }
+      }
+    };
+
+    markMissionRelayPaused(subscription.missionId);
+    const suppressedChunks = await sendFetchedCompletionSummaryForTests(
+      bot as any,
+      12345,
+      subscription,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
+      'normal',
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This paused handoff should wait.', status: 'completed' })
+      }
+    );
+
+    assert.equal(suppressedChunks, 0);
+    assert.equal(sent.length, 0);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+
+    markMissionRelayResumed(subscription.missionId);
+    const deliveredChunks = await sendFetchedCompletionSummaryForTests(
+      bot as any,
+      12345,
+      subscription,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
+      'normal',
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This resumed handoff can send.', status: 'completed' })
+      }
+    );
+
+    assert.equal(deliveredChunks, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
     resetMissionRelayDeliveryStateForTests();
   });
 
