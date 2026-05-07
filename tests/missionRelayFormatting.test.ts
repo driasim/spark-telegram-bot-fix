@@ -1011,6 +1011,43 @@ void (async () => {
     }
   });
 
+  await asyncTest('cancelled missions suppress fetched completion summaries', async () => {
+    resetMissionRelayDeliveryStateForTests();
+    const subscription = {
+      missionId: 'spark-cancelled-completion',
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-cancelled-completion',
+      goal: 'Build something then cancel it.',
+      createdAt: '2026-05-07T00:00:00Z'
+    };
+    const sent: string[] = [];
+    markMissionRelayCancelled(subscription.missionId);
+
+    const chunks = await sendFetchedCompletionSummaryForTests(
+      {
+        telegram: {
+          sendMessage: async (_chatId: number, message: string) => {
+            sent.push(message);
+          }
+        }
+      } as any,
+      12345,
+      subscription,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
+      'normal',
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This late handoff should stay suppressed.', status: 'completed' })
+      }
+    );
+
+    assert.equal(chunks, 0);
+    assert.equal(sent.length, 0);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+    resetMissionRelayDeliveryStateForTests();
+  });
+
   await asyncTest('mission lesson prompt can be enabled explicitly for experiments', async () => {
     const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
     try {
