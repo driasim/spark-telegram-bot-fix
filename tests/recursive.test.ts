@@ -18,6 +18,7 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationPathLoopCompletion,
   sparkWorkspaceApiUrl,
   sparkWorkspaceBridgeHints,
   sparkWorkspaceDecisionsUrl,
@@ -25,6 +26,10 @@ import {
   workspaceSessions,
   workspaceTraceView
 } from '../src/recursive';
+import {
+  buildSpecializationPathAutoloopBridgeArgs,
+  classifyBuilderAttachmentTargetFromSnapshot
+} from '../src/pathLoop';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -283,6 +288,99 @@ test('builds bridge input for Builder chip loop sync', () => {
     ]
   });
   assert.equal((fallback.payload.outcomes as any[])[0].verdict, 'regressed');
+});
+
+test('classifies recursive start targets from Builder attachment snapshots', () => {
+  const snapshot = {
+    records: [
+      {
+        kind: 'chip',
+        key: 'domain-chip-creator',
+        repo_root: 'C:\\chips\\domain-chip-creator',
+        capabilities: ['suggest', 'evaluate']
+      },
+      {
+        kind: 'path',
+        key: 'startup-yc',
+        repo_root: 'C:\\paths\\specialization-path-startup-yc',
+        capabilities: ['suggest', 'score_alignment', 'tournament', 'promote']
+      }
+    ]
+  };
+
+  assert.deepEqual(classifyBuilderAttachmentTargetFromSnapshot(snapshot, 'startup-yc'), {
+    kind: 'path',
+    key: 'startup-yc',
+    repoRoot: 'C:\\paths\\specialization-path-startup-yc',
+    capabilities: ['suggest', 'score_alignment', 'tournament', 'promote']
+  });
+  assert.deepEqual(classifyBuilderAttachmentTargetFromSnapshot(snapshot, 'domain-chip-creator'), {
+    kind: 'chip',
+    key: 'domain-chip-creator',
+    repoRoot: 'C:\\chips\\domain-chip-creator',
+    capabilities: ['suggest', 'evaluate']
+  });
+  assert.deepEqual(classifyBuilderAttachmentTargetFromSnapshot(snapshot, 'unknown-thing'), {
+    kind: 'chip',
+    key: 'unknown-thing'
+  });
+});
+
+test('builds Spark Swarm bridge args for specialization path autoloops', () => {
+  assert.deepEqual(
+    buildSpecializationPathAutoloopBridgeArgs({
+      pathKey: 'startup-yc',
+      repoRoot: 'C:\\paths\\specialization-path-startup-yc',
+      rounds: 1,
+      sync: {
+        workspaceId: 'ws_123',
+        apiUrl: 'https://api.example.test',
+        accessToken: 'sscli_test'
+      }
+    }),
+    [
+      '-m',
+      'spark_swarm_bridge.cli',
+      'specialization-path',
+      'autoloop',
+      'startup-yc',
+      'C:\\paths\\specialization-path-startup-yc',
+      '--rounds',
+      '1',
+      '--sync-collective',
+      '--workspace-id',
+      'ws_123',
+      '--api-url',
+      'https://api.example.test',
+      '--access-token',
+      'sscli_test'
+    ]
+  );
+});
+
+test('renders specialization path loop completion with workspace next step', () => {
+  const reply = renderSpecializationPathLoopCompletion({
+    ok: true,
+    pathKey: 'startup-yc',
+    roundsCompleted: 1,
+    totalRounds: 1,
+    stopReason: 'completed_requested_rounds',
+    sessionId: 'autoloop-20260508T054500Z',
+    sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop-20260508T054500Z\\summary.json',
+    payloadPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\collective-sync.json',
+    pathId: 'path_startup_yc',
+    outcomeId: 'outcome_startup_yc_20260508T054500000',
+    verdict: 'flat',
+    metricName: 'startup_bench_score',
+    metricValue: 0.61,
+    summary: 'Startup YC tested a benchmark-backed YC doctrine mutation.'
+  });
+
+  assert.match(reply, /Recursive path loop complete: startup-yc/);
+  assert.match(reply, /Metric: startup_bench_score=0.61/);
+  assert.match(reply, /Workspace sync: ok/);
+  assert.match(reply, /Workspace outcome: outcome_startup_yc_20260508T054500000/);
+  assert.match(reply, /Next: \/recursive report path_startup_yc/);
 });
 
 test('builds bridge args for non-Builder recursive artifact sync commands', () => {

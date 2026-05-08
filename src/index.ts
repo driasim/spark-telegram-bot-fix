@@ -45,6 +45,7 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
+import { resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
 import {
   parseRecursiveCommand,
   queueRecursiveCanvas,
@@ -66,6 +67,8 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationPathLoopCompletion,
+  sparkWorkspaceBridgeHints,
   sparkWorkspaceRecursionsUrl,
   stageRecursivePromotionPacket,
   stageRecursiveSwarmPacket,
@@ -2124,11 +2127,23 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <chipKey> [rounds <n>]');
       const chatId = ctx.chat.id;
       const rounds = parsed.rounds || 3;
+      const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
       await safeSendChatAction(ctx, 'typing');
-      await ctx.reply(`Starting recursive Builder chip loop on ${parsed.chipKey} for ${rounds} round(s). I will post the summary when it finishes.`);
+      const targetLabel = startTarget.kind === 'path' ? 'Spark Swarm specialization path loop' : 'recursive Builder chip loop';
+      await ctx.reply(`Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
 
       void (async () => {
         try {
+          if (startTarget.kind === 'path') {
+            const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
+            if (!result.ok) {
+              await ctx.telegram.sendMessage(chatId, `Recursive path loop failed: ${result.error || 'unknown error'}`);
+              return;
+            }
+            await ctx.telegram.sendMessage(chatId, renderSpecializationPathLoopCompletion(result));
+            return;
+          }
+
           const result = await runChipLoop(parsed.chipKey!, rounds, 3);
           if (!result.ok) {
             await ctx.telegram.sendMessage(chatId, `Recursive loop failed: ${result.error || 'unknown error'}`);
