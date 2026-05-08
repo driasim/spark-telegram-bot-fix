@@ -32,6 +32,7 @@ const tests = [
   'tests/recursiveCommand.test.ts',
   'tests/creatorMissionStatus.test.ts',
   'tests/builderBridge.test.ts',
+  'tests/telegramVoiceBridge.test.ts',
   'tests/pythonCommand.test.ts',
   'tests/hiddenProcess.test.ts'
 ];
