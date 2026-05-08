@@ -87,17 +87,18 @@ test('renders compact recursive session and path lists', () => {
 
   const sessionList = renderRecursiveSessions(sessions);
   assert.match(sessionList, /Clear/);
-  assert.match(sessionList, /1\. Startup YC Builder Chip Loop/);
-  assert.match(sessionList, /- completed, May 7, 00:00 UTC/);
+  assert.match(sessionList, /1\. Startup YC Builder Chip Loop \(completed\)/);
   assert.match(sessionList, /Use\n- \/recursive report 1\n- \/recursive trace 1/);
   assert.doesNotMatch(sessionList, /\/recursive report s1/);
   assert.match(sessionList, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(sessionList, /What happened:/);
   assert.doesNotMatch(sessionList, /Next:/);
   assert.doesNotMatch(sessionList, /- updated /);
+  assert.doesNotMatch(sessionList, /May 7/);
 
   const pathList = renderRecursivePaths(sessions);
-  assert.match(pathList, /1\. startup-yc\n- 1 loop \| clear \| latest/);
+  assert.match(pathList, /1\. startup-yc\n- 1 loop \| clear/);
+  assert.doesNotMatch(pathList, /latest May/);
   assert.match(pathList, /Use \/recursive sessions to pick a loop\./);
   assert.doesNotMatch(pathList, /Next:/);
 
@@ -116,7 +117,7 @@ test('renders compact recursive session and path lists', () => {
       review_required: true
     }
   ]);
-  assert.match(reviewPathList, /startup-yc\n- 3 loops \| 2 need review \| latest/);
+  assert.match(reviewPathList, /startup-yc\n- 3 loops \| 2 need review/);
   assert.doesNotMatch(reviewPathList, /2 loops needs review/);
 
   const sessionPriorityList = renderRecursiveSessions([
@@ -982,7 +983,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(sessions[0].kanban_bucket, 'active');
   assert.equal(sessions[0].review_required, false);
   assert.match(renderRecursiveSessions(sessions), /1\. Startup YC/);
-  assert.match(renderRecursiveSessions(sessions), /- May /);
+  assert.doesNotMatch(renderRecursiveSessions(sessions), /May 8/);
   assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');

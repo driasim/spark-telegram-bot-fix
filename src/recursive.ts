@@ -1059,11 +1059,8 @@ export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): s
     } else {
       lines.push('');
     }
-    const status = session.status && session.status !== 'open' ? `${session.status}, ` : '';
-    lines.push(
-      `${index + 1}. ${sessionDisplayTitle(session)}`,
-      `- ${status}${formatCompactUpdatedAt(session.updated_at)}`
-    );
+    const status = session.status && session.status !== 'open' ? ` (${session.status})` : '';
+    lines.push(`${index + 1}. ${sessionDisplayTitle(session)}${status}`);
   }
   if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more hidden. Use /recursive paths for lanes.`);
   lines.push('', 'Use', '- /recursive report 1', '- /recursive trace 1', '', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
@@ -1107,11 +1104,8 @@ export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): stri
   for (const [index, domain] of domains.slice(0, 8).entries()) {
     const group = pathGroups.get(domain) ?? [];
     const reviewCount = group.filter((session) => session.review_required).length;
-    const latest = group
-      .slice()
-      .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
     const review = reviewCount > 0 ? `${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : 'clear';
-    lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} | ${review} | latest ${formatUpdatedAt(latest?.updated_at)}`);
+    lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} | ${review}`);
   }
   if (domains.length > 8) lines.push('', `${domains.length - 8} more paths hidden. Open Workspace for the full list.`);
   lines.push('', 'Use /recursive sessions to pick a loop.');
@@ -1400,16 +1394,6 @@ function formatUpdatedAt(value: string | null | undefined): string {
   const hour = String(date.getUTCHours()).padStart(2, '0');
   const minute = String(date.getUTCMinutes()).padStart(2, '0');
   return `${month} ${date.getUTCDate()}, ${date.getUTCFullYear()}, ${hour}:${minute} UTC`;
-}
-
-function formatCompactUpdatedAt(value: string | null | undefined): string {
-  if (!value) return 'unknown';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.getUTCMonth()];
-  const hour = String(date.getUTCHours()).padStart(2, '0');
-  const minute = String(date.getUTCMinutes()).padStart(2, '0');
-  return `${month} ${date.getUTCDate()}, ${hour}:${minute} UTC`;
 }
 
 function formatMasteryEvidence(mastery: SparkWorkspaceMastery): string | null {
