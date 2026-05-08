@@ -407,6 +407,14 @@ test('does not treat voice tuning as latest project polish', () => {
   assert.equal(buildProjectImprovementGoal('make it warmer and more geeky', project), null);
   assert.equal(isProjectImprovementRequest('a little faster', project), false);
   assert.equal(buildProjectImprovementGoal('a little faster', project), null);
+  assert.equal(isMissionExecutionConfirmation('make it warmer and more geeky'), false);
+  assert.equal(
+    inferMissionFromRecentContext('make it warmer and more geeky', [
+      'Spark voice setup is active',
+      'Create a polished Spark mission if the user says make it'
+    ]),
+    null
+  );
 });
 
 test('detects public GitHub inspection requests for agent access routing', () => {

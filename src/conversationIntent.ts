@@ -332,6 +332,7 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  if (isVoiceTuningRequest(trimmed.toLowerCase())) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
@@ -446,6 +447,7 @@ export function inferDefaultBuildFromRecentScoping(currentText: string, recentMe
 export function isExplicitContextualBuildRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
+  if (isVoiceTuningRequest(normalized)) return false;
   const asksToBuild = /\b(?:build|create|make|scaffold|implement|wire|integrate|improve|expand|upgrade|add)\b/.test(normalized);
   const contextualObject = /\b(?:this|that|it|those|these|integration points?|connectors?|domain chip|diagnostic agent|bug recognition|what we built)\b/.test(normalized);
   const executionHint = /\b(?:via|through|using|with|as)\s+(?:codex|mission|spawner|run)\b|\bmission\b|\bcodex\b/.test(normalized);
