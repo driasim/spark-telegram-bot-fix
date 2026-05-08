@@ -42,13 +42,13 @@ async function main(): Promise<void> {
   await test('recursive command export renders help through command path', async () => {
     const ctx = fakeCtx('/recursive help');
     await handleRecursiveCommand(ctx);
-    assert.match(ctx.replies.join('\n'), /\/recursive start <chipKey> \[rounds <n>\]/);
+    assert.match(ctx.replies.join('\n'), /\/recursive start <targetKey> \[rounds <n>\]/);
   });
 
   await test('recursive command export validates start usage through command path', async () => {
     const ctx = fakeCtx('/recursive start');
     await handleRecursiveCommand(ctx);
-    assert.equal(ctx.replies[0], 'Usage: /recursive start <chipKey> [rounds <n>]');
+    assert.equal(ctx.replies[0], 'Usage: /recursive start <targetKey> [rounds <n>]');
   });
 
   await test('recursive command explains hosted workspace CLI-token read rejection', async () => {
