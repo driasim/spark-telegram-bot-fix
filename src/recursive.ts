@@ -1657,12 +1657,11 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const sameDisplayedImprovement = latestOutcome ? hasSameDisplayedImprovement(latestOutcome.summary) : false;
   const scoreLines = [
     metricLine ? `- ${metricLine}` : null,
-    comparisonLine ? `- ${formatCompareFragment(comparisonLine)}` : null,
-    sameDisplayedImprovement ? '- gain is smaller than displayed decimals' : null
+    comparisonLine ? `- ${formatCompareFragment(comparisonLine)}` : null
   ].filter((line): line is string => Boolean(line));
 
   return [
-    `${outcomeStatusIcon(verdict)} ${workspaceReportHeadline(label, verdict, Boolean(latestOutcome))}`,
+    `${outcomeStatusIcon(verdict)} ${workspaceReportHeadline(label, verdict, Boolean(latestOutcome), sameDisplayedImprovement)}`,
     scoreLines.length > 0 ? '' : null,
     scoreLines.length > 0 ? 'Score' : null,
     ...scoreLines,
@@ -1797,8 +1796,14 @@ function outcomeHeadline(label: string, verdict: string | null | undefined): str
   return `${label} ${friendlyOutcomeVerb(verdict)}.`;
 }
 
-function workspaceReportHeadline(label: string, verdict: string | null | undefined, hasOutcome: boolean): string {
+function workspaceReportHeadline(
+  label: string,
+  verdict: string | null | undefined,
+  hasOutcome: boolean,
+  sameDisplayedImprovement = false
+): string {
   if (!hasOutcome) return outcomeHeadline(label, verdict);
+  if (sameDisplayedImprovement) return `Latest ${label} run improved slightly.`;
   return `Latest ${label} run ${friendlyOutcomeVerb(verdict)}.`;
 }
 
