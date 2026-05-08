@@ -23,6 +23,7 @@ Gateway state location is now configurable with `SPARK_GATEWAY_STATE_DIR`, so a 
 - builds a per-turn conversation frame so shorthand follow-ups like "change it to 4" or "the second one" can resolve against recent context
 - keeps admin-only mission control commands in Telegram
 - sends `/run` goals into `Spawner UI`
+- sends `/recursive` reads and supported review decisions into the Spark Swarm Workspace Recursions surface
 - relays mission status and terminal updates back to Telegram
 
 ## Current Architecture
@@ -36,6 +37,7 @@ flowchart TD
   Builder --> Researcher["spark-researcher"]
   Gateway --> SpawnerBridge["Spawner bridge<br/>src/spawner.ts"]
   SpawnerBridge --> Spawner["spawner-ui APIs"]
+  Gateway --> Workspace["Spark Swarm Workspace<br/>/runs?tab=recursions"]
   Spawner --> Relay["mission relay<br/>127.0.0.1:8788 or private service URL"]
   Relay --> Gateway
 ```
@@ -81,9 +83,12 @@ Admin-only mission control:
 - `/mission <status|pause|resume|kill> <missionId>`
 - `/chip create <natural language description>`
 - `/loop <chip_key> [rounds]`
+- `/recursive sessions|paths|session|report|trace|review|approve|defer|reject|more-eval|start`
 - `/schedule "<cron>" mission <goal>`
 - `/schedule "<cron>" loop <chipKey> [rounds]`
 - `/schedules`
+
+`/recursive approve|defer|reject|more-eval` mutates Spark Swarm Workspace only for supported inbox items. Insight absorb items support approve; mastery review items support approve, defer, reject, and more-eval. Upgrade delivery, contradiction resolution, and evolution-mode changes still route operators to Workspace Decisions.
 
 Natural language build requests also work for admins. For example: "build a landing page for my app" can route into the Spawner PRD/canvas path instead of returning command help.
 
@@ -176,7 +181,7 @@ is the execution plane behind the gateway.
 4. Set `TELEGRAM_RELAY_SECRET` to a random 24+ character value. Spark CLI
    generates this for bundled installs.
 5. Keep `TELEGRAM_GATEWAY_MODE=polling`.
-6. Start `spawner-ui` if you want `/run`, `/mission`, and `/board` to work. For hosted two-service deploys, set `SPAWNER_UI_URL` to the private spawner-ui service URL, set this bot's `TELEGRAM_RELAY_URL` to its private `/spawner-events` URL, and put the same callback URL in spawner-ui `MISSION_CONTROL_WEBHOOK_URLS`.
+6. Start `spawner-ui` if you want `/run`, `/mission`, and `/board` to work. For hosted two-service deploys, set `SPAWNER_UI_URL` to the private spawner-ui service URL, set this bot's `TELEGRAM_RELAY_URL` to its private `/spawner-events` URL, and put the same callback URL in spawner-ui `MISSION_CONTROL_WEBHOOK_URLS`. `SPARK_SPAWNER_URL` is accepted as a legacy alias for `SPAWNER_UI_URL`.
 7. Start `spark-intelligence-builder` if you want the Builder bridge instead of
    the local fallback conversation path.
 8. Start the bot:
@@ -209,13 +214,25 @@ project environment and use Railway private DNS between them:
 - `SPARK_BRIDGE_API_KEY=<same long value as spawner-ui>`
 - `SPARK_GATEWAY_STATE_DIR=/data/spark-gateway`
 
+This service is the only Telegram long-polling owner in the split shape. Do not
+also set `TELEGRAM_BOT_TOKEN` on a Spark Live monolith or VPS supervisor that can
+start `spark-telegram-bot`; otherwise Telegram will return `409 Conflict` and
+one poller will be terminated.
+
 `SPAWNER_UI_URL` is for private service-to-service calls only. If it uses
 `railway.internal`, also set `SPAWNER_UI_PUBLIC_URL` so Telegram mission links
 open the protected public Spawner UI instead of Railway's private DNS.
+`SPARK_SPAWNER_URL` is accepted as a legacy compatibility alias, but new setup
+should use `SPAWNER_UI_URL`.
 
 Mount a persistent volume at `/data` for gateway state. Keep `BOT_TOKEN`,
 `ADMIN_TELEGRAM_IDS`, `TELEGRAM_RELAY_SECRET`, and provider keys in Railway
 service variables, not in the image or repo.
+
+Before the first deploy, run `npm run deploy:doctor -- --role bot` in the
+hosted environment. It catches loopback relay hosts, missing public Spawner
+links, short shared secrets, missing `/data` state paths, and the
+`SPARK_MISSION_LLM_PROVIDER=anthropic` provider-name mistake.
 
 ## First User Flow
 

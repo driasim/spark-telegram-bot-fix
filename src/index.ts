@@ -45,6 +45,33 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
+import {
+  parseRecursiveCommand,
+  queueRecursiveCanvas,
+  recordRecursiveDecision,
+  recursiveReviewCandidates,
+  recursiveSessionReport,
+  recursiveSessions,
+  recursiveSessionReview,
+  recursiveSessionStatus,
+  recursiveTraceView,
+  renderRecursiveDecision,
+  renderRecursiveCanvasQueue,
+  renderRecursiveArtifactSyncCompletion,
+  renderBuilderChipLoopCompletion,
+  renderRecursiveHelp,
+  renderRecursivePaths,
+  renderRecursivePromotionPacket,
+  renderRecursiveReviewCandidates,
+  renderRecursiveSessions,
+  renderRecursiveSwarmPacket,
+  renderRecursiveTraceView,
+  sparkWorkspaceRecursionsUrl,
+  stageRecursivePromotionPacket,
+  stageRecursiveSwarmPacket,
+  syncBuilderChipLoopToWorkspace,
+  syncRecursiveArtifactToWorkspace
+} from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
@@ -2006,6 +2033,138 @@ bot.command('loop', async (ctx) => {
     }
   })();
 });
+
+export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
+  if (!requireAdmin(ctx)) return;
+
+  const raw = rawOverride ?? ctx.message.text.replace('/recursive', '').trim();
+  const parsed = parseRecursiveCommand(raw);
+  if (!parsed) return ctx.reply(renderRecursiveHelp());
+
+  try {
+    if (parsed.action === 'help') {
+      return ctx.reply(renderRecursiveHelp());
+    }
+
+    if (parsed.action === 'sessions') {
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveSessions(await recursiveSessions()));
+    }
+
+    if (parsed.action === 'paths') {
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursivePaths(await recursiveSessions()));
+    }
+
+    if (parsed.action === 'session') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive session <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(await recursiveSessionStatus(parsed.id));
+    }
+
+    if (parsed.action === 'report') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive report <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(await recursiveSessionReport(parsed.id));
+    }
+
+    if (parsed.action === 'trace') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive trace <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveTraceView(await recursiveTraceView(parsed.id)));
+    }
+
+    if (parsed.action === 'canvas') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive canvas <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveCanvasQueue(await queueRecursiveCanvas(parsed.id)));
+    }
+
+    if (parsed.action === 'review') {
+      await safeSendChatAction(ctx, 'typing');
+      if (parsed.id) return ctx.reply(await recursiveSessionReview(parsed.id));
+      return ctx.reply(renderRecursiveReviewCandidates(await recursiveReviewCandidates()));
+    }
+
+    if (parsed.action === 'approve' || parsed.action === 'defer' || parsed.action === 'reject' || parsed.action === 'more-eval') {
+      if (!parsed.id) return ctx.reply(`Usage: /recursive ${parsed.action} <id> <rationale>`);
+      const actor = `telegram:${ctx.from?.id ?? 'unknown'}`;
+      const decision = await recordRecursiveDecision({
+        id: parsed.id,
+        action: parsed.action,
+        actor,
+        rationale: parsed.rationale
+      });
+      return ctx.reply(renderRecursiveDecision(decision));
+    }
+
+    if (parsed.action === 'promote') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive promote <id>');
+      await safeSendChatAction(ctx, 'typing');
+      const packet = await stageRecursivePromotionPacket(parsed.id);
+      return ctx.reply(renderRecursivePromotionPacket(packet));
+    }
+
+    if (parsed.action === 'sync') {
+      if (parsed.syncKind) {
+        await safeSendChatAction(ctx, 'typing');
+        const result = await syncRecursiveArtifactToWorkspace({
+          kind: parsed.syncKind,
+          args: parsed.syncArgs || []
+        });
+        return ctx.reply(renderRecursiveArtifactSyncCompletion(result));
+      }
+      if (!parsed.id) return ctx.reply('Usage: /recursive sync <id>');
+      await safeSendChatAction(ctx, 'typing');
+      const packet = await stageRecursiveSwarmPacket(parsed.id);
+      return ctx.reply(renderRecursiveSwarmPacket(packet));
+    }
+
+    if (parsed.action === 'start') {
+      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <chipKey> [rounds <n>]');
+      const chatId = ctx.chat.id;
+      const rounds = parsed.rounds || 3;
+      await safeSendChatAction(ctx, 'typing');
+      await ctx.reply(`Starting recursive Builder chip loop on ${parsed.chipKey} for ${rounds} round(s). I will post the summary when it finishes.`);
+
+      void (async () => {
+        try {
+          const result = await runChipLoop(parsed.chipKey!, rounds, 3);
+          if (!result.ok) {
+            await ctx.telegram.sendMessage(chatId, `Recursive loop failed: ${result.error || 'unknown error'}`);
+            return;
+          }
+          let sync = null;
+          let syncError = null;
+          try {
+            sync = await syncBuilderChipLoopToWorkspace(result);
+          } catch (syncErr: any) {
+            syncError = syncErr?.message || String(syncErr);
+          }
+          await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
+        } catch (err: any) {
+          await ctx.telegram.sendMessage(chatId, `Recursive loop crashed: ${err?.message || String(err)}`);
+        }
+      })();
+      return;
+    }
+
+    return ctx.reply(renderRecursiveHelp());
+  } catch (err: any) {
+    const status = err?.response?.status;
+    const detail = err?.response?.data?.error || err?.message || String(err);
+    if (status === 401 && detail === 'authentication_required') {
+      return ctx.reply([
+        'Recursive command failed (401): Spark Workspace rejected this agent token for recursive reads.',
+        'Start/sync may still work, but /recursive report and /recursive trace need the deployed Workspace API with CLI-token collective-snapshot support.',
+        `Workspace: ${sparkWorkspaceRecursionsUrl()}`
+      ].join('\n'));
+    }
+    return ctx.reply(`Recursive command failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+}
+
+bot.command('recursive', async (ctx) => handleRecursiveCommand(ctx));
 
 bot.command('schedule', async (ctx) => {
   if (!requireAdmin(ctx)) return;
