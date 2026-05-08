@@ -275,6 +275,16 @@ If you are Claude Code, Codex, or another LLM agent operating this repo:
 
 Historical webhook/tunnel architecture notes were removed from the public launch docs because they are not part of this release.
 
+## License
+
+MIT. See [LICENSE](./LICENSE).
+
+Spark Swarm is AGPL-licensed. Other Spark repos are MIT unless their
+LICENSE file says otherwise. Spark Pro hosted services, private corpuses,
+brand assets, deployment secrets, and Pro drops are not included in
+open-source licenses. Pro drops do not grant redistribution rights unless
+a separate written license says so.
+
 ## Notes
 
 - Memory and Spark intelligence can be offline without breaking the mission-control path.
