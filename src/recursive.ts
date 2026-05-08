@@ -1658,11 +1658,11 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const scoreLines = [
     metricLine ? `- ${metricLine}` : null,
     comparisonLine ? `- ${formatCompareFragment(comparisonLine)}` : null,
-    sameDisplayedImprovement ? '- tiny gain; rounded score stayed the same' : null
+    sameDisplayedImprovement ? '- gain is smaller than displayed decimals' : null
   ].filter((line): line is string => Boolean(line));
 
   return [
-    `${outcomeStatusIcon(verdict)} ${outcomeHeadline(label, verdict)}`,
+    `${outcomeStatusIcon(verdict)} ${workspaceReportHeadline(label, verdict, Boolean(latestOutcome))}`,
     scoreLines.length > 0 ? '' : null,
     scoreLines.length > 0 ? 'Score' : null,
     ...scoreLines,
@@ -1795,6 +1795,11 @@ function recursiveStartTargetForPath(path: SparkWorkspaceEvolutionPath, spec: Sp
 
 function outcomeHeadline(label: string, verdict: string | null | undefined): string {
   return `${label} ${friendlyOutcomeVerb(verdict)}.`;
+}
+
+function workspaceReportHeadline(label: string, verdict: string | null | undefined, hasOutcome: boolean): string {
+  if (!hasOutcome) return outcomeHeadline(label, verdict);
+  return `Latest ${label} run ${friendlyOutcomeVerb(verdict)}.`;
 }
 
 function outcomeStatusIcon(verdict: string | null | undefined): string {
@@ -2021,7 +2026,7 @@ function formatOutcomeComparison(
   if (!bestOutcome || typeof latestOutcome.metricValue !== 'number' || typeof bestOutcome.metricValue !== 'number') return null;
 
   const delta = latestOutcome.metricValue - bestOutcome.metricValue;
-  if (Math.abs(delta) < 0.000001) return 'Compare: matches current best.';
+  if (Math.abs(delta) < 0.000001) return 'Compare: current best for this path.';
 
   const lowerIsBetter = metricGoalPrefersLower(latestOutcome);
   const latestIsBetter = lowerIsBetter ? delta < 0 : delta > 0;

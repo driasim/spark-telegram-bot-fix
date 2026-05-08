@@ -966,8 +966,8 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /🟢 Spark Intelligence Builder improved\./);
-  assert.match(report, /Score\n- builder chip loop best metric 0.72\n- matches current best/);
+  assert.match(report, /🟢 Latest Spark Intelligence Builder run improved\./);
+  assert.match(report, /Score\n- builder chip loop best metric 0.72\n- current best for this path/);
   assert.doesNotMatch(report, /Startup Yc/);
   assert.match(report, /Workspace\n- 1 saved item\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(report, /Scorecard:/);
@@ -1047,7 +1047,7 @@ test('compares latest Workspace outcome against the current best metric', () => 
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /⚪ Startup YC held steady\./);
+  assert.match(report, /⚪ Latest Startup YC run held steady\./);
   assert.match(report, /Score\n- scenario score 0.6313\n- below current best by 0.0687 \(best 0.7\)/);
 });
 
@@ -1106,8 +1106,8 @@ test('describes rounded same-score improvements without contradiction', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /🟢 Startup YC improved\./);
-  assert.match(report, /Score\n- scenario score 0.6453\n- matches current best\n- tiny gain; rounded score stayed the same/);
+  assert.match(report, /🟢 Latest Startup YC run improved\./);
+  assert.match(report, /Score\n- scenario score 0.6453\n- current best for this path\n- gain is smaller than displayed decimals/);
   assert.doesNotMatch(report, /Signal/);
   assert.doesNotMatch(report, /What happened:/);
   assert.doesNotMatch(report, /improved from 0\.6453 to 0\.6453/);
@@ -1282,7 +1282,7 @@ test('uses lower-is-better goals when comparing Workspace outcomes', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:error-rate');
-  assert.match(report, /🔴 Error Rate regressed\./);
+  assert.match(report, /🔴 Latest Error Rate run regressed\./);
   assert.match(report, /Score\n- error rate 0.12\n- above current best by 0.04 \(best 0.08\)/);
 });
 
