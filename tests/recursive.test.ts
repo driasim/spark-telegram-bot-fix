@@ -7,6 +7,7 @@ import {
   buildRecursiveArtifactBridgeArgs,
   buildBuilderChipLoopWorkspacePayload,
   parseRecursiveCommand,
+  parseRecursiveProposalOptions,
   renderBuilderChipLoopCompletion,
   renderRecursiveArtifactSyncCompletion,
   renderRecursiveNetworkProposal,
@@ -93,6 +94,33 @@ test('renders recursive network proposal gates without overclaiming', () => {
   assert.match(reply, /benchmarkEvidence/);
   assert.match(reply, /submitted \(blocked\)/);
   assert.match(reply, /runs\?tab=decisions/);
+});
+
+test('parses recursive network proposal options for review gates', () => {
+  assert.deepEqual(
+    parseRecursiveProposalOptions([
+      'title',
+      'Crypto',
+      'Trading',
+      'Autoloop',
+      'risk',
+      'Private',
+      'workspace',
+      'evidence',
+      'only',
+      'replay',
+      'spark-swarm',
+      'domain-autoloop',
+      '--sync-collective',
+      'submit'
+    ]),
+    {
+      submit: true,
+      title: 'Crypto Trading Autoloop',
+      riskNotes: 'Private workspace evidence only',
+      replayCommand: 'spark-swarm domain-autoloop --sync-collective'
+    }
+  );
 });
 
 test('renders compact recursive session and path lists', () => {

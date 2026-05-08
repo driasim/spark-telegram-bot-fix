@@ -262,6 +262,13 @@ export interface RecursiveNetworkProposalResult {
   submitError: string | null;
 }
 
+interface RecursiveProposalOptions {
+  submit: boolean;
+  title?: string;
+  riskNotes?: string;
+  replayCommand?: string;
+}
+
 const DEFAULT_SWARM_API_URL = 'http://127.0.0.1:8787';
 const DEFAULT_SWARM_WEB_URL = 'http://127.0.0.1:5173';
 const execFileAsync = promisify(execFile);
@@ -687,12 +694,53 @@ export async function syncRecursiveArtifactToWorkspace(input: RecursiveArtifactS
   };
 }
 
+export function parseRecursiveProposalOptions(args: string[]): RecursiveProposalOptions {
+  const options: RecursiveProposalOptions = { submit: false };
+  const fieldFor = (value: string): keyof Omit<RecursiveProposalOptions, 'submit'> | null => {
+    const normalized = value.toLowerCase();
+    if (normalized === 'title' || normalized === '--title') return 'title';
+    if (normalized === 'risk' || normalized === 'risks' || normalized === 'risk-notes' || normalized === '--risk-notes') return 'riskNotes';
+    if (normalized === 'replay' || normalized === 'replay-command' || normalized === '--replay-command') return 'replayCommand';
+    return null;
+  };
+  const stopWords = new Set(['submit', '--submit', 'title', '--title', 'risk', 'risks', 'risk-notes', '--risk-notes', 'replay', 'replay-command', '--replay-command']);
+
+  for (let index = 0; index < args.length;) {
+    const token = args[index];
+    if (!token) {
+      index += 1;
+      continue;
+    }
+    const normalized = token.toLowerCase();
+    if (normalized === 'submit' || normalized === '--submit') {
+      options.submit = true;
+      index += 1;
+      continue;
+    }
+    const field = fieldFor(token);
+    if (!field) {
+      index += 1;
+      continue;
+    }
+    const values: string[] = [];
+    index += 1;
+    while (index < args.length && !stopWords.has(args[index].toLowerCase())) {
+      values.push(args[index]);
+      index += 1;
+    }
+    const value = values.join(' ').trim();
+    if (value) options[field] = value;
+  }
+
+  return options;
+}
+
 export async function proposeRecursiveWorkspaceEvidence(
   payloadPath: string,
   args: string[] = []
 ): Promise<RecursiveNetworkProposalResult> {
   if (!payloadPath?.trim()) throw new Error('Usage: /recursive propose <collectivePayloadJson> [submit]');
-  const submit = args.some((arg) => arg.toLowerCase() === 'submit' || arg.toLowerCase() === '--submit');
+  const options = parseRecursiveProposalOptions(args);
   const config = sparkWorkspaceBridgeHints();
   const python = (
     process.env.SPARK_SWARM_BRIDGE_PYTHON ||
@@ -711,7 +759,17 @@ export async function proposeRecursiveWorkspaceEvidence(
 
   const { stdout } = await execFileAsync(
     python,
-    ['-m', 'spark_swarm_bridge.cli', 'network', 'propose', '--from-payload', payloadPath],
+    [
+      '-m',
+      'spark_swarm_bridge.cli',
+      'network',
+      'propose',
+      '--from-payload',
+      payloadPath,
+      ...(options.title ? ['--title', options.title] : []),
+      ...(options.riskNotes ? ['--risk-notes', options.riskNotes] : []),
+      ...(options.replayCommand ? ['--replay-command', options.replayCommand] : [])
+    ],
     {
       env,
       timeout: 30000,
@@ -734,7 +792,7 @@ export async function proposeRecursiveWorkspaceEvidence(
     submitError: null
   };
 
-  if (!submit || !proposalPath) return result;
+  if (!options.submit || !proposalPath) return result;
 
   try {
     const submitResult = await execFileAsync(
