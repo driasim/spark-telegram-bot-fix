@@ -908,7 +908,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
         scope: 'workspace',
         specializationId: null,
         repoLabel: 'spark-intelligence-builder',
-        summary: 'Builder chip loop for Startup YC completed 3/3 round(s).',
+        summary: 'Builder chip loop for Startup Yc completed 3/3 round(s).',
         status: 'open',
         bestOutcomeId: 'outcome_builder_chip_startup_yc_20260507T100000000',
         updatedAt: '2026-05-07T10:00:00.000Z'
@@ -922,7 +922,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
         targetType: 'evolution_path',
         targetId: 'path_builder_chip_startup_yc',
         verdict: 'improved',
-        summary: 'Final round improved.',
+        summary: 'Startup Yc final round improved.',
         metricName: 'builder_chip_loop_best_metric',
         metricValue: 0.72,
         context: {
@@ -930,7 +930,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
             headlineLabel: 'Best metric',
             headlineValue: 0.72,
             headlineGoal: 'higher',
-            modelLabel: 'Startup YC',
+            modelLabel: 'Startup Yc',
             components: [
               { key: 'best_metric', label: 'Best metric', value: 0.72, goal: 'higher' }
             ],
@@ -962,15 +962,18 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(sessions[0].domain, 'spark-intelligence-builder');
   assert.equal(sessions[0].kanban_bucket, 'active');
   assert.equal(sessions[0].review_required, false);
+  assert.match(renderRecursiveSessions(sessions), /Startup YC completed 3\/3 round\(s\)\./);
+  assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
   assert.match(report, /Spark Intelligence Builder improved\./);
   assert.match(report, /Change: improved/);
   assert.match(report, /Compare: matches current best\./);
   assert.match(report, /Updated: May 7, 2026, 10:00 UTC/);
-  assert.match(report, /What happened:\nFinal round improved\./);
+  assert.match(report, /What happened:\nStartup YC final round improved\./);
   assert.match(report, /Score: builder chip loop best metric 0.72/);
   assert.match(report, /Scorecard: Best metric 0.72; goal=higher; model=Startup YC; Rounds: 3\/3/);
+  assert.doesNotMatch(report, /Startup Yc/);
   assert.match(report, /Evidence: saved run trace - Startup YC chip-loop status\./);
   assert.match(report, /Needs review: clear\./);
   assert.match(report, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
@@ -982,7 +985,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(trace.spawner.board_entry.taskCount, 2);
   assert.equal(trace.timeline[0].kind, 'outcome');
   assert.equal(trace.timeline[0].status, 'improved');
-  assert.equal(trace.timeline[0].summary, 'Final round improved. builder chip loop best metric 0.72');
+  assert.equal(trace.timeline[0].summary, 'Startup Yc final round improved. builder chip loop best metric 0.72');
   assert.equal(trace.timeline[1].kind, 'artifact');
   assert.equal(trace.timeline[1].status, 'run_trace');
 });

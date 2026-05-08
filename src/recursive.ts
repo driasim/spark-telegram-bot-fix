@@ -1330,7 +1330,7 @@ export function buildRecursiveArtifactBridgeArgs(
 }
 
 function truncate(value: string, limit: number): string {
-  const clean = value.replace(/\s+/g, ' ').trim();
+  const clean = normalizeKnownAcronyms(value.replace(/\s+/g, ' ').trim());
   return clean.length <= limit ? clean : `${clean.slice(0, limit - 1).trim()}...`;
 }
 
@@ -1379,12 +1379,26 @@ function sentenceCaseFirst(value: string): string {
 }
 
 function truncateAtWord(value: string, limit: number): string {
-  const clean = value.replace(/\s+/g, ' ').trim();
+  const clean = normalizeKnownAcronyms(value.replace(/\s+/g, ' ').trim());
   if (clean.length <= limit) return clean;
   const clipped = clean.slice(0, limit - 1);
   const lastSpace = clipped.lastIndexOf(' ');
   const prefix = lastSpace > Math.floor(limit * 0.6) ? clipped.slice(0, lastSpace) : clipped;
   return `${prefix.trim()}...`;
+}
+
+function normalizeKnownAcronyms(value: string): string {
+  return value
+    .replace(/\bAgi\b/g, 'AGI')
+    .replace(/\bApi\b/g, 'API')
+    .replace(/\bCli\b/g, 'CLI')
+    .replace(/\bDb\b/g, 'DB')
+    .replace(/\bGpt\b/g, 'GPT')
+    .replace(/\bGtm\b/g, 'GTM')
+    .replace(/\bLlm\b/g, 'LLM')
+    .replace(/\bUi\b/g, 'UI')
+    .replace(/\bUx\b/g, 'UX')
+    .replace(/\bYc\b/g, 'YC');
 }
 
 function formatDelta(value: number): string {
@@ -2040,8 +2054,10 @@ function formatOutcomeScorecard(outcome: SparkWorkspaceOutcome): string | null {
     ? `${scorecard.headlineLabel || formatMetricLabel(outcome.metricName)} ${formatNumber(scorecard.headlineValue)}`
     : null;
   const goal = scorecard.headlineGoal ? `goal=${scorecard.headlineGoal}` : null;
-  const model = scorecard.modelLabel ? `model=${scorecard.modelLabel}` : null;
-  const details = (scorecard.details || []).slice(0, 2).map((detail) => `${detail.label}: ${detail.value}`);
+  const model = scorecard.modelLabel ? `model=${normalizeKnownAcronyms(scorecard.modelLabel)}` : null;
+  const details = (scorecard.details || [])
+    .slice(0, 2)
+    .map((detail) => normalizeKnownAcronyms(`${detail.label}: ${detail.value}`));
   return [headline, goal, model, ...details].filter(Boolean).join('; ') || null;
 }
 
