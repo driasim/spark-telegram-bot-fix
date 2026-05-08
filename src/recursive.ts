@@ -1667,13 +1667,6 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const decisionLine = decisions.length > 0
     ? `${pluralize(decisions.length, 'decision')} waiting`
     : 'clear';
-  const nextActions = [
-    decisions.length > 0 ? `1. /recursive review ${path.id}` : null,
-    `${decisions.length > 0 ? '2' : '1'}. /recursive trace ${path.id}`,
-    recursiveStartTargetForPath(path, spec)
-      ? `${decisions.length > 0 ? '3. After review: ' : '2. '}/recursive start ${recursiveStartTargetForPath(path, spec)} rounds 3`
-      : null
-  ].filter((line): line is string => Boolean(line));
 
   return [
     outcomeHeadline(label, verdict),
@@ -1681,6 +1674,7 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
     `- Change: ${changeLine}`,
     `- Review: ${decisionLine}`,
     artifacts.length > 0 ? `- Evidence: ${pluralize(artifacts.length, 'saved item')} in Workspace` : null,
+    decisions.length > 0 ? `- Action: /recursive review ${path.id}` : null,
     '',
     signalLine ? 'Signal' : null,
     signalLine ? `- ${signalLine}` : null,
@@ -1688,9 +1682,6 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
     'Open',
     `- Recursions: ${sparkWorkspaceRecursionsUrl()}`,
     decisions.length > 0 ? `- Decisions: ${sparkWorkspaceDecisionsUrl()}` : null,
-    '',
-    'Next:',
-    ...nextActions
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
@@ -1727,9 +1718,7 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
     'Open',
     `- Decisions: ${sparkWorkspaceDecisionsUrl()}`,
     '',
-    'Next:',
-    `1. ${reviewCall.replace(/[.]+$/, '')}`,
-    `2. /recursive trace ${path?.id || id}`
+    `Trace: /recursive trace ${path?.id || id}`
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 

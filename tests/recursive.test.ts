@@ -976,8 +976,8 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(report, /Scorecard:/);
   assert.doesNotMatch(report, /Mastery:/);
-  assert.match(report, /1\. \/recursive trace path_builder_chip_startup_yc/);
-  assert.match(report, /2\. \/recursive start startup-yc rounds 3/);
+  assert.doesNotMatch(report, /Next:/);
+  assert.doesNotMatch(report, /recursive trace path_builder_chip_startup_yc/);
 
   const trace = workspaceTraceView(snapshot, 'path_builder_chip_startup_yc');
   assert.equal(trace.spawner.board_entry.taskCount, 2);
@@ -1561,12 +1561,11 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
   assert.match(report, /- Review: 1 decision waiting/);
+  assert.match(report, /- Action: \/recursive review path_builder_chip_startup_yc/);
   assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.match(report, /- Decisions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
-  assert.match(report, /1\. \/recursive review path_builder_chip_startup_yc/);
-  assert.match(report, /2\. \/recursive trace path_builder_chip_startup_yc/);
-  assert.match(report, /3\. After review: \/recursive start startup-yc rounds 3/);
-  assert.doesNotMatch(report, /3\. \/recursive start startup-yc rounds 3/);
+  assert.doesNotMatch(report, /Next:/);
+  assert.doesNotMatch(report, /After review:/);
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path_builder_chip_startup_yc');
   assert.match(review, /Spark Intelligence Builder review/);
@@ -1576,6 +1575,8 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
   assert.match(review, /- Network: not submitted/);
   assert.match(review, /- Why: Outcome needs dashboard action\./);
   assert.match(review, /- Move: Open Recursions and inspect the run trace\./);
+  assert.match(review, /Trace: \/recursive trace path_builder_chip_startup_yc/);
+  assert.doesNotMatch(review, /Next:/);
   assert.doesNotMatch(review, /review_outcome/);
 });
 
