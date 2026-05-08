@@ -232,12 +232,12 @@ test('parses and renders stitched recursive trace views', () => {
     ]
   });
 
-  assert.match(reply, /session-startup-yc-001 trace is completed\./);
-  assert.match(reply, /Review needed: no\./);
+  assert.match(reply, /Startup YC recursive autoloop is completed\./);
+  assert.match(reply, /Needs review: no\./);
   assert.match(reply, /Canvas: pending/);
   assert.match(reply, /round-003/);
   assert.match(reply, /Dashboard: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /Review: \/recursive review session-startup-yc-001/);
+  assert.match(reply, /1\. \/recursive review session-startup-yc-001/);
 });
 
 test('builds a Workspace collective payload for Builder chip loops', () => {
@@ -379,12 +379,14 @@ test('renders specialization path loop completion with workspace next step', () 
     summary: 'Startup YC tested a benchmark-backed YC doctrine mutation.'
   });
 
-  assert.match(reply, /Startup YC loop finished: flat\./);
+  assert.match(reply, /Startup YC held steady\./);
+  assert.match(reply, /Change: no improvement this round/);
   assert.match(reply, /Score: scenario score \/ baseline 0.61/);
-  assert.match(reply, /Artifacts saved locally: session summary, collective payload\./);
-  assert.match(reply, /Workspace sync is in\./);
+  assert.match(reply, /What happened:\nStartup YC tested a benchmark-backed YC doctrine mutation\./);
+  assert.match(reply, /Saved locally: session summary, collective payload\./);
+  assert.match(reply, /Workspace is updated\./);
   assert.match(reply, /Dashboard: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /Report: \/recursive report path_startup_yc/);
+  assert.match(reply, /1\. \/recursive report path_startup_yc/);
   assert.doesNotMatch(reply, /C:\\paths/);
   assert.doesNotMatch(reply, /Workspace outcome/);
 });
@@ -399,10 +401,10 @@ test('renders recursive artifact sync completion as a compact next step', () => 
   });
 
   assert.match(reply, /Artifact sync finished\./);
-  assert.match(reply, /Workspace sync is in\./);
+  assert.match(reply, /Workspace is updated\./);
   assert.match(reply, /Dashboard: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /Report: \/recursive report path_prompt_benchmark/);
-  assert.match(reply, /Trace: \/recursive trace path_prompt_benchmark/);
+  assert.match(reply, /1\. \/recursive report path_prompt_benchmark/);
+  assert.match(reply, /2\. \/recursive trace path_prompt_benchmark/);
   assert.doesNotMatch(reply, /Workspace outcome/);
   assert.doesNotMatch(reply, /bridge/);
 });
@@ -764,14 +766,31 @@ test('renders Builder chip loop completion with Workspace sync details', () => {
     }
   );
 
-  assert.match(reply, /Startup YC loop finished: improved\./);
+  assert.match(reply, /Startup YC improved\./);
+  assert.match(reply, /Change: improved/);
   assert.match(reply, /Best score: 0.8123/);
-  assert.match(reply, /Suggestions reviewed: 4/);
-  assert.match(reply, /Artifacts saved locally: status file\./);
-  assert.match(reply, /Workspace sync is in\./);
-  assert.match(reply, /Report: \/recursive report path_builder_chip_startup_yc/);
+  assert.match(reply, /Spark reviewed 4 suggestions\. The best result improved\./);
+  assert.match(reply, /Saved locally: status file\./);
+  assert.match(reply, /Workspace is updated\./);
+  assert.match(reply, /1\. \/recursive report path_builder_chip_startup_yc/);
   assert.doesNotMatch(reply, /C:\\status/);
   assert.doesNotMatch(reply, /Workspace outcome/);
+});
+
+test('renders regressed Builder chip loop completion without softening the verdict', () => {
+  const reply = renderBuilderChipLoopCompletion({
+    ok: true,
+    chipKey: 'startup-yc',
+    roundsCompleted: 1,
+    totalRounds: 1,
+    history: [
+      { round_index: 1, suggestions_count: 2, best_verdict: 'regressed', best_metric: 0.4123 }
+    ]
+  });
+
+  assert.match(reply, /Startup YC regressed\./);
+  assert.match(reply, /Change: regressed/);
+  assert.match(reply, /The best result regressed\./);
 });
 
 test('maps workspace-scoped Builder chip loops into Telegram recursive sessions', () => {
@@ -838,18 +857,21 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(sessions[0].review_required, false);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /spark-intelligence-builder is open\./);
-  assert.match(report, /Latest result: improved: Final round improved\./);
-  assert.match(report, /Score: builder chip loop best metric=0.72/);
+  assert.match(report, /Spark Intelligence Builder improved\./);
+  assert.match(report, /Change: improved/);
+  assert.match(report, /What happened:\nFinal round improved\./);
+  assert.match(report, /Score: builder chip loop best metric 0.72/);
   assert.match(report, /Scorecard: Best metric 0.72; goal=higher; model=Startup YC; Rounds: 3\/3/);
-  assert.match(report, /Artifact refs: 1 \(run_trace:Startup YC chip-loop status\)/);
-  assert.match(report, /Review queue: clear\./);
+  assert.match(report, /Saved evidence: 1 item \(run_trace:Startup YC chip-loop status\)/);
+  assert.match(report, /Needs review: clear\./);
+  assert.match(report, /1\. \/recursive trace path_builder_chip_startup_yc/);
+  assert.match(report, /2\. \/recursive start startup-yc rounds 3/);
 
   const trace = workspaceTraceView(snapshot, 'path_builder_chip_startup_yc');
   assert.equal(trace.spawner.board_entry.taskCount, 2);
   assert.equal(trace.timeline[0].kind, 'outcome');
   assert.equal(trace.timeline[0].status, 'improved');
-  assert.equal(trace.timeline[0].summary, 'Final round improved. builder chip loop best metric=0.72');
+  assert.equal(trace.timeline[0].summary, 'Final round improved. builder chip loop best metric 0.72');
   assert.equal(trace.timeline[1].kind, 'artifact');
   assert.equal(trace.timeline[1].status, 'run_trace');
 });
@@ -964,14 +986,14 @@ test('reports non-Builder Workspace loop artifacts without leaking unrelated ref
   };
 
   const benchmarkReport = renderRecursiveWorkspaceReport(snapshot, 'path_benchmark_prompt_engineer_20260508t030923z_65b30a0f');
-  assert.match(benchmarkReport, /Score: average composite score=2.1/);
-  assert.match(benchmarkReport, /Artifact refs: 1 \(benchmark_run:Prompt benchmark run JSON\)/);
+  assert.match(benchmarkReport, /Score: average composite score 2.1/);
+  assert.match(benchmarkReport, /Saved evidence: 1 item \(benchmark_run:Prompt benchmark run JSON\)/);
   assert.doesNotMatch(benchmarkReport, /Domain autoloop manifest/);
   assert.doesNotMatch(benchmarkReport, /Startup YC chip-loop status/);
 
   const autoloopReport = renderRecursiveWorkspaceReport(snapshot, 'path_domain_autoloop_crypto_trading');
-  assert.match(autoloopReport, /Score: autoloop cycle count=4/);
-  assert.match(autoloopReport, /Artifact refs: 1 \(manifest:Domain autoloop manifest\)/);
+  assert.match(autoloopReport, /Score: autoloop cycle count 4/);
+  assert.match(autoloopReport, /Saved evidence: 1 item \(manifest:Domain autoloop manifest\)/);
   assert.doesNotMatch(autoloopReport, /Prompt benchmark run JSON/);
 
   const labTrace = workspaceTraceView(snapshot, 'path_domain_chip_lab_workspace_smoke_loop');
@@ -979,7 +1001,7 @@ test('reports non-Builder Workspace loop artifacts without leaking unrelated ref
   assert.equal(labTrace.timeline.find((item) => item.kind === 'artifact')?.title, 'Domain chip lab telemetry');
 });
 
-test('reports Workspace best outcome id when snapshot omits outcome bodies', () => {
+test('uses path summary in Workspace report when snapshot omits outcome bodies', () => {
   const snapshot: any = {
     evolutionPaths: [
       {
@@ -1002,7 +1024,8 @@ test('reports Workspace best outcome id when snapshot omits outcome bodies', () 
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /Latest result: recorded: outcome_builder_chip_startup_yc_20260507T151032889/);
+  assert.match(report, /Spark Intelligence Builder was recorded\./);
+  assert.match(report, /What happened:\nBuilder chip loop for Startup YC completed 1\/1 round\(s\)\./);
 
   const trace = workspaceTraceView(snapshot, 'path_builder_chip_startup_yc');
   assert.equal(trace.timeline[0].kind, 'outcome');

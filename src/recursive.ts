@@ -926,31 +926,38 @@ export function renderBuilderChipLoopCompletion(
     ? finalRound.best_verdict || inferOutcomeVerdict(finalRound.best_verdict, finalRound.best_metric)
     : 'no rounds recorded';
   const lines = [
-    `${labelFromKey(chipKey)} loop finished: ${verdict}.`,
-    `Rounds: ${rounds}`
+    outcomeHeadline(labelFromKey(chipKey), verdict),
+    `Round: ${rounds}`,
+    `Change: ${friendlyOutcomeChange(verdict)}`
   ];
 
   if (finalRound) {
     if (typeof finalRound.best_metric === 'number') {
       lines.push(`Best score: ${formatNumber(finalRound.best_metric)}`);
     }
-    lines.push(`Suggestions reviewed: ${finalRound.suggestions_count}`);
+    lines.push(
+      '',
+      'What happened:',
+      `Spark reviewed ${pluralize(finalRound.suggestions_count, 'suggestion')}. The best result ${friendlyOutcomeChange(verdict)}.`
+    );
   }
 
-  if (result.statusPath) lines.push('Artifacts saved locally: status file.');
+  if (result.statusPath) lines.push('', 'Saved locally: status file.');
 
   if (sync) {
     lines.push(
-      sync.synced ? 'Workspace sync is in.' : 'Workspace sync was skipped.',
+      sync.synced ? 'Workspace is updated.' : 'Workspace update was skipped.',
       `Dashboard: ${sync.workspaceUrl}`
     );
   } else if (syncError) {
-    lines.push(`Workspace sync skipped: ${syncError}`);
+    lines.push(`Workspace update skipped: ${syncError}`);
   }
 
   lines.push(
-    `Report: /recursive report ${pathId}`,
-    `Trace: /recursive trace ${pathId}`
+    '',
+    'Next:',
+    `1. /recursive report ${pathId}`,
+    `2. /recursive trace ${pathId}`
   );
   return lines.join('\n');
 }
@@ -969,21 +976,24 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
     result.latestCandidatePath ? 'latest candidate' : null
   ].filter(Boolean);
   const lines = [
-    `${label} loop finished: ${verdict}.`,
-    `Rounds: ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0}`
+    outcomeHeadline(label, verdict),
+    `Round: ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0}`,
+    `Change: ${friendlyOutcomeChange(verdict)}`
   ];
 
   if (metricLine) lines.push(`Score: ${metricLine}`);
-  if (result.summary) lines.push(truncate(result.summary, 150));
+  if (result.summary) lines.push('', 'What happened:', truncate(result.summary, 150));
   if (localArtifacts.length > 0) {
-    lines.push(`Artifacts saved locally: ${localArtifacts.join(', ')}.`);
+    lines.push('', `Saved locally: ${localArtifacts.join(', ')}.`);
   }
 
   lines.push(
-    'Workspace sync is in.',
+    'Workspace is updated.',
     `Dashboard: ${sparkWorkspaceRecursionsUrl()}`,
-    `Report: /recursive report ${pathId}`,
-    `Trace: /recursive trace ${pathId}`
+    '',
+    'Next:',
+    `1. /recursive report ${pathId}`,
+    `2. /recursive trace ${pathId}`
   );
   return lines.join('\n');
 }
@@ -991,12 +1001,14 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
 export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspaceSyncResult): string {
   const lines = [
     'Artifact sync finished.',
-    result.synced ? 'Workspace sync is in.' : 'Workspace sync was skipped.'
+    result.synced ? 'Workspace is updated.' : 'Workspace update was skipped.'
   ];
   lines.push(
     `Dashboard: ${result.workspaceUrl}`,
-    `Report: /recursive report ${result.pathId}`,
-    `Trace: /recursive trace ${result.pathId}`
+    '',
+    'Next:',
+    `1. /recursive report ${result.pathId}`,
+    `2. /recursive trace ${result.pathId}`
   );
   return lines.join('\n');
 }
@@ -1116,12 +1128,12 @@ export function renderRecursiveTraceView(trace: RecursiveTraceView): string {
   const canvas = trace.spawner.canvas_queue;
   const timeline = trace.timeline.slice(-6).map((item) => `- ${item.kind}: ${item.title} [${item.status}]`);
   const reviewLine = trace.review.required
-    ? `Review needed: ${trace.review.decisions.length} decision(s).`
-    : 'Review needed: no.';
+    ? `Needs review: ${pluralize(trace.review.decisions.length, 'decision')}.`
+    : 'Needs review: no.';
   return [
-    `${trace.session_id} trace is ${trace.status}.`,
+    `${trace.title || trace.session_id} is ${trace.status}.`,
     reviewLine,
-    `Workspace board: ${trace.spawner.board_entry.status}, ${trace.spawner.board_entry.taskCount} item(s).`,
+    `Board: ${trace.spawner.board_entry.status}, ${pluralize(trace.spawner.board_entry.taskCount, 'item')}.`,
     `Canvas: ${canvas.pending ? 'pending' : canvas.latest ? 'latest' : 'not queued'} (${canvas.pipelineId}).`,
     '',
     'Recent movement:',
@@ -1129,7 +1141,10 @@ export function renderRecursiveTraceView(trace: RecursiveTraceView): string {
     '',
     `Dashboard: ${sparkWorkspaceRecursionsUrl()}`,
     `Decisions: ${sparkWorkspaceDecisionsUrl()}`,
-    `Review: /recursive review ${trace.session_id}`
+    '',
+    'Next:',
+    `1. /recursive review ${trace.session_id}`,
+    `2. /recursive report ${trace.session_id}`
   ].join('\n');
 }
 
@@ -1495,33 +1510,37 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const artifacts = artifactsForPath(snapshot, path);
   const metricLine = latestOutcome ? formatOutcomeMetric(latestOutcome) : null;
   const scorecardLine = latestOutcome ? formatOutcomeScorecard(latestOutcome) : null;
-  const outcomeLine = latestOutcome
-    ? `${latestOutcome.verdict}: ${latestOutcome.summary}`
-    : path.bestOutcomeId
-      ? `recorded: ${path.bestOutcomeId}`
-      : 'none yet';
-  const heading = `${spec?.label || path.repoLabel || path.scope || path.id} is ${path.status}.`;
+  const label = pathDisplayLabel(path, spec);
+  const verdict = latestOutcome?.verdict || (path.bestOutcomeId ? 'recorded' : path.status);
+  const outcomeLine = latestOutcome?.summary || path.summary || (path.bestOutcomeId ? path.bestOutcomeId : 'No outcome recorded yet.');
   const decisionLine = decisions.length > 0
-    ? `Review queue: ${decisions.length} decision(s) waiting.`
-    : 'Review queue: clear.';
+    ? `Needs review: ${pluralize(decisions.length, 'decision')} waiting.`
+    : 'Needs review: clear.';
+  const nextActions = [
+    decisions.length > 0 ? `1. /recursive review ${path.id}` : null,
+    `${decisions.length > 0 ? '2' : '1'}. /recursive trace ${path.id}`,
+    recursiveStartTargetForPath(path, spec) ? `${decisions.length > 0 ? '3' : '2'}. /recursive start ${recursiveStartTargetForPath(path, spec)} rounds 3` : null
+  ].filter((line): line is string => Boolean(line));
 
   return [
-    heading,
+    outcomeHeadline(label, verdict),
+    metricLine ? `Score: ${metricLine}` : null,
+    `Change: ${friendlyOutcomeChange(verdict)}`,
     `Updated: ${path.updatedAt || 'unknown'}`,
     '',
-    `Current work: ${path.summary}`,
-    `Latest result: ${outcomeLine}`,
-    metricLine ? `Score: ${metricLine}` : null,
+    'What happened:',
+    truncate(outcomeLine, 220),
     scorecardLine ? `Scorecard: ${scorecardLine}` : null,
-    latestInsight ? `Best recent insight: ${truncate(latestInsight.summary, 220)}` : 'Best recent insight: none yet',
+    latestInsight ? `Best signal: ${truncate(latestInsight.summary, 220)}` : 'Best signal: none yet',
     strongestMastery ? `Strongest mastery: ${truncate(strongestMastery.summary, 160)}` : 'Strongest mastery: none yet',
     formatArtifactRefs(artifacts),
     decisionLine,
     '',
     `Dashboard: ${sparkWorkspaceRecursionsUrl()}`,
     `Decisions: ${sparkWorkspaceDecisionsUrl()}`,
-    `Trace: /recursive trace ${path.id}`,
-    decisions.length > 0 ? `Review: /recursive review ${path.id}` : null
+    '',
+    'Next:',
+    ...nextActions
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
@@ -1601,9 +1620,52 @@ function uniqueArtifactRefs(artifacts: SparkWorkspaceArtifactRef[]): SparkWorksp
   return unique;
 }
 
+function pathDisplayLabel(path: SparkWorkspaceEvolutionPath, spec: SparkWorkspaceSpecialization | null): string {
+  return spec?.label || labelFromKey(path.repoLabel || path.scope || path.id);
+}
+
+function recursiveStartTargetForPath(path: SparkWorkspaceEvolutionPath, spec: SparkWorkspaceSpecialization | null): string | null {
+  if (spec?.key) return spec.key;
+  if (path.id.startsWith('path:')) return path.id.slice('path:'.length);
+  const builderChipMatch = /^path_builder_chip_(.+)$/.exec(path.id);
+  if (builderChipMatch) return builderChipMatch[1].replace(/_/g, '-');
+  const simplePathMatch = /^path_(.+)$/.exec(path.id);
+  if (simplePathMatch) return simplePathMatch[1].replace(/_/g, '-');
+  return null;
+}
+
+function outcomeHeadline(label: string, verdict: string | null | undefined): string {
+  return `${label} ${friendlyOutcomeVerb(verdict)}.`;
+}
+
+function friendlyOutcomeVerb(verdict: string | null | undefined): string {
+  const normalized = (verdict || '').toLowerCase();
+  if (normalized.includes('regress')) return 'regressed';
+  if (normalized.includes('improv')) return 'improved';
+  if (normalized.includes('flat')) return 'held steady';
+  if (normalized.includes('record')) return 'was recorded';
+  if (normalized.includes('open')) return 'is open';
+  if (normalized.includes('resolved') || normalized.includes('completed')) return 'is complete';
+  if (normalized.includes('expired')) return 'expired';
+  if (normalized.includes('unknown')) return 'needs more signal';
+  if (normalized.includes('no rounds')) return 'has no rounds yet';
+  return normalized || 'is recorded';
+}
+
+function friendlyOutcomeChange(verdict: string | null | undefined): string {
+  const normalized = (verdict || '').toLowerCase();
+  if (normalized.includes('regress')) return 'regressed';
+  if (normalized.includes('improv')) return 'improved';
+  if (normalized.includes('flat')) return 'no improvement this round';
+  if (normalized.includes('record')) return 'recorded';
+  if (normalized.includes('unknown')) return 'not enough signal yet';
+  if (normalized.includes('no rounds')) return 'not started';
+  return normalized || 'recorded';
+}
+
 function formatOutcomeMetric(outcome: SparkWorkspaceOutcome): string | null {
   if (typeof outcome.metricValue !== 'number') return null;
-  return `${formatMetricLabel(outcome.metricName)}=${formatNumber(outcome.metricValue)}`;
+  return `${formatMetricLabel(outcome.metricName)} ${formatNumber(outcome.metricValue)}`;
 }
 
 function formatOutcomeScorecard(outcome: SparkWorkspaceOutcome): string | null {
@@ -1619,13 +1681,13 @@ function formatOutcomeScorecard(outcome: SparkWorkspaceOutcome): string | null {
 }
 
 function formatArtifactRefs(artifacts: SparkWorkspaceArtifactRef[]): string {
-  if (artifacts.length === 0) return 'Artifact refs: 0';
+  if (artifacts.length === 0) return 'Saved evidence: 0 items';
   const labels = artifacts
     .slice(0, 3)
     .map((artifact) => `${artifact.kind}:${artifact.label || artifact.id}`)
     .join(', ');
   const suffix = artifacts.length > 3 ? `, +${artifacts.length - 3} more` : '';
-  return `Artifact refs: ${artifacts.length} (${labels}${suffix})`;
+  return `Saved evidence: ${pluralize(artifacts.length, 'item')} (${labels}${suffix})`;
 }
 
 function formatMetricLabel(value: string | null | undefined): string {
@@ -1634,6 +1696,10 @@ function formatMetricLabel(value: string | null | undefined): string {
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : String(Math.round(value * 10000) / 10000);
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function findInboxItemForDecision(snapshot: SparkWorkspaceSnapshot, id: string): SparkWorkspaceInboxItem | null {
