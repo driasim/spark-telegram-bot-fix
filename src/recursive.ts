@@ -7,6 +7,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { LoopResult } from './chipLoop';
 import type { PathLoopResult } from './pathLoop';
+import { redactText } from './redaction';
 
 export type RecursiveDecision = 'approve_local' | 'defer' | 'reject' | 'request_more_eval';
 
@@ -18,6 +19,7 @@ export interface RecursiveCommand {
   rationale?: string;
   syncKind?: RecursiveArtifactSyncKind;
   syncArgs?: string[];
+  proposeArgs?: string[];
 }
 
 export type RecursiveArtifactSyncKind = 'prompt-benchmark' | 'domain-chip-lab' | 'domain-autoloop';
@@ -247,6 +249,17 @@ export interface RecursiveWorkspaceSyncResult {
 export interface RecursiveArtifactSyncInput {
   kind: RecursiveArtifactSyncKind;
   args: string[];
+}
+
+export interface RecursiveNetworkProposalResult {
+  proposalPath: string | null;
+  currentTier: string | null;
+  proposedTier: string | null;
+  readyForPr: boolean | null;
+  missingGates: string[];
+  submitted: boolean;
+  submitState: string | null;
+  submitError: string | null;
 }
 
 const DEFAULT_SWARM_API_URL = 'http://127.0.0.1:8787';
@@ -542,6 +555,9 @@ export function parseRecursiveCommand(raw: string): RecursiveCommand | null {
     if (syncKind) return { action, syncKind, syncArgs: parts.slice(1) };
     return { action, id: parts[0] };
   }
+  if (action === 'propose') {
+    return { action, id: parts[0], proposeArgs: parts.slice(1) };
+  }
   if (
     action === 'session' ||
     action === 'report' ||
@@ -669,6 +685,75 @@ export async function syncRecursiveArtifactToWorkspace(input: RecursiveArtifactS
     detail: `${input.kind} artifact synced through Spark Swarm bridge.`,
     workspaceUrl: sparkWorkspaceRecursionsUrl()
   };
+}
+
+export async function proposeRecursiveWorkspaceEvidence(
+  payloadPath: string,
+  args: string[] = []
+): Promise<RecursiveNetworkProposalResult> {
+  if (!payloadPath?.trim()) throw new Error('Usage: /recursive propose <collectivePayloadJson> [submit]');
+  const submit = args.some((arg) => arg.toLowerCase() === 'submit' || arg.toLowerCase() === '--submit');
+  const config = sparkWorkspaceBridgeHints();
+  const python = (
+    process.env.SPARK_SWARM_BRIDGE_PYTHON ||
+    process.env.SPARK_BUILDER_PYTHON ||
+    process.env.PYTHON ||
+    'python'
+  ).trim();
+  const bridgeSrc = resolveSparkSwarmBridgeSrc();
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (config.apiUrl) env.SPARK_SWARM_API_URL = config.apiUrl;
+  if (config.workspaceId) env.SPARK_SWARM_WORKSPACE_ID = config.workspaceId;
+  if (config.accessToken) env.SPARK_SWARM_ACCESS_TOKEN = config.accessToken;
+  if (bridgeSrc) {
+    env.PYTHONPATH = env.PYTHONPATH ? `${bridgeSrc}${path.delimiter}${env.PYTHONPATH}` : bridgeSrc;
+  }
+
+  const { stdout } = await execFileAsync(
+    python,
+    ['-m', 'spark_swarm_bridge.cli', 'network', 'propose', '--from-payload', payloadPath],
+    {
+      env,
+      timeout: 30000,
+      windowsHide: true,
+      maxBuffer: 1024 * 1024
+    }
+  );
+  const proposalPath = parseBridgeLine(stdout, 'Proposal');
+  const result: RecursiveNetworkProposalResult = {
+    proposalPath,
+    currentTier: parseBridgeLine(stdout, 'Current tier'),
+    proposedTier: parseBridgeLine(stdout, 'Proposed tier'),
+    readyForPr: parseBridgeLine(stdout, 'Ready for PR') === 'yes',
+    missingGates: (parseBridgeLine(stdout, 'Missing gates') || '')
+      .split(',')
+      .map((gate) => gate.trim())
+      .filter(Boolean),
+    submitted: false,
+    submitState: null,
+    submitError: null
+  };
+
+  if (!submit || !proposalPath) return result;
+
+  try {
+    const submitResult = await execFileAsync(
+      python,
+      ['-m', 'spark_swarm_bridge.cli', 'network', 'submit', '--proposal', proposalPath],
+      {
+        env,
+        timeout: 30000,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024
+      }
+    );
+    result.submitted = parseBridgeLine(submitResult.stdout, 'Accepted') === 'yes';
+    result.submitState = parseBridgeLine(submitResult.stdout, 'State');
+  } catch (error: any) {
+    result.submitError = redactText(error?.stdout || error?.stderr || error?.message || String(error));
+  }
+
+  return result;
 }
 
 export async function queueRecursiveCanvas(id: string): Promise<RecursiveCanvasQueueResult> {
@@ -1018,6 +1103,27 @@ export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspace
   return lines.join('\n');
 }
 
+export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalResult): string {
+  const lines = [
+    'Workspace proposal',
+    '',
+    'Status',
+    `- ${result.readyForPr ? 'ready for PR review' : 'blocked until gates pass'}`
+  ];
+  if (result.currentTier) lines.push(`- current: ${result.currentTier}`);
+  if (result.proposedTier) lines.push(`- proposed: ${result.proposedTier}`);
+  if (result.missingGates.length > 0) {
+    lines.push('', 'Missing', ...result.missingGates.map((gate) => `- ${gate}`));
+  }
+  lines.push('', 'Bundle', `- ${result.proposalPath || 'not written'}`);
+  if (result.submitted || result.submitError) {
+    lines.push('', 'Workspace');
+    lines.push(result.submitted ? `- submitted${result.submitState ? ` (${result.submitState})` : ''}` : '- not submitted');
+    lines.push(result.submitError ? `- ${result.submitError}` : `- ${sparkWorkspaceDecisionsUrl()}`);
+  }
+  return lines.join('\n');
+}
+
 export function renderRecursiveHelp(): string {
   return [
     'Spark Workspace Recursions',
@@ -1037,6 +1143,7 @@ export function renderRecursiveHelp(): string {
     'Deep cuts:',
     '/recursive paths - specialization lanes',
     '/recursive trace <id> - detailed timeline',
+    '/recursive propose <collectivePayloadJson> [submit]',
     '/recursive sync prompt-benchmark <runJson> [report <reportPath>]',
     '/recursive sync domain-chip-lab <telemetryJson> <chipKey> [chip-path <path>] [packet <path>]',
     '/recursive sync domain-autoloop <manifestJson> <stateJson> [policy <path>] [journal <path>] [lane-report <path>]',

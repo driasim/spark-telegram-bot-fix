@@ -9,6 +9,7 @@ import {
   parseRecursiveCommand,
   renderBuilderChipLoopCompletion,
   renderRecursiveArtifactSyncCompletion,
+  renderRecursiveNetworkProposal,
   renderRecursiveWorkspaceReport,
   renderRecursiveWorkspaceReview,
   renderRecursiveCanvasQueue,
@@ -68,6 +69,30 @@ test('parses recursive review decisions with rationale', () => {
     syncKind: 'domain-autoloop',
     syncArgs: ['C:\\crypto\\manifest.json', 'C:\\crypto\\state.json']
   });
+  assert.deepEqual(parseRecursiveCommand('propose C:\\crypto\\.spark-swarm\\collective-sync.json submit'), {
+    action: 'propose',
+    id: 'C:\\crypto\\.spark-swarm\\collective-sync.json',
+    proposeArgs: ['submit']
+  });
+});
+
+test('renders recursive network proposal gates without overclaiming', () => {
+  const reply = renderRecursiveNetworkProposal({
+    proposalPath: 'C:\\crypto\\.spark-swarm\\network-proposals\\proposal\\contribution.json',
+    currentTier: 'private_draft',
+    proposedTier: 'reviewed_candidate',
+    readyForPr: false,
+    missingGates: ['benchmarkEvidence'],
+    submitted: true,
+    submitState: 'blocked',
+    submitError: null
+  });
+
+  assert.match(reply, /Workspace proposal/);
+  assert.match(reply, /blocked until gates pass/);
+  assert.match(reply, /benchmarkEvidence/);
+  assert.match(reply, /submitted \(blocked\)/);
+  assert.match(reply, /runs\?tab=decisions/);
 });
 
 test('renders compact recursive session and path lists', () => {

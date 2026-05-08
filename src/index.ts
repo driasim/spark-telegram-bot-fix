@@ -48,6 +48,7 @@ import { runChipLoop } from './chipLoop';
 import { resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
 import {
   parseRecursiveCommand,
+  proposeRecursiveWorkspaceEvidence,
   queueRecursiveCanvas,
   recordRecursiveDecision,
   recursiveReviewCandidates,
@@ -62,6 +63,7 @@ import {
   renderBuilderChipLoopCompletion,
   renderRecursiveHelp,
   renderRecursivePaths,
+  renderRecursiveNetworkProposal,
   renderRecursivePromotionPacket,
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
@@ -2195,6 +2197,13 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       await safeSendChatAction(ctx, 'typing');
       const packet = await stageRecursiveSwarmPacket(parsed.id);
       return ctx.reply(renderRecursiveSwarmPacket(packet));
+    }
+
+    if (parsed.action === 'propose') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive propose <collectivePayloadJson> [submit]');
+      await safeSendChatAction(ctx, 'typing');
+      const result = await proposeRecursiveWorkspaceEvidence(parsed.id, parsed.proposeArgs || []);
+      return ctx.reply(renderRecursiveNetworkProposal(result));
     }
 
     if (parsed.action === 'start') {
