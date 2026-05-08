@@ -17,8 +17,10 @@ import {
 import { renderChoiceContextAcknowledgement, renderConversationFrameContext, type ConversationFrame } from './conversationFrame';
 import {
   getBuilderBridgeStatus,
+  runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
+  runBuilderRouteProbe,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
   runBuilderTelegramBridge,
@@ -43,6 +45,31 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
+import {
+  parseRecursiveCommand,
+  queueRecursiveCanvas,
+  recordRecursiveDecision,
+  recursiveReviewCandidates,
+  recursiveSessionReport,
+  recursiveSessions,
+  recursiveSessionReview,
+  recursiveSessionStatus,
+  recursiveTraceView,
+  renderRecursiveDecision,
+  renderRecursiveCanvasQueue,
+  renderBuilderChipLoopCompletion,
+  renderRecursiveHelp,
+  renderRecursivePaths,
+  renderRecursivePromotionPacket,
+  renderRecursiveReviewCandidates,
+  renderRecursiveSessions,
+  renderRecursiveSwarmPacket,
+  renderRecursiveTraceView,
+  sparkWorkspaceRecursionsUrl,
+  stageRecursivePromotionPacket,
+  stageRecursiveSwarmPacket,
+  syncBuilderChipLoopToWorkspace
+} from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
@@ -50,6 +77,7 @@ import {
   summarizeLocalWorkspaces
 } from './localWorkspace';
 import { createSchedule, deleteSchedule, listSchedules, formatScheduleList, humanizeCron, formatNextFireLocal } from './schedule';
+import { probeTelegramRunnerWritability } from './runnerPreflight';
 import {
   describeSparkAccessProfile,
   getConfiguredSparkAccessProfile,
@@ -64,6 +92,7 @@ import {
   renderSparkAccessStatus,
   setSparkAccessProfile,
   sparkAccessAllows,
+  sparkAccessLevel,
   sparkMissionNeedsOperatingSystemAccess,
   validateSparkAccessProfileForRuntime,
   type SparkAccessRequirement
@@ -75,8 +104,11 @@ import {
   getTelegramRelayVerbosity,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
+  approvePendingMissionLesson,
   getTelegramRelayIdentity,
   markMissionRelayCancelled,
+  markMissionRelayPaused,
+  markMissionRelayResumed,
   registerMissionRelay,
   shouldSuppressMissionHandoff,
   setTelegramMissionLinkPreference,
@@ -101,7 +133,6 @@ import {
   extractSparkWikiAnswerQuestion,
   extractSparkWikiPromotionIntent,
   extractSparkWikiQuery,
-  extractAgentDoctrinePreference,
   extractPlainChatMemoryDirective,
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
@@ -260,6 +291,7 @@ interface PendingClarification {
   projectPath: string | null;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  capabilityProposalPacket?: Record<string, unknown>;
   questions: string[];
   addedAssumptions: string[];
   timestamp: number;
@@ -271,6 +303,7 @@ interface PendingDomainChipBuild {
   projectName: string;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  capabilityProposalPacket?: Record<string, unknown>;
   timestamp: number;
 }
 const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
@@ -321,8 +354,33 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   if (isLowInformationLlmReply(builderReply.responseText)) {
     return false;
   }
-  await ctx.reply(builderReply.responseText);
+  await deliverBuilderReply(ctx, builderReply);
   return true;
+}
+
+async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>>): Promise<void> {
+  if (builderReply.responseText) {
+    await ctx.reply(builderReply.responseText);
+  }
+  if (builderReply.voiceMedia) {
+    await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia);
+  }
+}
+
+async function sendBuilderVoiceMedia(ctx: any, voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>): Promise<void> {
+  const audioBuffer = Buffer.from(voiceMedia.audioBase64, 'base64');
+  const inputFile = {
+    source: audioBuffer,
+    filename: voiceMedia.filename,
+  };
+  console.log(
+    `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length}`
+  );
+  if (voiceMedia.voiceCompatible) {
+    await ctx.replyWithVoice(inputFile);
+    return;
+  }
+  await ctx.replyWithAudio(inputFile);
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
@@ -461,6 +519,10 @@ bot.start(async (ctx) => {
       '/model - Show or change Agent/Mission model routing',
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
+      '/context - Show Agent Operating Context',
+      '/probe <route> - Run a route probe and record AOC evidence',
+      '/operating_context or /agent_context - Same, Telegram-safe aliases',
+      '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
       '/access <1|2|3|4> - Choose what this Telegram chat can do',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
@@ -596,7 +658,161 @@ bot.command('wiki', async (ctx) => {
   }
 });
 
-bot.command('context', async (ctx) => {
+async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const runnerPreflight = await probeTelegramRunnerWritability();
+    const result = await runBuilderAgentOperatingContext({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      currentMessage: text,
+      sparkAccessLevel: sparkAccessLevel(accessProfile),
+      runnerWritable: runnerPreflight.runnerWritable,
+      runnerLabel: runnerPreflight.runnerLabel,
+    });
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+bot.command('context', handleAgentOperatingContextCommand);
+bot.command('operating_context', handleAgentOperatingContextCommand);
+bot.command('agent_context', handleAgentOperatingContextCommand);
+bot.command('aoc', handleAgentOperatingContextCommand);
+
+const AOC_ROUTE_ALIASES: Record<string, string> = {
+  builder: 'spark_intelligence_builder',
+  sib: 'spark_intelligence_builder',
+  spark_builder: 'spark_intelligence_builder',
+  spark_intelligence_builder: 'spark_intelligence_builder',
+  spawner: 'spark_spawner',
+  spark_spawner: 'spark_spawner',
+  memory: 'spark_memory',
+  spark_memory: 'spark_memory',
+  researcher: 'spark_researcher',
+  spark_researcher: 'spark_researcher',
+  swarm: 'spark_swarm',
+  spark_swarm: 'spark_swarm',
+  browser: 'spark_browser',
+  spark_browser: 'spark_browser',
+  local: 'spark_local_work',
+  local_work: 'spark_local_work',
+  spark_local_work: 'spark_local_work',
+};
+
+const AOC_CORE_ROUTE_KEYS = [
+  'spark_memory',
+  'spark_researcher',
+  'spark_swarm',
+  'spark_spawner',
+  'spark_intelligence_builder',
+];
+
+const AOC_ALL_ROUTE_KEYS = [
+  ...AOC_CORE_ROUTE_KEYS,
+  'spark_browser',
+  'spark_local_work',
+];
+
+const AOC_ROUTE_LABELS: Record<string, string> = {
+  spark_intelligence_builder: 'Builder',
+  spark_spawner: 'Spawner',
+  spark_memory: 'Memory',
+  spark_researcher: 'Researcher',
+  spark_swarm: 'Swarm',
+  spark_browser: 'Browser',
+  spark_local_work: 'Local Work',
+};
+
+function normalizeAocProbeRoute(raw: string): string {
+  const key = raw.trim().toLowerCase().replace(/-/g, '_');
+  return AOC_ROUTE_ALIASES[key] || '';
+}
+
+function renderAocProbeHelp(): string {
+  return [
+    'Route probe',
+    'Usage: /probe <route>',
+    'Batch: /probe core or /probe all',
+    '',
+    'Routes:',
+    '- core',
+    '- all',
+    '- builder',
+    '- spawner',
+    '- memory',
+    '- researcher',
+    '- swarm',
+    '- browser',
+    '- local_work',
+  ].join('\n');
+}
+
+function aocProbeSummaryLine(routeKey: string, payload: Record<string, unknown>): string {
+  const label = AOC_ROUTE_LABELS[routeKey] || routeKey;
+  const status = String(payload.status || 'unknown').trim() || 'unknown';
+  const latency = typeof payload.route_latency_ms === 'number' ? `, ${payload.route_latency_ms}ms` : '';
+  const failure = String(payload.failure_reason || '').trim();
+  const summary = String(payload.probe_summary || failure || '').trim();
+  const evidence = summary ? ` - ${summary.slice(0, 110)}` : '';
+  return `- ${label}: ${status}${latency}${evidence}`;
+}
+
+async function runAocProbeBatch(ctx: any, routeKeys: string[]): Promise<void> {
+  await ctx.reply(`Running ${routeKeys.length} route probes. This can take a little while...`);
+  const lines = ['Route probes'];
+  for (const routeKey of routeKeys) {
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const result = await runBuilderRouteProbe(routeKey);
+      lines.push(aocProbeSummaryLine(routeKey, result.payload));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lines.push(`- ${AOC_ROUTE_LABELS[routeKey] || routeKey}: failed - ${message.slice(0, 120)}`);
+    }
+  }
+  lines.push('', 'Run /aoc to see the refreshed Agent Operating Context.');
+  await ctx.reply(lines.join('\n'));
+}
+
+async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const routeArg = text.replace(/^\/(?:probe|route_probe)(?:@\w+)?\s*/i, '').trim();
+    if (!routeArg || /^(?:help|routes?|list)$/i.test(routeArg)) {
+      await ctx.reply(renderAocProbeHelp());
+      return;
+    }
+    const firstArg = routeArg.split(/\s+/)[0]?.trim().toLowerCase().replace(/-/g, '_') || '';
+    if (firstArg === 'core') {
+      await runAocProbeBatch(ctx, AOC_CORE_ROUTE_KEYS);
+      return;
+    }
+    if (firstArg === 'all') {
+      await runAocProbeBatch(ctx, AOC_ALL_ROUTE_KEYS);
+      return;
+    }
+    const routeKey = normalizeAocProbeRoute(firstArg);
+    if (!routeKey) {
+      await ctx.reply(renderAocProbeHelp());
+      return;
+    }
+    const result = await runBuilderRouteProbe(routeKey);
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+bot.command('probe', handleAgentRouteProbeCommand);
+bot.command('route_probe', handleAgentRouteProbeCommand);
+
+bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
   const report = await conversation.getConversationFrameDiagnostics(ctx.from);
   await ctx.reply(report);
@@ -684,6 +900,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         forceDispatch: true,
+        ...(pending.capabilityProposalPacket ? { capabilityProposalPacket: pending.capabilityProposalPacket } : {}),
         missionId,
         options: { includeSkills: true, includeMCPs: false }
       },
@@ -828,6 +1045,11 @@ bot.command('remember', async (ctx) => {
   }
 
   try {
+    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
+    if (missionLessonReply) {
+      await ctx.reply(missionLessonReply);
+      return;
+    }
     if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
       return;
     }
@@ -1235,6 +1457,26 @@ export function projectNameForDomainChipBrief(brief: string): string {
   return base.startsWith('domain-chip-') ? base : `domain-chip-${base}`;
 }
 
+export function buildDomainChipCapabilityProposalPacket(brief: string): Record<string, unknown> {
+  const chipKey = projectNameForDomainChipBrief(brief);
+  return {
+    schema_version: 'spark.capability_proposal.v1',
+    status: 'proposal_plan_only',
+    capability_goal: brief,
+    recipient: 'Spark',
+    implementation_route: 'domain_chip',
+    owner_system: 'Spark domain chip runtime',
+    permissions_required: ['operator_approval_to_activate'],
+    safe_probe: 'Create the chip in a local or shadow route first, then prove only matching domain language invokes it.',
+    human_approval_boundary: 'Operator approval is required before activating the chip in the live Spark router.',
+    rollback_path: `Disable or remove ${chipKey} from the chip registry and delete its runtime attachment.`,
+    activation_path: 'Register the chip manifest through the Spark chip attachment contract after tests pass.',
+    eval_or_smoke_test: 'Router-invocation smoke test plus a fallthrough test for unrelated natural language.',
+    capability_ledger_key: `domain_chip:${chipKey}`,
+    claim_boundary: 'This packet is a proposal plan, not proof that Spark has gained the capability.'
+  };
+}
+
 export function buildDomainChipPrd(brief: string): string {
   const chipKey = projectNameForDomainChipBrief(brief);
   return [
@@ -1243,6 +1485,7 @@ export function buildDomainChipPrd(brief: string): string {
     `Natural-language chip brief: ${brief}`,
     '',
     'This must use the current Spark-compatible domain chip standards, not the older domain-chip-labs-only assumptions.',
+    'If this chip adds an executable Spark capability, follow Builder docs/CAPABILITY_PROPOSAL_STANDARD_V1.md: classify the route, name permissions, safe probe, approval boundary, rollback, eval, activation path, and capability ledger key before claiming the capability is live.',
     '',
     'Requirements:',
     '- Scaffold or update the chip under the active Spark chip runtime location.',
@@ -1324,7 +1567,8 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pending.projectName,
     null,
     pending.buildMode,
-    pending.buildModeReason
+    pending.buildModeReason,
+    pending.capabilityProposalPacket
   );
   return true;
 }
@@ -1339,6 +1583,23 @@ function isPendingClarificationFollowup(text: string): boolean {
   const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
   const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
+}
+
+export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
+  if (!pending) return false;
+  const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
+  if (!expired) return true;
+  return isPendingClarificationFollowup(text);
+}
+
+function pendingClarificationForMessage(key: string, text: string): PendingClarification | null {
+  const pending = pendingClarifications.get(key);
+  if (!pending) return null;
+  if (!shouldUsePendingClarificationForMessage(pending, text)) {
+    pendingClarifications.delete(key);
+    return null;
+  }
+  return pending;
 }
 
 export function formatCanvasReadySummary(args: {
@@ -1442,7 +1703,8 @@ export async function handleBuildIntent(
   projectName: string,
   projectPath: string | null,
   buildMode: 'direct' | 'advanced_prd',
-  buildModeReason: string
+  buildModeReason: string,
+  capabilityProposalPacket?: Record<string, unknown>
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -1478,6 +1740,7 @@ export async function handleBuildIntent(
         userId: String(ctx.from.id),
         telegramRelay: getTelegramRelayIdentity(),
         tier,
+        ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),
         options: { includeSkills: true, includeMCPs: false }
       },
       localServiceTimeoutMs('SPARK_SPAWNER_PRD_WRITE_TIMEOUT_MS')
@@ -1499,6 +1762,7 @@ export async function handleBuildIntent(
         projectPath,
         buildMode,
         buildModeReason,
+        capabilityProposalPacket,
         questions: res.data.openQuestions,
         addedAssumptions: res.data.addedAssumptions ?? [],
         timestamp: Date.now()
@@ -1804,6 +2068,130 @@ bot.command('loop', async (ctx) => {
   })();
 });
 
+export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
+  if (!requireAdmin(ctx)) return;
+
+  const raw = rawOverride ?? ctx.message.text.replace('/recursive', '').trim();
+  const parsed = parseRecursiveCommand(raw);
+  if (!parsed) return ctx.reply(renderRecursiveHelp());
+
+  try {
+    if (parsed.action === 'help') {
+      return ctx.reply(renderRecursiveHelp());
+    }
+
+    if (parsed.action === 'sessions') {
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveSessions(await recursiveSessions()));
+    }
+
+    if (parsed.action === 'paths') {
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursivePaths(await recursiveSessions()));
+    }
+
+    if (parsed.action === 'session') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive session <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(await recursiveSessionStatus(parsed.id));
+    }
+
+    if (parsed.action === 'report') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive report <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(await recursiveSessionReport(parsed.id));
+    }
+
+    if (parsed.action === 'trace') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive trace <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveTraceView(await recursiveTraceView(parsed.id)));
+    }
+
+    if (parsed.action === 'canvas') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive canvas <id>');
+      await safeSendChatAction(ctx, 'typing');
+      return ctx.reply(renderRecursiveCanvasQueue(await queueRecursiveCanvas(parsed.id)));
+    }
+
+    if (parsed.action === 'review') {
+      await safeSendChatAction(ctx, 'typing');
+      if (parsed.id) return ctx.reply(await recursiveSessionReview(parsed.id));
+      return ctx.reply(renderRecursiveReviewCandidates(await recursiveReviewCandidates()));
+    }
+
+    if (parsed.action === 'approve' || parsed.action === 'defer' || parsed.action === 'reject' || parsed.action === 'more-eval') {
+      if (!parsed.id) return ctx.reply(`Usage: /recursive ${parsed.action} <id> <rationale>`);
+      const actor = `telegram:${ctx.from?.id ?? 'unknown'}`;
+      const decision = await recordRecursiveDecision({
+        id: parsed.id,
+        action: parsed.action,
+        actor,
+        rationale: parsed.rationale
+      });
+      return ctx.reply(renderRecursiveDecision(decision));
+    }
+
+    if (parsed.action === 'promote') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive promote <id>');
+      await safeSendChatAction(ctx, 'typing');
+      const packet = await stageRecursivePromotionPacket(parsed.id);
+      return ctx.reply(renderRecursivePromotionPacket(packet));
+    }
+
+    if (parsed.action === 'sync') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive sync <id>');
+      await safeSendChatAction(ctx, 'typing');
+      const packet = await stageRecursiveSwarmPacket(parsed.id);
+      return ctx.reply(renderRecursiveSwarmPacket(packet));
+    }
+
+    if (parsed.action === 'start') {
+      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <chipKey> [rounds <n>]');
+      const chatId = ctx.chat.id;
+      const rounds = parsed.rounds || 3;
+      await safeSendChatAction(ctx, 'typing');
+      await ctx.reply(`Starting recursive Builder chip loop on ${parsed.chipKey} for ${rounds} round(s). I will post the summary when it finishes.`);
+
+      void (async () => {
+        try {
+          const result = await runChipLoop(parsed.chipKey!, rounds, 3);
+          if (!result.ok) {
+            await ctx.telegram.sendMessage(chatId, `Recursive loop failed: ${result.error || 'unknown error'}`);
+            return;
+          }
+          let sync = null;
+          let syncError = null;
+          try {
+            sync = await syncBuilderChipLoopToWorkspace(result);
+          } catch (syncErr: any) {
+            syncError = syncErr?.message || String(syncErr);
+          }
+          await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
+        } catch (err: any) {
+          await ctx.telegram.sendMessage(chatId, `Recursive loop crashed: ${err?.message || String(err)}`);
+        }
+      })();
+      return;
+    }
+
+    return ctx.reply(renderRecursiveHelp());
+  } catch (err: any) {
+    const status = err?.response?.status;
+    const detail = err?.response?.data?.error || err?.message || String(err);
+    if (status === 401 && detail === 'authentication_required') {
+      return ctx.reply([
+        'Recursive command failed (401): Spark Workspace rejected this agent token for recursive reads.',
+        'Start/sync may still work, but /recursive report and /recursive trace need the deployed Workspace API with CLI-token collective-snapshot support.',
+        `Workspace: ${sparkWorkspaceRecursionsUrl()}`
+      ].join('\n'));
+    }
+    return ctx.reply(`Recursive command failed${status ? ` (${status})` : ''}: ${detail}`);
+  }
+}
+
+bot.command('recursive', async (ctx) => handleRecursiveCommand(ctx));
+
 bot.command('schedule', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
@@ -2051,6 +2439,12 @@ bot.command('mission', async (ctx) => {
   if (result.success && action === 'kill') {
     markMissionRelayCancelled(missionId);
   }
+  if (result.success && action === 'pause') {
+    markMissionRelayPaused(missionId);
+  }
+  if (result.success && action === 'resume') {
+    markMissionRelayResumed(missionId);
+  }
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
 });
 
@@ -2064,10 +2458,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const earlyBuildIntent = conversation.isAdmin(ctx.from) ? parseBuildIntent(text) : null;
-  const agentDoctrinePreference = earlyBuildIntent ? null : extractAgentDoctrinePreference(text);
-  if (agentDoctrinePreference) {
-    await conversation.storeAgentDoctrinePreference(ctx.from, agentDoctrinePreference).catch(() => {});
-  }
 
   if (!earlyBuildIntent && isPendingTaskRecoveryQuestion(text)) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
@@ -2285,7 +2675,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
-    const pendingClarification = pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`);
+    const pendingClarification = pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
@@ -2421,6 +2811,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         projectName: projectNameForDomainChipBrief(naturalChipBrief),
         buildMode: mode.buildMode,
         buildModeReason: mode.reason,
+        capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(naturalChipBrief),
         timestamp: Date.now()
       });
       await ctx.reply(formatDomainChipBuildPreview(naturalChipBrief));
@@ -2700,6 +3091,43 @@ export async function handleImageMessage(ctx: any): Promise<void> {
   }
 }
 
+export async function handleVoiceMessage(ctx: any): Promise<void> {
+  const user = ctx.from;
+
+  await conversation.remember(user, '[voice message]').catch(() => {});
+  await safeSendChatAction(ctx, 'typing');
+
+  try {
+    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    console.log(`[VoiceBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
+
+    if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && (builderReply.responseText || builderReply.voiceMedia)) {
+      await deliverBuilderReply(ctx, builderReply);
+      if (builderReply.responseText) {
+        await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      }
+      return;
+    }
+
+    const fallback = 'I received the voice note, but Spark did not return a transcription or voice reply. Run `/voice`, then try one short voice note again.';
+    await ctx.reply(fallback);
+    await conversation.recordInterruptedTask(user, {
+      message: '[voice message]',
+      failure: `Builder voice bridge returned no usable response. mode=${builderReply.bridgeMode || 'none'} routing=${builderReply.routingDecision || 'none'}`,
+      stage: 'telegram_voice_handler'
+    }).catch(() => {});
+  } catch (err) {
+    console.error('Voice handling error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    await conversation.recordInterruptedTask(user, {
+      message: '[voice message]',
+      failure: detail,
+      stage: 'telegram_voice_handler'
+    }).catch(() => {});
+    await ctx.reply(renderSparkErrorReply(err, 'telegram', conversation.isAdmin(user)));
+  }
+}
+
 bot.on(message('text'), handleTextMessage);
 bot.on(message('photo'), handleImageMessage);
 bot.on(message('document'), async (ctx) => {
@@ -2708,6 +3136,8 @@ bot.on(message('document'), async (ctx) => {
   }
   await handleImageMessage(ctx);
 });
+bot.on(message('voice'), handleVoiceMessage);
+bot.on(message('audio'), handleVoiceMessage);
 
 // Graceful shutdown
 process.once('SIGINT', () => {

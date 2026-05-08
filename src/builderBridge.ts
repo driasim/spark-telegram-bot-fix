@@ -39,6 +39,16 @@ export interface BuilderBridgeReply {
   decision: string;
   bridgeMode: string;
   routingDecision: string;
+  voiceMedia?: BuilderBridgeVoiceMedia;
+}
+
+export interface BuilderBridgeVoiceMedia {
+  audioBase64: string;
+  mimeType: string;
+  filename: string;
+  voiceCompatible: boolean;
+  providerId?: string;
+  voiceId?: string;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -83,6 +93,21 @@ export interface BuilderSelfAwarenessResult {
 }
 
 export interface BuilderSelfImprovementPlanResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
+export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessInput {
+  sparkAccessLevel?: number | string;
+  runnerWritable?: 'yes' | 'no' | 'unknown';
+  runnerLabel?: string;
+}
+
+export interface BuilderAgentOperatingContextResult {
+  replyText: string;
+}
+
+export interface BuilderRouteProbeResult {
   replyText: string;
   payload: Record<string, unknown>;
 }
@@ -1259,6 +1284,128 @@ export async function runBuilderSelfImprovementPlan(
   };
 }
 
+export async function runBuilderAgentOperatingContext(
+  input: BuilderAgentOperatingContextInput
+): Promise<BuilderAgentOperatingContextResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'context',
+    '--home',
+    config.builderHome,
+    '--human-id',
+    `human:telegram:${String(input.userId).trim()}`,
+    '--session-id',
+    `session:telegram:${String(input.chatId).trim()}:${String(input.userId).trim()}`,
+    '--channel-kind',
+    'telegram',
+    '--user-message',
+    input.currentMessage || 'Show the agent operating context.',
+    '--runner-writable',
+    input.runnerWritable || 'unknown',
+  ];
+  const accessLevel = String(input.sparkAccessLevel || '').trim();
+  if (accessLevel) {
+    args.push('--spark-access-level', accessLevel);
+  }
+  const runnerLabel = String(input.runnerLabel || '').trim();
+  if (runnerLabel) {
+    args.push('--runner-label', runnerLabel);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder agent operating context returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  return { replyText: trimmedStdout };
+}
+
+export function formatRouteProbeReply(payload: Record<string, unknown>): string {
+  const route = String(payload.capability_key || 'unknown').trim() || 'unknown';
+  const status = String(payload.status || 'unknown').trim() || 'unknown';
+  const eventId = String(payload.event_id || '').trim();
+  const eventType = String(payload.event_type || '').trim();
+  const latency = typeof payload.route_latency_ms === 'number' ? payload.route_latency_ms : null;
+  const failure = String(payload.failure_reason || '').trim();
+  const summary = String(payload.probe_summary || '').trim();
+  const lines = [
+    'Route probe',
+    `- Route: ${route}`,
+    `- Status: ${status}`,
+  ];
+  if (latency !== null) {
+    lines.push(`- Latency: ${latency}ms`);
+  }
+  if (failure) {
+    lines.push(`- Failure: ${failure}`);
+  }
+  if (summary) {
+    lines.push(`- Evidence: ${summary}`);
+  }
+  if (eventId) {
+    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType.replace(/_/g, ' ')})` : ''}`);
+  }
+  lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
+  return lines.join('\n');
+}
+
+export async function runBuilderRouteProbe(capabilityKey: string): Promise<BuilderRouteProbeResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const routeKey = String(capabilityKey || '').trim();
+  if (!routeKey) {
+    throw new Error('Route key is required.');
+  }
+  const args = [
+    'self',
+    'route-probe',
+    routeKey,
+    '--home',
+    config.builderHome,
+    '--run',
+    '--json',
+  ];
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder route probe returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatRouteProbeReply(payload),
+  };
+}
+
 export async function runBuilderWikiStatus(input: { refresh?: boolean } = {}): Promise<BuilderWikiStatusResult> {
   const config = resolveBridgeConfig();
   const bridgeAvailable = await ensureBridgeAvailable(config);
@@ -1697,6 +1844,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         response_text?: unknown;
         bridge_mode?: unknown;
         routing_decision?: unknown;
+        voice_media?: unknown;
       };
     };
 
@@ -1737,6 +1885,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       decision: String(parsed.decision || '').trim(),
       bridgeMode,
       routingDecision,
+      voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
     };
   } catch (error) {
     if (config.mode === 'required') {
@@ -1753,4 +1902,23 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function parseBuilderBridgeVoiceMedia(value: unknown): BuilderBridgeVoiceMedia | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const media = value as Record<string, unknown>;
+  const audioBase64 = String(media.audio_base64 || '').trim();
+  if (!audioBase64) {
+    return undefined;
+  }
+  return {
+    audioBase64,
+    mimeType: String(media.mime_type || 'audio/mpeg').trim() || 'audio/mpeg',
+    filename: String(media.filename || 'telegram-reply.audio').trim() || 'telegram-reply.audio',
+    voiceCompatible: Boolean(media.voice_compatible),
+    providerId: String(media.provider_id || '').trim() || undefined,
+    voiceId: String(media.voice_id || '').trim() || undefined,
+  };
 }
