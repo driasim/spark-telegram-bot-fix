@@ -926,38 +926,35 @@ export function renderBuilderChipLoopCompletion(
     ? finalRound.best_verdict || inferOutcomeVerdict(finalRound.best_verdict, finalRound.best_metric)
     : 'no rounds recorded';
   const lines = [
-    outcomeHeadline(labelFromKey(chipKey), verdict),
-    `Round: ${rounds}`,
-    `Change: ${friendlyOutcomeChange(verdict)}`
+    `${outcomeStatusIcon(verdict)} Latest ${labelFromKey(chipKey)} run ${friendlyOutcomeVerb(verdict)}.`,
+    '',
+    'Score',
+    `- ${rounds} rounds`
   ];
 
   if (finalRound) {
     if (typeof finalRound.best_metric === 'number') {
-      lines.push(`Best score: ${formatNumber(finalRound.best_metric)}`);
+      lines.push(`- best score ${formatNumber(finalRound.best_metric)}`);
     }
-    lines.push(
-      '',
-      'What happened:',
-      `Spark reviewed ${pluralize(finalRound.suggestions_count, 'suggestion')}. The best result ${friendlyOutcomeChange(verdict)}.`
-    );
+    lines.push(`- ${pluralize(finalRound.suggestions_count, 'suggestion')} reviewed`);
   }
-
-  if (result.statusPath) lines.push('', 'Saved locally: status file.');
 
   if (sync) {
     lines.push(
-      sync.synced ? 'Workspace is updated.' : 'Workspace update was skipped.',
-      `Open: Recursions ${sync.workspaceUrl}`
+      '',
+      'Workspace',
+      sync.synced ? '- updated' : '- update skipped',
+      `- ${sync.workspaceUrl}`
     );
   } else if (syncError) {
-    lines.push(`Workspace update skipped: ${syncError}`);
+    lines.push('', 'Workspace', `- update skipped: ${truncateAtWord(syncError, 120)}`);
   }
 
   lines.push(
     '',
-    'Next:',
-    `1. /recursive report ${pathId}`,
-    `2. /recursive trace ${pathId}`
+    'Report',
+    `- /recursive report ${pathId}`,
+    `- /recursive trace ${pathId}`
   );
   return lines.join('\n');
 }
@@ -970,45 +967,41 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
   const metricLine = result.metricName && typeof result.metricValue === 'number'
     ? `${formatMetricLabel(result.metricName)} ${formatNumber(result.metricValue)}`
     : null;
-  const localArtifacts = [
-    result.sessionSummaryPath ? 'session summary' : null,
-    result.payloadPath ? 'collective payload' : null,
-    result.latestCandidatePath ? 'latest candidate' : null
-  ].filter(Boolean);
   const lines = [
-    outcomeHeadline(label, verdict),
-    `Round: ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0}`,
-    `Change: ${friendlyOutcomeChange(verdict)}`
+    `${outcomeStatusIcon(verdict)} Latest ${label} run ${friendlyOutcomeVerb(verdict)}.`,
+    '',
+    'Score',
+    `- ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0} rounds`
   ];
 
-  if (metricLine) lines.push(`Score: ${metricLine}`);
-  if (result.summary) lines.push('', 'What happened:', truncate(result.summary, 150));
-  if (localArtifacts.length > 0) {
-    lines.push('', `Saved locally: ${localArtifacts.join(', ')}.`);
-  }
+  if (metricLine) lines.push(`- ${metricLine}`);
 
   lines.push(
-    'Workspace is updated.',
-    `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`,
     '',
-    'Next:',
-    `1. /recursive report ${pathId}`,
-    `2. /recursive trace ${pathId}`
+    'Workspace',
+    '- updated',
+    `- ${sparkWorkspaceRecursionsUrl()}`,
+    '',
+    'Report',
+    `- /recursive report ${pathId}`,
+    `- /recursive trace ${pathId}`
   );
   return lines.join('\n');
 }
 
 export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspaceSyncResult): string {
   const lines = [
-    'Artifact sync finished.',
-    result.synced ? 'Workspace is updated.' : 'Workspace update was skipped.'
+    `${result.synced ? '🟢' : '🟡'} Recursive artifact sync finished.`,
+    '',
+    'Workspace',
+    result.synced ? '- updated' : '- update skipped'
   ];
   lines.push(
-    `Open: Recursions ${result.workspaceUrl}`,
+    `- ${result.workspaceUrl}`,
     '',
-    'Next:',
-    `1. /recursive report ${result.pathId}`,
-    `2. /recursive trace ${result.pathId}`
+    'Report',
+    `- /recursive report ${result.pathId}`,
+    `- /recursive trace ${result.pathId}`
   );
   return lines.join('\n');
 }
@@ -1050,14 +1043,14 @@ export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): s
     lines.push(
       '',
       `${index + 1}. ${session.session_id}`,
-      `Status: ${session.status}, ${domain}, ${review}.`,
-      `Updated: ${formatUpdatedAt(session.updated_at)}.`,
-      `What happened: ${ensureSentence(truncateAtWord(session.title, 112))}`,
-      `Next: /recursive report ${session.session_id}`
+      `- ${session.status} · ${domain} · ${review}`,
+      `- updated ${formatUpdatedAt(session.updated_at)}`,
+      `- ${ensureSentence(truncateAtWord(session.title, 112))}`,
+      `- /recursive report ${session.session_id}`
     );
   }
   if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more loops hidden. Use /recursive paths to choose a lane.`);
-  lines.push('', `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`);
+  lines.push('', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
   return lines.join('\n');
 }
 
@@ -1079,9 +1072,9 @@ export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): stri
       .slice()
       .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
     const review = reviewCount > 0 ? `${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : 'clear';
-    lines.push(`${index + 1}. ${domain} - ${pluralize(group.length, 'loop')}, ${review}, latest ${formatUpdatedAt(latest?.updated_at)}.`);
+    lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} · ${review}`, `- latest ${formatUpdatedAt(latest?.updated_at)}`);
   }
-  lines.push('', 'Next:', '1. /recursive sessions', '2. /recursive report <id> after choosing a loop');
+  lines.push('', 'Use /recursive sessions to pick a loop.');
   return lines.join('\n');
 }
 
@@ -1094,14 +1087,14 @@ export function renderRecursiveReviewCandidates(candidates: RecursiveReviewCandi
     lines.push(...[
       '',
       `${index + 1}. ${candidate.session_id}`,
-      `Risk: ${candidate.risk}.`,
+      `- risk ${candidate.risk}`,
       scoreLine,
-      `Why it matters: ${ensureSentence(truncateAtWord(candidate.reason, 112))}`,
-      `Next: /recursive review ${candidate.session_id}`
+      `- ${ensureSentence(truncateAtWord(candidate.reason, 112))}`,
+      `- /recursive review ${candidate.session_id}`
     ].filter((line): line is string => Boolean(line)));
   }
   if (candidates.length > visible.length) lines.push('', `${candidates.length - visible.length} more decisions hidden. Open Decisions for the full queue.`);
-  lines.push('', `Open: Decisions ${sparkWorkspaceDecisionsUrl()}`);
+  lines.push('', 'Workspace', `- ${sparkWorkspaceDecisionsUrl()}`);
   return lines.join('\n');
 }
 
@@ -1114,36 +1107,36 @@ export function renderRecursiveDecision(record: RecursiveDecisionRecord): string
   const reportTarget = decisionReportTarget(record);
   const lines = [
     applied ? `Decision applied: ${action}.` : `Decision not applied in Telegram: ${action}.`,
-    `Target: ${target}`
+    '',
+    'Target',
+    `- ${target}`
   ];
-  if (record.rationale) lines.push(`Reason: ${record.rationale}`);
+  if (record.rationale) lines.push('', 'Reason', `- ${record.rationale}`);
   if (record.workspace_detail) {
-    lines.push(`Status: ${friendlyWorkspaceDecisionDetail(record.workspace_detail)}`);
+    lines.push('', 'Status', `- ${friendlyWorkspaceDecisionDetail(record.workspace_detail)}`);
   }
   lines.push(
-    `Open: Decisions ${sparkWorkspaceDecisionsUrl()}`,
     '',
-    'Next:',
-    applied
-      ? `1. /recursive review ${record.target_id || record.session_id}`
-      : '1. Open Decisions and finish this one there.',
-    reportTarget ? `2. /recursive report ${reportTarget}` : `2. ${sparkWorkspaceDecisionsUrl()}`
+    'Workspace',
+    `- ${sparkWorkspaceDecisionsUrl()}`
   );
+  if (reportTarget) lines.push('', 'Report', `- /recursive report ${reportTarget}`);
   return lines.join('\n');
 }
 
 export function renderRecursivePromotionPacket(packet: RecursivePromotionPacket): string {
   return [
     'Local promotion packet is staged.',
-    `Session: ${packet.session_id}`,
-    `Packet: ${packet.packet_id}`,
-    'Sharing: private workspace only.',
-    `Network: ${packet.network_absorbable ? 'eligible for review' : 'not eligible yet'}.`,
-    'Changed: nothing live. This only prepared a review packet.',
     '',
-    'Next:',
-    `1. /recursive review ${packet.session_id}`,
-    `2. /recursive sync ${packet.session_id}`
+    'Packet',
+    `- ${packet.packet_id}`,
+    '- private workspace only',
+    `- network ${packet.network_absorbable ? 'eligible for review' : 'not eligible yet'}`,
+    '- nothing live changed',
+    '',
+    'Review',
+    `- /recursive review ${packet.session_id}`,
+    `- /recursive sync ${packet.session_id}`
   ].join('\n');
 }
 
@@ -1152,58 +1145,53 @@ export function renderRecursiveSwarmPacket(packet: RecursiveSwarmPacket): string
   const network = packet.network_absorbable ? 'ready for network review' : 'not published';
   return [
     'Swarm review packet is staged.',
-    `Session: ${packet.session_id}`,
-    `Packet: ${packet.swarm_packet_id}`,
-    `Publication: ${publication}.`,
-    `Network: ${network}.`,
-    `Why: ${ensureSentence(sentenceCaseFirst(labelFromKey(packet.publication_gate.reason).toLowerCase()))}`,
-    'Changed: nothing public. This only staged the review handoff.',
     '',
-    'Next:',
-    `1. ${packet.publication_gate.required_next_command}`,
-    `2. /recursive review ${packet.session_id}`
+    'Packet',
+    `- ${packet.swarm_packet_id}`,
+    `- publication ${publication}`,
+    `- network ${network}`,
+    `- ${ensureSentence(sentenceCaseFirst(labelFromKey(packet.publication_gate.reason).toLowerCase()))}`,
+    '- nothing public changed',
+    '',
+    'Review',
+    `- ${packet.publication_gate.required_next_command}`,
+    `- /recursive review ${packet.session_id}`
   ].join('\n');
 }
 
 export function renderRecursiveCanvasQueue(result: RecursiveCanvasQueueResult): string {
   return [
-    'Canvas load is queued.',
-    `Pipeline: ${result.load.pipelineId}`,
-    `Mission: ${result.load.relay.missionId}`,
-    `Shape: ${pluralize(result.load.nodes.length, 'node')}, ${pluralize(result.load.connections.length, 'connection')}.`,
-    `Open: Canvas ${result.canvasUrl}`,
-    `Run mode: ${result.load.autoRun ? 'auto-run' : 'inspect only'}.`,
+    'Canvas load queued.',
     '',
-    'Next:',
-    `1. Open the Canvas view.`,
-    `2. /recursive trace ${result.load.relay.missionId}`
+    'Canvas',
+    `- ${result.load.pipelineId}`,
+    `- ${pluralize(result.load.nodes.length, 'node')}, ${pluralize(result.load.connections.length, 'connection')}`,
+    `- ${result.load.autoRun ? 'auto-run' : 'inspect only'}`,
+    `- ${result.canvasUrl}`,
+    '',
+    'Trace',
+    `- /recursive trace ${result.load.relay.missionId}`
   ].join('\n');
 }
 
 export function renderRecursiveTraceView(trace: RecursiveTraceView): string {
   const canvas = trace.spawner.canvas_queue;
   const timeline = trace.timeline.slice(-6).map(formatTraceTimelineItem);
-  const reviewLine = trace.review.required
-    ? `Needs review: ${pluralize(trace.review.decisions.length, 'decision')} waiting.`
-    : 'Needs review: clear.';
-  const nextActions = [
-    trace.review.required ? `1. /recursive review ${trace.session_id}` : null,
-    `${trace.review.required ? '2' : '1'}. /recursive report ${trace.session_id}`
-  ].filter((line): line is string => Boolean(line));
   return [
-    `${traceDisplayTitle(trace)} is ${trace.status}.`,
-    reviewLine,
-    `Workspace: ${trace.spawner.board_entry.status}, ${pluralize(trace.spawner.board_entry.taskCount, 'tracked item')}.`,
-    `Canvas: ${canvas.pending ? 'pending' : canvas.latest ? 'latest workspace view' : 'not queued'} (${canvas.pipelineId}).`,
+    `${traceDisplayTitle(trace)} trace`,
+    '',
+    'Status',
+    `- ${trace.status}`,
+    trace.review.required ? `- review: ${pluralize(trace.review.decisions.length, 'decision')} waiting` : '- review: clear',
+    `- workspace: ${trace.spawner.board_entry.status}, ${pluralize(trace.spawner.board_entry.taskCount, 'tracked item')}`,
+    `- canvas: ${canvas.pending ? 'pending' : canvas.latest ? 'latest workspace view' : 'not queued'} (${canvas.pipelineId})`,
     '',
     'Recent movement:',
     ...(timeline.length > 0 ? timeline : ['- no timeline events']),
     '',
-    `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`,
-    trace.review.required ? `Review decisions: ${sparkWorkspaceDecisionsUrl()}` : null,
-    '',
-    'Next:',
-    ...nextActions
+    'Workspace',
+    `- ${sparkWorkspaceRecursionsUrl()}`,
+    trace.review.required ? `- ${sparkWorkspaceDecisionsUrl()}` : null
   ].filter((line): line is string => line !== null).join('\n');
 }
 
@@ -1830,17 +1818,6 @@ function friendlyOutcomeVerb(verdict: string | null | undefined): string {
   return normalized || 'is recorded';
 }
 
-function friendlyOutcomeChange(verdict: string | null | undefined, sameDisplayedImprovement = false): string {
-  const normalized = (verdict || '').toLowerCase();
-  if (normalized.includes('regress')) return 'regressed';
-  if (normalized.includes('improv')) return sameDisplayedImprovement ? 'tiny improvement (rounded score unchanged)' : 'improved';
-  if (normalized.includes('flat')) return 'no improvement this round';
-  if (normalized.includes('record')) return 'recorded';
-  if (normalized.includes('unknown')) return 'not enough signal yet';
-  if (normalized.includes('no rounds')) return 'not started';
-  return normalized || 'recorded';
-}
-
 function friendlyDecisionLabel(decision: RecursiveDecision): string {
   if (decision === 'approve_local') return 'approved';
   if (decision === 'request_more_eval') return 'more eval requested';
@@ -1917,7 +1894,7 @@ function renderReviewGroup(group: ReviewItemGroup, index: number): string[] {
     lines.push('Telegram actions:', ...actions.map((action) => `- ${action}`));
   } else {
     lines.push(
-      'Next: open Decisions for this item.',
+      'Workspace',
       `- ${sparkWorkspaceDecisionsUrl()}`
     );
   }

@@ -87,13 +87,16 @@ test('renders compact recursive session and path lists', () => {
 
   const sessionList = renderRecursiveSessions(sessions);
   assert.match(sessionList, /1\. s1/);
-  assert.match(sessionList, /Status: completed, startup-yc, clear\./);
-  assert.match(sessionList, /Next: \/recursive report s1/);
-  assert.match(sessionList, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(sessionList, /- completed · startup-yc · clear/);
+  assert.match(sessionList, /- \/recursive report s1/);
+  assert.match(sessionList, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.doesNotMatch(sessionList, /What happened:/);
+  assert.doesNotMatch(sessionList, /Next:/);
 
   const pathList = renderRecursivePaths(sessions);
-  assert.match(pathList, /startup-yc - 1 loop, clear/);
-  assert.match(pathList, /Next:/);
+  assert.match(pathList, /1\. startup-yc\n- 1 loop · clear/);
+  assert.match(pathList, /Use \/recursive sessions to pick a loop\./);
+  assert.doesNotMatch(pathList, /Next:/);
 
   const reviewPathList = renderRecursivePaths([
     ...sessions,
@@ -110,7 +113,7 @@ test('renders compact recursive session and path lists', () => {
       review_required: true
     }
   ]);
-  assert.match(reviewPathList, /startup-yc - 3 loops, 2 need review/);
+  assert.match(reviewPathList, /startup-yc\n- 3 loops · 2 need review/);
   assert.doesNotMatch(reviewPathList, /2 loops needs review/);
 });
 
@@ -131,7 +134,9 @@ test('renders review queue and audit-only decision records', () => {
 
   assert.match(queue, /creator-mission-001/);
   assert.match(queue, /Score moved \+0.14\./);
-  assert.match(queue, /Next: \/recursive review creator-mission-001/);
+  assert.match(queue, /- \/recursive review creator-mission-001/);
+  assert.match(queue, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.doesNotMatch(queue, /Next:/);
   assert.doesNotMatch(queue, /delta=/);
 
   const decision = renderRecursiveDecision({
@@ -146,9 +151,10 @@ test('renders review queue and audit-only decision records', () => {
   });
 
   assert.match(decision, /Decision not applied in Telegram: approved\./);
-  assert.match(decision, /Target: creator-mission-001/);
-  assert.match(decision, /Reason: ok/);
-  assert.match(decision, /Open: Decisions http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.match(decision, /Target\n- creator-mission-001/);
+  assert.match(decision, /Reason\n- ok/);
+  assert.match(decision, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.doesNotMatch(decision, /Next:/);
   assert.doesNotMatch(decision, /\/recursive report creator-mission-001/);
   assert.doesNotMatch(decision, /workspace_route_only/);
   assert.equal(sparkWorkspaceDecisionsUrl(), 'http://127.0.0.1:5173/runs?tab=decisions');
@@ -170,9 +176,11 @@ test('renders applied recursive decisions as plain confirmations', () => {
   });
 
   assert.match(decision, /Decision applied: more eval requested\./);
-  assert.match(decision, /Target: Mastery mastery_startup_yc_team_health/);
-  assert.match(decision, /Status: Mastery review submitted as defer\./);
-  assert.match(decision, /1\. \/recursive review mastery_startup_yc_team_health/);
+  assert.match(decision, /Target\n- Mastery mastery_startup_yc_team_health/);
+  assert.match(decision, /Status\n- Mastery review submitted as defer\./);
+  assert.match(decision, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.doesNotMatch(decision, /Next:/);
+  assert.doesNotMatch(decision, /\/recursive review mastery_startup_yc_team_health/);
   assert.doesNotMatch(decision, /\/recursive report mastery_startup_yc_team_health/);
   assert.doesNotMatch(decision, /spark_workspace_review/);
 });
@@ -199,9 +207,9 @@ test('parses and renders local promotion packets', () => {
   });
 
   assert.match(packet, /Local promotion packet is staged/);
-  assert.match(packet, /Network: not eligible yet\./);
-  assert.match(packet, /Changed: nothing live/);
-  assert.match(packet, /Next:\n1\. \/recursive review creator-mission-001/);
+  assert.match(packet, /Packet\n- local-promotion-review-1\n- private workspace only\n- network not eligible yet\n- nothing live changed/);
+  assert.match(packet, /Review\n- \/recursive review creator-mission-001\n- \/recursive sync creator-mission-001/);
+  assert.doesNotMatch(packet, /Next:/);
   assert.doesNotMatch(packet, /local_packet_only/);
 });
 
@@ -226,10 +234,9 @@ test('parses and renders gated Swarm review packets', () => {
   });
 
   assert.match(reply, /Swarm review packet is staged/);
-  assert.match(reply, /Publication: blocked\./);
-  assert.match(reply, /Network: not published\./);
-  assert.match(reply, /Why: Explicit swarm publication not implemented\./);
-  assert.match(reply, /1\. \/recursive sync-publish/);
+  assert.match(reply, /Packet\n- swarm-review-local-promotion-review-1\n- publication blocked\n- network not published\n- Explicit swarm publication not implemented\./);
+  assert.match(reply, /Review\n- \/recursive sync-publish\n- \/recursive review creator-mission-001/);
+  assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /swarm_packet_staged_only/);
 });
 
@@ -256,10 +263,10 @@ test('parses and renders recursive canvas queue results', () => {
     }
   });
 
-  assert.match(reply, /Canvas load is queued/);
-  assert.match(reply, /Shape: 1 node, 1 connection\./);
-  assert.match(reply, /Run mode: inspect only\./);
-  assert.match(reply, /2\. \/recursive trace recursive-session-startup-yc-001/);
+  assert.match(reply, /Canvas load queued/);
+  assert.match(reply, /Canvas\n- recursive-session-startup-yc-001\n- 1 node, 1 connection\n- inspect only/);
+  assert.match(reply, /Trace\n- \/recursive trace recursive-session-startup-yc-001/);
+  assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /spawner_canvas_queue_only/);
 });
 
@@ -296,17 +303,15 @@ test('parses and renders stitched recursive trace views', () => {
     ]
   });
 
-  assert.match(reply, /Startup YC recursive autoloop is completed\./);
-  assert.match(reply, /Needs review: clear\./);
-  assert.match(reply, /Workspace: completed, 5 tracked items\./);
-  assert.match(reply, /Canvas: pending/);
+  assert.match(reply, /Startup YC recursive autoloop trace/);
+  assert.match(reply, /Status\n- completed\n- review: clear\n- workspace: completed, 5 tracked items\n- canvas: pending/);
   assert.match(reply, /round-003/);
   assert.match(reply, /outcome: baseline \[flat\]/);
   assert.doesNotMatch(reply, /outcome:startup-yc:baseline/);
-  assert.match(reply, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(reply, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(reply, /Review decisions:/);
   assert.doesNotMatch(reply, /\/recursive review session-startup-yc-001/);
-  assert.match(reply, /1\. \/recursive report session-startup-yc-001/);
+  assert.doesNotMatch(reply, /\/recursive report session-startup-yc-001/);
 });
 
 test('renders long path trace titles as readable labels', () => {
@@ -335,14 +340,12 @@ test('renders long path trace titles as readable labels', () => {
     ]
   });
 
-  assert.match(reply, /Startup YC is open\./);
-  assert.match(reply, /Needs review: 7 decisions waiting\./);
-  assert.match(reply, /Workspace: open, 96 tracked items\./);
-  assert.match(reply, /Canvas: latest workspace view \(spark-workspace-recursions\)\./);
+  assert.match(reply, /Startup YC trace/);
+  assert.match(reply, /Status\n- open\n- review: 7 decisions waiting\n- workspace: open, 96 tracked items\n- canvas: latest workspace view \(spark-workspace-recursions\)/);
   assert.match(reply, /outcome: round 20260423T105059878039Z \[improved\]/);
-  assert.match(reply, /Review decisions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
-  assert.match(reply, /1\. \/recursive review path:startup-yc/);
-  assert.match(reply, /2\. \/recursive report path:startup-yc/);
+  assert.match(reply, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.doesNotMatch(reply, /Next:/);
+  assert.doesNotMatch(reply, /\/recursive review path:startup-yc/);
   assert.doesNotMatch(reply, /Improve Startup YC on Startup Bench by iterating/);
 });
 
@@ -485,14 +488,13 @@ test('renders specialization path loop completion with workspace next step', () 
     summary: 'Startup YC tested a benchmark-backed YC doctrine mutation.'
   });
 
-  assert.match(reply, /Startup YC held steady\./);
-  assert.match(reply, /Change: no improvement this round/);
-  assert.match(reply, /Score: scenario score \/ baseline 0.61/);
-  assert.match(reply, /What happened:\nStartup YC tested a benchmark-backed YC doctrine mutation\./);
-  assert.match(reply, /Saved locally: session summary, collective payload\./);
-  assert.match(reply, /Workspace is updated\./);
-  assert.match(reply, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /1\. \/recursive report path_startup_yc/);
+  assert.match(reply, /⚪ Latest Startup YC run held steady\./);
+  assert.match(reply, /Score\n- 1\/1 rounds\n- scenario score \/ baseline 0.61/);
+  assert.match(reply, /Workspace\n- updated\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(reply, /Report\n- \/recursive report path_startup_yc\n- \/recursive trace path_startup_yc/);
+  assert.doesNotMatch(reply, /What happened:/);
+  assert.doesNotMatch(reply, /Saved locally:/);
+  assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /C:\\paths/);
   assert.doesNotMatch(reply, /Workspace outcome/);
 });
@@ -506,11 +508,10 @@ test('renders recursive artifact sync completion as a compact next step', () => 
     workspaceUrl: 'http://127.0.0.1:5173/runs?tab=recursions'
   });
 
-  assert.match(reply, /Artifact sync finished\./);
-  assert.match(reply, /Workspace is updated\./);
-  assert.match(reply, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /1\. \/recursive report path_prompt_benchmark/);
-  assert.match(reply, /2\. \/recursive trace path_prompt_benchmark/);
+  assert.match(reply, /🟢 Recursive artifact sync finished\./);
+  assert.match(reply, /Workspace\n- updated\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(reply, /Report\n- \/recursive report path_prompt_benchmark\n- \/recursive trace path_prompt_benchmark/);
+  assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /Workspace outcome/);
   assert.doesNotMatch(reply, /bridge/);
 });
@@ -872,14 +873,13 @@ test('renders Builder chip loop completion with Workspace sync details', () => {
     }
   );
 
-  assert.match(reply, /Startup YC improved\./);
-  assert.match(reply, /Change: improved/);
-  assert.match(reply, /Best score: 0.8123/);
-  assert.match(reply, /Spark reviewed 4 suggestions\. The best result improved\./);
-  assert.match(reply, /Saved locally: status file\./);
-  assert.match(reply, /Workspace is updated\./);
-  assert.match(reply, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(reply, /1\. \/recursive report path_builder_chip_startup_yc/);
+  assert.match(reply, /🟢 Latest Startup YC run improved\./);
+  assert.match(reply, /Score\n- 2\/2 rounds\n- best score 0.8123\n- 4 suggestions reviewed/);
+  assert.match(reply, /Workspace\n- updated\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(reply, /Report\n- \/recursive report path_builder_chip_startup_yc\n- \/recursive trace path_builder_chip_startup_yc/);
+  assert.doesNotMatch(reply, /What happened:/);
+  assert.doesNotMatch(reply, /Saved locally:/);
+  assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /C:\\status/);
   assert.doesNotMatch(reply, /Workspace outcome/);
 });
@@ -895,9 +895,10 @@ test('renders regressed Builder chip loop completion without softening the verdi
     ]
   });
 
-  assert.match(reply, /Startup YC regressed\./);
-  assert.match(reply, /Change: regressed/);
-  assert.match(reply, /The best result regressed\./);
+  assert.match(reply, /🔴 Latest Startup YC run regressed\./);
+  assert.match(reply, /Score\n- 1\/1 rounds\n- best score 0.4123\n- 2 suggestions reviewed/);
+  assert.doesNotMatch(reply, /Change:/);
+  assert.doesNotMatch(reply, /The best result regressed\./);
 });
 
 test('maps workspace-scoped Builder chip loops into Telegram recursive sessions', () => {
