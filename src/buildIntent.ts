@@ -269,12 +269,62 @@ function isBuildIdeationRequest(text: string): boolean {
   return /\b(?:give|show|list|suggest|brainstorm|recommend|rank)\s+(?:me\s+|us\s+)?(?:\w+\s+){0,4}(?:build|project|app|dashboard)\s+(?:ideas?|directions?|concepts?|options?)\b/.test(normalized);
 }
 
+function isConversationFramingMakeRequest(description: string): boolean {
+  return /^(?:today|tonight|now|chat|conversation|session|thread|this\s+(?:chat|conversation|session|thread)|our\s+(?:chat|conversation|session|thread))\s+(?:also\s+)?(?:about|focused\s+on|for)\b/i.test(
+    description.trim()
+  );
+}
+
+function isVoiceTuningMakeRequest(description: string): boolean {
+  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!/^(?:it|this|the\s+voice|voice|current\s+voice|my\s+voice)\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less\s+polished|expressive)\b/.test(
+    normalized
+  );
+}
+
+function isSparkCapabilityMakeRequest(description: string): boolean {
+  const normalized = description.replace(/\s+/g, ' ').trim();
+  const lowered = normalized.toLowerCase();
+  const productArtifact =
+    /^(?:a\s+|an\s+|the\s+)?(?:web\s+|mobile\s+|desktop\s+|local-first\s+|private\s+|static\s+|tiny\s+|simple\s+|internal\s+|spark\s+memory\s+|spark\s+)*(?:app|application|dashboard|website|site|landing\s+page|page|game|panel|portal|viewer|tracker|manager|workspace|board)\b/i.test(normalized);
+  const explicitSparkOwner =
+    /^(?:(?:my|our)\s+)?spark\b|^(?:you|your|yourself|the\s+agent|my\s+agent|our\s+agent|agents?)\b/i.test(normalized);
+  const capabilitySurface =
+    /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?|tools?|routes?|systems?|brain|memory|memories|reports?|daily\s+reports?|email|emails|gmail|calendar|inbox|voice|speech|notifications?|reminders?|workflow|workflows?|browser|browse|files?|filesystem)\b/i.test(normalized);
+  const sparkRecipient =
+    /\b(?:for|to)\s+(?:you|yourself|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\b/i.test(normalized) ||
+    /\bfor\s+spark\s*(?::|,|\b(?:to|so|that)\b)/i.test(normalized) ||
+    /\bto\s+spark\s*(?::|,|$)/i.test(normalized) ||
+    /\b(?:so|that)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+can\b/i.test(normalized) ||
+    /\b(?:lets?|allow(?:s)?|enable(?:s)?)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:to\s+)?\b/i.test(normalized) ||
+    /\b(?:make|making)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:able\s+to|capable\s+of)\b/i.test(normalized);
+  const capabilityObject =
+    /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?)\b/i.test(normalized);
+  const directMemoryReportChange =
+    /^(?:memory\s+reports?|memories\s+reports?|reports?\s+of\s+(?:my\s+)?memories?)\b/i.test(normalized) ||
+    (/^daily\s+reports?\b/i.test(normalized) && /\bmemories?\b/i.test(normalized));
+  if (directMemoryReportChange) return true;
+  if (sparkRecipient && capabilitySurface) return true;
+  return explicitSparkOwner && capabilitySurface && (!productArtifact || lowered.includes('so you can') || lowered.includes('so spark can'));
+}
+
 function extractBuildDescription(text: string): string | null {
   const command = text.match(
     /^\s*(?:(?:i|we)\s+(?:want|need|would\s+like|would\s+love)\s+to\s+|can\s+(?:you|we)\s+|could\s+(?:you|we)\s+|let'?s\s+|let\s+us\s+|please\s+)?\/?(?:build|make|create|ship|scaffold|generate|develop)\b\s*(?:(?:right\s+now|now)\s+)?(?:me\s+|us\s+)?(?:(?:a|an|the|this)\s+|new\s+project\s+)?/i
   );
   if (command) {
-    return text.slice(command[0].length);
+    const description = text.slice(command[0].length);
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(command[0]) &&
+        (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
+      return null;
+    }
+    return description;
   }
 
   const inlineCommand = text.match(
@@ -282,10 +332,18 @@ function extractBuildDescription(text: string): string | null {
   );
   if (inlineCommand?.index !== undefined) {
     const prefix = text.slice(0, inlineCommand.index).toLowerCase();
-    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix)) {
+    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we|do\s+not|don't)\b/.test(prefix)) {
       return null;
     }
-    return text.slice(inlineCommand.index + inlineCommand[0].length);
+    const description = text.slice(inlineCommand.index + inlineCommand[0].length);
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(inlineCommand[0]) &&
+        (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
+      return null;
+    }
+    return description;
   }
 
   const lineCommand = text.match(

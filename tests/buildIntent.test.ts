@@ -163,6 +163,17 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
 });
 
+test('does not treat exact reply no-file probes as builds', () => {
+  assert.equal(parseBuildIntent('Reply exactly TESTER_LIVE_ACTIVE_OK and do not create files.'), null);
+  assert.equal(parseBuildIntent('Reply exactly SPARK_AGI_LIVE_ACTIVE_OK and do not create files.'), null);
+});
+
+test('does not treat voice tuning turns as build missions', () => {
+  assert.equal(parseBuildIntent('make it warmer and more geeky'), null);
+  assert.equal(parseBuildIntent('make the voice clearer'), null);
+  assert.equal(parseBuildIntent('make my voice a little faster'), null);
+});
+
 test('infers a compact product name for long conceptual build briefs', () => {
   const intent = parseBuildIntent(`Let's build this A narrow tool that takes a founder's messy weekly notes - half-written thoughts, customer quotes, random metrics, meeting takeaways - and turns them into a running strategy document that actually stays current.
 
