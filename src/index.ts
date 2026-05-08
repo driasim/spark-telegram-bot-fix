@@ -3012,7 +3012,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   try {
     let bridgeFailed = false;
-    let builderReply = {
+    let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
       responseText: '',
       decision: '',
@@ -3025,13 +3025,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       bridgeFailed = true;
       console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
     }
-    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
+    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
         /\b(?:no prior list|what are you choosing between|which one|which option)\b/i.test(builderReply.responseText);
       if (!contradictsResolvedList && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
-        await ctx.reply(builderReply.responseText);
-        await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        await deliverBuilderReply(ctx, builderReply);
+        if (builderReply.responseText) {
+          await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        }
         return;
       }
       console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
