@@ -363,11 +363,22 @@ function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUr
 }
 
 function formatCreatorMode(value: string | undefined): string {
-  return (value || 'unknown').replace(/_/g, ' ');
+  const normalized = (value || 'unknown').replace(/_/g, ' ');
+  if (value === 'full_path') return 'full creator system';
+  if (value === 'specialization_path') return 'specialization path';
+  if (value === 'domain_chip') return 'domain chip';
+  return normalized;
 }
 
 function formatCreatorReadiness(value: string | undefined): string {
   return (value || 'unknown').replace(/_/g, ' ');
+}
+
+function formatCreatorPrivacy(value: string | undefined): string {
+  if (value === 'local_only') return 'private workspace';
+  if (value === 'github_pr') return 'GitHub review';
+  if (value === 'swarm_shared') return 'Swarm sharing';
+  return value || 'private workspace';
 }
 
 export function formatCreatorDomainLabel(value: string | undefined): string {
@@ -415,6 +426,25 @@ export function formatCreatorDomainLabel(value: string | undefined): string {
     .join(' ');
 }
 
+function formatCreatorArtifactLabel(value: string): string {
+  const labels: Record<string, string> = {
+    domain_chip: 'domain chip',
+    benchmark_pack: 'benchmark pack',
+    specialization_path: 'specialization path',
+    autoloop_policy: 'autoloop policy',
+    tool_integration: 'Telegram/Spawner wiring',
+    swarm_publish_packet: 'Swarm review packet',
+    creator_report: 'creator report'
+  };
+  return labels[value] || value.replace(/_/g, ' ');
+}
+
+function formatCreatorArtifactLines(artifacts: string[] | undefined): string[] {
+  const usable = Array.isArray(artifacts) ? artifacts.filter((artifact) => artifact.trim()) : [];
+  if (usable.length === 0) return ['- workspace plan'];
+  return usable.slice(0, 6).map((artifact) => `- ${formatCreatorArtifactLabel(artifact)}`);
+}
+
 function latestCreatorValidationRun(trace: CreatorMissionTrace): CreatorValidationRun | null {
   const runs = Array.isArray(trace.validation_runs) ? trace.validation_runs : [];
   return runs[runs.length - 1] || null;
@@ -440,9 +470,6 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const trace = result.trace || {};
   const intent = trace.intent_packet || {};
   const missionId = result.missionId || trace.mission_id || 'unknown';
-  const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
-    ? trace.artifacts.join(', ')
-    : 'none yet';
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const taskCount = typeof result.taskCount === 'number'
     ? result.taskCount
@@ -457,10 +484,10 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     'Scope',
     `- ${formatCreatorDomainLabel(intent.target_domain)}`,
     `- ${formatCreatorMode(trace.creator_mode)}`,
-    `- ${intent.privacy_mode || 'local_only'} / risk ${intent.risk_level || 'medium'}`,
+    `- ${formatCreatorPrivacy(intent.privacy_mode)} / ${intent.risk_level || 'medium'} risk`,
     '',
-    'Build',
-    `- ${artifacts}`,
+    'Will create',
+    ...formatCreatorArtifactLines(trace.artifacts),
     ...(taskCount !== null ? [`- ${taskCount} tasks queued`] : []),
     '',
     'Workspace',
@@ -468,8 +495,7 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     `- Board: ${kanbanUrl}`,
     '',
     'Next',
-    '- say: run it',
-    `- /creator run ${missionId}`
+    '- say: run it'
   ];
 
   return lines.join('\n');
@@ -494,9 +520,8 @@ export function formatCreatorMissionStatusSummary(
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
 
   return [
-    'Creator mission status.',
+    'Creator mission status',
     '',
-    `Mission: ${missionId}`,
     `Domain: ${formatCreatorDomainLabel(intent.target_domain)}`,
     `Stage: ${formatCreatorReadiness(trace.current_stage)} (${formatCreatorReadiness(trace.stage_status)})`,
     `Publish readiness: ${formatCreatorReadiness(trace.publish_readiness)}`,
@@ -506,8 +531,10 @@ export function formatCreatorMissionStatusSummary(
       ? `Latest validation: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
       : 'Latest validation: none yet',
     ...(blockers.length > 0 ? [`Blockers: ${blockers.slice(0, 3).join('; ')}`] : []),
-    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
-    `Mission board: ${kanbanUrl}`
+    '',
+    'Workspace',
+    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
+    `- Board: ${kanbanUrl}`
   ].join('\n');
 }
 
@@ -532,12 +559,13 @@ export function formatCreatorMissionExecutionSummary(
   return [
     headline,
     '',
-    `Mission: ${missionId}`,
+    `Domain: ${formatCreatorDomainLabel(trace.intent_packet?.target_domain)}`,
     ...(result.providerId ? [`Provider: ${formatProviderLabel(result.providerId)}`] : []),
     ...(result.reason ? [`Reason: ${result.reason}`] : []),
-    ...(result.projectPath ? [`Workspace: ${result.projectPath}`] : []),
-    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
-    `Mission board: ${kanbanUrl}`
+    '',
+    'Workspace',
+    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
+    `- Board: ${kanbanUrl}`
   ].join('\n');
 }
 
@@ -561,14 +589,15 @@ export function formatCreatorMissionValidationSummary(
   return [
     `Creator mission validation ${status}.`,
     '',
-    `Mission: ${missionId}`,
     `Commands: ${results.length}`,
     `Passed: ${countValidationResults(run, 'passed')}`,
     `Failed: ${countValidationResults(run, 'failed')}`,
     `Skipped: ${countValidationResults(run, 'skipped')}`,
     ...(failedOrSkipped.length > 0 ? ['', 'Needs attention:', ...failedOrSkipped.map(formatValidationResultLine)] : []),
-    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
-    `Mission board: ${kanbanUrl}`
+    '',
+    'Workspace',
+    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
+    `- Board: ${kanbanUrl}`
   ].join('\n');
 }
 
