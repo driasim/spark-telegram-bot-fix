@@ -966,16 +966,13 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /Spark Intelligence Builder improved\./);
-  assert.match(report, /- Score: builder chip loop best metric 0.72, matches current best/);
-  assert.match(report, /- Change: improved/);
-  assert.match(report, /Signal\n- Startup YC final round improved\./);
+  assert.match(report, /🟢 Spark Intelligence Builder improved\./);
+  assert.match(report, /Score\n- builder chip loop best metric 0.72\n- matches current best/);
   assert.doesNotMatch(report, /Startup Yc/);
-  assert.match(report, /- Evidence: 1 saved item in Workspace/);
-  assert.match(report, /- Review: clear/);
-  assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(report, /Workspace\n- 1 saved item\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(report, /Scorecard:/);
   assert.doesNotMatch(report, /Mastery:/);
+  assert.doesNotMatch(report, /Signal/);
   assert.doesNotMatch(report, /Next:/);
   assert.doesNotMatch(report, /recursive trace path_builder_chip_startup_yc/);
 
@@ -1050,9 +1047,8 @@ test('compares latest Workspace outcome against the current best metric', () => 
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /Startup YC held steady\./);
-  assert.match(report, /- Score: scenario score 0.6313, below current best by 0.0687 \(best 0.7\)/);
-  assert.match(report, /- Change: no improvement this round/);
+  assert.match(report, /⚪ Startup YC held steady\./);
+  assert.match(report, /Score\n- scenario score 0.6313\n- below current best by 0.0687 \(best 0.7\)/);
 });
 
 test('describes rounded same-score improvements without contradiction', () => {
@@ -1110,14 +1106,15 @@ test('describes rounded same-score improvements without contradiction', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /- Change: tiny improvement \(rounded score unchanged\)/);
-  assert.match(report, /Signal\n- Startup YC kept a benchmark-backed YC mutation on benchmarks\/startup-yc\.tool_calls\.json; score still rounds to 0\.6453\./);
+  assert.match(report, /🟢 Startup YC improved\./);
+  assert.match(report, /Score\n- scenario score 0.6453\n- matches current best\n- tiny gain; rounded score stayed the same/);
+  assert.doesNotMatch(report, /Signal/);
   assert.doesNotMatch(report, /What happened:/);
   assert.doesNotMatch(report, /improved from 0\.6453 to 0\.6453/);
   assert.doesNotMatch(report, /improving scenario_score from 0\.6453 to 0\.6453/);
 });
 
-test('keeps Workspace best signal to a clean sentence', () => {
+test('keeps verbose Workspace signals out of compact Telegram reports', () => {
   const snapshot: any = {
     evolutionPaths: [
       {
@@ -1167,7 +1164,8 @@ test('keeps Workspace best signal to a clean sentence', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /Signal\n- Startup YC emitted a smoke benchmark signal on zero_to_one_design_partner_001 at 62\.2%\./);
+  assert.doesNotMatch(report, /Signal/);
+  assert.doesNotMatch(report, /Startup YC emitted a smoke benchmark signal/);
   assert.doesNotMatch(report, /team health remains th\.\.\./);
   assert.doesNotMatch(report, /Validation across the current lane/);
 });
@@ -1225,7 +1223,7 @@ test('renders Workspace mastery as a readable signal with evidence counts', () =
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
   assert.doesNotMatch(report, /Mastery:/);
-  assert.match(report, /Open\n- Recursions:/);
+  assert.match(report, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(report, /Strongest mastery/);
   assert.doesNotMatch(report, /mastery candidate/);
 });
@@ -1284,8 +1282,8 @@ test('uses lower-is-better goals when comparing Workspace outcomes', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:error-rate');
-  assert.match(report, /Error Rate regressed\./);
-  assert.match(report, /- Score: error rate 0.12, above current best by 0.04 \(best 0.08\)/);
+  assert.match(report, /🔴 Error Rate regressed\./);
+  assert.match(report, /Score\n- error rate 0.12\n- above current best by 0.04 \(best 0.08\)/);
 });
 
 test('summarizes large Workspace evidence sets with clean highlights', () => {
@@ -1351,7 +1349,7 @@ test('summarizes large Workspace evidence sets with clean highlights', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /- Evidence: 4 saved items in Workspace/);
+  assert.match(report, /Workspace\n- 4 saved items\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(report, /run_trace:Run directory/);
   assert.doesNotMatch(report, /Session summary/);
 });
@@ -1466,14 +1464,14 @@ test('reports non-Builder Workspace loop artifacts without leaking unrelated ref
   };
 
   const benchmarkReport = renderRecursiveWorkspaceReport(snapshot, 'path_benchmark_prompt_engineer_20260508t030923z_65b30a0f');
-  assert.match(benchmarkReport, /- Score: average composite score 2.1/);
-  assert.match(benchmarkReport, /- Evidence: 1 saved item in Workspace/);
+  assert.match(benchmarkReport, /Score\n- average composite score 2.1/);
+  assert.match(benchmarkReport, /Workspace\n- 1 saved item/);
   assert.doesNotMatch(benchmarkReport, /Domain autoloop manifest/);
   assert.doesNotMatch(benchmarkReport, /Startup YC chip-loop status/);
 
   const autoloopReport = renderRecursiveWorkspaceReport(snapshot, 'path_domain_autoloop_crypto_trading');
-  assert.match(autoloopReport, /- Score: autoloop cycle count 4/);
-  assert.match(autoloopReport, /- Evidence: 1 saved item in Workspace/);
+  assert.match(autoloopReport, /Score\n- autoloop cycle count 4/);
+  assert.match(autoloopReport, /Workspace\n- 1 saved item/);
   assert.doesNotMatch(autoloopReport, /Prompt benchmark run JSON/);
 
   const labTrace = workspaceTraceView(snapshot, 'path_domain_chip_lab_workspace_smoke_loop');
@@ -1504,8 +1502,8 @@ test('uses path summary in Workspace report when snapshot omits outcome bodies',
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /Spark Intelligence Builder was recorded\./);
-  assert.match(report, /Signal\n- Builder chip loop for Startup YC completed 1\/1 round\(s\)\./);
+  assert.match(report, /⚪ Spark Intelligence Builder was recorded\./);
+  assert.doesNotMatch(report, /Signal/);
 
   const trace = workspaceTraceView(snapshot, 'path_builder_chip_startup_yc');
   assert.equal(trace.timeline[0].kind, 'outcome');
@@ -1560,10 +1558,9 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
   assert.equal(sessions[0].review_required, true);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /- Review: 1 decision waiting/);
-  assert.match(report, /- Action: \/recursive review path_builder_chip_startup_yc/);
-  assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(report, /- Decisions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.match(report, /Review\n- 1 decision waiting\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.match(report, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.doesNotMatch(report, /Action:/);
   assert.doesNotMatch(report, /Next:/);
   assert.doesNotMatch(report, /After review:/);
 

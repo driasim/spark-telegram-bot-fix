@@ -1649,39 +1649,31 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const pathOutcomes = outcomesForPath(snapshot, path);
   const latestOutcome = pathOutcomes.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
   const decisions = inboxForPath(snapshot, path);
-  const latestInsight = insights.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
   const artifacts = artifactsForPath(snapshot, path);
   const metricLine = latestOutcome ? formatOutcomeMetric(latestOutcome) : null;
   const comparisonLine = latestOutcome ? formatOutcomeComparison(latestOutcome, pathOutcomes, path.bestOutcomeId) : null;
   const label = pathDisplayLabel(path, spec);
   const verdict = latestOutcome?.verdict || (path.bestOutcomeId ? 'recorded' : path.status);
   const sameDisplayedImprovement = latestOutcome ? hasSameDisplayedImprovement(latestOutcome.summary) : false;
-  const changeLine = friendlyOutcomeChange(verdict, sameDisplayedImprovement);
-  const signalLine = latestInsight
-    ? formatBestSignal(latestInsight.summary)
-    : latestOutcome?.summary
-      ? formatBestSignal(latestOutcome.summary)
-      : path.summary
-        ? formatBestSignal(path.summary)
-        : null;
-  const decisionLine = decisions.length > 0
-    ? `${pluralize(decisions.length, 'decision')} waiting`
-    : 'clear';
+  const scoreLines = [
+    metricLine ? `- ${metricLine}` : null,
+    comparisonLine ? `- ${formatCompareFragment(comparisonLine)}` : null,
+    sameDisplayedImprovement ? '- tiny gain; rounded score stayed the same' : null
+  ].filter((line): line is string => Boolean(line));
 
   return [
-    outcomeHeadline(label, verdict),
-    metricLine ? `- Score: ${metricLine}${comparisonLine ? `, ${formatCompareFragment(comparisonLine)}` : ''}` : null,
-    `- Change: ${changeLine}`,
-    `- Review: ${decisionLine}`,
-    artifacts.length > 0 ? `- Evidence: ${pluralize(artifacts.length, 'saved item')} in Workspace` : null,
-    decisions.length > 0 ? `- Action: /recursive review ${path.id}` : null,
+    `${outcomeStatusIcon(verdict)} ${outcomeHeadline(label, verdict)}`,
+    scoreLines.length > 0 ? '' : null,
+    scoreLines.length > 0 ? 'Score' : null,
+    ...scoreLines,
+    decisions.length > 0 ? '' : null,
+    decisions.length > 0 ? 'Review' : null,
+    decisions.length > 0 ? `- ${pluralize(decisions.length, 'decision')} waiting` : null,
+    decisions.length > 0 ? `- ${sparkWorkspaceDecisionsUrl()}` : null,
     '',
-    signalLine ? 'Signal' : null,
-    signalLine ? `- ${signalLine}` : null,
-    '',
-    'Open',
-    `- Recursions: ${sparkWorkspaceRecursionsUrl()}`,
-    decisions.length > 0 ? `- Decisions: ${sparkWorkspaceDecisionsUrl()}` : null,
+    'Workspace',
+    artifacts.length > 0 ? `- ${pluralize(artifacts.length, 'saved item')}` : null,
+    `- ${sparkWorkspaceRecursionsUrl()}`,
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
@@ -1803,6 +1795,15 @@ function recursiveStartTargetForPath(path: SparkWorkspaceEvolutionPath, spec: Sp
 
 function outcomeHeadline(label: string, verdict: string | null | undefined): string {
   return `${label} ${friendlyOutcomeVerb(verdict)}.`;
+}
+
+function outcomeStatusIcon(verdict: string | null | undefined): string {
+  const normalized = (verdict || '').toLowerCase();
+  if (normalized.includes('regress')) return '🔴';
+  if (normalized.includes('improv')) return '🟢';
+  if (normalized.includes('flat')) return '⚪';
+  if (normalized.includes('unknown') || normalized.includes('no rounds')) return '🟡';
+  return '⚪';
 }
 
 function friendlyOutcomeVerb(verdict: string | null | undefined): string {
