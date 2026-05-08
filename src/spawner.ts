@@ -381,6 +381,13 @@ function formatCreatorPrivacy(value: string | undefined): string {
   return value || 'private workspace';
 }
 
+function formatCreatorCheckHeadline(status: string): string {
+  if (status === 'passed') return '🟢 Creator checks passed.';
+  if (status === 'failed') return '🔴 Creator checks need attention.';
+  if (status === 'blocked') return '🟡 Creator checks are blocked.';
+  return '🟡 Creator checks finished.';
+}
+
 export function formatCreatorDomainLabel(value: string | undefined): string {
   const raw = (value || '').trim();
   if (!raw) return 'Unknown domain';
@@ -519,20 +526,22 @@ export function formatCreatorMissionStatusSummary(
   const artifactCount = Array.isArray(trace.artifact_manifests) ? trace.artifact_manifests.length : trace.artifacts?.length || 0;
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
 
+  const domainLabel = formatCreatorDomainLabel(intent.target_domain);
+
   return [
-    'Creator mission status',
+    `${domainLabel} creator status`,
     '',
-    `Domain: ${formatCreatorDomainLabel(intent.target_domain)}`,
-    `Stage: ${formatCreatorReadiness(trace.current_stage)} (${formatCreatorReadiness(trace.stage_status)})`,
-    `Publish readiness: ${formatCreatorReadiness(trace.publish_readiness)}`,
-    `Artifacts: ${artifactCount}`,
-    `Manifest issues: ${issueCount}`,
+    'State',
+    `- ${formatCreatorReadiness(trace.stage_status)} at ${formatCreatorReadiness(trace.current_stage)}`,
+    `- ${formatCreatorReadiness(trace.publish_readiness)}`,
     latestRun
-      ? `Latest validation: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
-      : 'Latest validation: none yet',
-    ...(blockers.length > 0 ? [`Blockers: ${blockers.slice(0, 3).join('; ')}`] : []),
+      ? `- checks: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
+      : '- checks: not run yet',
+    ...(blockers.length > 0 ? [`- blocker: ${blockers[0]}`] : []),
     '',
     'Workspace',
+    `- ${artifactCount} artifact plan${artifactCount === 1 ? '' : 's'}`,
+    `- ${issueCount} manifest issue${issueCount === 1 ? '' : 's'}`,
     ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
     `- Board: ${kanbanUrl}`
   ].join('\n');
@@ -551,16 +560,16 @@ export function formatCreatorMissionExecutionSummary(
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const headline = result.started
-    ? 'Creator mission execution started.'
+    ? '🟢 Creator build started.'
     : result.skipped
-      ? 'Creator mission execution skipped.'
-      : 'Creator mission execution accepted.';
+      ? '🟡 Creator build was already started.'
+      : '🟡 Creator build accepted.';
 
   return [
     headline,
     '',
-    `Domain: ${formatCreatorDomainLabel(trace.intent_packet?.target_domain)}`,
-    ...(result.providerId ? [`Provider: ${formatProviderLabel(result.providerId)}`] : []),
+    `- ${formatCreatorDomainLabel(trace.intent_packet?.target_domain)}`,
+    ...(result.providerId ? [`- Builder: ${formatProviderLabel(result.providerId)}`] : []),
     ...(result.reason ? [`Reason: ${result.reason}`] : []),
     '',
     'Workspace',
@@ -587,12 +596,13 @@ export function formatCreatorMissionValidationSummary(
   const status = result.status || run?.status || 'unknown';
 
   return [
-    `Creator mission validation ${status}.`,
+    formatCreatorCheckHeadline(status),
     '',
-    `Commands: ${results.length}`,
-    `Passed: ${countValidationResults(run, 'passed')}`,
-    `Failed: ${countValidationResults(run, 'failed')}`,
-    `Skipped: ${countValidationResults(run, 'skipped')}`,
+    'Checks',
+    `- ${results.length} command${results.length === 1 ? '' : 's'}`,
+    `- ${countValidationResults(run, 'passed')} passed`,
+    `- ${countValidationResults(run, 'failed')} failed`,
+    `- ${countValidationResults(run, 'skipped')} skipped`,
     ...(failedOrSkipped.length > 0 ? ['', 'Needs attention:', ...failedOrSkipped.map(formatValidationResultLine)] : []),
     '',
     'Workspace',

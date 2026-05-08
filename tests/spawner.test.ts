@@ -323,9 +323,9 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator mission execution started/);
-    assert.match(message, /Domain: Startup YC/);
-    assert.match(message, /Provider: Codex/);
+    assert.match(message, /Creator build started/);
+    assert.match(message, /- Startup YC/);
+    assert.match(message, /- Builder: Codex/);
     assert.doesNotMatch(message, /Workspace: C:\\Users\\USER\\Desktop/);
     assert.match(message, /Workspace\n- Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
     assert.match(message, /- Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
@@ -401,15 +401,12 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator mission status/);
-    assert.match(message, /Domain: Startup YC/);
-    assert.match(message, /Stage: validation failed \(failed\)/);
-    assert.match(message, /Publish readiness: workspace prepared/);
-    assert.match(message, /Artifacts: 2/);
-    assert.match(message, /Manifest issues: 1/);
-    assert.match(message, /Latest validation: failed \(1 passed, 1 failed, 1 skipped\)/);
-    assert.match(message, /Blockers: One or more validation commands failed/);
-    assert.match(message, /Workspace\n- Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Startup YC creator status/);
+    assert.match(message, /State\n- failed at validation failed/);
+    assert.match(message, /- workspace prepared/);
+    assert.match(message, /- checks: failed \(1 passed, 1 failed, 1 skipped\)/);
+    assert.match(message, /- blocker: One or more validation commands failed/);
+    assert.match(message, /Workspace\n- 2 artifact plans\n- 1 manifest issue\n- Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
 
   await test('creatorMissionValidate posts a creator validation request to Spawner', async () => {
@@ -487,10 +484,8 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator mission validation failed/);
-    assert.match(message, /Commands: 2/);
-    assert.match(message, /Passed: 1/);
-    assert.match(message, /Failed: 1/);
+    assert.match(message, /Creator checks need attention/);
+    assert.match(message, /Checks\n- 2 commands\n- 1 passed\n- 1 failed\n- 0 skipped/);
     assert.match(message, /Needs attention:/);
     assert.match(message, /startup-bench - python -m thestartupbench run-suite/);
     assert.match(message, /Workspace\n- Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
