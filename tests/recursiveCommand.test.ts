@@ -160,9 +160,10 @@ async function main(): Promise<void> {
       const reply = ctx.replies.join('\n');
       assert.equal(mutationPosts, 0);
       assert.match(reply, /Decision not applied in Telegram: approved\./);
-      assert.match(reply, /Status: This item has to be handled in Workspace Decisions\./);
-      assert.match(reply, /2\. \/recursive report path_domain_autoloop_crypto_trading/);
+      assert.match(reply, /Status\n- This item has to be handled in Workspace Decisions\./);
+      assert.match(reply, /Report\n- \/recursive report path_domain_autoloop_crypto_trading/);
       assert.match(reply, /http:\/\/workspace\.example\.test\/runs\?tab=decisions/);
+      assert.doesNotMatch(reply, /Next:/);
       assert.doesNotMatch(reply, /workspace_route_only/);
     } finally {
       if (previousApiUrl === undefined) delete process.env.SPARK_SWARM_API_URL;
