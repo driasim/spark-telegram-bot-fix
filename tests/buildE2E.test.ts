@@ -491,6 +491,21 @@ async function run(): Promise<void> {
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
 			captured.push({ url, body });
+			if (url.includes('/api/creator/mission/execute')) {
+				return {
+					data: {
+						ok: true,
+						started: true,
+						missionId: body.missionId,
+						trace: {
+							mission_id: body.missionId,
+							links: {
+								kanban: '/kanban?mission=mission-creator-telegram-1'
+							}
+						}
+					}
+				};
+			}
 			if (url.includes('/api/creator/mission')) {
 				return {
 					data: {
@@ -537,8 +552,17 @@ async function run(): Promise<void> {
 		assert.match(call!.body.brief, /creator-system standards/);
 		assert.match(replies[0] || '', /Planning specialization path creator mission/);
 		assert.match(replies.join('\n'), /Creator plan is ready/);
-		assert.match(replies.join('\n'), /Next\n- \/creator run mission-creator-telegram-1/);
+		assert.match(replies.join('\n'), /Next\n- say: run it\n- \/creator run mission-creator-telegram-1/);
 		assert.doesNotMatch(replies.join('\n'), /Usage: \/creator/);
+
+		const runCtx = makeFakeCtx(8319079055, 8319079055, 562, replies);
+		runCtx.message.text = 'run it';
+		await indexModule.handleTextMessage(runCtx);
+
+		const executeCall = captured.find((item) => item.url.includes('/api/creator/mission/execute'));
+		assert.ok(executeCall, 'expected run it to execute the pending creator mission');
+		assert.deepEqual(executeCall!.body, { missionId: 'mission-creator-telegram-1' });
+		assert.match(replies.join('\n'), /Creator mission execution started/);
 
 		restoreAxios();
 		restoreEnv();

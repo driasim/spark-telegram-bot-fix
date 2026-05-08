@@ -423,6 +423,7 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     `- Board: ${kanbanUrl}`,
     '',
     'Next',
+    '- say: run it',
     `- /creator run ${missionId}`
   ];
 

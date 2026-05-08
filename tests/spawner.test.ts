@@ -253,7 +253,7 @@ async function run(): Promise<void> {
     assert.match(message, /Build\n- domain_chip, benchmark_pack, autoloop_policy\n- 2 tasks queued/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
-    assert.match(message, /Next\n- \/creator run mission-creator-1/);
+    assert.match(message, /Next\n- say: run it\n- \/creator run mission-creator-1/);
   });
 
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {

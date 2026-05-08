@@ -1338,6 +1338,13 @@ type NaturalCreatorMissionIntent = ParsedCreatorCommand & {
   artifactLabel: string;
 };
 
+type PendingCreatorMission = {
+  missionId: string;
+  timestamp: number;
+};
+
+const pendingCreatorMissions = new Map<string, PendingCreatorMission>();
+
 const CREATOR_USAGE = [
   'Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
   '       /creator run <mission-creator-id>',
@@ -1475,6 +1482,25 @@ function parseCreatorMissionControlCommand(raw: string): ParsedCreatorMissionCon
 
 function isValidCreatorMissionId(missionId: string): boolean {
   return /^mission-creator-[A-Za-z0-9_-]+$/.test(missionId);
+}
+
+function pendingCreatorMissionKey(ctx: any): string {
+  return `${ctx.chat.id}-${ctx.from.id}`;
+}
+
+function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return null;
+  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:creator\s+)?mission)?$/i.test(normalized)) {
+    return 'run';
+  }
+  if (/^(?:validate|check|verify|test)(?:\s+(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+    return 'validate';
+  }
+  if (/^(?:status|show status|what'?s happening|what happened|show me status|check status)(?:\s+(?:for\s+)?(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+    return 'status';
+  }
+  return null;
 }
 
 function normalizeNaturalCreatorText(text: string): string {
@@ -1712,11 +1738,46 @@ async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand):
 
   await ctx.reply(formatCreatorMissionSummary(result));
   if (result.success && result.missionId) {
+    pendingCreatorMissions.set(pendingCreatorMissionKey(ctx), {
+      missionId: result.missionId,
+      timestamp: Date.now()
+    });
     await conversation.learnAboutUser(
       ctx.from,
-      `Started creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
+      `Planned creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
     ).catch(() => {});
   }
+}
+
+async function handlePendingCreatorMissionControl(ctx: any, text: string): Promise<boolean> {
+  const key = pendingCreatorMissionKey(ctx);
+  const pending = pendingCreatorMissions.get(key);
+  if (!pending) return false;
+  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
+    pendingCreatorMissions.delete(key);
+    return false;
+  }
+
+  const action = parsePendingCreatorMissionAction(text);
+  if (!action) return false;
+  await conversation.remember(ctx.from, text).catch(() => {});
+  await safeSendChatAction(ctx, 'typing');
+
+  if (action === 'status') {
+    const result = await spawner.creatorMissionStatus({ missionId: pending.missionId });
+    await ctx.reply(formatCreatorMissionStatusSummary(result));
+    return true;
+  }
+
+  if (action === 'validate') {
+    const result = await spawner.creatorMissionValidate({ missionId: pending.missionId });
+    await ctx.reply(formatCreatorMissionValidationSummary(result));
+    return true;
+  }
+
+  const result = await spawner.creatorMissionExecute({ missionId: pending.missionId });
+  await ctx.reply(formatCreatorMissionExecutionSummary(result));
+  return true;
 }
 
 function isPendingClarificationFollowup(text: string): boolean {
@@ -2671,6 +2732,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
     return;
   }
   const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
