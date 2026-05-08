@@ -44,6 +44,7 @@ interface PathLoopConfig {
   builderRepo: string;
   builderHome: string;
   swarmRuntimeRoot: string;
+  startupBenchRepo: string;
   timeoutMs: number;
 }
 
@@ -62,6 +63,9 @@ function resolveConfig(): PathLoopConfig {
     process.env.SPARK_SWARM_REPO ||
     path.join(os.homedir(), 'Desktop', 'spark-swarm')
   );
+  const startupBenchRepo = path.resolve(
+    process.env.SPARK_STARTUP_BENCH_REPO || path.join(os.homedir(), 'Desktop', 'startup-bench')
+  );
   return {
     pythonCommand: resolvePythonCommand(process.env.SPARK_BUILDER_PYTHON || process.env.SPARK_SWARM_BRIDGE_PYTHON),
     builderRepo,
@@ -69,6 +73,7 @@ function resolveConfig(): PathLoopConfig {
       process.env.SPARK_BUILDER_HOME || path.join(os.homedir(), '.spark', 'state', 'spark-intelligence')
     ),
     swarmRuntimeRoot,
+    startupBenchRepo,
     timeoutMs: Number.parseInt(process.env.PATH_LOOP_TIMEOUT_MS || process.env.CHIP_LOOP_TIMEOUT_MS || '900000', 10) || 900000,
   };
 }
@@ -275,9 +280,16 @@ export async function runSpecializationPathAutoloop(
     sync,
   });
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
-  env.PYTHONPATH = env.PYTHONPATH ? `${src}${path.delimiter}${env.PYTHONPATH}` : src;
+  const pythonPathEntries = [src];
+  const startupBenchSrc = path.join(config.startupBenchRepo, 'src');
+  const specializationPathSrc = path.join(repoRoot, 'src');
+  if (existsSync(startupBenchSrc)) pythonPathEntries.push(startupBenchSrc);
+  if (existsSync(specializationPathSrc)) pythonPathEntries.push(specializationPathSrc);
+  if (env.PYTHONPATH) pythonPathEntries.push(env.PYTHONPATH);
+  env.PYTHONPATH = pythonPathEntries.join(path.delimiter);
   env.SPARK_SWARM_STATE_DIR = path.join(config.swarmRuntimeRoot, '.state');
   env[specializationRepoEnvVar(pathKey)] = repoRoot;
+  if (existsSync(config.startupBenchRepo)) env.SPARK_STARTUP_BENCH_REPO = config.startupBenchRepo;
   const researcherRepo = path.resolve(config.swarmRuntimeRoot, '..', 'spark-researcher');
   if (existsSync(researcherRepo)) env.SPARK_RESEARCHER_REPO = researcherRepo;
 
