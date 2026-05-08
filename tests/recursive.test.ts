@@ -94,7 +94,7 @@ test('renders recursive network proposal gates without overclaiming', () => {
 
   assert.match(reply, /Crypto Trading Autoloop sent for review/);
   assert.match(reply, /private for now/);
-  assert.match(reply, /benchmark proof/);
+  assert.match(reply, /add benchmark proof/);
   assert.match(reply, /review state: Blocked/);
   assert.match(reply, /runs\?tab=decisions/);
   assert.doesNotMatch(reply, /C:\\crypto/);

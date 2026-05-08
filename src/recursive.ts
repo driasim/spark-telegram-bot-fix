@@ -1257,7 +1257,7 @@ export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspace
 function friendlyProposalGate(gate: string): string {
   const normalized = gate.trim();
   const labels: Record<string, string> = {
-    benchmarkEvidence: 'benchmark proof',
+    benchmarkEvidence: 'add benchmark proof',
     replayCommand: 'replay step',
     riskNotes: 'review note',
     sourceProvenance: 'source proof',
@@ -1274,7 +1274,7 @@ export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalR
   const lines = [
     isSent
       ? `${ready ? '🟢' : '🟡'} ${subject} sent for review.`
-      : `${ready ? '🟢' : '🟡'} ${subject} is ready to review.`,
+      : `${ready ? '🟢' : '🟡'} ${subject} is ready for review.`,
     '',
     'Status',
     ready ? '- ready for a human reviewer' : '- private for now'
