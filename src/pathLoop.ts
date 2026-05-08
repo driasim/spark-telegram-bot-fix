@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { withHiddenWindows } from './hiddenProcess';
 import { resolvePythonCommand } from './pythonCommand';
+import { redactText } from './redaction';
 
 const execFileAsync = promisify(execFile);
 
@@ -296,8 +297,9 @@ export async function runSpecializationPathAutoloop(
       stderr,
     });
   } catch (err: any) {
-    const stdout = typeof err?.stdout === 'string' ? err.stdout : '';
-    const stderr = typeof err?.stderr === 'string' ? err.stderr : '';
+    const stdout = redactText(typeof err?.stdout === 'string' ? err.stdout : '');
+    const stderr = redactText(typeof err?.stderr === 'string' ? err.stderr : '');
+    const message = redactText(err?.message ? String(err.message) : '');
     return await buildPathLoopResult({
       ok: false,
       pathKey,
@@ -305,7 +307,7 @@ export async function runSpecializationPathAutoloop(
       rounds,
       stdout,
       stderr,
-      error: err?.message ? `${err.message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path autoloop failed',
+      error: message ? `${message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path autoloop failed',
     });
   }
 }

@@ -33,7 +33,7 @@ import {
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
-import { installConsoleRedaction } from './redaction';
+import { installConsoleRedaction, redactText } from './redaction';
 import {
   formatCreatorMissionExecutionSummary,
   formatCreatorMissionStatusSummary,
@@ -213,6 +213,12 @@ async function safeSendChatAction(ctx: any, action: 'typing'): Promise<void> {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`[Telegram] ignored sendChatAction failure: ${detail}`);
   }
+}
+
+function renderTelegramError(prefix: string, error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || 'unknown error');
+  const detail = redactText(raw).trim() || 'unknown error';
+  return `${prefix}: ${detail}`;
 }
 
 function nodeOutboundAuditPath(): string {
@@ -2014,7 +2020,7 @@ bot.command('chip', async (ctx) => {
   const result = await createChipFromPrompt(prompt);
 
   if (!result.ok) {
-    return ctx.reply(`Chip create failed: ${result.error || 'unknown error'}`);
+    return ctx.reply(renderTelegramError('Chip create failed', result.error));
   }
 
   const lines = [
@@ -2054,7 +2060,7 @@ bot.command('loop', async (ctx) => {
     try {
       const result = await runChipLoop(chipKey, rounds, 3);
       if (!result.ok) {
-        await ctx.telegram.sendMessage(chatId, `Loop failed: ${result.error || 'unknown error'}`);
+        await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop failed', result.error));
         return;
       }
       const lines = [
@@ -2074,7 +2080,7 @@ bot.command('loop', async (ctx) => {
       if (result.statusPath) lines.push(`Status file: ${result.statusPath}`);
       await ctx.telegram.sendMessage(chatId, lines.join('\n'));
     } catch (err: any) {
-      await ctx.telegram.sendMessage(chatId, `Loop crashed: ${err?.message || String(err)}`);
+      await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop crashed', err));
     }
   })();
 });
@@ -2179,7 +2185,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
           if (startTarget.kind === 'path') {
             const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
             if (!result.ok) {
-              await ctx.telegram.sendMessage(chatId, `Recursive path loop failed: ${result.error || 'unknown error'}`);
+              await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
               return;
             }
             await ctx.telegram.sendMessage(chatId, renderSpecializationPathLoopCompletion(result));
@@ -2188,7 +2194,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
 
           const result = await runChipLoop(parsed.chipKey!, rounds, 3);
           if (!result.ok) {
-            await ctx.telegram.sendMessage(chatId, `Recursive loop failed: ${result.error || 'unknown error'}`);
+            await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop failed', result.error));
             return;
           }
           let sync = null;
@@ -2200,7 +2206,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
           }
           await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
         } catch (err: any) {
-          await ctx.telegram.sendMessage(chatId, `Recursive loop crashed: ${err?.message || String(err)}`);
+          await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop crashed', err));
         }
       })();
       return;
@@ -2209,7 +2215,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     return ctx.reply(renderRecursiveHelp());
   } catch (err: any) {
     const status = err?.response?.status;
-    const detail = err?.response?.data?.error || err?.message || String(err);
+    const detail = redactText(err?.response?.data?.error || err?.message || String(err));
     if (status === 401 && detail === 'authentication_required') {
       return ctx.reply([
         'Recursive command failed (401): Spark Workspace rejected this agent token for recursive reads.',
