@@ -407,17 +407,23 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
 
   const lines = [
-    'Creator mission planned.',
+    '🧩 Creator plan is ready.',
     '',
-    `Mission: ${missionId}`,
-    `Mode: ${formatCreatorMode(trace.creator_mode)}`,
-    `Domain: ${intent.target_domain || 'unknown'}`,
-    `Privacy: ${intent.privacy_mode || 'unknown'}`,
-    `Risk: ${intent.risk_level || 'unknown'}`,
-    `Artifacts: ${artifacts}`,
-    ...(taskCount !== null ? [`Tasks: ${taskCount} queued`] : []),
-    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
-    `Mission board: ${kanbanUrl}`
+    'Scope',
+    `- ${intent.target_domain || 'unknown domain'}`,
+    `- ${formatCreatorMode(trace.creator_mode)}`,
+    `- ${intent.privacy_mode || 'local_only'} / risk ${intent.risk_level || 'medium'}`,
+    '',
+    'Build',
+    `- ${artifacts}`,
+    ...(taskCount !== null ? [`- ${taskCount} tasks queued`] : []),
+    '',
+    'Workspace',
+    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
+    `- Board: ${kanbanUrl}`,
+    '',
+    'Next',
+    `- /creator run ${missionId}`
   ];
 
   return lines.join('\n');

@@ -248,16 +248,12 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator mission planned/);
-    assert.match(message, /Mission: mission-creator-1/);
-    assert.match(message, /Mode: full path/);
-    assert.match(message, /Domain: Startup YC/);
-    assert.match(message, /Privacy: github_pr/);
-    assert.match(message, /Risk: high/);
-    assert.match(message, /Artifacts: domain_chip, benchmark_pack, autoloop_policy/);
-    assert.match(message, /Tasks: 2 queued/);
+    assert.match(message, /Creator plan is ready/);
+    assert.match(message, /Scope\n- Startup YC\n- full path\n- github_pr \/ risk high/);
+    assert.match(message, /Build\n- domain_chip, benchmark_pack, autoloop_policy\n- 2 tasks queued/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
-    assert.match(message, /Mission board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Next\n- \/creator run mission-creator-1/);
   });
 
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {

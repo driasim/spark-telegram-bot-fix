@@ -481,6 +481,69 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /Canvas:/);
 	});
 
+	await test('natural creator requests plan standards-backed missions', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/creator/mission')) {
+				return {
+					data: {
+						ok: true,
+						missionId: 'mission-creator-telegram-1',
+						requestId: body.requestId,
+						taskCount: 4,
+						canvasUrl: '/canvas?pipeline=creator-telegram-1&mission=mission-creator-telegram-1',
+						trace: {
+							mission_id: 'mission-creator-telegram-1',
+							creator_mode: 'full_path',
+							artifacts: ['domain_chip', 'benchmark_pack', 'specialization_path', 'autoloop_policy'],
+							intent_packet: {
+								target_domain: 'AI security questionnaires',
+								privacy_mode: body.privacyMode,
+								risk_level: body.riskLevel
+							},
+							links: {
+								kanban: '/kanban?mission=mission-creator-telegram-1'
+							}
+						}
+					}
+				};
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 561, replies);
+		ctx.message.text = 'create a private benchmarked specialization path with an autoloop for AI security questionnaires';
+
+		const indexModule: any = await import('../src/index');
+		assert.equal(
+			indexModule.parseNaturalCreatorMissionIntent(ctx.message.text)?.artifactLabel,
+			'specialization path'
+		);
+		await indexModule.handleTextMessage(ctx);
+
+		const call = captured.find((item) => item.url.includes('/api/creator/mission'));
+		assert.ok(call, 'expected natural creator request to plan a creator mission');
+		assert.equal(call!.body.privacyMode, 'local_only');
+		assert.equal(call!.body.riskLevel, 'medium');
+		assert.match(call!.body.brief, /creator-system standards/);
+		assert.match(replies[0] || '', /Planning specialization path creator mission/);
+		assert.match(replies.join('\n'), /Creator plan is ready/);
+		assert.match(replies.join('\n'), /Next\n- \/creator run mission-creator-telegram-1/);
+		assert.doesNotMatch(replies.join('\n'), /Usage: \/creator/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('canvas ready summary stays readable and includes canvas link', async () => {
 		const indexModule: any = await import('../src/index');
 		const reply = indexModule.formatCanvasReadySummary({

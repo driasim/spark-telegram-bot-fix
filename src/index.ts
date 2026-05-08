@@ -1334,6 +1334,10 @@ type ParsedCreatorCommand = {
   riskLevel?: 'low' | 'medium' | 'high';
 };
 
+type NaturalCreatorMissionIntent = ParsedCreatorCommand & {
+  artifactLabel: string;
+};
+
 const CREATOR_USAGE = [
   'Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
   '       /creator run <mission-creator-id>',
@@ -1471,6 +1475,57 @@ function parseCreatorMissionControlCommand(raw: string): ParsedCreatorMissionCon
 
 function isValidCreatorMissionId(missionId: string): boolean {
   return /^mission-creator-[A-Za-z0-9_-]+$/.test(missionId);
+}
+
+function normalizeNaturalCreatorText(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function inferNaturalCreatorPrivacyMode(normalized: string): ParsedCreatorCommand['privacyMode'] | undefined {
+  if (/\b(?:private|local|locally|workspace only|personal workspace)\b/.test(normalized)) return 'local_only';
+  if (/\b(?:github|pull request|pr)\b/.test(normalized)) return 'github_pr';
+  if (/\b(?:swarm|network|public|share|shared)\b/.test(normalized)) return 'swarm_shared';
+  return 'local_only';
+}
+
+function inferNaturalCreatorRiskLevel(normalized: string): ParsedCreatorCommand['riskLevel'] | undefined {
+  const match = normalized.match(/\brisk\s+(low|medium|high)\b/);
+  return match ? (match[1] as ParsedCreatorCommand['riskLevel']) : 'medium';
+}
+
+export function parseNaturalCreatorMissionIntent(text: string): NaturalCreatorMissionIntent | null {
+  const normalized = normalizeNaturalCreatorText(text);
+  if (!normalized || normalized.startsWith('/')) return null;
+  if (/\b(?:what|which|show|list|status|report|review|trace)\b/.test(normalized) && !/\b(?:create|build|make|plan|scaffold|generate)\b/.test(normalized)) {
+    return null;
+  }
+
+  const hasCreateVerb = /\b(?:create|build|make|plan|scaffold|generate|set up|spin up)\b/.test(normalized);
+  if (!hasCreateVerb) return null;
+
+  const artifactPatterns: Array<{ label: string; pattern: RegExp }> = [
+    { label: 'full creator system', pattern: /\b(?:creator system|creator mission|creator run|full path|domain chip.*benchmark.*(?:specialization|path|autoloop)|specialization.*benchmark.*autoloop)\b/ },
+    { label: 'specialization path', pattern: /\b(?:specialization path|specialisation path|learning path|mastery path)\b/ },
+    { label: 'autoloop', pattern: /\b(?:autoloop|auto loop|recursive loop|self-improvement loop)\b/ },
+    { label: 'benchmark pack', pattern: /\b(?:benchmark pack|benchmark|eval pack|evaluation pack|test suite)\b/ },
+    { label: 'domain chip', pattern: /\b(?:domain chip|domain-chip)\b/ }
+  ];
+  const artifact = artifactPatterns.find((entry) => entry.pattern.test(normalized));
+  if (!artifact) return null;
+
+  const brief = text.trim().replace(/\s+/g, ' ');
+  if (brief.length < 8) return null;
+  return {
+    brief: [
+      brief,
+      '',
+      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, and Swarm review packet only when gates allow it.',
+      'Keep Telegram user-facing output natural and concise; keep detailed evidence in Workspace/Canvas/Kanban.'
+    ].join('\n'),
+    privacyMode: inferNaturalCreatorPrivacyMode(normalized),
+    riskLevel: inferNaturalCreatorRiskLevel(normalized),
+    artifactLabel: artifact.label
+  };
 }
 
 export function formatBuildClarificationReply(projectName: string, questions: string[], assumptions: string[]): string {
@@ -1637,6 +1692,31 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pending.capabilityProposalPacket
   );
   return true;
+}
+
+async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand): Promise<void> {
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
+  }
+
+  await safeSendChatAction(ctx, 'typing');
+  const requestId = `tg-creator-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
+  const result = await spawner.creatorMission({
+    brief: parsed.brief,
+    requestId,
+    privacyMode: parsed.privacyMode,
+    riskLevel: parsed.riskLevel
+  });
+
+  await ctx.reply(formatCreatorMissionSummary(result));
+  if (result.success && result.missionId) {
+    await conversation.learnAboutUser(
+      ctx.from,
+      `Started creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
+    ).catch(() => {});
+  }
 }
 
 function isPendingClarificationFollowup(text: string): boolean {
@@ -2032,23 +2112,8 @@ bot.command('creator', async (ctx) => {
     return ctx.reply(CREATOR_USAGE);
   }
 
-  await ctx.reply('Planning creator mission through Spawner...');
-
-  const requestId = `tg-creator-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
-  const result = await spawner.creatorMission({
-    brief: parsed.brief,
-    requestId,
-    privacyMode: parsed.privacyMode,
-    riskLevel: parsed.riskLevel
-  });
-
-  await ctx.reply(formatCreatorMissionSummary(result));
-  if (result.success && result.missionId) {
-    await conversation.learnAboutUser(
-      ctx.from,
-      `Started creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
-    ).catch(() => {});
-  }
+  await ctx.reply('Planning creator mission...');
+  await handleCreatorMissionPlan(ctx, parsed);
 });
 
 bot.command('chip', async (ctx) => {
@@ -2606,6 +2671,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
+  if (naturalCreatorIntent) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
+    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
