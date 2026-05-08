@@ -269,6 +269,13 @@ interface RecursiveProposalOptions {
   replayCommand?: string;
 }
 
+interface RecursiveProposalDefaults {
+  payloadPath: string;
+  title?: string;
+  riskNotes?: string;
+  replayCommand?: string;
+}
+
 const DEFAULT_SWARM_API_URL = 'http://127.0.0.1:8787';
 const DEFAULT_SWARM_WEB_URL = 'http://127.0.0.1:5173';
 const execFileAsync = promisify(execFile);
@@ -694,6 +701,74 @@ export async function syncRecursiveArtifactToWorkspace(input: RecursiveArtifactS
   };
 }
 
+function localProposalRoots(): string[] {
+  const explicit = (process.env.SPARK_RECURSIVE_PROPOSAL_ROOTS || '').trim();
+  const roots = explicit
+    ? explicit.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  roots.push(path.join(homedir(), 'Desktop'));
+  return [...new Set(roots)];
+}
+
+export function resolveRecursiveProposalPayloadPath(input: string): string {
+  const value = (input || '').trim();
+  if (!value) throw new Error('Usage: /recursive propose <path-or-key> [submit]');
+  if (existsSync(value)) return value;
+  const normalized = value.replace(/^path:/i, '').replace(/^domain-chip-/i, '');
+  const repoNames = [
+    value,
+    `domain-chip-${normalized}`,
+    `specialization-path-${normalized}`,
+    `benchmark-${normalized}`
+  ];
+  for (const root of localProposalRoots()) {
+    for (const repoName of repoNames) {
+      const candidate = path.join(root, repoName, '.spark-swarm', 'collective-sync.json');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return value;
+}
+
+function proposalArtifactPath(payload: Record<string, any>, kind: string): string | null {
+  const refs = Array.isArray(payload.artifactRefs) ? payload.artifactRefs : [];
+  const ref = refs.find((item: any) => item && item.kind === kind && typeof item.path === 'string' && item.path.trim());
+  return ref?.path?.trim() || null;
+}
+
+function inferRecursiveProposalDefaults(input: string, payloadPath: string): RecursiveProposalDefaults {
+  const defaults: RecursiveProposalDefaults = { payloadPath };
+  try {
+    const payload = JSON.parse(readFileSync(payloadPath, 'utf-8'));
+    const runtimeSource = payload?.runtimeSource && typeof payload.runtimeSource === 'object' ? payload.runtimeSource : {};
+    const label = String(runtimeSource.chipLabel || runtimeSource.autoloopId || runtimeSource.chipKey || input || '').trim();
+    if (label) defaults.title = labelFromKey(label);
+    defaults.riskNotes = 'Private workspace evidence only; review benchmark evidence, privacy, and rollback before sharing.';
+
+    if (runtimeSource.sourceKind === 'domain_autoloop') {
+      const manifest = proposalArtifactPath(payload, 'manifest');
+      const state = proposalArtifactPath(payload, 'state');
+      const policy = proposalArtifactPath(payload, 'policy');
+      const journal = proposalArtifactPath(payload, 'journal');
+      const laneReport = proposalArtifactPath(payload, 'lane_report');
+      if (manifest && state) {
+        defaults.replayCommand = [
+          'spark-swarm domain-autoloop',
+          `--manifest ${manifest}`,
+          `--state ${state}`,
+          policy ? `--policy ${policy}` : '',
+          journal ? `--journal ${journal}` : '',
+          laneReport ? `--lane-report ${laneReport}` : '',
+          '--sync-collective'
+        ].filter(Boolean).join(' ');
+      }
+    }
+  } catch {
+    return defaults;
+  }
+  return defaults;
+}
+
 export function parseRecursiveProposalOptions(args: string[]): RecursiveProposalOptions {
   const options: RecursiveProposalOptions = { submit: false };
   const fieldFor = (value: string): keyof Omit<RecursiveProposalOptions, 'submit'> | null => {
@@ -736,11 +811,16 @@ export function parseRecursiveProposalOptions(args: string[]): RecursiveProposal
 }
 
 export async function proposeRecursiveWorkspaceEvidence(
-  payloadPath: string,
+  payloadPathOrKey: string,
   args: string[] = []
 ): Promise<RecursiveNetworkProposalResult> {
-  if (!payloadPath?.trim()) throw new Error('Usage: /recursive propose <collectivePayloadJson> [submit]');
+  if (!payloadPathOrKey?.trim()) throw new Error('Usage: /recursive propose <path-or-key> [submit]');
+  const payloadPath = resolveRecursiveProposalPayloadPath(payloadPathOrKey);
   const options = parseRecursiveProposalOptions(args);
+  const defaults = inferRecursiveProposalDefaults(payloadPathOrKey, payloadPath);
+  const title = options.title || defaults.title;
+  const riskNotes = options.riskNotes || defaults.riskNotes;
+  const replayCommand = options.replayCommand || defaults.replayCommand;
   const config = sparkWorkspaceBridgeHints();
   const python = (
     process.env.SPARK_SWARM_BRIDGE_PYTHON ||
@@ -766,9 +846,9 @@ export async function proposeRecursiveWorkspaceEvidence(
       'propose',
       '--from-payload',
       payloadPath,
-      ...(options.title ? ['--title', options.title] : []),
-      ...(options.riskNotes ? ['--risk-notes', options.riskNotes] : []),
-      ...(options.replayCommand ? ['--replay-command', options.replayCommand] : [])
+      ...(title ? ['--title', title] : []),
+      ...(riskNotes ? ['--risk-notes', riskNotes] : []),
+      ...(replayCommand ? ['--replay-command', replayCommand] : [])
     ],
     {
       env,
@@ -951,11 +1031,22 @@ export function buildBuilderChipLoopBridgeInput(result: LoopResult, emittedAt: s
   };
 }
 
-function resolveSparkSwarmBridgeSrc(): string | null {
+function looksLikeBridgeSrc(candidate: string): boolean {
+  return existsSync(path.join(candidate, 'spark_swarm_bridge', 'cli.py'));
+}
+
+export function resolveSparkSwarmBridgeSrc(): string | null {
   const explicit = (process.env.SPARK_SWARM_BRIDGE_SRC || '').trim();
   if (explicit) return explicit;
-  const sibling = path.resolve(process.cwd(), '..', 'spark-swarm', 'apps', 'bridge', 'src');
-  return existsSync(sibling) ? sibling : null;
+  const repoOverride = (process.env.SPARK_SWARM_REPO || '').trim();
+  const candidates = [
+    repoOverride ? path.join(repoOverride, 'apps', 'bridge', 'src') : '',
+    path.resolve(process.cwd(), '..', 'spark-swarm', 'apps', 'bridge', 'src'),
+    path.join(homedir(), 'Desktop', 'spark-swarm', 'apps', 'bridge', 'src'),
+    path.join(homedir(), '.spark', 'modules', 'spark-swarm', 'source', 'apps', 'bridge', 'src'),
+    path.join(homedir(), '.spark', 'modules', 'spark-swarm', 'apps', 'bridge', 'src')
+  ].filter(Boolean);
+  return candidates.find(looksLikeBridgeSrc) || null;
 }
 
 function parseBridgeLine(stdout: string, label: string): string | null {
@@ -1161,22 +1252,34 @@ export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspace
   return lines.join('\n');
 }
 
+function friendlyProposalGate(gate: string): string {
+  const normalized = gate.trim();
+  const labels: Record<string, string> = {
+    benchmarkEvidence: 'benchmark proof',
+    replayCommand: 'replay step',
+    riskNotes: 'review note',
+    sourceProvenance: 'source proof',
+    schemaValidation: 'schema check'
+  };
+  return labels[normalized] || labelFromKey(normalized);
+}
+
 export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalResult): string {
+  const ready = result.readyForPr && result.missingGates.length === 0;
   const lines = [
-    'Workspace proposal',
+    `${ready ? '🟢' : '🟡'} Review packet ${ready ? 'ready.' : 'prepared.'}`,
     '',
     'Status',
-    `- ${result.readyForPr ? 'ready for PR review' : 'blocked until gates pass'}`
+    ready ? '- ready for human review' : '- still private until review checks pass'
   ];
-  if (result.currentTier) lines.push(`- current: ${result.currentTier}`);
-  if (result.proposedTier) lines.push(`- proposed: ${result.proposedTier}`);
+  if (result.proposedTier) lines.push(`- aiming for: ${labelFromKey(result.proposedTier)}`);
   if (result.missingGates.length > 0) {
-    lines.push('', 'Missing', ...result.missingGates.map((gate) => `- ${gate}`));
+    lines.push('', 'Needs', ...result.missingGates.map((gate) => `- ${friendlyProposalGate(gate)}`));
   }
-  lines.push('', 'Bundle', `- ${result.proposalPath || 'not written'}`);
+  lines.push('', 'Saved', `- ${result.proposalPath || 'not written'}`);
   if (result.submitted || result.submitError) {
     lines.push('', 'Workspace');
-    lines.push(result.submitted ? `- submitted${result.submitState ? ` (${result.submitState})` : ''}` : '- not submitted');
+    lines.push(result.submitted ? `- sent for review${result.submitState ? ` (${labelFromKey(result.submitState)})` : ''}` : '- not sent');
     lines.push(result.submitError ? `- ${result.submitError}` : `- ${sparkWorkspaceDecisionsUrl()}`);
   }
   return lines.join('\n');
@@ -1201,7 +1304,7 @@ export function renderRecursiveHelp(): string {
     'Deep cuts:',
     '/recursive paths - specialization lanes',
     '/recursive trace <id> - detailed timeline',
-    '/recursive propose <collectivePayloadJson> [submit]',
+    '/recursive propose <chip-or-path-name> [submit]',
     '/recursive sync prompt-benchmark <runJson> [report <reportPath>]',
     '/recursive sync domain-chip-lab <telemetryJson> <chipKey> [chip-path <path>] [packet <path>]',
     '/recursive sync domain-autoloop <manifestJson> <stateJson> [policy <path>] [journal <path>] [lane-report <path>]',

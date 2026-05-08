@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -8,6 +8,8 @@ import {
   buildBuilderChipLoopWorkspacePayload,
   parseRecursiveCommand,
   parseRecursiveProposalOptions,
+  resolveRecursiveProposalPayloadPath,
+  resolveSparkSwarmBridgeSrc,
   renderBuilderChipLoopCompletion,
   renderRecursiveArtifactSyncCompletion,
   renderRecursiveNetworkProposal,
@@ -89,11 +91,47 @@ test('renders recursive network proposal gates without overclaiming', () => {
     submitError: null
   });
 
-  assert.match(reply, /Workspace proposal/);
-  assert.match(reply, /blocked until gates pass/);
-  assert.match(reply, /benchmarkEvidence/);
-  assert.match(reply, /submitted \(blocked\)/);
+  assert.match(reply, /Review packet prepared/);
+  assert.match(reply, /still private until review checks pass/);
+  assert.match(reply, /benchmark proof/);
+  assert.match(reply, /sent for review \(Blocked\)/);
   assert.match(reply, /runs\?tab=decisions/);
+});
+
+test('resolves human proposal keys to local collective payloads', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'spark-recursive-proposal-root-'));
+  const oldRoots = process.env.SPARK_RECURSIVE_PROPOSAL_ROOTS;
+  try {
+    const payload = path.join(root, 'domain-chip-crypto-trading', '.spark-swarm', 'collective-sync.json');
+    mkdirSync(path.dirname(payload), { recursive: true });
+    writeFileSync(payload, '{}', 'utf-8');
+    process.env.SPARK_RECURSIVE_PROPOSAL_ROOTS = root;
+    assert.equal(resolveRecursiveProposalPayloadPath('crypto-trading'), payload);
+  } finally {
+    if (oldRoots === undefined) delete process.env.SPARK_RECURSIVE_PROPOSAL_ROOTS;
+    else process.env.SPARK_RECURSIVE_PROPOSAL_ROOTS = oldRoots;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolves Spark Swarm bridge source from repo override', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'spark-swarm-repo-'));
+  const oldRepo = process.env.SPARK_SWARM_REPO;
+  const oldSrc = process.env.SPARK_SWARM_BRIDGE_SRC;
+  try {
+    const bridgeSrc = path.join(root, 'apps', 'bridge', 'src');
+    mkdirSync(path.join(bridgeSrc, 'spark_swarm_bridge'), { recursive: true });
+    writeFileSync(path.join(bridgeSrc, 'spark_swarm_bridge', 'cli.py'), '', 'utf-8');
+    process.env.SPARK_SWARM_REPO = root;
+    delete process.env.SPARK_SWARM_BRIDGE_SRC;
+    assert.equal(resolveSparkSwarmBridgeSrc(), bridgeSrc);
+  } finally {
+    if (oldRepo === undefined) delete process.env.SPARK_SWARM_REPO;
+    else process.env.SPARK_SWARM_REPO = oldRepo;
+    if (oldSrc === undefined) delete process.env.SPARK_SWARM_BRIDGE_SRC;
+    else process.env.SPARK_SWARM_BRIDGE_SRC = oldSrc;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('parses recursive network proposal options for review gates', () => {

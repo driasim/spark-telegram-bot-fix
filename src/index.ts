@@ -1275,6 +1275,27 @@ export function parseNaturalRunIntent(text: string): { providers: string[]; goal
   return null;
 }
 
+export interface NaturalRecursiveProposalIntent {
+  target: string;
+  submit: boolean;
+}
+
+export function parseNaturalRecursiveProposalIntent(text: string): NaturalRecursiveProposalIntent | null {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+  const wantsReviewPacket = /\b(prepare|propose|package|submit|share|send)\b/.test(normalized) &&
+    /\b(review|network|swarm|spark swarm|workspace)\b/.test(normalized);
+  if (!wantsReviewPacket) return null;
+  const submit = /\b(submit|share|send)\b/.test(normalized) && /\b(network|swarm|spark swarm|review)\b/.test(normalized);
+  if (/\bcrypto[-\s]+trading\b/.test(normalized)) return { target: 'crypto-trading', submit };
+  if (/\bstartup[-\s]+yc\b/.test(normalized)) return { target: 'startup-yc', submit };
+  return null;
+}
+
 function humanProviderList(providers: string[]): string {
   const labels = providers.map((id) => PROVIDER_LABELS[id] || id);
   if (labels.length === 1) return labels[0];
@@ -2200,7 +2221,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     }
 
     if (parsed.action === 'propose') {
-      if (!parsed.id) return ctx.reply('Usage: /recursive propose <collectivePayloadJson> [submit]');
+      if (!parsed.id) return ctx.reply('Usage: /recursive propose <chip-or-path-name> [submit]');
       await safeSendChatAction(ctx, 'typing');
       const result = await proposeRecursiveWorkspaceEvidence(parsed.id, parsed.proposeArgs || []);
       return ctx.reply(renderRecursiveNetworkProposal(result));
@@ -2585,6 +2606,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
+  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from)) {
+    await conversation.remember(user, text).catch(() => {});
+    const submitArg = naturalRecursiveProposal.submit ? ' submit' : '';
+    await handleRecursiveCommand(ctx, `propose ${naturalRecursiveProposal.target}${submitArg}`);
     return;
   }
   if (!earlyBuildIntent && isSparkChipStatusOverclaimQuestion(text)) {

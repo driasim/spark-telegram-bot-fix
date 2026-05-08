@@ -37,7 +37,19 @@ function fakeCtx(text: string): any {
 }
 
 async function main(): Promise<void> {
-  const { handleRecursiveCommand } = await import('../src/index');
+  const { handleRecursiveCommand, parseNaturalRecursiveProposalIntent } = await import('../src/index');
+
+  await test('natural recursive proposal intent keeps command language human', async () => {
+    assert.deepEqual(
+      parseNaturalRecursiveProposalIntent('prepare crypto trading for review in Spark Swarm'),
+      { target: 'crypto-trading', submit: false }
+    );
+    assert.deepEqual(
+      parseNaturalRecursiveProposalIntent('can we share Startup YC with the network review lane?'),
+      { target: 'startup-yc', submit: true }
+    );
+    assert.equal(parseNaturalRecursiveProposalIntent('what happened with crypto trading?'), null);
+  });
 
   await test('recursive command export renders help through command path', async () => {
     const ctx = fakeCtx('/recursive help');
