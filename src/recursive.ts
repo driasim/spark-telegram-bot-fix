@@ -1728,7 +1728,7 @@ function compactTimestamp(iso: string): string {
 }
 
 function labelFromKey(value: string): string {
-  const acronyms = new Set(['agi', 'api', 'cli', 'db', 'gpt', 'gtm', 'llm', 'ui', 'ux', 'yc']);
+  const acronyms = new Set(['agi', 'api', 'cli', 'db', 'gpt', 'gtm', 'llm', 'qa', 'ui', 'ux', 'yc']);
   return value
     .split(/[-_\s]+/)
     .filter(Boolean)
