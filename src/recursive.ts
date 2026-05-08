@@ -1675,29 +1675,31 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
   const targetLabel = path ? pathDisplayLabel(path, spec) : labelFromKey(id);
   const scopeLine = path ? `Scope: ${friendlyReviewScope(path.scope)}` : null;
   const networkLine = path ? `Network: ${friendlyReviewNetwork(path.scope)}` : null;
-  const firstHighPriority = groups.find((group) => reviewPriorityRank(group.item.priority) >= reviewPriorityRank('high'));
-  const reviewCall = firstHighPriority
-    ? `Start here: ${firstHighPriority.item.title}.`
-    : `Start here: first ${reviewKindLabel(groups[0].item.kind).toLowerCase()}.`;
   const topGroup = groups[0];
   const topActions = topGroup ? reviewTelegramActions(topGroup.item) : [];
+  const reasonLines = topGroup ? reviewReasonLines(topGroup) : [];
 
   return [
     `${targetLabel} review`,
-    `- Waiting: ${pluralize(items.length, 'decision')}`,
-    topGroup ? `- Main blocker: ${topGroup.item.title}${topGroup.count > 1 ? ` (${pluralize(topGroup.count, 'item')})` : ''}` : null,
-    topGroup ? `- Why: ${ensureSentence(reviewGroupSummary(topGroup))}` : null,
-    topGroup?.item.recommendedAction ? `- Move: ${ensureSentence(truncate(topGroup.item.recommendedAction, 130))}` : null,
+    '',
+    'Review',
+    `- ${pluralize(items.length, 'decision')} waiting`,
+    topGroup ? `- blocker: ${topGroup.item.title}${topGroup.count > 1 ? ` (${pluralize(topGroup.count, 'item')})` : ''}` : null,
     scopeLine ? `- Scope: ${scopeLine.replace(/^Scope:\s*/, '')}` : null,
     networkLine ? `- Network: ${networkLine.replace(/^Network:\s*/, '')}` : null,
+    reasonLines.length > 0 ? '' : null,
+    reasonLines.length > 0 ? 'Why' : null,
+    ...reasonLines.map((reason) => `- ${reason}`),
+    topGroup?.item.recommendedAction ? '' : null,
+    topGroup?.item.recommendedAction ? 'Move' : null,
+    topGroup?.item.recommendedAction ? `- ${ensureSentence(truncate(topGroup.item.recommendedAction, 130))}` : null,
     topActions.length > 0 ? '' : null,
     topActions.length > 0 ? 'Actions' : null,
     ...topActions.map((action, index) => `${index + 1}. ${action}`),
     '',
-    'Open',
-    `- Decisions: ${sparkWorkspaceDecisionsUrl()}`,
-    '',
-    `Trace: /recursive trace ${path?.id || id}`
+    'Workspace',
+    `- ${sparkWorkspaceDecisionsUrl()}`,
+    `- /recursive trace ${path?.id || id}`
   ].filter(isRenderableLine).join('\n');
 }
 
@@ -1912,6 +1914,21 @@ function reviewGroupSummary(group: ReviewItemGroup): string {
     return `${pluralize(group.count, 'related decision')} need the same move. Reasons: ${truncate(reasons.join('; '), 150)}`;
   }
   return `${pluralize(group.count, 'related decision')} need the same move.`;
+}
+
+function reviewReasonLines(group: ReviewItemGroup): string[] {
+  if (group.count === 1) return [ensureSentence(truncate(group.summaries[0], 120))];
+  const reasons = uniqueReviewReasons(group.summaries).map(friendlyReviewReason);
+  if (reasons.length > 0) return reasons.map(ensureSentence);
+  return [`${pluralize(group.count, 'related decision')} need the same move.`];
+}
+
+function friendlyReviewReason(reason: string): string {
+  const cleaned = reason.replace(/[.]+$/, '').trim();
+  if (/primary message exceeds the network readability limit/i.test(cleaned)) return 'message is too long for network sharing';
+  if (/contains a suspicious long opaque token/i.test(cleaned)) return 'suspicious long opaque token';
+  if (/contains inline code fencing/i.test(cleaned)) return 'inline code fencing';
+  return sentenceCaseFirst(cleaned.replace(/^contains\s+/i, ''));
 }
 
 function uniqueReviewReasons(summaries: string[]): string[] {

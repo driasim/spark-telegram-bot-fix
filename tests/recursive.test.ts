@@ -1570,13 +1570,12 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path_builder_chip_startup_yc');
   assert.match(review, /Spark Intelligence Builder review/);
-  assert.match(review, /- Waiting: 1 decision/);
-  assert.match(review, /- Main blocker: Review Builder chip outcome/);
+  assert.match(review, /Review\n- 1 decision waiting\n- blocker: Review Builder chip outcome/);
   assert.match(review, /- Scope: private workspace/);
   assert.match(review, /- Network: not submitted/);
-  assert.match(review, /- Why: Outcome needs dashboard action\./);
-  assert.match(review, /- Move: Open Recursions and inspect the run trace\./);
-  assert.match(review, /Trace: \/recursive trace path_builder_chip_startup_yc/);
+  assert.match(review, /Why\n- Outcome needs dashboard action\./);
+  assert.match(review, /Move\n- Open Recursions and inspect the run trace\./);
+  assert.match(review, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions\n- \/recursive trace path_builder_chip_startup_yc/);
   assert.doesNotMatch(review, /Next:/);
   assert.doesNotMatch(review, /review_outcome/);
 });
@@ -1634,8 +1633,7 @@ test('renders supported Workspace review items with Telegram actions', () => {
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path:startup-yc');
   assert.match(review, /Startup YC review/);
-  assert.match(review, /- Waiting: 2 decisions/);
-  assert.match(review, /- Main blocker: Review team-health mastery/);
+  assert.match(review, /Review\n- 2 decisions waiting\n- blocker: Review team-health mastery/);
   assert.match(review, /Actions/);
   assert.match(review, /1\. Approve: \/recursive approve inbox_high_mastery evidence is strong enough/);
   assert.match(review, /2\. More eval: \/recursive more-eval inbox_high_mastery needs another benchmark pass/);
@@ -1698,10 +1696,10 @@ test('groups repeated dashboard-only Workspace review blockers', () => {
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path:startup-yc');
   assert.match(review, /Startup YC review/);
-  assert.match(review, /- Waiting: 2 decisions/);
+  assert.match(review, /Review\n- 2 decisions waiting/);
   assert.match(review, /- Scope: specialization path/);
   assert.match(review, /- Network: review required/);
-  assert.match(review, /- Main blocker: Rewrite blocked insight \(2 items\)/);
-  assert.match(review, /Reasons: Primary message exceeds the network readability limit; Contains a suspicious long opaque token/);
+  assert.match(review, /- blocker: Rewrite blocked insight \(2 items\)/);
+  assert.match(review, /Why\n- message is too long for network sharing\.\n- suspicious long opaque token\./);
   assert.doesNotMatch(review, /2\. Rewrite Insight/);
 });
