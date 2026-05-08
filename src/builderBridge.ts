@@ -40,6 +40,7 @@ export interface BuilderBridgeReply {
   bridgeMode: string;
   routingDecision: string;
   voiceMedia?: BuilderBridgeVoiceMedia;
+  voiceTiming?: Record<string, unknown>;
 }
 
 export interface BuilderBridgeVoiceMedia {
@@ -49,6 +50,8 @@ export interface BuilderBridgeVoiceMedia {
   voiceCompatible: boolean;
   providerId?: string;
   voiceId?: string;
+  spokenText?: string;
+  synthesisMs?: number;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -1878,6 +1881,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         bridge_mode?: unknown;
         routing_decision?: unknown;
         voice_media?: unknown;
+        voice_timing?: unknown;
       };
     };
 
@@ -1919,6 +1923,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       bridgeMode,
       routingDecision,
       voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
+      voiceTiming: objectValue(detail.voice_timing),
     };
   } catch (error) {
     if (config.mode === 'required') {
@@ -1953,5 +1958,7 @@ function parseBuilderBridgeVoiceMedia(value: unknown): BuilderBridgeVoiceMedia |
     voiceCompatible: Boolean(media.voice_compatible),
     providerId: String(media.provider_id || '').trim() || undefined,
     voiceId: String(media.voice_id || '').trim() || undefined,
+    spokenText: String(media.spoken_text || '').trim() || undefined,
+    synthesisMs: Number.isFinite(Number(media.synthesis_ms)) ? Number(media.synthesis_ms) : undefined,
   };
 }
