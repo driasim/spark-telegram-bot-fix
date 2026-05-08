@@ -610,6 +610,7 @@ test('renders specialization path loop completion with workspace next step', () 
     sessionId: 'autoloop-20260508T054500Z',
     sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop-20260508T054500Z\\summary.json',
     payloadPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\collective-sync.json',
+    workspaceSynced: true,
     pathId: 'path_startup_yc',
     outcomeId: 'outcome_startup_yc_20260508T054500000',
     verdict: 'flat',

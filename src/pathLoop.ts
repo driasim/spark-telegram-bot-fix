@@ -28,6 +28,7 @@ export interface PathLoopResult {
   sessionSummaryPath?: string | null;
   payloadPath?: string | null;
   latestCandidatePath?: string | null;
+  workspaceSynced?: boolean;
   pathId?: string | null;
   outcomeId?: string | null;
   verdict?: string | null;
@@ -217,6 +218,7 @@ async function buildPathLoopResult(input: {
   stdout: string;
   stderr: string;
   error?: string;
+  workspaceSynced?: boolean;
 }): Promise<PathLoopResult> {
   const sessionId = parseLabeledLine(input.stdout, 'Session id');
   const payloadPath = parseLabeledLine(input.stdout, 'Collective payload');
@@ -242,6 +244,7 @@ async function buildPathLoopResult(input: {
     sessionSummaryPath: summaryPath,
     payloadPath,
     latestCandidatePath,
+    workspaceSynced: Boolean(input.workspaceSynced),
     pathId: typeof evolutionPath?.id === 'string' ? evolutionPath.id : typeof outcome?.targetId === 'string' ? outcome.targetId : null,
     outcomeId: typeof outcome?.id === 'string' ? outcome.id : null,
     verdict: typeof outcome?.verdict === 'string' ? outcome.verdict : null,
@@ -272,7 +275,7 @@ export async function runSpecializationPathAutoloop(
   const cwd = bridgeCwd(config);
   const src = bridgeSrc(config);
   if (!existsSync(cwd) || !existsSync(src)) {
-    return { ok: false, pathKey, repoRoot, error: `Spark Swarm bridge runtime is missing at ${cwd}` };
+    return { ok: false, pathKey, repoRoot, error: 'Specialization path loops need the local path runner. This public install can still run local Builder chip loops with /recursive start <chipKey> rounds 1.' };
   }
 
   const args = buildSpecializationPathAutoloopBridgeArgs({
@@ -309,6 +312,7 @@ export async function runSpecializationPathAutoloop(
       rounds,
       stdout,
       stderr,
+      workspaceSynced: Boolean(sync?.workspaceId && sync?.apiUrl && sync?.accessToken),
     });
   } catch (err: any) {
     const stdout = redactText(typeof err?.stdout === 'string' ? err.stdout : '');
@@ -322,6 +326,7 @@ export async function runSpecializationPathAutoloop(
       stdout,
       stderr,
       error: message ? `${message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path autoloop failed',
+      workspaceSynced: Boolean(sync?.workspaceId && sync?.apiUrl && sync?.accessToken),
     });
   }
 }

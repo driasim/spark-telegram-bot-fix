@@ -56,7 +56,7 @@ import {
   recursiveSessions,
   recursiveSessionReview,
   recursiveSessionStatus,
-  recursiveTraceView,
+  recursiveTraceReply,
   renderRecursiveDecision,
   renderRecursiveCanvasQueue,
   renderRecursiveArtifactSyncCompletion,
@@ -68,9 +68,9 @@ import {
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
-  renderRecursiveTraceView,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceBridgeHints,
+  sparkWorkspaceConfigured,
   sparkWorkspaceRecursionsUrl,
   stageRecursivePromotionPacket,
   stageRecursiveSwarmPacket,
@@ -2297,7 +2297,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     if (parsed.action === 'trace') {
       if (!parsed.id) return ctx.reply('Usage: /recursive trace <id>');
       await safeSendChatAction(ctx, 'typing');
-      return ctx.reply(renderRecursiveTraceView(await recursiveTraceView(parsed.id)));
+      return ctx.reply(await recursiveTraceReply(parsed.id));
     }
 
     if (parsed.action === 'canvas') {
@@ -2381,10 +2381,12 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
           }
           let sync = null;
           let syncError = null;
-          try {
-            sync = await syncBuilderChipLoopToWorkspace(result);
-          } catch (syncErr: any) {
-            syncError = syncErr?.message || String(syncErr);
+          if (sparkWorkspaceConfigured()) {
+            try {
+              sync = await syncBuilderChipLoopToWorkspace(result);
+            } catch (syncErr: any) {
+              syncError = syncErr?.message || String(syncErr);
+            }
           }
           await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
         } catch (err: any) {

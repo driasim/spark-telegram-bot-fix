@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -277,6 +277,25 @@ interface RecursiveProposalDefaults {
   replayCommand?: string;
 }
 
+interface LocalRecursiveLoopStatus {
+  session_id: string;
+  trace_id: string;
+  chip_key: string;
+  title: string;
+  status: string;
+  domain: string;
+  updated_at: string | null;
+  status_path: string;
+  rounds_completed: number | null;
+  total_rounds: number | null;
+  history: Array<{
+    round_index?: number | null;
+    suggestions_count?: number | null;
+    best_verdict?: string | null;
+    best_metric?: number | null;
+  }>;
+}
+
 const DEFAULT_SWARM_API_URL = 'http://127.0.0.1:8787';
 const DEFAULT_SWARM_WEB_URL = 'http://127.0.0.1:5173';
 const execFileAsync = promisify(execFile);
@@ -539,6 +558,11 @@ export function sparkWorkspaceBridgeHints(): { apiUrl?: string; workspaceId?: st
   };
 }
 
+export function sparkWorkspaceConfigured(): boolean {
+  const config = sparkWorkspaceBridgeHints();
+  return Boolean(config.workspaceId && config.accessToken);
+}
+
 async function loadSparkWorkspaceSnapshot(): Promise<SparkWorkspaceSnapshot> {
   const { apiUrl, workspaceId, accessToken } = sparkWorkspaceConfig();
   const res = await axios.get(`${apiUrl}/api/workspaces/${encodeURIComponent(workspaceId)}/collective-snapshot`, {
@@ -596,7 +620,192 @@ export function parseRecursiveCommand(raw: string): RecursiveCommand | null {
   return null;
 }
 
+function recursiveLocalStatusRoots(): string[] {
+  const explicit = (process.env.SPARK_RECURSIVE_LOCAL_STATUS_ROOTS || '').trim();
+  const roots = explicit
+    ? explicit.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean)
+    : [];
+  const home = builderHome();
+  return uniquePaths([
+    ...roots,
+    home ? path.join(home, 'loops') : null,
+    path.join(homedir(), '.spark', 'state', 'spark-intelligence', 'loops'),
+    path.join(homedir(), '.spark-intelligence', 'loops')
+  ]);
+}
+
+async function localRecursiveStatusFiles(): Promise<string[]> {
+  const files: string[] = [];
+  for (const root of recursiveLocalStatusRoots()) {
+    try {
+      if (!existsSync(root)) continue;
+      const entries = await readdir(root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!/\.status\.json$/i.test(entry.name)) continue;
+        files.push(path.join(root, entry.name));
+      }
+    } catch {
+      continue;
+    }
+  }
+  return files;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function localStatusId(chipKey: string): string {
+  return `path_builder_chip_${normalizeWorkspaceIdPart(chipKey)}`;
+}
+
+async function readLocalRecursiveStatus(filePath: string): Promise<LocalRecursiveLoopStatus | null> {
+  try {
+    const parsed = JSON.parse(await readFile(filePath, 'utf-8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const fallbackKey = path.basename(filePath).replace(/\.status\.json$/i, '');
+    const chipKey = String(parsed.chip_key || parsed.chipKey || parsed.chip || parsed.key || fallbackKey).trim();
+    if (!chipKey) return null;
+    const fileStat = await stat(filePath);
+    const history = Array.isArray(parsed.history) ? parsed.history : [];
+    const updatedAt = typeof parsed.updated_at === 'string'
+      ? parsed.updated_at
+      : typeof parsed.updatedAt === 'string'
+        ? parsed.updatedAt
+        : fileStat.mtime.toISOString();
+    const title = `${labelFromKey(chipKey)} local Builder loop`;
+    return {
+      session_id: localStatusId(chipKey),
+      trace_id: localStatusId(chipKey),
+      chip_key: chipKey,
+      title,
+      status: String(parsed.status || 'open'),
+      domain: 'spark-intelligence-builder',
+      updated_at: updatedAt,
+      status_path: filePath,
+      rounds_completed: numberOrNull(parsed.rounds_completed ?? parsed.roundsCompleted),
+      total_rounds: numberOrNull(parsed.total_rounds ?? parsed.totalRounds),
+      history: history.map((round: any) => ({
+        round_index: numberOrNull(round?.round_index ?? round?.roundIndex),
+        suggestions_count: numberOrNull(round?.suggestions_count ?? round?.suggestionsCount),
+        best_verdict: typeof round?.best_verdict === 'string' ? round.best_verdict : typeof round?.bestVerdict === 'string' ? round.bestVerdict : null,
+        best_metric: numberOrNull(round?.best_metric ?? round?.bestMetric)
+      }))
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function localRecursiveStatuses(): Promise<LocalRecursiveLoopStatus[]> {
+  const statuses = await Promise.all((await localRecursiveStatusFiles()).map(readLocalRecursiveStatus));
+  return statuses
+    .filter((status): status is LocalRecursiveLoopStatus => Boolean(status))
+    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+}
+
+async function localRecursiveSessionItems(): Promise<RecursiveSessionListItem[]> {
+  return (await localRecursiveStatuses()).map((status) => ({
+    trace_id: status.trace_id,
+    session_id: status.session_id,
+    source_kind: 'local_builder_chip_loop',
+    title: status.title,
+    status: status.status,
+    domain: status.domain,
+    updated_at: status.updated_at,
+    kanban_bucket: 'local',
+    review_required: false
+  }));
+}
+
+async function resolveLocalRecursiveStatus(id: string): Promise<LocalRecursiveLoopStatus | null> {
+  const statuses = await localRecursiveStatuses();
+  const trimmed = id.trim();
+  if (/^\d+$/.test(trimmed)) return statuses[Number.parseInt(trimmed, 10) - 1] ?? null;
+  const normalized = normalizeWorkspaceIdPart(trimmed.replace(/^path:/i, ''));
+  return statuses.find((status) => {
+    const candidates = [
+      status.session_id,
+      status.trace_id,
+      status.chip_key,
+      localStatusId(status.chip_key),
+      path.basename(status.status_path).replace(/\.status\.json$/i, '')
+    ];
+    return candidates.some((candidate) =>
+      candidate === trimmed ||
+      normalizeWorkspaceIdPart(candidate.replace(/^path:/i, '')) === normalized
+    );
+  }) ?? null;
+}
+
+function latestLocalRound(status: LocalRecursiveLoopStatus): LocalRecursiveLoopStatus['history'][number] | null {
+  return status.history.slice(-1)[0] ?? null;
+}
+
+function localLoopVerdict(status: LocalRecursiveLoopStatus): 'improved' | 'flat' | 'regressed' {
+  const round = latestLocalRound(status);
+  return inferOutcomeVerdict(round?.best_verdict, round?.best_metric);
+}
+
+function localRoundCount(status: LocalRecursiveLoopStatus): string {
+  const completed = status.rounds_completed ?? status.history.length;
+  const total = status.total_rounds ?? completed;
+  return `${completed}/${total}`;
+}
+
+function renderLocalRecursiveWorkspaceHint(): string {
+  return [
+    'Workspace',
+    '- local-only mode',
+    '- connect Spark Workspace later for reviews, decisions, and network sharing'
+  ].join('\n');
+}
+
+function renderLocalRecursiveReport(status: LocalRecursiveLoopStatus): string {
+  const label = labelFromKey(status.chip_key);
+  const verdict = localLoopVerdict(status);
+  const round = latestLocalRound(status);
+  const lines = [
+    `${outcomeStatusIcon(verdict)} Latest ${label} local run ${friendlyOutcomeVerb(verdict)}.`,
+    '',
+    'Score',
+    `- ${localRoundCount(status)} rounds`
+  ];
+  if (typeof round?.best_metric === 'number') lines.push(`- best score ${formatNumber(round.best_metric)}`);
+  if (typeof round?.suggestions_count === 'number') lines.push(`- ${pluralize(round.suggestions_count, 'suggestion')} reviewed`);
+  lines.push('', 'Local', '- status file saved', '', renderLocalRecursiveWorkspaceHint());
+  return lines.join('\n');
+}
+
+function renderLocalRecursiveTrace(status: LocalRecursiveLoopStatus): string {
+  const label = labelFromKey(status.chip_key);
+  const recent = status.history.slice(-5).map((round, index) => {
+    const verdict = inferOutcomeVerdict(round.best_verdict, round.best_metric);
+    const roundNumber = round.round_index ?? index + 1;
+    const score = typeof round.best_metric === 'number' ? `, best score ${formatNumber(round.best_metric)}` : '';
+    const suggestions = typeof round.suggestions_count === 'number' ? `, ${pluralize(round.suggestions_count, 'suggestion')}` : '';
+    return `- round ${roundNumber}: ${friendlyOutcomeVerb(verdict)}${score}${suggestions}`;
+  });
+  return [
+    `${label} local trace`,
+    '',
+    'Status',
+    `- ${status.status}`,
+    `- updated ${formatUpdatedAt(status.updated_at)}`,
+    `- ${localRoundCount(status)} rounds`,
+    '',
+    'Recent',
+    ...(recent.length > 0 ? recent : ['- no rounds recorded']),
+    '',
+    'Local',
+    `- ${status.status_path}`
+  ].join('\n');
+}
+
 export async function recursiveSessions(): Promise<RecursiveSessionListItem[]> {
+  if (!sparkWorkspaceConfigured()) return localRecursiveSessionItems();
   return workspaceSessions(await loadSparkWorkspaceSnapshot());
 }
 
@@ -609,21 +818,45 @@ function resolveRecursiveSessionId(snapshot: SparkWorkspaceSnapshot, id: string)
 }
 
 export async function recursiveSessionStatus(id: string): Promise<string> {
+  if (!sparkWorkspaceConfigured()) {
+    const local = await resolveLocalRecursiveStatus(id);
+    return local ? renderLocalRecursiveReport(local) : `Recursive loop not found locally: ${id}`;
+  }
   const snapshot = await loadSparkWorkspaceSnapshot();
   return renderRecursiveWorkspaceReport(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveSessionReview(id: string): Promise<string> {
+  if (!sparkWorkspaceConfigured()) {
+    const local = await resolveLocalRecursiveStatus(id);
+    const label = local ? labelFromKey(local.chip_key) : id;
+    return [
+      `${label} review`,
+      '',
+      'Status',
+      '- local-only mode',
+      '- no Workspace review queue is connected yet',
+      '',
+      'Next',
+      `- /recursive report ${id}`,
+      `- /recursive trace ${id}`
+    ].join('\n');
+  }
   const snapshot = await loadSparkWorkspaceSnapshot();
   return renderRecursiveWorkspaceReview(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveSessionReport(id: string): Promise<string> {
+  if (!sparkWorkspaceConfigured()) {
+    const local = await resolveLocalRecursiveStatus(id);
+    return local ? renderLocalRecursiveReport(local) : `Recursive loop not found locally: ${id}`;
+  }
   const snapshot = await loadSparkWorkspaceSnapshot();
   return renderRecursiveWorkspaceReport(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveReviewCandidates(): Promise<RecursiveReviewCandidate[]> {
+  if (!sparkWorkspaceConfigured()) return [];
   return workspaceReviewCandidates(await loadSparkWorkspaceSnapshot());
 }
 
@@ -903,6 +1136,14 @@ export async function queueRecursiveCanvas(id: string): Promise<RecursiveCanvasQ
 export async function recursiveTraceView(id: string): Promise<RecursiveTraceView> {
   const snapshot = await loadSparkWorkspaceSnapshot();
   return workspaceTraceView(snapshot, resolveRecursiveSessionId(snapshot, id));
+}
+
+export async function recursiveTraceReply(id: string): Promise<string> {
+  if (!sparkWorkspaceConfigured()) {
+    const local = await resolveLocalRecursiveStatus(id);
+    return local ? renderLocalRecursiveTrace(local) : `Recursive loop not found locally: ${id}`;
+  }
+  return renderRecursiveTraceView(await recursiveTraceView(id));
 }
 
 export function buildBuilderChipLoopWorkspacePayload(input: {
@@ -1196,6 +1437,8 @@ export function renderBuilderChipLoopCompletion(
     );
   } else if (syncError) {
     lines.push('', 'Workspace', `- update skipped: ${truncateAtWord(syncError, 120)}`);
+  } else {
+    lines.push('', 'Local', '- status file saved');
   }
 
   lines.push(
@@ -1224,16 +1467,18 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
 
   if (metricLine) lines.push(`- ${metricLine}`);
 
-  lines.push(
-    '',
-    'Workspace',
-    '- updated',
-    `- ${sparkWorkspaceRecursionsUrl()}`,
-    '',
-    'Report',
-    `- /recursive report ${pathId}`,
-    `- /recursive trace ${pathId}`
-  );
+  if (result.workspaceSynced) {
+    lines.push(
+      '',
+      'Workspace',
+      '- updated',
+      `- ${sparkWorkspaceRecursionsUrl()}`
+    );
+  } else {
+    lines.push('', 'Local', '- saved on this machine');
+  }
+
+  lines.push('', 'Report', `- /recursive report ${pathId}`, `- /recursive trace ${pathId}`);
   return lines.join('\n');
 }
 
@@ -1291,13 +1536,13 @@ export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalR
 }
 
 export function renderRecursiveHelp(): string {
-  return [
-    'Spark Workspace Recursions',
+  const lines = [
+    'Spark Recursive Loops',
     '',
     'Start here:',
     '/recursive sessions - recent loops and next action',
     '/recursive report <id> - readable result summary',
-    '/recursive start <targetKey> rounds <n> - run another loop',
+    '/recursive start <targetKey> rounds <n> - run a local Builder chip loop',
     '',
     'When something needs you:',
     '/recursive review [id] - decisions waiting',
@@ -1313,15 +1558,20 @@ export function renderRecursiveHelp(): string {
     '/recursive sync prompt-benchmark <runJson> [report <reportPath>]',
     '/recursive sync domain-chip-lab <telemetryJson> <chipKey> [chip-path <path>] [packet <path>]',
     '/recursive sync domain-autoloop <manifestJson> <stateJson> [policy <path>] [journal <path>] [lane-report <path>]',
-    '',
-    `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`
-  ].join('\n');
+  ];
+  if (sparkWorkspaceConfigured()) {
+    lines.push('', `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`);
+  } else {
+    lines.push('', 'Local mode: reports come from status files on this machine. Workspace sync appears when connected.');
+  }
+  return lines.join('\n');
 }
 
 export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): string {
   if (sessions.length === 0) return 'No recursive sessions found.';
   const ordered = orderedRecursiveSessions(sessions);
   const visible = ordered.slice(0, 5);
+  const isLocalOnly = sessions.every((session) => session.source_kind === 'local_builder_chip_loop');
   const lines = ['Spark recursive loops'];
   let currentGroup: string | null = null;
   for (const [index, session] of visible.entries()) {
@@ -1336,7 +1586,12 @@ export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): s
     lines.push(`${index + 1}. ${sessionDisplayTitle(session)}${status}`);
   }
   if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more hidden. Use /recursive paths for lanes.`);
-  lines.push('', 'Use', '- /recursive report 1', '- /recursive trace 1', '', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
+  lines.push('', 'Use', '- /recursive report 1', '- /recursive trace 1');
+  if (!isLocalOnly) {
+    lines.push('', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
+  } else {
+    lines.push('', 'Local', '- status files on this machine');
+  }
   return lines.join('\n');
 }
 
@@ -1350,6 +1605,7 @@ export function orderedRecursiveSessions(sessions: RecursiveSessionListItem[]): 
 }
 
 export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): string {
+  const isLocalOnly = sessions.length > 0 && sessions.every((session) => session.source_kind === 'local_builder_chip_loop');
   const pathGroups = new Map<string, RecursiveSessionListItem[]>();
   for (const session of sessions) {
     const domain = session.domain || labelFromKey(session.source_kind);
@@ -1380,7 +1636,11 @@ export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): stri
     const review = reviewCount > 0 ? `${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : 'clear';
     lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} | ${review}`);
   }
-  if (domains.length > 8) lines.push('', `${domains.length - 8} more paths hidden. Open Workspace for the full list.`);
+  if (domains.length > 8) {
+    lines.push('', isLocalOnly
+      ? `${domains.length - 8} more paths hidden. Use /recursive sessions for the latest loops.`
+      : `${domains.length - 8} more paths hidden. Open Workspace for the full list.`);
+  }
   lines.push('', 'Use /recursive sessions to pick a loop.');
   return lines.join('\n');
 }
