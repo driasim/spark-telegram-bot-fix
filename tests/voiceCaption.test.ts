@@ -61,3 +61,19 @@ test('keeps Telegram voice captions inside the caption limit', () => {
   assert.equal(caption.length <= TELEGRAM_VOICE_CAPTION_MAX_CHARS, true);
   assert.match(caption, /\.\.\.$/);
 });
+
+test('does not create four-dot endings when truncating at a sentence boundary', () => {
+  const caption = formatVoiceMediaCaption({
+    responseText: [
+      'Domain chips are specialists I can call in when something specific comes up.',
+      'You do not have to think about that part.',
+      'It just runs.',
+      'This extra sentence forces a clean caption trim.'
+    ].join(' '),
+    maxChars: 145,
+  });
+
+  assert.ok(caption);
+  assert.doesNotMatch(caption, /\.\.\.\.$/);
+  assert.match(caption, /runs\.\.\.$|part\.\.\.$/);
+});
