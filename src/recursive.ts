@@ -1017,7 +1017,7 @@ export function renderRecursiveHelp(): string {
     '/recursive defer <id> <rationale>',
     '/recursive reject <id> <rationale>',
     '/recursive more-eval <id> <rationale>',
-    '/recursive start <chipKey> [rounds <n>]',
+    '/recursive start <targetKey> [rounds <n>]',
     '/recursive sync prompt-benchmark <runJson> [report <reportPath>]',
     '/recursive sync domain-chip-lab <telemetryJson> <chipKey> [chip-path <path>] [packet <path>]',
     '/recursive sync domain-autoloop <manifestJson> <stateJson> [policy <path>] [journal <path>] [lane-report <path>]',
