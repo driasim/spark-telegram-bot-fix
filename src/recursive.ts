@@ -252,6 +252,7 @@ export interface RecursiveArtifactSyncInput {
 }
 
 export interface RecursiveNetworkProposalResult {
+  title?: string | null;
   proposalPath: string | null;
   currentTier: string | null;
   proposedTier: string | null;
@@ -859,6 +860,7 @@ export async function proposeRecursiveWorkspaceEvidence(
   );
   const proposalPath = parseBridgeLine(stdout, 'Proposal');
   const result: RecursiveNetworkProposalResult = {
+    title: title || null,
     proposalPath,
     currentTier: parseBridgeLine(stdout, 'Current tier'),
     proposedTier: parseBridgeLine(stdout, 'Proposed tier'),
@@ -1266,20 +1268,23 @@ function friendlyProposalGate(gate: string): string {
 
 export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalResult): string {
   const ready = result.readyForPr && result.missingGates.length === 0;
+  const title = result.title ? labelFromKey(result.title) : 'Review packet';
+  const isSent = result.submitted || Boolean(result.submitError);
+  const subject = result.title ? title : 'Review packet';
   const lines = [
-    `${ready ? '🟢' : '🟡'} Review packet ${ready ? 'ready.' : 'prepared.'}`,
+    isSent
+      ? `${ready ? '🟢' : '🟡'} ${subject} sent for review.`
+      : `${ready ? '🟢' : '🟡'} ${subject} is ready to review.`,
     '',
     'Status',
-    ready ? '- ready for human review' : '- still private until review checks pass'
+    ready ? '- ready for a human reviewer' : '- private for now'
   ];
-  if (result.proposedTier) lines.push(`- aiming for: ${labelFromKey(result.proposedTier)}`);
   if (result.missingGates.length > 0) {
-    lines.push('', 'Needs', ...result.missingGates.map((gate) => `- ${friendlyProposalGate(gate)}`));
+    lines.push('', 'Before sharing', ...result.missingGates.map((gate) => `- ${friendlyProposalGate(gate)}`));
   }
-  lines.push('', 'Saved', `- ${result.proposalPath || 'not written'}`);
-  if (result.submitted || result.submitError) {
-    lines.push('', 'Workspace');
-    lines.push(result.submitted ? `- sent for review${result.submitState ? ` (${labelFromKey(result.submitState)})` : ''}` : '- not sent');
+  lines.push('', 'Workspace', result.proposalPath ? '- saved locally' : '- not saved');
+  if (isSent) {
+    if (result.submitted && result.submitState) lines.push(`- review state: ${labelFromKey(result.submitState)}`);
     lines.push(result.submitError ? `- ${result.submitError}` : `- ${sparkWorkspaceDecisionsUrl()}`);
   }
   return lines.join('\n');

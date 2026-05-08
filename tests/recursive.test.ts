@@ -81,6 +81,7 @@ test('parses recursive review decisions with rationale', () => {
 
 test('renders recursive network proposal gates without overclaiming', () => {
   const reply = renderRecursiveNetworkProposal({
+    title: 'Crypto Trading Autoloop',
     proposalPath: 'C:\\crypto\\.spark-swarm\\network-proposals\\proposal\\contribution.json',
     currentTier: 'private_draft',
     proposedTier: 'reviewed_candidate',
@@ -91,11 +92,12 @@ test('renders recursive network proposal gates without overclaiming', () => {
     submitError: null
   });
 
-  assert.match(reply, /Review packet prepared/);
-  assert.match(reply, /still private until review checks pass/);
+  assert.match(reply, /Crypto Trading Autoloop sent for review/);
+  assert.match(reply, /private for now/);
   assert.match(reply, /benchmark proof/);
-  assert.match(reply, /sent for review \(Blocked\)/);
+  assert.match(reply, /review state: Blocked/);
   assert.match(reply, /runs\?tab=decisions/);
+  assert.doesNotMatch(reply, /C:\\crypto/);
 });
 
 test('resolves human proposal keys to local collective payloads', () => {
