@@ -1035,20 +1035,32 @@ export function renderRecursiveHelp(): string {
 
 export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): string {
   if (sessions.length === 0) return 'No recursive sessions found.';
-  const visible = sessions.slice(0, 5);
+  const ordered = sessions
+    .slice()
+    .sort((a, b) =>
+      Number(b.review_required) - Number(a.review_required) ||
+      String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+    );
+  const visible = ordered.slice(0, 5);
   const lines = ['Spark recursive loops'];
+  let currentGroup: string | null = null;
   for (const [index, session] of visible.entries()) {
     const domain = session.domain || labelFromKey(session.source_kind);
+    const group = session.review_required ? 'Needs review' : 'Clear';
+    if (group !== currentGroup) {
+      lines.push('', group);
+      currentGroup = group;
+    } else {
+      lines.push('');
+    }
     const status = session.status && session.status !== 'open' ? ` | ${session.status}` : '';
     lines.push(
-      '',
       `${index + 1}. ${sessionDisplayTitle(session)}`,
-      `- ${domain} | ${session.review_required ? 'review needed' : 'clear'}${status}`,
-      `- updated ${formatUpdatedAt(session.updated_at)}`,
-      `- /recursive report ${session.session_id}`
+      `- ${domain} | ${session.review_required ? 'review needed' : 'clear'}${status} | ${formatUpdatedAt(session.updated_at)}`,
+      `- report: /recursive report ${session.session_id}`
     );
   }
-  if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more loops hidden. Use /recursive paths to choose a lane.`);
+  if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more loops hidden. Use /recursive paths for lanes.`);
   lines.push('', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
   return lines.join('\n');
 }

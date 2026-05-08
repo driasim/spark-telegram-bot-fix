@@ -86,12 +86,14 @@ test('renders compact recursive session and path lists', () => {
   ];
 
   const sessionList = renderRecursiveSessions(sessions);
+  assert.match(sessionList, /Clear/);
   assert.match(sessionList, /1\. Startup YC Builder Chip Loop/);
-  assert.match(sessionList, /- startup-yc \| clear \| completed/);
-  assert.match(sessionList, /- \/recursive report s1/);
+  assert.match(sessionList, /- startup-yc \| clear \| completed \| May 7, 2026/);
+  assert.match(sessionList, /- report: \/recursive report s1/);
   assert.match(sessionList, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(sessionList, /What happened:/);
   assert.doesNotMatch(sessionList, /Next:/);
+  assert.doesNotMatch(sessionList, /- updated /);
 
   const pathList = renderRecursivePaths(sessions);
   assert.match(pathList, /1\. startup-yc\n- 1 loop \| clear \| latest/);
@@ -115,6 +117,20 @@ test('renders compact recursive session and path lists', () => {
   ]);
   assert.match(reviewPathList, /startup-yc\n- 3 loops \| 2 need review \| latest/);
   assert.doesNotMatch(reviewPathList, /2 loops needs review/);
+
+  const sessionPriorityList = renderRecursiveSessions([
+    sessions[0],
+    {
+      ...sessions[0],
+      trace_id: 't4',
+      session_id: 'review-me',
+      title: 'Review Me',
+      review_required: true,
+      updated_at: '2026-05-06T00:00:00Z'
+    }
+  ]);
+  assert.match(sessionPriorityList, /Needs review\n1\. Review Me/);
+  assert.match(sessionPriorityList, /Clear\n2\. Startup YC Builder Chip Loop/);
 });
 
 test('renders review queue and audit-only decision records', () => {
