@@ -1700,6 +1700,6 @@ test('groups repeated dashboard-only Workspace review blockers', () => {
   assert.match(review, /- Scope: specialization path/);
   assert.match(review, /- Network: review required/);
   assert.match(review, /- blocker: Rewrite blocked insight \(2 items\)/);
-  assert.match(review, /Why\n- message is too long for network sharing\.\n- suspicious long opaque token\./);
+  assert.match(review, /Why\n- Message is too long for network sharing\.\n- Suspicious long opaque token\./);
   assert.doesNotMatch(review, /2\. Rewrite Insight/);
 });

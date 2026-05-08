@@ -1925,9 +1925,9 @@ function reviewReasonLines(group: ReviewItemGroup): string[] {
 
 function friendlyReviewReason(reason: string): string {
   const cleaned = reason.replace(/[.]+$/, '').trim();
-  if (/primary message exceeds the network readability limit/i.test(cleaned)) return 'message is too long for network sharing';
-  if (/contains a suspicious long opaque token/i.test(cleaned)) return 'suspicious long opaque token';
-  if (/contains inline code fencing/i.test(cleaned)) return 'inline code fencing';
+  if (/primary message exceeds the network readability limit/i.test(cleaned)) return 'Message is too long for network sharing';
+  if (/contains a suspicious long opaque token/i.test(cleaned)) return 'Suspicious long opaque token';
+  if (/contains inline code fencing/i.test(cleaned)) return 'Inline code fencing';
   return sentenceCaseFirst(cleaned.replace(/^contains\s+/i, ''));
 }
 
