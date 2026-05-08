@@ -1091,7 +1091,7 @@ export function renderRecursiveReviewCandidates(candidates: RecursiveReviewCandi
       scoreLine,
       `- ${ensureSentence(truncateAtWord(candidate.reason, 112))}`,
       `- /recursive review ${candidate.session_id}`
-    ].filter((line): line is string => Boolean(line)));
+    ].filter(isRenderableLine));
   }
   if (candidates.length > visible.length) lines.push('', `${candidates.length - visible.length} more decisions hidden. Open Decisions for the full queue.`);
   lines.push('', 'Workspace', `- ${sparkWorkspaceDecisionsUrl()}`);
@@ -1646,7 +1646,7 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const scoreLines = [
     metricLine ? `- ${metricLine}` : null,
     comparisonLine ? `- ${formatCompareFragment(comparisonLine)}` : null
-  ].filter((line): line is string => Boolean(line));
+  ].filter(isRenderableLine);
 
   return [
     `${outcomeStatusIcon(verdict)} ${workspaceReportHeadline(label, verdict, Boolean(latestOutcome), sameDisplayedImprovement)}`,
@@ -1661,7 +1661,7 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
     'Workspace',
     artifacts.length > 0 ? `- ${pluralize(artifacts.length, 'saved item')}` : null,
     `- ${sparkWorkspaceRecursionsUrl()}`,
-  ].filter((line): line is string => Boolean(line)).join('\n');
+  ].filter(isRenderableLine).join('\n');
 }
 
 export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot, id: string): string {
@@ -1698,7 +1698,7 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
     `- Decisions: ${sparkWorkspaceDecisionsUrl()}`,
     '',
     `Trace: /recursive trace ${path?.id || id}`
-  ].filter((line): line is string => Boolean(line)).join('\n');
+  ].filter(isRenderableLine).join('\n');
 }
 
 function findPath(snapshot: SparkWorkspaceSnapshot, id: string): SparkWorkspaceEvolutionPath | null {
@@ -1764,6 +1764,10 @@ function uniqueArtifactRefs(artifacts: SparkWorkspaceArtifactRef[]): SparkWorksp
     unique.push(artifact);
   }
   return unique;
+}
+
+function isRenderableLine(line: string | null): line is string {
+  return line !== null;
 }
 
 function pathDisplayLabel(path: SparkWorkspaceEvolutionPath, spec: SparkWorkspaceSpecialization | null): string {

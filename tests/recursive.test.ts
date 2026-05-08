@@ -1108,7 +1108,9 @@ test('describes rounded same-score improvements without contradiction', () => {
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
   assert.match(report, /🟢 Latest Startup YC run improved slightly\./);
+  assert.match(report, /Latest Startup YC run improved slightly\.\n\nScore/);
   assert.match(report, /Score\n- scenario score 0.6453\n- current best for this path/);
+  assert.match(report, /current best for this path\n\nWorkspace/);
   assert.doesNotMatch(report, /displayed decimals/);
   assert.doesNotMatch(report, /Signal/);
   assert.doesNotMatch(report, /What happened:/);
