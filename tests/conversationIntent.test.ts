@@ -390,6 +390,25 @@ test('does not treat Spark memory and self-awareness diagnostics as latest proje
   assert.equal(buildProjectImprovementGoal(selfAwarenessPrompt, project), null);
 });
 
+test('does not treat voice tuning as latest project polish', () => {
+  const project = {
+    chatId: '8319079055',
+    userId: '1278511160',
+    projectName: 'Loop Lantern',
+    projectPath: 'C:/Users/USER/Desktop/loop-lantern',
+    previewUrl: 'http://127.0.0.1:5555/preview/loop-lantern/index.html',
+    missionId: 'mission-loop',
+    iteration: 2,
+    shippedAt: '2026-05-01T00:00:00Z',
+    updatedAt: '2026-05-01T00:00:00Z'
+  };
+
+  assert.equal(isProjectImprovementRequest('make it warmer and more geeky', project), false);
+  assert.equal(buildProjectImprovementGoal('make it warmer and more geeky', project), null);
+  assert.equal(isProjectImprovementRequest('a little faster', project), false);
+  assert.equal(buildProjectImprovementGoal('a little faster', project), null);
+});
+
 test('detects public GitHub inspection requests for agent access routing', () => {
   assert.equal(
     isExternalResearchRequest('https://github.com/vibeforge1111/spark-character can you visit this'),

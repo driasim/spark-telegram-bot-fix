@@ -846,6 +846,7 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   if (!project) return false;
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
+  if (isVoiceTuningRequest(normalized)) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
@@ -861,6 +862,14 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
 
   const pointsAtCurrentProject = /\b(?:this|that|it|app|site|page|screen|project|build|product|dashboard|tool|prototype|design|layout|colors?|colours?|palette|theme|spacing|copy|text|button|flow|workflow|mobile|responsive|spark)\b/.test(normalized);
   return pointsAtCurrentProject;
+}
+
+function isVoiceTuningRequest(normalizedText: string): boolean {
+  const normalized = normalizedText.replace(/\s+/g, ' ').trim();
+  const voiceCue = /\b(?:voice|tts|audio|spoken|speaker|elevenlabs|kokoro)\b/.test(normalized);
+  const tuningCue = /\b(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less polished|expressive)\b/.test(normalized);
+  const shortFollowup = /^(?:make\s+)?(?:it|this|that|the voice|voice|my voice|current voice)?\s*(?:a little\s+)?(?:warmer|softer|gentler|geekier|clearer|crisper|calmer|brighter|more natural|faster|slower|less polished|more expressive)\b/.test(normalized);
+  return tuningCue && (voiceCue || shortFollowup);
 }
 
 export function buildProjectImprovementGoal(
