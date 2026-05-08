@@ -580,6 +580,24 @@ test('builds Spark Swarm bridge args for specialization path autoloops', () => {
       'sscli_test'
     ]
   );
+
+  assert.deepEqual(
+    buildSpecializationPathAutoloopBridgeArgs({
+      pathKey: 'spark-qa-operator',
+      repoRoot: 'C:\\paths\\specialization-path-spark-qa-operator',
+      rounds: 1
+    }),
+    [
+      '-m',
+      'spark_swarm_bridge.cli',
+      'specialization-path',
+      'autoloop',
+      'spark-qa-operator',
+      'C:\\paths\\specialization-path-spark-qa-operator',
+      '--rounds',
+      '1'
+    ]
+  );
 });
 
 test('renders specialization path loop completion with workspace next step', () => {

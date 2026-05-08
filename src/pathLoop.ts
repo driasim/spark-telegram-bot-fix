@@ -178,11 +178,13 @@ export function buildSpecializationPathAutoloopBridgeArgs(input: {
     input.repoRoot,
     '--rounds',
     String(Math.max(1, Math.min(10, input.rounds || 1))),
-    '--sync-collective',
   ];
-  if (input.sync?.workspaceId) args.push('--workspace-id', input.sync.workspaceId);
-  if (input.sync?.apiUrl) args.push('--api-url', input.sync.apiUrl);
-  if (input.sync?.accessToken) args.push('--access-token', input.sync.accessToken);
+  if (input.sync?.workspaceId && input.sync?.apiUrl && input.sync?.accessToken) {
+    args.push('--sync-collective');
+    args.push('--workspace-id', input.sync.workspaceId);
+    args.push('--api-url', input.sync.apiUrl);
+    args.push('--access-token', input.sync.accessToken);
+  }
   return args;
 }
 
