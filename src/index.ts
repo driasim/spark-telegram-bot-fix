@@ -365,8 +365,33 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   if (isLowInformationLlmReply(builderReply.responseText)) {
     return false;
   }
-  await ctx.reply(builderReply.responseText);
+  await deliverBuilderReply(ctx, builderReply);
   return true;
+}
+
+async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>>): Promise<void> {
+  if (builderReply.responseText) {
+    await ctx.reply(builderReply.responseText);
+  }
+  if (builderReply.voiceMedia) {
+    await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia);
+  }
+}
+
+async function sendBuilderVoiceMedia(ctx: any, voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>): Promise<void> {
+  const audioBuffer = Buffer.from(voiceMedia.audioBase64, 'base64');
+  const inputFile = {
+    source: audioBuffer,
+    filename: voiceMedia.filename,
+  };
+  console.log(
+    `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length}`
+  );
+  if (voiceMedia.voiceCompatible) {
+    await ctx.replyWithVoice(inputFile);
+    return;
+  }
+  await ctx.replyWithAudio(inputFile);
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
@@ -1119,11 +1144,22 @@ bot.command('insights', async (ctx) => {
   await ctx.reply(insights);
 });
 
-// /voice - what Spark learned about user
+// /voice - Builder-owned voice status/onboarding. Do not fall back to the
+// deferred dashboard placeholder; voice is a Builder/chip capability now.
 bot.command('voice', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
-  const voice = await spark.getVoice();
-  await ctx.reply(voice);
+  console.log(`[Voice] /voice command received user=${ctx.from?.id || 'unknown'} chat_type=${ctx.chat?.type || 'unknown'}`);
+  try {
+    const routed = await replyViaBuilder(ctx, ctx.message?.text || '/voice');
+    if (routed) {
+      console.log('[Voice] Builder voice route replied');
+      return;
+    }
+    console.log('[Voice] Builder voice route unavailable');
+  } catch (err) {
+    console.warn('[Bridge] /voice Builder route failed:', err);
+  }
+  await ctx.reply('Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.');
 });
 
 // /lessons - surprise lessons
@@ -3086,6 +3122,43 @@ export async function handleImageMessage(ctx: any): Promise<void> {
   }
 }
 
+export async function handleVoiceMessage(ctx: any): Promise<void> {
+  const user = ctx.from;
+
+  await conversation.remember(user, '[voice message]').catch(() => {});
+  await safeSendChatAction(ctx, 'typing');
+
+  try {
+    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    console.log(`[VoiceBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
+
+    if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && (builderReply.responseText || builderReply.voiceMedia)) {
+      await deliverBuilderReply(ctx, builderReply);
+      if (builderReply.responseText) {
+        await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      }
+      return;
+    }
+
+    const fallback = 'I received the voice note, but Spark did not return a transcription or voice reply. Run `/voice`, then try one short voice note again.';
+    await ctx.reply(fallback);
+    await conversation.recordInterruptedTask(user, {
+      message: '[voice message]',
+      failure: `Builder voice bridge returned no usable response. mode=${builderReply.bridgeMode || 'none'} routing=${builderReply.routingDecision || 'none'}`,
+      stage: 'telegram_voice_handler'
+    }).catch(() => {});
+  } catch (err) {
+    console.error('Voice handling error:', err);
+    const detail = err instanceof Error ? err.message : String(err);
+    await conversation.recordInterruptedTask(user, {
+      message: '[voice message]',
+      failure: detail,
+      stage: 'telegram_voice_handler'
+    }).catch(() => {});
+    await ctx.reply(renderSparkErrorReply(err, 'telegram', conversation.isAdmin(user)));
+  }
+}
+
 bot.on(message('text'), handleTextMessage);
 bot.on(message('photo'), handleImageMessage);
 bot.on(message('document'), async (ctx) => {
@@ -3094,6 +3167,8 @@ bot.on(message('document'), async (ctx) => {
   }
   await handleImageMessage(ctx);
 });
+bot.on(message('voice'), handleVoiceMessage);
+bot.on(message('audio'), handleVoiceMessage);
 
 // Graceful shutdown
 process.once('SIGINT', () => {

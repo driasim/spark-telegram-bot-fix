@@ -38,10 +38,6 @@ export const spark = {
     return DASHBOARD_DEFERRED;
   },
 
-  async getVoice(): Promise<string> {
-    return DASHBOARD_DEFERRED;
-  },
-
   async getSurprises(): Promise<string> {
     return DASHBOARD_DEFERRED;
   },

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -39,6 +39,16 @@ export interface BuilderBridgeReply {
   decision: string;
   bridgeMode: string;
   routingDecision: string;
+  voiceMedia?: BuilderBridgeVoiceMedia;
+}
+
+export interface BuilderBridgeVoiceMedia {
+  audioBase64: string;
+  mimeType: string;
+  filename: string;
+  voiceCompatible: boolean;
+  providerId?: string;
+  voiceId?: string;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -204,10 +214,41 @@ function pythonSourceEnv(config: BuilderBridgeConfig): NodeJS.ProcessEnv {
     ...process.env,
     PYTHONPATH: existingPythonPath ? `${sourcePath}${path.delimiter}${existingPythonPath}` : sourcePath,
   };
+  mergeEnvFile(env, path.join(config.builderHome, '.env'));
   if (process.env.BOT_TOKEN && !env.TELEGRAM_BOT_TOKEN) {
     env.TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
   }
   return env;
+}
+
+function mergeEnvFile(env: NodeJS.ProcessEnv, envPath: string): void {
+  let text = '';
+  try {
+    text = readFileSync(envPath, 'utf-8');
+  } catch {
+    return;
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const index = line.indexOf('=');
+    if (index <= 0) continue;
+    const key = line.slice(0, index).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    if (env[key]) continue;
+    env[key] = unquoteEnvValue(line.slice(index + 1).trim());
+  }
+}
+
+function unquoteEnvValue(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
 }
 
 function pythonModuleInvocation(config: BuilderBridgeConfig, moduleName: string, args: string[]): string[] {
@@ -1834,6 +1875,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         response_text?: unknown;
         bridge_mode?: unknown;
         routing_decision?: unknown;
+        voice_media?: unknown;
       };
     };
 
@@ -1874,6 +1916,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       decision: String(parsed.decision || '').trim(),
       bridgeMode,
       routingDecision,
+      voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
     };
   } catch (error) {
     if (config.mode === 'required') {
@@ -1890,4 +1933,23 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function parseBuilderBridgeVoiceMedia(value: unknown): BuilderBridgeVoiceMedia | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const media = value as Record<string, unknown>;
+  const audioBase64 = String(media.audio_base64 || '').trim();
+  if (!audioBase64) {
+    return undefined;
+  }
+  return {
+    audioBase64,
+    mimeType: String(media.mime_type || 'audio/mpeg').trim() || 'audio/mpeg',
+    filename: String(media.filename || 'telegram-reply.audio').trim() || 'telegram-reply.audio',
+    voiceCompatible: Boolean(media.voice_compatible),
+    providerId: String(media.provider_id || '').trim() || undefined,
+    voiceId: String(media.voice_id || '').trim() || undefined,
+  };
 }
