@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { LoopResult } from './chipLoop';
+import type { PathLoopResult } from './pathLoop';
 
 export type RecursiveDecision = 'approve_local' | 'defer' | 'reject' | 'request_more_eval';
 
@@ -951,6 +952,38 @@ export function renderBuilderChipLoopCompletion(
   }
 
   lines.push(`Next: /recursive report ${pathId}`);
+  return lines.join('\n');
+}
+
+export function renderSpecializationPathLoopCompletion(result: PathLoopResult): string {
+  const pathKey = result.pathKey || 'unknown-path';
+  const pathId = result.pathId || `path_${normalizeWorkspaceIdPart(pathKey)}`;
+  const lines = [
+    `Recursive path loop complete: ${pathKey}`,
+    `Rounds: ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0}`
+  ];
+
+  if (result.verdict) lines.push(`Final verdict: ${result.verdict}`);
+  if (result.metricName && typeof result.metricValue === 'number') {
+    lines.push(`Metric: ${result.metricName}=${formatNumber(result.metricValue)}`);
+  }
+  if (result.stopReason) lines.push(`Stop reason: ${result.stopReason}`);
+  if (result.sessionId) lines.push(`Session: ${result.sessionId}`);
+  if (result.sessionSummaryPath) lines.push(`Session summary: ${result.sessionSummaryPath}`);
+  if (result.payloadPath) lines.push(`Collective payload: ${result.payloadPath}`);
+  if (result.latestCandidatePath) lines.push(`Latest candidate: ${result.latestCandidatePath}`);
+  if (result.summary) lines.push(`Summary: ${truncate(result.summary, 160)}`);
+
+  lines.push(
+    'Workspace sync: ok',
+    `Workspace path: ${pathId}`
+  );
+  if (result.outcomeId) lines.push(`Workspace outcome: ${result.outcomeId}`);
+  lines.push(
+    'Workspace detail: Specialization path autoloop synced through Spark Swarm bridge.',
+    `Workspace: ${sparkWorkspaceRecursionsUrl()}`,
+    `Next: /recursive report ${pathId}`
+  );
   return lines.join('\n');
 }
 
