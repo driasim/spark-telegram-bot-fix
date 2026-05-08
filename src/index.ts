@@ -366,6 +366,10 @@ function buildUpdateWithText(update: Record<string, unknown>, text: string): Rec
 }
 
 async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
+  const user = ctx.from;
+  if (user) {
+    await conversation.remember(user, text).catch(() => {});
+  }
   const builderReply = await runBuilderTelegramBridge(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
   if (!builderReply.used || builderReply.bridgeMode === 'bridge_error') {
     return false;
@@ -374,6 +378,9 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
     return false;
   }
   await deliverBuilderReply(ctx, builderReply);
+  if (user && builderReply.responseText) {
+    await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+  }
   return true;
 }
 
