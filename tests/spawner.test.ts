@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import {
+  formatCreatorDomainLabel,
   formatCreatorMissionExecutionSummary,
   formatCreatorMissionStatusSummary,
   formatCreatorMissionSummary,
@@ -254,6 +255,12 @@ async function run(): Promise<void> {
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
     assert.match(message, /Next\n- say: run it\n- \/creator run mission-creator-1/);
+  });
+
+  await test('formatCreatorDomainLabel removes creator control words from slugs', async () => {
+    assert.equal(formatCreatorDomainLabel('private-autoloop-ai-security-questionnaires-use'), 'AI Security Questionnaires');
+    assert.equal(formatCreatorDomainLabel('startup-yc'), 'Startup YC');
+    assert.equal(formatCreatorDomainLabel(''), 'Unknown domain');
   });
 
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {

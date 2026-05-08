@@ -370,6 +370,51 @@ function formatCreatorReadiness(value: string | undefined): string {
   return (value || 'unknown').replace(/_/g, ' ');
 }
 
+export function formatCreatorDomainLabel(value: string | undefined): string {
+  const raw = (value || '').trim();
+  if (!raw) return 'Unknown domain';
+
+  const words = raw
+    .replace(/[_/]+/g, '-')
+    .split(/-|\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  const controlWords = new Set([
+    'a',
+    'an',
+    'the',
+    'private',
+    'local',
+    'public',
+    'shared',
+    'network',
+    'benchmark',
+    'benchmarked',
+    'specialization',
+    'specialisation',
+    'path',
+    'autoloop',
+    'auto',
+    'loop',
+    'use',
+    'create',
+    'creator',
+    'mission',
+    'with',
+    'for'
+  ]);
+  const kept = words.filter((word) => !controlWords.has(word.toLowerCase()));
+  const labelWords = kept.length > 0 ? kept : words;
+
+  return labelWords
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (['ai', 'api', 'llm', 'ui', 'ux', 'yc'].includes(lower)) return lower.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
 function latestCreatorValidationRun(trace: CreatorMissionTrace): CreatorValidationRun | null {
   const runs = Array.isArray(trace.validation_runs) ? trace.validation_runs : [];
   return runs[runs.length - 1] || null;
@@ -410,7 +455,7 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     '🧩 Creator plan is ready.',
     '',
     'Scope',
-    `- ${intent.target_domain || 'unknown domain'}`,
+    `- ${formatCreatorDomainLabel(intent.target_domain)}`,
     `- ${formatCreatorMode(trace.creator_mode)}`,
     `- ${intent.privacy_mode || 'local_only'} / risk ${intent.risk_level || 'medium'}`,
     '',
@@ -452,7 +497,7 @@ export function formatCreatorMissionStatusSummary(
     'Creator mission status.',
     '',
     `Mission: ${missionId}`,
-    `Domain: ${intent.target_domain || 'unknown'}`,
+    `Domain: ${formatCreatorDomainLabel(intent.target_domain)}`,
     `Stage: ${formatCreatorReadiness(trace.current_stage)} (${formatCreatorReadiness(trace.stage_status)})`,
     `Publish readiness: ${formatCreatorReadiness(trace.publish_readiness)}`,
     `Artifacts: ${artifactCount}`,
