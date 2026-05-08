@@ -569,16 +569,27 @@ export async function recursiveSessions(): Promise<RecursiveSessionListItem[]> {
   return workspaceSessions(await loadSparkWorkspaceSnapshot());
 }
 
+function resolveRecursiveSessionId(snapshot: SparkWorkspaceSnapshot, id: string): string {
+  const trimmed = id.trim();
+  if (!/^\d+$/.test(trimmed)) return id;
+  const index = Number.parseInt(trimmed, 10) - 1;
+  const session = orderedRecursiveSessions(workspaceSessions(snapshot))[index];
+  return session?.session_id || id;
+}
+
 export async function recursiveSessionStatus(id: string): Promise<string> {
-  return renderRecursiveWorkspaceReport(await loadSparkWorkspaceSnapshot(), id);
+  const snapshot = await loadSparkWorkspaceSnapshot();
+  return renderRecursiveWorkspaceReport(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveSessionReview(id: string): Promise<string> {
-  return renderRecursiveWorkspaceReview(await loadSparkWorkspaceSnapshot(), id);
+  const snapshot = await loadSparkWorkspaceSnapshot();
+  return renderRecursiveWorkspaceReview(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveSessionReport(id: string): Promise<string> {
-  return renderRecursiveWorkspaceReport(await loadSparkWorkspaceSnapshot(), id);
+  const snapshot = await loadSparkWorkspaceSnapshot();
+  return renderRecursiveWorkspaceReport(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export async function recursiveReviewCandidates(): Promise<RecursiveReviewCandidate[]> {
@@ -665,7 +676,8 @@ export async function queueRecursiveCanvas(id: string): Promise<RecursiveCanvasQ
 }
 
 export async function recursiveTraceView(id: string): Promise<RecursiveTraceView> {
-  return workspaceTraceView(await loadSparkWorkspaceSnapshot(), id);
+  const snapshot = await loadSparkWorkspaceSnapshot();
+  return workspaceTraceView(snapshot, resolveRecursiveSessionId(snapshot, id));
 }
 
 export function buildBuilderChipLoopWorkspacePayload(input: {
@@ -1035,17 +1047,11 @@ export function renderRecursiveHelp(): string {
 
 export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): string {
   if (sessions.length === 0) return 'No recursive sessions found.';
-  const ordered = sessions
-    .slice()
-    .sort((a, b) =>
-      Number(b.review_required) - Number(a.review_required) ||
-      String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
-    );
+  const ordered = orderedRecursiveSessions(sessions);
   const visible = ordered.slice(0, 5);
   const lines = ['Spark recursive loops'];
   let currentGroup: string | null = null;
   for (const [index, session] of visible.entries()) {
-    const domain = session.domain || labelFromKey(session.source_kind);
     const group = session.review_required ? 'Needs review' : 'Clear';
     if (group !== currentGroup) {
       lines.push('', group);
@@ -1053,16 +1059,24 @@ export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): s
     } else {
       lines.push('');
     }
-    const status = session.status && session.status !== 'open' ? ` | ${session.status}` : '';
+    const status = session.status && session.status !== 'open' ? `${session.status}, ` : '';
     lines.push(
       `${index + 1}. ${sessionDisplayTitle(session)}`,
-      `- ${domain} | ${session.review_required ? 'review needed' : 'clear'}${status} | ${formatUpdatedAt(session.updated_at)}`,
-      `- report: /recursive report ${session.session_id}`
+      `- ${status}${formatCompactUpdatedAt(session.updated_at)}`
     );
   }
-  if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more loops hidden. Use /recursive paths for lanes.`);
-  lines.push('', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
+  if (sessions.length > visible.length) lines.push('', `${sessions.length - visible.length} more hidden. Use /recursive paths for lanes.`);
+  lines.push('', 'Use', '- /recursive report 1', '- /recursive trace 1', '', 'Workspace', `- ${sparkWorkspaceRecursionsUrl()}`);
   return lines.join('\n');
+}
+
+export function orderedRecursiveSessions(sessions: RecursiveSessionListItem[]): RecursiveSessionListItem[] {
+  return sessions
+    .slice()
+    .sort((a, b) =>
+      Number(b.review_required) - Number(a.review_required) ||
+      String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+    );
 }
 
 export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): string {
@@ -1386,6 +1400,16 @@ function formatUpdatedAt(value: string | null | undefined): string {
   const hour = String(date.getUTCHours()).padStart(2, '0');
   const minute = String(date.getUTCMinutes()).padStart(2, '0');
   return `${month} ${date.getUTCDate()}, ${date.getUTCFullYear()}, ${hour}:${minute} UTC`;
+}
+
+function formatCompactUpdatedAt(value: string | null | undefined): string {
+  if (!value) return 'unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.getUTCMonth()];
+  const hour = String(date.getUTCHours()).padStart(2, '0');
+  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${month} ${date.getUTCDate()}, ${hour}:${minute} UTC`;
 }
 
 function formatMasteryEvidence(mastery: SparkWorkspaceMastery): string | null {

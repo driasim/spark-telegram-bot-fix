@@ -88,8 +88,9 @@ test('renders compact recursive session and path lists', () => {
   const sessionList = renderRecursiveSessions(sessions);
   assert.match(sessionList, /Clear/);
   assert.match(sessionList, /1\. Startup YC Builder Chip Loop/);
-  assert.match(sessionList, /- startup-yc \| clear \| completed \| May 7, 2026/);
-  assert.match(sessionList, /- report: \/recursive report s1/);
+  assert.match(sessionList, /- completed, May 7, 00:00 UTC/);
+  assert.match(sessionList, /Use\n- \/recursive report 1\n- \/recursive trace 1/);
+  assert.doesNotMatch(sessionList, /\/recursive report s1/);
   assert.match(sessionList, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(sessionList, /What happened:/);
   assert.doesNotMatch(sessionList, /Next:/);
@@ -131,6 +132,7 @@ test('renders compact recursive session and path lists', () => {
   ]);
   assert.match(sessionPriorityList, /Needs review\n1\. Review Me/);
   assert.match(sessionPriorityList, /Clear\n2\. Startup YC Builder Chip Loop/);
+  assert.doesNotMatch(sessionPriorityList, /review-me/);
 });
 
 test('renders review queue and audit-only decision records', () => {
@@ -980,7 +982,7 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(sessions[0].kanban_bucket, 'active');
   assert.equal(sessions[0].review_required, false);
   assert.match(renderRecursiveSessions(sessions), /1\. Startup YC/);
-  assert.match(renderRecursiveSessions(sessions), /- spark-intelligence-builder \| clear/);
+  assert.match(renderRecursiveSessions(sessions), /- May /);
   assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');

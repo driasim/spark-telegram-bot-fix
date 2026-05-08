@@ -90,6 +90,99 @@ async function main(): Promise<void> {
     }
   });
 
+  await test('recursive report accepts the numbered sessions picker', async () => {
+    const server = createServer((req, res) => {
+      if (req.url?.includes('/collective-snapshot')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          evolutionPaths: [
+            {
+              id: 'path-clear',
+              scope: 'spark-intelligence-builder',
+              specializationId: null,
+              repoLabel: 'spark-intelligence-builder',
+              summary: 'Clear builder loop',
+              status: 'open',
+              updatedAt: '2026-05-08T13:53:00Z'
+            },
+            {
+              id: 'path-review',
+              scope: 'startup-yc',
+              specializationId: 'spec-yc',
+              repoLabel: 'startup-yc',
+              summary: 'Improve Startup YC on Startup Bench.',
+              status: 'open',
+              updatedAt: '2026-04-08T13:26:00Z'
+            }
+          ],
+          specializations: [{ id: 'spec-yc', key: 'startup-yc', label: 'Startup YC' }],
+          outcomes: [
+            {
+              id: 'out-review',
+              targetType: 'evolution_path',
+              targetId: 'path-review',
+              verdict: 'flat',
+              summary: 'Startup YC held steady.',
+              metricName: 'scenario score',
+              metricValue: 0.5,
+              createdAt: '2026-05-08T13:46:00Z'
+            }
+          ],
+          insights: [],
+          masteries: [],
+          artifactRefs: [],
+          inbox: {
+            items: [
+              {
+                id: 'decision-1',
+                kind: 'rewrite_insight',
+                title: 'Rewrite blocked insight',
+                summary: 'Needs a rewrite.',
+                targetType: 'evolution_path',
+                targetId: 'path-review',
+                specializationId: 'spec-yc',
+                priority: 'high',
+                recommendedAction: 'Rewrite in plain English.'
+              }
+            ]
+          }
+        }));
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not_found' }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    const previousApiUrl = process.env.SPARK_SWARM_API_URL;
+    const previousWorkspaceId = process.env.SPARK_SWARM_WORKSPACE_ID;
+    const previousAccessToken = process.env.SPARK_SWARM_ACCESS_TOKEN;
+    process.env.SPARK_SWARM_API_URL = `http://127.0.0.1:${address.port}`;
+    process.env.SPARK_SWARM_WORKSPACE_ID = 'ws_test_recursive';
+    process.env.SPARK_SWARM_ACCESS_TOKEN = 'sscli_v1_test';
+
+    try {
+      const ctx = fakeCtx('/recursive report 1');
+      await handleRecursiveCommand(ctx);
+      const reply = ctx.replies.join('\n');
+      assert.match(reply, /Startup YC/);
+      assert.match(reply, /Review\n- 1 decision waiting/);
+      assert.doesNotMatch(reply, /Clear builder loop/);
+    } finally {
+      if (previousApiUrl === undefined) delete process.env.SPARK_SWARM_API_URL;
+      else process.env.SPARK_SWARM_API_URL = previousApiUrl;
+      if (previousWorkspaceId === undefined) delete process.env.SPARK_SWARM_WORKSPACE_ID;
+      else process.env.SPARK_SWARM_WORKSPACE_ID = previousWorkspaceId;
+      if (previousAccessToken === undefined) delete process.env.SPARK_SWARM_ACCESS_TOKEN;
+      else process.env.SPARK_SWARM_ACCESS_TOKEN = previousAccessToken;
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   await test('recursive approve does not mutate unsupported Workspace decision targets', async () => {
     let mutationPosts = 0;
     const server = createServer((req, res) => {
