@@ -1335,9 +1335,27 @@ function truncate(value: string, limit: number): string {
 }
 
 function formatBestSignal(value: string): string {
-  const clean = value.replace(/\s+/g, ' ').trim();
+  const clean = formatOutcomeSummary(value);
   const firstSentence = /^(.+?[.!?])(?:\s|$)/.exec(clean)?.[1];
   return truncateAtWord(firstSentence || clean, 180);
+}
+
+function hasSameDisplayedImprovement(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const number = '-?\\d+(?:\\.\\d+)?';
+  return new RegExp(`\\b(?:improved|improving)\\b[\\s\\S]*?\\bfrom\\s+(${number})\\s+to\\s+\\1\\b`, 'i').test(value);
+}
+
+function formatOutcomeSummary(value: string): string {
+  let clean = value.replace(/\s+/g, ' ').trim();
+  const number = '-?\\d+(?:\\.\\d+)?';
+  const direct = new RegExp(`^(.+?)\\s+improved\\s+from\\s+(${number})\\s+to\\s+\\2(.*)$`, 'i');
+  clean = clean.replace(direct, (_match, prefix: string, score: string, suffix: string) => (
+    `${prefix} registered a tiny improvement${suffix} (score still rounds to ${score}).`
+  ));
+  const inline = new RegExp(`,?\\s+improving\\s+[A-Za-z0-9_:/ -]+\\s+from\\s+(${number})\\s+to\\s+\\1\\.?`, 'i');
+  clean = clean.replace(inline, (_match, score: string) => `; score still rounds to ${score}.`);
+  return clean;
 }
 
 function formatMasteryLine(mastery: SparkWorkspaceMastery): string {
@@ -1640,7 +1658,10 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const scorecardLine = latestOutcome ? formatOutcomeScorecard(latestOutcome) : null;
   const label = pathDisplayLabel(path, spec);
   const verdict = latestOutcome?.verdict || (path.bestOutcomeId ? 'recorded' : path.status);
-  const outcomeLine = latestOutcome?.summary || path.summary || (path.bestOutcomeId ? path.bestOutcomeId : 'No outcome recorded yet.');
+  const sameDisplayedImprovement = latestOutcome ? hasSameDisplayedImprovement(latestOutcome.summary) : false;
+  const outcomeLine = latestOutcome?.summary
+    ? formatOutcomeSummary(latestOutcome.summary)
+    : path.summary || (path.bestOutcomeId ? path.bestOutcomeId : 'No outcome recorded yet.');
   const decisionLine = decisions.length > 0
     ? `Needs review: ${pluralize(decisions.length, 'decision')} waiting.`
     : 'Needs review: clear.';
@@ -1655,7 +1676,7 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   return [
     outcomeHeadline(label, verdict),
     metricLine ? `Score: ${metricLine}` : null,
-    `Change: ${friendlyOutcomeChange(verdict)}`,
+    `Change: ${friendlyOutcomeChange(verdict, sameDisplayedImprovement)}`,
     comparisonLine,
     `Updated: ${formatUpdatedAt(path.updatedAt)}`,
     '',
@@ -1802,10 +1823,10 @@ function friendlyOutcomeVerb(verdict: string | null | undefined): string {
   return normalized || 'is recorded';
 }
 
-function friendlyOutcomeChange(verdict: string | null | undefined): string {
+function friendlyOutcomeChange(verdict: string | null | undefined, sameDisplayedImprovement = false): string {
   const normalized = (verdict || '').toLowerCase();
   if (normalized.includes('regress')) return 'regressed';
-  if (normalized.includes('improv')) return 'improved';
+  if (normalized.includes('improv')) return sameDisplayedImprovement ? 'tiny improvement (rounded score unchanged)' : 'improved';
   if (normalized.includes('flat')) return 'no improvement this round';
   if (normalized.includes('record')) return 'recorded';
   if (normalized.includes('unknown')) return 'not enough signal yet';
