@@ -967,17 +967,15 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
   assert.match(report, /Spark Intelligence Builder improved\./);
-  assert.match(report, /Change: improved/);
-  assert.match(report, /Compare: matches current best\./);
-  assert.match(report, /Updated: May 7, 2026, 10:00 UTC/);
-  assert.match(report, /What happened:\nStartup YC final round improved\./);
-  assert.match(report, /Score: builder chip loop best metric 0.72/);
-  assert.match(report, /Scorecard: Best metric 0.72; goal=higher; model=Startup YC; Rounds: 3\/3/);
+  assert.match(report, /- Score: builder chip loop best metric 0.72, matches current best/);
+  assert.match(report, /- Change: improved/);
+  assert.match(report, /Signal\n- Startup YC final round improved\./);
   assert.doesNotMatch(report, /Startup Yc/);
-  assert.match(report, /Evidence: saved run trace - Startup YC chip-loop status\./);
-  assert.match(report, /Needs review: clear\./);
-  assert.match(report, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.doesNotMatch(report, /Review decisions:/);
+  assert.match(report, /- Evidence: 1 saved item in Workspace/);
+  assert.match(report, /- Review: clear/);
+  assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.doesNotMatch(report, /Scorecard:/);
+  assert.doesNotMatch(report, /Mastery:/);
   assert.match(report, /1\. \/recursive trace path_builder_chip_startup_yc/);
   assert.match(report, /2\. \/recursive start startup-yc rounds 3/);
 
@@ -1053,9 +1051,8 @@ test('compares latest Workspace outcome against the current best metric', () => 
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
   assert.match(report, /Startup YC held steady\./);
-  assert.match(report, /Score: scenario score 0.6313/);
-  assert.match(report, /Change: no improvement this round/);
-  assert.match(report, /Compare: below current best by 0.0687 \(best 0.7\)\./);
+  assert.match(report, /- Score: scenario score 0.6313, below current best by 0.0687 \(best 0.7\)/);
+  assert.match(report, /- Change: no improvement this round/);
 });
 
 test('describes rounded same-score improvements without contradiction', () => {
@@ -1113,9 +1110,9 @@ test('describes rounded same-score improvements without contradiction', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /Change: tiny improvement \(rounded score unchanged\)/);
-  assert.match(report, /What happened:\nStartup YC registered a tiny improvement on benchmarks\/startup-yc\.tool_calls\.json via YC doctrine injection\. \(score still rounds to 0\.6453\)\./);
-  assert.match(report, /Best signal: Startup YC kept a benchmark-backed YC mutation on benchmarks\/startup-yc\.tool_calls\.json; score still rounds to 0\.6453\./);
+  assert.match(report, /- Change: tiny improvement \(rounded score unchanged\)/);
+  assert.match(report, /Signal\n- Startup YC kept a benchmark-backed YC mutation on benchmarks\/startup-yc\.tool_calls\.json; score still rounds to 0\.6453\./);
+  assert.doesNotMatch(report, /What happened:/);
   assert.doesNotMatch(report, /improved from 0\.6453 to 0\.6453/);
   assert.doesNotMatch(report, /improving scenario_score from 0\.6453 to 0\.6453/);
 });
@@ -1170,7 +1167,7 @@ test('keeps Workspace best signal to a clean sentence', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /Best signal: Startup YC emitted a smoke benchmark signal on zero_to_one_design_partner_001 at 62\.2%\./);
+  assert.match(report, /Signal\n- Startup YC emitted a smoke benchmark signal on zero_to_one_design_partner_001 at 62\.2%\./);
   assert.doesNotMatch(report, /team health remains th\.\.\./);
   assert.doesNotMatch(report, /Validation across the current lane/);
 });
@@ -1227,7 +1224,8 @@ test('renders Workspace mastery as a readable signal with evidence counts', () =
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:startup-yc');
-  assert.match(report, /Mastery: Research benchmark-backed candidate\. Evidence: benchmark 0\.82, live 0\.64, 12 supports, 1 contradiction\./);
+  assert.doesNotMatch(report, /Mastery:/);
+  assert.match(report, /Open\n- Recursions:/);
   assert.doesNotMatch(report, /Strongest mastery/);
   assert.doesNotMatch(report, /mastery candidate/);
 });
@@ -1287,8 +1285,7 @@ test('uses lower-is-better goals when comparing Workspace outcomes', () => {
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path:error-rate');
   assert.match(report, /Error Rate regressed\./);
-  assert.match(report, /Score: error rate 0.12/);
-  assert.match(report, /Compare: above current best by 0.04 \(best 0.08\)\./);
+  assert.match(report, /- Score: error rate 0.12, above current best by 0.04 \(best 0.08\)/);
 });
 
 test('summarizes large Workspace evidence sets with clean highlights', () => {
@@ -1354,7 +1351,7 @@ test('summarizes large Workspace evidence sets with clean highlights', () => {
   };
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /Evidence: 4 saved items\. Highlights: Run directory; Run log; Trace file\./);
+  assert.match(report, /- Evidence: 4 saved items in Workspace/);
   assert.doesNotMatch(report, /run_trace:Run directory/);
   assert.doesNotMatch(report, /Session summary/);
 });
@@ -1469,14 +1466,14 @@ test('reports non-Builder Workspace loop artifacts without leaking unrelated ref
   };
 
   const benchmarkReport = renderRecursiveWorkspaceReport(snapshot, 'path_benchmark_prompt_engineer_20260508t030923z_65b30a0f');
-  assert.match(benchmarkReport, /Score: average composite score 2.1/);
-  assert.match(benchmarkReport, /Evidence: saved benchmark run - Prompt benchmark run JSON\./);
+  assert.match(benchmarkReport, /- Score: average composite score 2.1/);
+  assert.match(benchmarkReport, /- Evidence: 1 saved item in Workspace/);
   assert.doesNotMatch(benchmarkReport, /Domain autoloop manifest/);
   assert.doesNotMatch(benchmarkReport, /Startup YC chip-loop status/);
 
   const autoloopReport = renderRecursiveWorkspaceReport(snapshot, 'path_domain_autoloop_crypto_trading');
-  assert.match(autoloopReport, /Score: autoloop cycle count 4/);
-  assert.match(autoloopReport, /Evidence: saved manifest - Domain autoloop manifest\./);
+  assert.match(autoloopReport, /- Score: autoloop cycle count 4/);
+  assert.match(autoloopReport, /- Evidence: 1 saved item in Workspace/);
   assert.doesNotMatch(autoloopReport, /Prompt benchmark run JSON/);
 
   const labTrace = workspaceTraceView(snapshot, 'path_domain_chip_lab_workspace_smoke_loop');
@@ -1508,7 +1505,7 @@ test('uses path summary in Workspace report when snapshot omits outcome bodies',
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
   assert.match(report, /Spark Intelligence Builder was recorded\./);
-  assert.match(report, /What happened:\nBuilder chip loop for Startup YC completed 1\/1 round\(s\)\./);
+  assert.match(report, /Signal\n- Builder chip loop for Startup YC completed 1\/1 round\(s\)\./);
 
   const trace = workspaceTraceView(snapshot, 'path_builder_chip_startup_yc');
   assert.equal(trace.timeline[0].kind, 'outcome');
@@ -1563,25 +1560,22 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
   assert.equal(sessions[0].review_required, true);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(report, /Needs review: 1 decision waiting\./);
-  assert.match(report, /Open: Recursions http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
-  assert.match(report, /Review decisions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.match(report, /- Review: 1 decision waiting/);
+  assert.match(report, /- Recursions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
+  assert.match(report, /- Decisions: http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
   assert.match(report, /1\. \/recursive review path_builder_chip_startup_yc/);
   assert.match(report, /2\. \/recursive trace path_builder_chip_startup_yc/);
   assert.match(report, /3\. After review: \/recursive start startup-yc rounds 3/);
   assert.doesNotMatch(report, /3\. \/recursive start startup-yc rounds 3/);
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path_builder_chip_startup_yc');
-  assert.match(review, /1 decision waiting for your call on Spark Intelligence Builder\./);
-  assert.match(review, /Start here: first review outcome\./);
-  assert.match(review, /Scope: private workspace/);
-  assert.match(review, /Network: not submitted/);
-  assert.match(review, /Items:/);
-  assert.match(review, /1\. Review Builder chip outcome/);
-  assert.match(review, /Type: Review outcome, priority medium\./);
-  assert.match(review, /Why: Outcome needs dashboard action\./);
-  assert.match(review, /Open Recursions and inspect the run trace/);
-  assert.match(review, /Next: open Decisions for this item\./);
+  assert.match(review, /Spark Intelligence Builder review/);
+  assert.match(review, /- Waiting: 1 decision/);
+  assert.match(review, /- Main blocker: Review Builder chip outcome/);
+  assert.match(review, /- Scope: private workspace/);
+  assert.match(review, /- Network: not submitted/);
+  assert.match(review, /- Why: Outcome needs dashboard action\./);
+  assert.match(review, /- Move: Open Recursions and inspect the run trace\./);
   assert.doesNotMatch(review, /review_outcome/);
 });
 
@@ -1637,16 +1631,15 @@ test('renders supported Workspace review items with Telegram actions', () => {
   };
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path:startup-yc');
-  assert.match(review, /2 decisions waiting for your call on Startup YC\./);
-  assert.match(review, /Start here: Review team-health mastery\./);
-  assert.match(review, /1\. Review team-health mastery/);
-  assert.match(review, /Type: Review mastery, priority high\./);
-  assert.match(review, /Telegram actions:/);
-  assert.match(review, /Approve: \/recursive approve inbox_high_mastery evidence is strong enough/);
-  assert.match(review, /More eval: \/recursive more-eval inbox_high_mastery needs another benchmark pass/);
-  assert.match(review, /Reject: \/recursive reject inbox_high_mastery evidence is not strong enough/);
-  assert.match(review, /2\. Absorb risk-management insight/);
-  assert.match(review, /Approve: \/recursive approve inbox_low_absorb absorb this insight/);
+  assert.match(review, /Startup YC review/);
+  assert.match(review, /- Waiting: 2 decisions/);
+  assert.match(review, /- Main blocker: Review team-health mastery/);
+  assert.match(review, /Actions/);
+  assert.match(review, /1\. Approve: \/recursive approve inbox_high_mastery evidence is strong enough/);
+  assert.match(review, /2\. More eval: \/recursive more-eval inbox_high_mastery needs another benchmark pass/);
+  assert.match(review, /3\. Defer: \/recursive defer inbox_high_mastery hold for later/);
+  assert.match(review, /4\. Reject: \/recursive reject inbox_high_mastery evidence is not strong enough/);
+  assert.doesNotMatch(review, /Absorb risk-management insight/);
   assert.doesNotMatch(review, /review_mastery/);
 });
 
@@ -1702,12 +1695,11 @@ test('groups repeated dashboard-only Workspace review blockers', () => {
   };
 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path:startup-yc');
-  assert.match(review, /2 decisions waiting for your call on Startup YC\./);
-  assert.match(review, /1 blocker shown after grouping repeats\./);
-  assert.match(review, /Scope: specialization path/);
-  assert.match(review, /Network: review required/);
-  assert.match(review, /1\. Rewrite blocked insight \(2 items\)/);
-  assert.match(review, /Type: Rewrite Insight, priority high\./);
+  assert.match(review, /Startup YC review/);
+  assert.match(review, /- Waiting: 2 decisions/);
+  assert.match(review, /- Scope: specialization path/);
+  assert.match(review, /- Network: review required/);
+  assert.match(review, /- Main blocker: Rewrite blocked insight \(2 items\)/);
   assert.match(review, /Reasons: Primary message exceeds the network readability limit; Contains a suspicious long opaque token/);
   assert.doesNotMatch(review, /2\. Rewrite Insight/);
 });

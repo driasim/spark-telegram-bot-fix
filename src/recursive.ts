@@ -1646,25 +1646,27 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   if (!path) return `Recursive loop not found in Spark Workspace: ${id}\n${sparkWorkspaceRecursionsUrl()}`;
   const spec = specializationForPath(snapshot, path);
   const insights = spec ? snapshot.insights.filter((item) => item.specializationId === spec.id) : [];
-  const masteries = spec ? snapshot.masteries.filter((item) => item.specializationScope === spec.key) : [];
   const pathOutcomes = outcomesForPath(snapshot, path);
   const latestOutcome = pathOutcomes.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
   const decisions = inboxForPath(snapshot, path);
   const latestInsight = insights.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
-  const strongestMastery = masteries.sort((a, b) => (b.benchmarkStrength || 0) - (a.benchmarkStrength || 0))[0];
   const artifacts = artifactsForPath(snapshot, path);
   const metricLine = latestOutcome ? formatOutcomeMetric(latestOutcome) : null;
   const comparisonLine = latestOutcome ? formatOutcomeComparison(latestOutcome, pathOutcomes, path.bestOutcomeId) : null;
-  const scorecardLine = latestOutcome ? formatOutcomeScorecard(latestOutcome) : null;
   const label = pathDisplayLabel(path, spec);
   const verdict = latestOutcome?.verdict || (path.bestOutcomeId ? 'recorded' : path.status);
   const sameDisplayedImprovement = latestOutcome ? hasSameDisplayedImprovement(latestOutcome.summary) : false;
-  const outcomeLine = latestOutcome?.summary
-    ? formatOutcomeSummary(latestOutcome.summary)
-    : path.summary || (path.bestOutcomeId ? path.bestOutcomeId : 'No outcome recorded yet.');
+  const changeLine = friendlyOutcomeChange(verdict, sameDisplayedImprovement);
+  const signalLine = latestInsight
+    ? formatBestSignal(latestInsight.summary)
+    : latestOutcome?.summary
+      ? formatBestSignal(latestOutcome.summary)
+      : path.summary
+        ? formatBestSignal(path.summary)
+        : null;
   const decisionLine = decisions.length > 0
-    ? `Needs review: ${pluralize(decisions.length, 'decision')} waiting.`
-    : 'Needs review: clear.';
+    ? `${pluralize(decisions.length, 'decision')} waiting`
+    : 'clear';
   const nextActions = [
     decisions.length > 0 ? `1. /recursive review ${path.id}` : null,
     `${decisions.length > 0 ? '2' : '1'}. /recursive trace ${path.id}`,
@@ -1675,21 +1677,17 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
 
   return [
     outcomeHeadline(label, verdict),
-    metricLine ? `Score: ${metricLine}` : null,
-    `Change: ${friendlyOutcomeChange(verdict, sameDisplayedImprovement)}`,
-    comparisonLine,
-    `Updated: ${formatUpdatedAt(path.updatedAt)}`,
+    metricLine ? `- Score: ${metricLine}${comparisonLine ? `, ${formatCompareFragment(comparisonLine)}` : ''}` : null,
+    `- Change: ${changeLine}`,
+    `- Review: ${decisionLine}`,
+    artifacts.length > 0 ? `- Evidence: ${pluralize(artifacts.length, 'saved item')} in Workspace` : null,
     '',
-    'What happened:',
-    truncate(outcomeLine, 220),
-    scorecardLine ? `Scorecard: ${scorecardLine}` : null,
-    latestInsight ? `Best signal: ${formatBestSignal(latestInsight.summary)}` : 'Best signal: none yet',
-    strongestMastery ? formatMasteryLine(strongestMastery) : 'Mastery: none yet.',
-    formatArtifactRefs(artifacts),
-    decisionLine,
+    signalLine ? 'Signal' : null,
+    signalLine ? `- ${signalLine}` : null,
     '',
-    `Open: Recursions ${sparkWorkspaceRecursionsUrl()}`,
-    decisions.length > 0 ? `Review decisions: ${sparkWorkspaceDecisionsUrl()}` : null,
+    'Open',
+    `- Recursions: ${sparkWorkspaceRecursionsUrl()}`,
+    decisions.length > 0 ? `- Decisions: ${sparkWorkspaceDecisionsUrl()}` : null,
     '',
     'Next:',
     ...nextActions
@@ -1711,18 +1709,27 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
   const reviewCall = firstHighPriority
     ? `Start here: ${firstHighPriority.item.title}.`
     : `Start here: first ${reviewKindLabel(groups[0].item.kind).toLowerCase()}.`;
+  const topGroup = groups[0];
+  const topActions = topGroup ? reviewTelegramActions(topGroup.item) : [];
 
   return [
-    `${pluralize(items.length, 'decision')} waiting for your call on ${targetLabel}.`,
-    groups.length < items.length ? `${pluralize(groups.length, 'blocker')} shown after grouping repeats.` : null,
-    reviewCall,
-    scopeLine,
-    networkLine,
-    `Open: Decisions ${sparkWorkspaceDecisionsUrl()}`,
+    `${targetLabel} review`,
+    `- Waiting: ${pluralize(items.length, 'decision')}`,
+    topGroup ? `- Main blocker: ${topGroup.item.title}${topGroup.count > 1 ? ` (${pluralize(topGroup.count, 'item')})` : ''}` : null,
+    topGroup ? `- Why: ${ensureSentence(reviewGroupSummary(topGroup))}` : null,
+    topGroup?.item.recommendedAction ? `- Move: ${ensureSentence(truncate(topGroup.item.recommendedAction, 130))}` : null,
+    scopeLine ? `- Scope: ${scopeLine.replace(/^Scope:\s*/, '')}` : null,
+    networkLine ? `- Network: ${networkLine.replace(/^Network:\s*/, '')}` : null,
+    topActions.length > 0 ? '' : null,
+    topActions.length > 0 ? 'Actions' : null,
+    ...topActions.map((action, index) => `${index + 1}. ${action}`),
     '',
-    'Items:',
-    ...groups.slice(0, 8).flatMap((group, index) => renderReviewGroup(group, index + 1)),
-    groups.length > 8 ? `...and ${groups.length - 8} more.` : null
+    'Open',
+    `- Decisions: ${sparkWorkspaceDecisionsUrl()}`,
+    '',
+    'Next:',
+    `1. ${reviewCall.replace(/[.]+$/, '')}`,
+    `2. /recursive trace ${path?.id || id}`
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
@@ -2034,6 +2041,10 @@ function formatOutcomeComparison(
       ? 'above current best by'
       : 'below current best by';
   return `Compare: ${direction} ${formatNumber(Math.abs(delta))} (best ${formatNumber(bestOutcome.metricValue)}).`;
+}
+
+function formatCompareFragment(line: string): string {
+  return line.replace(/^Compare:\s*/i, '').replace(/[.]+$/, '');
 }
 
 function bestComparableOutcome(
