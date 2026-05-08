@@ -1035,17 +1035,16 @@ export function renderRecursiveHelp(): string {
 
 export function renderRecursiveSessions(sessions: RecursiveSessionListItem[]): string {
   if (sessions.length === 0) return 'No recursive sessions found.';
-  const visible = sessions.slice(0, 8);
+  const visible = sessions.slice(0, 5);
   const lines = ['Spark recursive loops'];
   for (const [index, session] of visible.entries()) {
     const domain = session.domain || labelFromKey(session.source_kind);
-    const review = session.review_required ? 'needs review' : 'clear';
+    const status = session.status && session.status !== 'open' ? ` | ${session.status}` : '';
     lines.push(
       '',
-      `${index + 1}. ${session.session_id}`,
-      `- ${session.status} · ${domain} · ${review}`,
+      `${index + 1}. ${sessionDisplayTitle(session)}`,
+      `- ${domain} | ${session.review_required ? 'review needed' : 'clear'}${status}`,
       `- updated ${formatUpdatedAt(session.updated_at)}`,
-      `- ${ensureSentence(truncateAtWord(session.title, 112))}`,
       `- /recursive report ${session.session_id}`
     );
   }
@@ -1062,18 +1061,33 @@ export function renderRecursivePaths(sessions: RecursiveSessionListItem[]): stri
     group.push(session);
     pathGroups.set(domain, group);
   }
-  const domains = [...pathGroups.keys()].sort();
+  const summaries = [...pathGroups.entries()].map(([domain, group]) => {
+    const latest = group
+      .slice()
+      .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
+    return {
+      domain,
+      latest,
+      reviewCount: group.filter((session) => session.review_required).length
+    };
+  }).sort((a, b) =>
+    b.reviewCount - a.reviewCount ||
+    String(b.latest?.updated_at || '').localeCompare(String(a.latest?.updated_at || '')) ||
+    a.domain.localeCompare(b.domain)
+  );
+  const domains = summaries.map((summary) => summary.domain);
   if (domains.length === 0) return 'No recursive paths found yet.';
   const lines = ['Spark recursive paths'];
-  for (const [index, domain] of domains.entries()) {
+  for (const [index, domain] of domains.slice(0, 8).entries()) {
     const group = pathGroups.get(domain) ?? [];
     const reviewCount = group.filter((session) => session.review_required).length;
     const latest = group
       .slice()
       .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];
     const review = reviewCount > 0 ? `${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : 'clear';
-    lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} · ${review}`, `- latest ${formatUpdatedAt(latest?.updated_at)}`);
+    lines.push(`${index + 1}. ${domain}`, `- ${pluralize(group.length, 'loop')} | ${review} | latest ${formatUpdatedAt(latest?.updated_at)}`);
   }
+  if (domains.length > 8) lines.push('', `${domains.length - 8} more paths hidden. Open Workspace for the full list.`);
   lines.push('', 'Use /recursive sessions to pick a loop.');
   return lines.join('\n');
 }
@@ -1183,10 +1197,10 @@ export function renderRecursiveTraceView(trace: RecursiveTraceView): string {
     'Status',
     `- ${trace.status}`,
     trace.review.required ? `- review: ${pluralize(trace.review.decisions.length, 'decision')} waiting` : '- review: clear',
-    `- workspace: ${trace.spawner.board_entry.status}, ${pluralize(trace.spawner.board_entry.taskCount, 'tracked item')}`,
-    `- canvas: ${canvas.pending ? 'pending' : canvas.latest ? 'latest workspace view' : 'not queued'} (${canvas.pipelineId})`,
+    `- workspace: ${pluralize(trace.spawner.board_entry.taskCount, 'tracked item')}`,
+    `- canvas: ${canvas.pending ? 'pending' : canvas.latest ? 'ready' : 'not queued'}`,
     '',
-    'Recent movement:',
+    'Recent',
     ...(timeline.length > 0 ? timeline : ['- no timeline events']),
     '',
     'Workspace',
@@ -1430,6 +1444,29 @@ function labelFromKey(value: string): string {
       return acronyms.has(lower) ? lower.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1);
     })
     .join(' ') || value;
+}
+
+function sessionDisplayTitle(session: RecursiveSessionListItem): string {
+  const id = session.session_id || '';
+  const pathMatch = /^path:(.+)$/.exec(id);
+  if (pathMatch) return labelFromKey(pathMatch[1]);
+  const knownPathMatch = /^path_(?:builder_chip|benchmark_prompt_engineer|domain_autoloop|domain_chip_lab)_(.+)$/.exec(id);
+  const title = session.title ? sessionTitleLabel(session.title) : null;
+  if (knownPathMatch) {
+    if (/^\d/.test(knownPathMatch[1]) && title) return title;
+    return labelFromKey(knownPathMatch[1]);
+  }
+  if (title) return title;
+  return id || 'Recursive loop';
+}
+
+function sessionTitleLabel(title: string): string {
+  const cleaned = title
+    .replace(/\bcompleted\b[\s\S]*$/i, '')
+    .replace(/\bstatus=.*$/i, '')
+    .replace(/[.]+$/, '')
+    .trim();
+  return truncateAtWord(labelFromKey(cleaned || title), 64);
 }
 
 function inferOutcomeVerdict(rawVerdict: string | null | undefined, metric: number | null | undefined): 'improved' | 'flat' | 'regressed' {
@@ -1685,8 +1722,10 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
     'Review',
     `- ${pluralize(items.length, 'decision')} waiting`,
     topGroup ? `- blocker: ${topGroup.item.title}${topGroup.count > 1 ? ` (${pluralize(topGroup.count, 'item')})` : ''}` : null,
-    scopeLine ? `- Scope: ${scopeLine.replace(/^Scope:\s*/, '')}` : null,
-    networkLine ? `- Network: ${networkLine.replace(/^Network:\s*/, '')}` : null,
+    scopeLine || networkLine ? '' : null,
+    scopeLine || networkLine ? 'Sharing' : null,
+    scopeLine ? `- ${scopeLine.replace(/^Scope:\s*/, '')}` : null,
+    networkLine ? `- ${networkLine.replace(/^Network:\s*/, '')}` : null,
     reasonLines.length > 0 ? '' : null,
     reasonLines.length > 0 ? 'Why' : null,
     ...reasonLines.map((reason) => `- ${reason}`),
@@ -1698,8 +1737,7 @@ export function renderRecursiveWorkspaceReview(snapshot: SparkWorkspaceSnapshot,
     ...topActions.map((action, index) => `${index + 1}. ${action}`),
     '',
     'Workspace',
-    `- ${sparkWorkspaceDecisionsUrl()}`,
-    `- /recursive trace ${path?.id || id}`
+    `- ${sparkWorkspaceDecisionsUrl()}`
   ].filter(isRenderableLine).join('\n');
 }
 
@@ -2001,8 +2039,22 @@ function traceDisplayTitle(trace: RecursiveTraceView): string {
 }
 
 function formatTraceTimelineItem(item: RecursiveTraceView['timeline'][number]): string {
+  if (item.kind === 'artifact') {
+    return `- artifact: ${cleanTraceArtifactTitle(item.title, item.status)}`;
+  }
   const title = cleanTraceTimelineTitle(item.title);
-  return `- ${item.kind}: ${title} [${item.status}]`;
+  return `- ${item.kind}: ${title} (${item.status})`;
+}
+
+function cleanTraceArtifactTitle(title: string, status: string): string {
+  if (/candidate score/i.test(title)) return 'candidate score saved';
+  if (/baseline trace/i.test(title)) return 'baseline trace saved';
+  if (/candidate trace/i.test(title)) return 'candidate trace saved';
+  const cleaned = cleanTraceTimelineTitle(title)
+    .replace(/\b\d{8}T\d{6,}\w*\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || labelFromKey(status);
 }
 
 function cleanTraceTimelineTitle(title: string): string {
@@ -2012,6 +2064,7 @@ function cleanTraceTimelineTitle(title: string): string {
     .replace(/[_:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  if (/^round\s+\d{8}T\d+/i.test(cleaned)) return 'previous round';
   return cleaned || title;
 }
 

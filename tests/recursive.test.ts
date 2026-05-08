@@ -86,15 +86,15 @@ test('renders compact recursive session and path lists', () => {
   ];
 
   const sessionList = renderRecursiveSessions(sessions);
-  assert.match(sessionList, /1\. s1/);
-  assert.match(sessionList, /- completed · startup-yc · clear/);
+  assert.match(sessionList, /1\. Startup YC Builder Chip Loop/);
+  assert.match(sessionList, /- startup-yc \| clear \| completed/);
   assert.match(sessionList, /- \/recursive report s1/);
   assert.match(sessionList, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(sessionList, /What happened:/);
   assert.doesNotMatch(sessionList, /Next:/);
 
   const pathList = renderRecursivePaths(sessions);
-  assert.match(pathList, /1\. startup-yc\n- 1 loop · clear/);
+  assert.match(pathList, /1\. startup-yc\n- 1 loop \| clear \| latest/);
   assert.match(pathList, /Use \/recursive sessions to pick a loop\./);
   assert.doesNotMatch(pathList, /Next:/);
 
@@ -113,7 +113,7 @@ test('renders compact recursive session and path lists', () => {
       review_required: true
     }
   ]);
-  assert.match(reviewPathList, /startup-yc\n- 3 loops · 2 need review/);
+  assert.match(reviewPathList, /startup-yc\n- 3 loops \| 2 need review \| latest/);
   assert.doesNotMatch(reviewPathList, /2 loops needs review/);
 });
 
@@ -304,9 +304,9 @@ test('parses and renders stitched recursive trace views', () => {
   });
 
   assert.match(reply, /Startup YC recursive autoloop trace/);
-  assert.match(reply, /Status\n- completed\n- review: clear\n- workspace: completed, 5 tracked items\n- canvas: pending/);
+  assert.match(reply, /Status\n- completed\n- review: clear\n- workspace: 5 tracked items\n- canvas: pending/);
   assert.match(reply, /round-003/);
-  assert.match(reply, /outcome: baseline \[flat\]/);
+  assert.match(reply, /outcome: baseline \(flat\)/);
   assert.doesNotMatch(reply, /outcome:startup-yc:baseline/);
   assert.match(reply, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions/);
   assert.doesNotMatch(reply, /Review decisions:/);
@@ -341,8 +341,8 @@ test('renders long path trace titles as readable labels', () => {
   });
 
   assert.match(reply, /Startup YC trace/);
-  assert.match(reply, /Status\n- open\n- review: 7 decisions waiting\n- workspace: open, 96 tracked items\n- canvas: latest workspace view \(spark-workspace-recursions\)/);
-  assert.match(reply, /outcome: round 20260423T105059878039Z \[improved\]/);
+  assert.match(reply, /Status\n- open\n- review: 7 decisions waiting\n- workspace: 96 tracked items\n- canvas: ready/);
+  assert.match(reply, /outcome: previous round \(improved\)/);
   assert.match(reply, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=recursions\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
   assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /\/recursive review path:startup-yc/);
@@ -963,7 +963,8 @@ test('maps workspace-scoped Builder chip loops into Telegram recursive sessions'
   assert.equal(sessions[0].domain, 'spark-intelligence-builder');
   assert.equal(sessions[0].kanban_bucket, 'active');
   assert.equal(sessions[0].review_required, false);
-  assert.match(renderRecursiveSessions(sessions), /Startup YC completed 3\/3 round\(s\)\./);
+  assert.match(renderRecursiveSessions(sessions), /1\. Startup YC/);
+  assert.match(renderRecursiveSessions(sessions), /- spark-intelligence-builder \| clear/);
   assert.doesNotMatch(renderRecursiveSessions(sessions), /Startup Yc/);
 
   const report = renderRecursiveWorkspaceReport(snapshot, 'path_builder_chip_startup_yc');
@@ -1571,11 +1572,11 @@ test('maps Workspace decision inbox items into Telegram review surfaces', () => 
   const review = renderRecursiveWorkspaceReview(snapshot, 'path_builder_chip_startup_yc');
   assert.match(review, /Spark Intelligence Builder review/);
   assert.match(review, /Review\n- 1 decision waiting\n- blocker: Review Builder chip outcome/);
-  assert.match(review, /- Scope: private workspace/);
-  assert.match(review, /- Network: not submitted/);
+  assert.match(review, /Sharing\n- private workspace\n- not submitted/);
   assert.match(review, /Why\n- Outcome needs dashboard action\./);
   assert.match(review, /Move\n- Open Recursions and inspect the run trace\./);
-  assert.match(review, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions\n- \/recursive trace path_builder_chip_startup_yc/);
+  assert.match(review, /Workspace\n- http:\/\/127\.0\.0\.1:5173\/runs\?tab=decisions/);
+  assert.doesNotMatch(review, /\/recursive trace path_builder_chip_startup_yc/);
   assert.doesNotMatch(review, /Next:/);
   assert.doesNotMatch(review, /review_outcome/);
 });
@@ -1697,8 +1698,7 @@ test('groups repeated dashboard-only Workspace review blockers', () => {
   const review = renderRecursiveWorkspaceReview(snapshot, 'path:startup-yc');
   assert.match(review, /Startup YC review/);
   assert.match(review, /Review\n- 2 decisions waiting/);
-  assert.match(review, /- Scope: specialization path/);
-  assert.match(review, /- Network: review required/);
+  assert.match(review, /Sharing\n- specialization path\n- review required/);
   assert.match(review, /- blocker: Rewrite blocked insight \(2 items\)/);
   assert.match(review, /Why\n- Message is too long for network sharing\.\n- Suspicious long opaque token\./);
   assert.doesNotMatch(review, /2\. Rewrite Insight/);
