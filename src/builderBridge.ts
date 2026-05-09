@@ -61,6 +61,16 @@ export interface BuilderBridgeVoiceMedia {
   synthesisMs?: number;
 }
 
+export interface BuilderVoiceDeliveryRuntimeStateInput {
+  telegramUserId: string | number;
+  sendMethod: string;
+  sendMs: number;
+  telegramResult?: unknown;
+  voiceMedia: BuilderBridgeVoiceMedia & {
+    runtimeState?: Record<string, unknown>;
+  };
+}
+
 export interface BuilderDiagnosticsScanJson {
   failure_line_count?: unknown;
   scanned_line_count?: unknown;
@@ -329,6 +339,43 @@ function arrayValue(value: unknown): unknown[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliveryRuntimeStateInput): Record<string, unknown> {
+  const base = objectValue(input.voiceMedia.runtimeState);
+  const telegramResult = objectValue(input.telegramResult);
+  const tts = {
+    ...objectValue(base.tts),
+    ...(input.voiceMedia.providerId ? { provider_id: input.voiceMedia.providerId } : {})
+  };
+  const claimLevels = {
+    ...objectValue(base.claim_levels),
+    delivery_ready: true
+  };
+  const sourceLedger = arrayValue(base.source_ledger)
+    .map((entry) => typeof entry === 'string' ? entry : JSON.stringify(entry))
+    .filter(Boolean);
+  sourceLedger.push(`telegram-runner-${input.sendMethod}-trace`);
+
+  return {
+    ...base,
+    telegram_user_id: String(input.telegramUserId),
+    tts,
+    claim_levels: claimLevels,
+    telegram_delivery: {
+      ready: true,
+      last_send_voice_at: new Date().toISOString(),
+      last_send_voice_status: 'success',
+      last_failure_reason: '',
+      telegram_message_id_present: Boolean(telegramResult.message_id),
+      send_method: input.sendMethod
+    },
+    latency: {
+      ...objectValue(base.latency),
+      send_voice_ms: Number.isFinite(input.sendMs) ? input.sendMs : 0
+    },
+    source_ledger: sourceLedger.map((entry) => redactText(entry))
+  };
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
