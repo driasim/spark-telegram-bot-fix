@@ -10,6 +10,11 @@ import {
   buildLocalSparkServiceReply,
   buildMemoryBridgeUnavailableReply,
   buildRecentBuildContextReply,
+  extractAgentDoctrinePreference,
+  formatAgentDoctrinePreferenceAcknowledgement,
+  formatAgentDoctrinePreferenceForBuilderSync,
+  formatAgentDoctrinePreferenceStatus,
+  formatGlobalAgentDoctrineRequestReply,
   extractSparkSelfImprovementGoal,
   extractSparkWikiAnswerQuestion,
   extractSparkWikiPromotionIntent,
@@ -37,10 +42,17 @@ import {
   isLocalSparkServiceRequest,
   isMissionExecutionConfirmation,
   isMemoryAcknowledgementReply,
+  isMemoryDoctorRequest,
   isLowInformationLlmReply,
+  isAgentDoctrinePreferenceStatusQuestion,
+  isGlobalAgentDoctrineRequest,
+  isStandaloneAgentDoctrinePreference,
+  isUserMemoryRecallQuestion,
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
   parseNaturalChipCreateIntent,
+  parseNaturalCreatorMissionIntent,
+  parseNaturalRecursiveCommandIntent,
   parseMissionUpdatePreferenceIntent,
   parseSpawnerBoardNaturalIntent,
   renderChatRuntimeFailureReply,
@@ -49,6 +61,14 @@ import {
   shouldPreferConversationalIdeation
 } from '../src/conversationIntent';
 import { buildConversationFrame } from '../src/conversationFrame';
+import {
+  buildMemoryDoctorEvidencePrompt,
+  isMemoryDoctorBridgeDetourReply,
+  renderMemoryDoctorEvidenceFallback,
+  selectMemoryDoctorEvidenceTurns,
+  shouldPreferMemoryDoctorEvidenceFallback,
+  shouldAttachMemoryDoctorEvidence
+} from '../src/memoryDoctorBridge';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -160,6 +180,16 @@ test('answers what we were going to build from recent context', () => {
   assert.ok(reply);
   assert.match(reply, /passive Spark bug recognition/);
   assert.match(reply, /Obsidian-friendly diagnostic notes/);
+});
+
+test('separates user memory recall from build context recall', () => {
+  assert.equal(isUserMemoryRecallQuestion('what do you remember about how I like mission updates?'), true);
+  assert.equal(isBuildContextRecallQuestion('what do you remember about how I like mission updates?'), false);
+  assert.equal(
+    isUserMemoryRecallQuestion('what do you know about how I like to work, and what is only recent context?'),
+    true
+  );
+  assert.equal(isBuildContextRecallQuestion('we were gonna build something do you remember what it was'), true);
 });
 
 test('answers what was just built from completed diagnostic mission notes', () => {
@@ -492,6 +522,12 @@ test('keeps explicit design-only project prompts in conversation', () => {
 
   assert.equal(shouldPreferConversationalIdeation(prompt), true);
   assert.equal(parseMissionUpdatePreferenceIntent(prompt), null);
+
+  const hint = buildIdeationSystemHint(prompt);
+  assert.match(hint, /explicitly asked not to build yet/);
+  assert.match(hint, /small starter scaffold/);
+  assert.match(hint, /do not only ask the user to pick a direction/i);
+  assert.match(hint, /Do not scold the user/);
 });
 
 test('keeps mission-control product refinement in conversation', () => {
@@ -571,7 +607,331 @@ test('extracts natural domain chip create requests without slash-command handoff
     parseNaturalChipCreateIntent('build a domain-chip for Telegram memory routing'),
     'Telegram memory routing'
   );
+  assert.equal(
+    parseNaturalChipCreateIntent('make me a chip that turns meeting notes into action items'),
+    'turns meeting notes into action items'
+  );
+  assert.equal(
+    parseNaturalChipCreateIntent('domain-chip named Spark Memory Watcher for memory drift'),
+    'Spark Memory Watcher for memory drift'
+  );
+  assert.equal(
+    parseNaturalChipCreateIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
+    null
+  );
+  assert.equal(
+    parseNaturalChipCreateIntent('do not build yet, help me think through a domain chip for route confidence'),
+    null
+  );
   assert.equal(parseNaturalChipCreateIntent('which chips are active?'), null);
+});
+
+test('extracts natural creator mission requests for QA Operator benchmark work', () => {
+  const intent = parseNaturalCreatorMissionIntent(
+    'make the QA tester better by creating better benchmarks and autoloops for Spark Telegram and Workspace'
+  );
+  assert.equal(intent?.privacyMode, 'local_only');
+  assert.equal(intent?.riskLevel, 'medium');
+  assert.match(intent?.brief || '', /Improve Spark QA Operator/);
+  assert.match(intent?.brief || '', /richer benchmark packs/);
+  assert.match(intent?.brief || '', /Telegram natural-language QA flows/);
+  assert.match(intent?.brief || '', /Spark Swarm Workspace sync/);
+  assert.match(intent?.brief || '', /Canonical target domain: spark-qa-operator/);
+  assert.match(intent?.brief || '', /benchmark lanes and product QA surfaces under Spark QA Operator/);
+  assert.match(intent?.brief || '', /domain-chip-spark-qa-operator/);
+  assert.equal(
+    parseNaturalCreatorMissionIntent('do not build yet, help me think through a domain chip for route confidence'),
+    null
+  );
+
+  assert.equal(
+    parseNaturalCreatorMissionIntent('show me the Spark QA Operator report'),
+    null
+  );
+  assert.equal(
+    parseNaturalCreatorMissionIntent('create a private benchmarked specialization path with an autoloop for AI security questionnaires')?.privacyMode,
+    'local_only'
+  );
+});
+
+test('keeps Memory Doctor and answer-audit requests out of stale creator context', () => {
+  const context = {
+    recentMessages: [
+      'Planning Spark QA Operator benchmark path creator mission...',
+      'Creator plan ready. Build Spark QA Operator with a domain chip, benchmark pack, specialization path, and autoloop policy.'
+    ]
+  };
+
+  for (const prompt of [
+    'run memory doctor for last request',
+    'audit previous turn',
+    'diagnose last answer',
+    'you went blank and lost context, what happened?'
+  ]) {
+    assert.equal(isMemoryDoctorRequest(prompt), true, `${prompt} should be recognized as a Memory Doctor request`);
+    assert.equal(parseNaturalCreatorMissionIntent(prompt, context), null, `${prompt} should not plan a creator mission`);
+  }
+});
+
+test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
+  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
+
+  const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
+    { role: 'user', text: 'do not build yet, help me think through a domain chip for route confidence' },
+    { role: 'assistant', text: 'Good problem to formalize. Route confidence is currently implicit in Builder.' }
+  ]);
+
+  assert.match(prompt, /^audit previous turn/);
+  assert.match(prompt, /Route: memory\.doctor/);
+  assert.match(prompt, /Do not ask the user to paste the previous turn unless no recent turns are listed\./);
+  assert.match(prompt, /- user: do not build yet, help me think through a domain chip for route confidence/);
+  assert.match(prompt, /- assistant: Good problem to formalize\./);
+});
+
+test('selects immediate prior turns for contextual Memory Doctor evidence', () => {
+  const turns = selectMemoryDoctorEvidenceTurns('run memory doctor for last request', [
+    { role: 'user', text: 'all your chips work, right?' },
+    { role: 'assistant', text: 'Spark chip status needs live probes.' },
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' },
+    { role: 'user', text: 'run memory doctor for last request' }
+  ]);
+
+  assert.deepEqual(turns, [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' }
+  ]);
+});
+
+test('renders local fallback for Memory Doctor tool detours', () => {
+  assert.equal(isMemoryDoctorBridgeDetourReply('Both Spark MCP tools need permission to run.'), true);
+  assert.equal(isMemoryDoctorBridgeDetourReply('Still hitting the permissions gate. Approve `mcpsparkspark_reflect`.'), true);
+  assert.equal(isMemoryDoctorBridgeDetourReply('I do not have visibility into what happened.'), true);
+  assert.equal(isMemoryDoctorBridgeDetourReply('The previous turn was routed correctly.'), false);
+
+  const reply = renderMemoryDoctorEvidenceFallback('run memory doctor for last request', [
+    { role: 'user', text: 'run memory doctor for last request' },
+    { role: 'assistant', text: 'Both Spark MCP tools need permission to run.' }
+  ]);
+
+  assert.match(reply, /Memory Doctor/);
+  assert.match(reply, /without MCP\/tool approval/);
+  assert.match(reply, /detoured into MCP\/tool permission/);
+  assert.equal(
+    shouldPreferMemoryDoctorEvidenceFallback('you went blank and lost context, what happened?', [
+      { role: 'user', text: 'run memory doctor for last request' },
+      { role: 'assistant', text: 'Both Spark MCP tools need permission to run.' }
+    ]),
+    true
+  );
+  assert.equal(
+    shouldPreferMemoryDoctorEvidenceFallback('run memory doctor for last request', [
+      { role: 'assistant', text: 'Both Spark MCP tools need permission to run.' }
+    ]),
+    false
+  );
+});
+
+test('uses recent working context for ambiguous creator-system follow-ups', () => {
+  const context = {
+    recentMessages: [
+      'We are building Spark QA Operator for Telegram and Workspace quality.',
+      'It should improve recursive reports, creator missions, auth pairing, Canvas, and Kanban checks.'
+    ]
+  };
+  const intent = parseNaturalCreatorMissionIntent(
+    'make this better with benchmarks, specialization path, and autoloops',
+    context
+  );
+  assert.equal(intent?.privacyMode, 'local_only');
+  assert.match(intent?.brief || '', /Improve Spark QA Operator/);
+  assert.match(intent?.brief || '', /Canonical target domain: spark-qa-operator/);
+  assert.match(intent?.brief || '', /Telegram natural-language QA flows/);
+
+  assert.equal(
+    parseNaturalCreatorMissionIntent('make this better with benchmarks and autoloops'),
+    null
+  );
+
+  const generic = parseNaturalCreatorMissionIntent(
+    'turn this into a benchmark pack and autoloop policy',
+    {
+      recentMessages: [
+        'We are discussing a personal AI security questionnaire operator.',
+        'The operator should answer vendor security forms with evidence and review gates.'
+      ]
+    }
+  );
+  assert.match(generic?.brief || '', /Recent working context: We are discussing a personal AI security questionnaire operator/);
+  assert.match(generic?.reason || '', /artifact manifests/);
+});
+
+test('extracts natural recursive commands for QA Operator loops', () => {
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show me the QA tester report'),
+    {
+      rawCommand: 'report path:spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator recursive report.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('trace the QA operator loop'),
+    {
+      rawCommand: 'trace path:spark-qa-operator',
+      reason: 'Natural-language request to trace Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('start one QA improvement loop'),
+    {
+      rawCommand: 'start spark-qa-operator rounds 1',
+      reason: 'Natural-language request to start a recursive loop for Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('run the QA operator for 3 rounds'),
+    {
+      rawCommand: 'start spark-qa-operator rounds 3',
+      reason: 'Natural-language request to start a recursive loop for Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('what QA decisions need review?'),
+    {
+      rawCommand: 'review path:spark-qa-operator',
+      reason: 'Natural-language request to review Spark QA Operator decisions.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show recursive loops'),
+    {
+      rawCommand: 'sessions',
+      reason: 'Natural-language request to list recursive loops.'
+    }
+  );
+});
+
+test('extracts contextual recursive commands from conversational follow-ups', () => {
+  const qaContext = {
+    recentMessages: [
+      'We are working on Spark QA Operator and path:spark-qa-operator.',
+      'The QA tester should improve Telegram and Workspace reports.'
+    ]
+  };
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('give me the readout', qaContext),
+    {
+      rawCommand: 'report path:spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator recursive report.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the receipts', qaContext),
+    {
+      rawCommand: 'trace path:spark-qa-operator',
+      reason: 'Natural-language request to trace Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('what needs my call?', qaContext),
+    {
+      rawCommand: 'review path:spark-qa-operator',
+      reason: 'Natural-language request to review Spark QA Operator decisions.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('run another round', qaContext),
+    {
+      rawCommand: 'start spark-qa-operator rounds 1',
+      reason: 'Natural-language request to start a recursive loop for Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('where did we land?', qaContext),
+    {
+      rawCommand: 'report path:spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator recursive report.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show me proof', qaContext),
+    {
+      rawCommand: 'trace path:spark-qa-operator',
+      reason: 'Natural-language request to trace Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('do I need to approve anything?', qaContext),
+    {
+      rawCommand: 'review path:spark-qa-operator',
+      reason: 'Natural-language request to review Spark QA Operator decisions.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('give it another pass', qaContext),
+    {
+      rawCommand: 'start spark-qa-operator rounds 1',
+      reason: 'Natural-language request to start a recursive loop for Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(parseNaturalRecursiveCommandIntent('give me the readout'), null);
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('where did we land?', {
+      recentMessages: [
+        'We are designing a QA tester homepage.',
+        'The QA tester card should look cleaner for the product page.'
+      ]
+    }),
+    null
+  );
+});
+
+test('extracts dynamic recursive targets from Workspace sessions and recent context', () => {
+  const targets = [
+    {
+      pathId: 'path_benchmark_prompt_engineer_20260508t030923z_65b30a0f',
+      label: 'Frontier Prompt Delta Benchmark',
+      aliases: [
+        'benchmark-prompt-engineer',
+        'frontier_prompt_delta_benchmark completed 1 benchmark run(s).'
+      ]
+    },
+    {
+      pathId: 'path:spark-qa-operator',
+      chipKey: 'spark-qa-operator',
+      label: 'Spark QA Operator',
+      aliases: ['QA tester']
+    }
+  ];
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the prompt benchmark report', { targets }),
+    {
+      rawCommand: 'report path_benchmark_prompt_engineer_20260508t030923z_65b30a0f',
+      reason: 'Natural-language request for Frontier Prompt Delta Benchmark recursive report.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show me the proof for the frontier benchmark', { targets }),
+    {
+      rawCommand: 'trace path_benchmark_prompt_engineer_20260508t030923z_65b30a0f',
+      reason: 'Natural-language request to trace Frontier Prompt Delta Benchmark.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('where did we land?', {
+      recentMessages: [
+        'Spark recursive loops',
+        'Frontier Prompt Delta Benchmark - benchmark-prompt-engineer | clear'
+      ],
+      targets
+    }),
+    {
+      rawCommand: 'report path_benchmark_prompt_engineer_20260508t030923z_65b30a0f',
+      reason: 'Natural-language request for Frontier Prompt Delta Benchmark recursive report.'
+    }
+  );
 });
 
 test('detects empty or generic LLM failures', () => {
@@ -687,7 +1047,7 @@ test('extracts natural Spark self-improvement goals without stealing builds or w
   assert.equal(extractSparkSelfImprovementGoal('Can you help me set up voice locally for Spark?'), null);
   assert.equal(extractSparkSelfImprovementGoal('/voice onboard local'), null);
   assert.equal(
-    extractSparkSelfImprovementGoal('Give me a longer honest layout of where you run, memory, domain chips, and spawner as a voice message'),
+    extractSparkSelfImprovementGoal('do not build yet, help me think through a domain chip for route confidence'),
     null
   );
   assert.match(
@@ -782,8 +1142,125 @@ test('extracts explicit plain-chat memory directives', () => {
     'my preferred mission updates are concise and outcome-focused'
   );
   assert.equal(extractPlainChatMemoryDirective('remember: my preferred reply style is concise'), 'my preferred reply style is concise');
+  assert.equal(
+    extractPlainChatMemoryDirective(
+      'Memory update: my current plan is Neon Harbor Telegram memory test. Please save this as my current plan.'
+    ),
+    'my current plan is Neon Harbor Telegram memory test'
+  );
+  assert.equal(
+    extractPlainChatMemoryDirective('Please save this as my current plan: Neon Harbor Telegram memory test.'),
+    'Neon Harbor Telegram memory test'
+  );
+  assert.equal(extractPlainChatMemoryDirective('Actually, my current plan is run a fresh diagnostics scan.'), null);
   assert.equal(extractPlainChatMemoryDirective('what do you remember about me'), null);
   assert.equal(extractPlainChatMemoryDirective('do you have memory right now'), null);
+});
+
+test('extracts explicit user-scoped agent doctrine preferences', () => {
+  assert.equal(
+    extractAgentDoctrinePreference('From now on, use short paragraphs with blank lines between thoughts.'),
+    'Agent interaction preference [format]: use short paragraphs with blank lines between thoughts'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference('I want my agent to be more decisive and push back when a safer path is better.'),
+    'Agent interaction preference [decision]: be more decisive and push back when a safer path is better'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference("let's keep things always conversational and friendly with me"),
+    'Agent interaction preference [tone]: conversational and friendly with me'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference('Adjust your personality so you read the room and match my energy.'),
+    'Agent interaction preference [initiative]: read the room and match my energy'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference('Keep this as my communication rule: ask before starting missions from casual brainstorming.'),
+    'Agent interaction preference [tool_behavior]: ask before starting missions from casual brainstorming'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference('With me, think with me before turning ideas into tasks.'),
+    'Agent interaction preference [collaboration]: think with me before turning ideas into tasks'
+  );
+  assert.equal(
+    extractAgentDoctrinePreference('Do not give chatbot-like generic answers.'),
+    'Agent interaction preference [general]: Do not give chatbot-like generic answers'
+  );
+});
+
+test('does not persist one-off or global doctrine requests as personal agent guidance', () => {
+  assert.equal(extractAgentDoctrinePreference('Just for this reply, be blunt.'), null);
+  assert.equal(extractAgentDoctrinePreference('For now use bullets while we debug this.'), null);
+  assert.equal(extractAgentDoctrinePreference('All Spark agents should be conversational by default.'), null);
+  assert.equal(extractAgentDoctrinePreference('Make all Spark systems understand context more conversationally.'), null);
+  assert.equal(extractAgentDoctrinePreference('We should change production doctrine to be warmer.'), null);
+
+  assert.equal(isGlobalAgentDoctrineRequest('Make all Spark agents use this style globally.'), true);
+  assert.equal(isGlobalAgentDoctrineRequest('Make every agent reply with this tone.'), true);
+  assert.equal(isGlobalAgentDoctrineRequest('all Spark agents should ask clarifying questions before missions'), true);
+  assert.equal(isGlobalAgentDoctrineRequest('Make all Spark systems understand workflow context more conversationally.'), true);
+  assert.equal(isGlobalAgentDoctrineRequest('build a global dashboard for agents'), false);
+  assert.match(formatGlobalAgentDoctrineRequestReply(), /global Spark behavior change/);
+  assert.match(formatGlobalAgentDoctrineRequestReply(), /explicit doctrine proposal/);
+  assert.match(
+    formatGlobalAgentDoctrineRequestReply('make all Spark systems understand workflow context more conversationally'),
+    /active workflow, and uncertainty signals/
+  );
+  assert.match(
+    formatGlobalAgentDoctrineRequestReply('all Spark agents should ask clarifying questions before missions'),
+    /ask before launching missions/
+  );
+});
+
+test('identifies standalone agent doctrine turns for a natural acknowledgement', () => {
+  assert.equal(isStandaloneAgentDoctrinePreference('From now on, use short paragraphs with blank lines.'), true);
+  assert.equal(isStandaloneAgentDoctrinePreference('Can you keep replies more conversational with me?'), true);
+  assert.equal(
+    isStandaloneAgentDoctrinePreference('From now on, be more concise and then explain the memory architecture.'),
+    false
+  );
+
+  const reply = formatAgentDoctrinePreferenceAcknowledgement(
+    'Agent interaction preference [format]: use short paragraphs with blank lines'
+  );
+  assert.match(reply, /preference for how I talk with you/);
+  assert.match(reply, /use short paragraphs/);
+  assert.match(reply, /\n\n/);
+});
+
+test('answers user questions about saved agent interaction preferences', () => {
+  assert.equal(isAgentDoctrinePreferenceStatusQuestion('what style preferences do you have for me?'), true);
+  assert.equal(isAgentDoctrinePreferenceStatusQuestion('show my agent communication rules'), true);
+  assert.equal(isAgentDoctrinePreferenceStatusQuestion('what preferences are you using when talking with me'), true);
+  assert.equal(isAgentDoctrinePreferenceStatusQuestion('build a preference dashboard'), false);
+
+  const reply = formatAgentDoctrinePreferenceStatus([
+    'Agent interaction preference [format]: use short paragraphs with blank lines',
+    'Agent interaction preference [tool_behavior]: ask before starting missions'
+  ]);
+  assert.match(reply, /how I talk with you/);
+  assert.match(reply, /format: use short paragraphs/);
+  assert.match(reply, /tool behavior: ask before starting missions/);
+  assert.equal(
+    formatAgentDoctrinePreferenceStatus([]),
+    'I do not have any saved interaction preferences for this chat yet.'
+  );
+});
+
+test('formats agent doctrine preferences for Builder persona sync', () => {
+  const replyShape = formatAgentDoctrinePreferenceForBuilderSync(
+    'Agent interaction preference [format]: Use short paragraphs with blank lines'
+  );
+
+  assert.match(replyShape, /Your style should follow this saved agent interaction preference/);
+  assert.match(replyShape, /When you talk to me, use short paragraphs with blank lines\./);
+  assert.doesNotMatch(replyShape, /Agent interaction preference \[format\]/);
+
+  const ruleShape = formatAgentDoctrinePreferenceForBuilderSync(
+    'Agent interaction preference [tone]: Do not give chatbot-like generic answers.'
+  );
+
+  assert.match(ruleShape, /When you talk to me, do not give chatbot-like generic answers\./);
 });
 
 test('memory directives only accept Builder memory-route confirmations', () => {

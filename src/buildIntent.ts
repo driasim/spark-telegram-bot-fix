@@ -269,6 +269,31 @@ function isBuildIdeationRequest(text: string): boolean {
   return /\b(?:give|show|list|suggest|brainstorm|recommend|rank)\s+(?:me\s+|us\s+)?(?:\w+\s+){0,4}(?:build|project|app|dashboard)\s+(?:ideas?|directions?|concepts?|options?)\b/.test(normalized);
 }
 
+function isBuildContextRecallProbe(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bwhat\s+(?:were|was)\s+(?:we|i|you)\s+(?:going\s+to|gonna|planning\s+to|supposed\s+to)\s+(?:build|make|create)\b/.test(normalized) ||
+    /\b(?:do\s+you\s+)?remember\b.*\bwhat\b.*\b(?:we|i|you)\s+(?:were\s+)?(?:going\s+to|gonna|planning\s+to|supposed\s+to)?\s*(?:build|make|create)\b/.test(normalized) ||
+    /\bwe\s+were\s+(?:going\s+to|gonna|planning\s+to|supposed\s+to)\s+(?:build|make|create)\b.*\b(?:remember|what\s+it\s+was)\b/.test(normalized)
+  );
+}
+
+function isPreBuildShapingRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\b(?:help\s+me\s+)?(?:shape|scope|brainstorm|think\s+through|plan|design)\b/.test(normalized) &&
+    /\b(?:before|prior\s+to)\s+(?:creating|building|making|scaffolding|generating|starting)\b/.test(normalized)
+  );
+}
+
+function isExactReplyNoFileProbe(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\breply exactly\b/.test(normalized) &&
+    /\b(?:do not|don't)\s+(?:creat(?:e|ing)\s+files?|build\s+anything)\b|\bwithout\s+creat(?:e|ing)\s+files?\b|\bno\s+files?\b/.test(normalized)
+  );
+}
+
 function isConversationFramingMakeRequest(description: string): boolean {
   return /^(?:today|tonight|now|chat|conversation|session|thread|this\s+(?:chat|conversation|session|thread)|our\s+(?:chat|conversation|session|thread))\s+(?:also\s+)?(?:about|focused\s+on|for)\b/i.test(
     description.trim()
@@ -301,6 +326,31 @@ function isSparkCapabilityMakeRequest(description: string): boolean {
   return explicitSparkOwner && capabilitySurface && (!productArtifact || lowered.includes('so you can') || lowered.includes('so spark can'));
 }
 
+function isNegatedBuildCommandPrefix(prefix: string): boolean {
+  return /(?:^|\b)(?:do\s+not|don't|dont|never|without)\s+$/i.test(prefix);
+}
+
+function isAmbiguousContextualBuildRequest(text: string, projectPath: string | null, prd: string): boolean {
+  if (projectPath) return false;
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!/\b(?:build|make|create|ship|scaffold|generate|develop|improve|polish|update|fix|adjust|tweak|refine|rework|redesign)\s+(?:this|that|it)\b/i.test(normalized)) {
+    return false;
+  }
+  const concreteStandaloneBrief =
+    prd.length >= 80 &&
+    /^(?:a\s+|an\s+|the\s+)?(?:narrow\s+|private\s+|local-first\s+|tiny\s+|simple\s+|internal\s+|real\s+|polished\s+|full\s+)*(?:tool|app|application|dashboard|website|site|landing\s+page|page|game|panel|portal|viewer|tracker|manager|workspace|board)\b/i.test(prd.trim());
+  if (concreteStandaloneBrief) {
+    return false;
+  }
+  if (/\b(?:called|named)\s+[A-Z0-9][A-Za-z0-9 '&.-]{2,80}\b/i.test(normalized)) {
+    return false;
+  }
+  if (/\b(?:at|in|into)\s+(?:[A-Z]:[\\/]|\/)/i.test(normalized)) {
+    return false;
+  }
+  return true;
+}
+
 function extractBuildDescription(text: string): string | null {
   const command = text.match(
     /^\s*(?:(?:i|we)\s+(?:want|need|would\s+like|would\s+love)\s+to\s+|can\s+(?:you|we)\s+|could\s+(?:you|we)\s+|let'?s\s+|let\s+us\s+|please\s+)?\/?(?:build|make|create|ship|scaffold|generate|develop)\b\s*(?:(?:right\s+now|now)\s+)?(?:me\s+|us\s+)?(?:(?:a|an|the|this)\s+|new\s+project\s+)?/i
@@ -318,7 +368,7 @@ function extractBuildDescription(text: string): string | null {
   );
   if (inlineCommand?.index !== undefined) {
     const prefix = text.slice(0, inlineCommand.index).toLowerCase();
-    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix)) {
+    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) || isNegatedBuildCommandPrefix(prefix)) {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
@@ -340,9 +390,12 @@ function extractBuildDescription(text: string): string | null {
 
 export function parseBuildIntent(text: string): BuildIntent | null {
   const original = text.trim().replace(/[‘’]/g, "'");
+  if (isExactReplyNoFileProbe(original)) return null;
   const trimmed = normalizeBuildCommandText(original);
   if (!trimmed) return null;
   if (isBuildIdeationRequest(trimmed)) return null;
+  if (isBuildContextRecallProbe(trimmed)) return null;
+  if (isPreBuildShapingRequest(trimmed)) return null;
 
   const stripped = extractBuildDescription(trimmed);
 
@@ -354,6 +407,7 @@ export function parseBuildIntent(text: string): BuildIntent | null {
 
   const projectPath = extractPath(original);
   const prd = removeLeadingPathPrefix(stripped.trim());
+  if (isAmbiguousContextualBuildRequest(trimmed, projectPath, prd)) return null;
   const projectName = inferProjectName(prd, projectPath);
   const buildMode = inferBuildMode(original, prd, projectPath);
 

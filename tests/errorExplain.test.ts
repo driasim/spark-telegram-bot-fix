@@ -58,9 +58,11 @@ test('does not mislabel Builder command failures as Telegram config', () => {
   );
 
   assert.match(reply, /Builder memory path/);
+  assert.match(reply, /Builder bridge command did not finish cleanly/);
   assert.match(reply, /Spark builder failure: builder_or_memory/);
   assert.doesNotMatch(reply, /Telegram configuration problem/);
   assert.doesNotMatch(reply, /Spark telegram failure: telegram_config/);
+  assert.doesNotMatch(reply, /runpy|spark_intelligence\.cli|simulate-telegram-update|Command failed/);
 });
 
 test('explains command timeouts in chat as runtime timeouts', () => {
@@ -96,8 +98,10 @@ test('directs duplicate Telegram polling to one live process', () => {
   );
 
   assert.match(reply, /already polling this bot token/);
-  assert.match(reply, /stop duplicate bot processes/);
-  assert.match(reply, /spark restart spark-telegram-bot/);
+  assert.match(reply, /same BotFather token/);
+  assert.match(reply, /stop the other poller or rotate the BotFather token/);
+  assert.doesNotMatch(reply, /Builder memory path/);
+  assert.doesNotMatch(reply, /provider authentication/);
 });
 
 test('redacts secrets from user-facing errors', () => {

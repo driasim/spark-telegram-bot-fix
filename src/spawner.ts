@@ -464,9 +464,20 @@ function countValidationResults(run: CreatorValidationRun | null, status: Creato
 function formatValidationResultLine(result: CreatorValidationCommandResult): string {
   const artifact = result.artifact_id || result.artifact_type || 'unknown artifact';
   const status = result.status || 'unknown';
-  const command = result.command || 'unknown command';
   const suffix = result.error ? ` (${result.error})` : '';
-  return `- ${status}: ${artifact} - ${command}${suffix}`;
+  return `${status}: ${artifact}${suffix}`;
+}
+
+function formatArtifactLabel(value: string): string {
+  return value.replace(/_/g, ' ');
+}
+
+function creatorValidationIcon(status: string | undefined): string {
+  const normalized = (status || '').toLowerCase();
+  if (/\b(pass|success|validated|complete)\b/.test(normalized)) return '🟢';
+  if (/\b(fail|error|reject)\b/.test(normalized)) return '🔴';
+  if (/\b(skip|block|wait|pending)\b/.test(normalized)) return '🟡';
+  return '⚪';
 }
 
 export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUrl = spawnerPublicUrl()): string {
@@ -484,25 +495,26 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
       ? trace.tasks.length
       : null;
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
+  const domain = formatCreatorDomainLabel(intent.target_domain);
+  const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
+    ? trace.artifacts.slice(0, 6).map(formatArtifactLabel).join(', ')
+    : 'artifact plan pending';
 
   const lines = [
-    '🧩 Creator plan is ready.',
+    '🧩 Creator plan ready.',
     '',
-    'Scope',
-    `- ${formatCreatorDomainLabel(intent.target_domain)}`,
-    `- ${formatCreatorMode(trace.creator_mode)}`,
-    `- ${formatCreatorPrivacy(intent.privacy_mode)} / ${intent.risk_level || 'medium'} risk`,
-    '',
-    'Will create',
-    ...formatCreatorArtifactLines(trace.artifacts),
-    ...(taskCount !== null ? [`- ${taskCount} tasks queued`] : []),
+    'Build',
+    domain,
+    artifacts,
+    ...(taskCount !== null ? [`${taskCount} tasks queued`] : []),
+    `${intent.privacy_mode || 'local_only'} / ${intent.risk_level || 'unknown'} risk`,
     '',
     'Workspace',
-    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
-    `- Board: ${kanbanUrl}`,
+    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
+    `Board: ${kanbanUrl}`,
     '',
     'Next',
-    '- say: run it'
+    'say: run it'
   ];
 
   return lines.join('\n');
@@ -525,26 +537,26 @@ export function formatCreatorMissionStatusSummary(
   const blockers = Array.isArray(trace.blockers) ? trace.blockers.filter((blocker) => String(blocker).trim()) : [];
   const artifactCount = Array.isArray(trace.artifact_manifests) ? trace.artifact_manifests.length : trace.artifacts?.length || 0;
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
-
-  const domainLabel = formatCreatorDomainLabel(intent.target_domain);
+  const domain = formatCreatorDomainLabel(intent.target_domain);
+  const statusIcon = blockers.length > 0 || issueCount > 0 ? '🟡' : creatorValidationIcon(latestRun?.status || trace.stage_status);
 
   return [
-    `${domainLabel} creator status`,
+    `${statusIcon} ${domain} creator status.`,
     '',
     'State',
-    `- ${formatCreatorReadiness(trace.stage_status)} at ${formatCreatorReadiness(trace.current_stage)}`,
-    `- ${formatCreatorReadiness(trace.publish_readiness)}`,
+    `${formatCreatorReadiness(trace.stage_status)} at ${formatCreatorReadiness(trace.current_stage)}`,
+    `${formatCreatorReadiness(trace.publish_readiness)}`,
     latestRun
-      ? `- checks: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
-      : '- checks: not run yet',
-    ...(blockers.length > 0 ? [`- blocker: ${blockers[0]}`] : []),
+      ? `checks: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
+      : 'checks: not run yet',
+    issueCount > 0 ? `${issueCount} manifest issue${issueCount === 1 ? '' : 's'}` : null,
+    ...(blockers.length > 0 ? [`blocker: ${blockers[0]}`] : []),
     '',
     'Workspace',
-    `- ${artifactCount} artifact plan${artifactCount === 1 ? '' : 's'}`,
-    `- ${issueCount} manifest issue${issueCount === 1 ? '' : 's'}`,
-    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
-    `- Board: ${kanbanUrl}`
-  ].join('\n');
+    `${artifactCount} artifact plan${artifactCount === 1 ? '' : 's'}`,
+    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
+    `Board: ${kanbanUrl}`
+  ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
 export function formatCreatorMissionExecutionSummary(
@@ -560,21 +572,22 @@ export function formatCreatorMissionExecutionSummary(
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const headline = result.started
-    ? '🟢 Creator build started.'
+    ? '🟢 Creator mission started.'
     : result.skipped
-      ? '🟡 Creator build was already started.'
-      : '🟡 Creator build accepted.';
+      ? '🟡 Creator mission was already handled.'
+      : '🟢 Creator mission accepted.';
 
   return [
     headline,
     '',
-    `- ${formatCreatorDomainLabel(trace.intent_packet?.target_domain)}`,
-    ...(result.providerId ? [`- Builder: ${formatProviderLabel(result.providerId)}`] : []),
-    ...(result.reason ? [`Reason: ${result.reason}`] : []),
+    'Build',
+    result.started ? 'running now' : result.skipped ? 'already handled' : 'queued',
+    ...(result.providerId ? [`Builder: ${formatProviderLabel(result.providerId)}`] : []),
+    ...(result.reason ? [`Note: ${result.reason}`] : []),
     '',
     'Workspace',
-    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
-    `- Board: ${kanbanUrl}`
+    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
+    `Board: ${kanbanUrl}`
   ].join('\n');
 }
 
@@ -596,18 +609,18 @@ export function formatCreatorMissionValidationSummary(
   const status = result.status || run?.status || 'unknown';
 
   return [
-    formatCreatorCheckHeadline(status),
+    `${creatorValidationIcon(status)} Creator validation ${formatCreatorReadiness(status)}.`,
     '',
     'Checks',
-    `- ${results.length} command${results.length === 1 ? '' : 's'}`,
-    `- ${countValidationResults(run, 'passed')} passed`,
-    `- ${countValidationResults(run, 'failed')} failed`,
-    `- ${countValidationResults(run, 'skipped')} skipped`,
-    ...(failedOrSkipped.length > 0 ? ['', 'Needs attention:', ...failedOrSkipped.map(formatValidationResultLine)] : []),
+    `${results.length} command${results.length === 1 ? '' : 's'}`,
+    `${countValidationResults(run, 'passed')} passed`,
+    `${countValidationResults(run, 'failed')} failed`,
+    `${countValidationResults(run, 'skipped')} skipped`,
+    ...(failedOrSkipped.length > 0 ? ['', 'Needs attention', ...failedOrSkipped.map(formatValidationResultLine)] : []),
     '',
     'Workspace',
-    ...(canvasUrl ? [`- Canvas: ${canvasUrl}`] : []),
-    `- Board: ${kanbanUrl}`
+    ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
+    `Board: ${kanbanUrl}`
   ].join('\n');
 }
 

@@ -142,6 +142,7 @@ import {
   extractSparkWikiPromotionIntent,
   extractSparkWikiQuery,
   extractPlainChatMemoryDirective,
+  formatGlobalAgentDoctrineRequestReply,
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
   inferMissionFromRecentContext,
@@ -154,6 +155,7 @@ import {
   isAmbiguousLocalSparkServiceRequest,
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
+  isGlobalAgentDoctrineRequest,
   isSparkChipStatusOverclaimQuestion,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
@@ -170,6 +172,17 @@ import {
   shouldUseBuilderReplyForMemoryDirective,
   shouldPreferConversationalIdeation
 } from './conversationIntent';
+import {
+  decideNaturalRoute,
+  type NaturalRouteDecision,
+  type NaturalRouteOwnerSystem
+} from './naturalRouteDecision';
+import { renderNaturalRouteDecisionReply } from './naturalRouteTelemetry';
+import {
+  appendNaturalRouteExecutionRecord,
+  createNaturalRouteExecutionRecord,
+  shouldWriteNaturalRouteLedger
+} from './naturalRouteLedger';
 import { getLatestShippedProjectContext } from './shippedProjectContext';
 import axios from 'axios';
 import { getTierForUser } from './userTier';
@@ -190,6 +203,14 @@ import {
   isTelegramImageMessage,
   telegramImageMemoryText
 } from './telegramImageBridge';
+import {
+  buildMemoryDoctorEvidencePrompt,
+  isMemoryDoctorBridgeDetourReply,
+  renderMemoryDoctorEvidenceFallback,
+  selectMemoryDoctorEvidenceTurns,
+  shouldAttachMemoryDoctorEvidence,
+  shouldPreferMemoryDoctorEvidenceFallback
+} from './memoryDoctorBridge';
 import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
 import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
@@ -223,6 +244,54 @@ function renderTelegramError(prefix: string, error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error || 'unknown error');
   const detail = redactText(raw).trim() || 'unknown error';
   return `${prefix}: ${detail}`;
+}
+
+function activeTelegramProfile(): string {
+  try {
+    return getTelegramRelayIdentity().profile;
+  } catch {
+    return process.env.SPARK_TELEGRAM_PROFILE || process.env.TELEGRAM_PROFILE || 'unknown';
+  }
+}
+
+async function recordNaturalRouteShadow(ctx: any, text: string): Promise<NaturalRouteDecision | null> {
+  try {
+    return decideNaturalRoute(text, {
+      recentMessages: await conversation.getRecentMessages(ctx.from, 15).catch(() => []),
+      pendingBuildClarification: Boolean(
+        ctx.chat?.id &&
+        ctx.from?.id &&
+        pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
+      )
+    });
+  } catch (error) {
+    console.warn('[NaturalRoute] shadow decision failed:', error);
+    return null;
+  }
+}
+
+function recordNaturalRouteExecution(
+  ctx: any,
+  decision: NaturalRouteDecision | null,
+  executedRoute: string,
+  executedOwner: NaturalRouteOwnerSystem,
+  executedAction: string
+): void {
+  if (!decision || !shouldWriteNaturalRouteLedger()) return;
+  const record = createNaturalRouteExecutionRecord({
+    decision,
+    profile: activeTelegramProfile(),
+    userId: ctx.from?.id,
+    chatId: ctx.chat?.id,
+    chatType: ctx.chat?.type,
+    admin: conversation.isAdmin(ctx.from),
+    executedRoute,
+    executedOwner,
+    executedAction
+  });
+  void appendNaturalRouteExecutionRecord(record).catch((error) => {
+    console.warn('[NaturalRoute] execution ledger write failed:', error);
+  });
 }
 
 function nodeOutboundAuditPath(): string {
@@ -854,8 +923,56 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleNaturalRouteProbeCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const probeText = text.replace(/^\/(?:nl_route|natural_route)(?:@\w+)?\s*/i, '').trim();
+    if (!probeText || /^(?:help|usage)$/i.test(probeText)) {
+      await ctx.reply([
+        'Natural route probe',
+        'Usage: /nl_route <message>',
+        '',
+        'This shows the diagnostic route decision only. It does not execute the route.'
+      ].join('\n'));
+      return;
+    }
+    const decision = decideNaturalRoute(probeText, {
+      recentMessages: await conversation.getRecentMessages(ctx.from, 15).catch(() => []),
+      pendingBuildClarification: Boolean(
+        ctx.chat?.id &&
+        ctx.from?.id &&
+        pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, probeText)
+      )
+    });
+    await ctx.reply(renderNaturalRouteDecisionReply(decision));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'chat', conversation.isAdmin(ctx.from)));
+  }
+}
+
+async function handleCapabilityLedgerReviewCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText.trim()) {
+      await ctx.reply(builderReply.responseText);
+      return;
+    }
+    await ctx.reply('Capability ledger review is unavailable right now. Run /diagnose to check the Builder bridge.');
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('probe', handleAgentRouteProbeCommand);
 bot.command('route_probe', handleAgentRouteProbeCommand);
+bot.command('nl_route', handleNaturalRouteProbeCommand);
+bot.command('natural_route', handleNaturalRouteProbeCommand);
+bot.command('ledger', handleCapabilityLedgerReviewCommand);
+bot.command('capabilities', handleCapabilityLedgerReviewCommand);
 
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
@@ -2678,9 +2795,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  const earlyBuildIntent = conversation.isAdmin(ctx.from) ? parseBuildIntent(text) : null;
+  const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
+  const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);
+  const earlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
 
-  if (!earlyBuildIntent && isPendingTaskRecoveryQuestion(text)) {
+  if (globalAgentDoctrineRequest) {
+    const reply = formatGlobalAgentDoctrineRequestReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'agent_doctrine.global_blocked', 'spark-telegram-bot', 'clarify');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && !shouldAttachMemoryDoctorEvidence(text) && isPendingTaskRecoveryQuestion(text)) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
       const reply = renderPendingTaskRecoveryReply(pendingTask);
@@ -2736,7 +2864,59 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+  const activePendingClarification = conversation.isAdmin(ctx.from)
+    ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
+    : null;
+  if (activePendingClarification && isPendingClarificationFollowup(text)) {
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.clarification_reply');
+    await handleClarificationAnswers(ctx, text);
+    return;
+  }
   if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
+    return;
+  }
+  if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
+    console.log(`[ConversationIntent] early ideation route user=${ctx.from?.id} textLen=${text.length}`);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
+    await safeSendChatAction(ctx, 'typing');
+    if (isShortResolvedListPick(text, conversationFrame)) {
+      const fastReply = buildSelectedListFastReply(conversationFrame);
+      if (fastReply) {
+        await ctx.reply(fastReply);
+        await conversation.rememberAssistantReply(user, fastReply).catch(() => {});
+        return;
+      }
+    }
+    const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+    const llmResponse = await llm.chat(
+      ideationPrompt,
+      [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
+      memories
+    );
+    const response = isLowInformationLlmReply(llmResponse)
+      ? buildIdeationFallbackReply(text)
+      : llmResponse;
+    await ctx.reply(response);
+    await conversation.rememberAssistantReply(user, response).catch(() => {});
+    return;
+  }
+  const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
+  if (earlyNaturalChipBrief) {
+    await conversation.remember(user, text).catch(() => {});
+    const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
+    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
+      brief: earlyNaturalChipBrief,
+      prd: buildDomainChipPrd(earlyNaturalChipBrief),
+      projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
+      buildMode: mode.buildMode,
+      buildModeReason: mode.reason,
+      capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
+      timestamp: Date.now()
+    });
+    await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
     return;
   }
   const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
@@ -2923,6 +3103,29 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
+    if (isProjectImprovementRequest(text, latestShippedProject)) {
+      const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
+      if (improvementGoal && latestShippedProject) {
+        await conversation.remember(user, text).catch(() => {});
+        await ctx.reply([
+          `Got it. I will improve ${latestShippedProject.projectName}.`,
+          '',
+          'I will keep the existing project intact and ship this as the next polish pass.',
+          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
+        ].filter(Boolean).join('\n'));
+        await handleBuildIntent(
+          ctx,
+          improvementGoal,
+          `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
+          latestShippedProject.projectPath,
+          'advanced_prd',
+          'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
+        );
+        return;
+      }
+    }
+
     if (buildIntent) {
       console.log(`[BuildIntent] route user=${ctx.from?.id} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
       const accessPreference = parseNaturalAccessChangeIntent(text);
@@ -2996,29 +3199,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         'User asked Spark to choose the recommended direction after collaborative scoping.'
       );
       return;
-    }
-
-    const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
-    if (isProjectImprovementRequest(text, latestShippedProject)) {
-      const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
-      if (improvementGoal && latestShippedProject) {
-        await conversation.remember(user, text).catch(() => {});
-        await ctx.reply([
-          `Got it. I will improve ${latestShippedProject.projectName}.`,
-          '',
-          'I will keep the existing project intact and ship this as the next polish pass.',
-          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
-        ].filter(Boolean).join('\n'));
-        await handleBuildIntent(
-          ctx,
-          improvementGoal,
-          `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
-          latestShippedProject.projectPath,
-          'advanced_prd',
-          'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
-        );
-        return;
-      }
     }
 
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
@@ -3212,6 +3392,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
   try {
+    const memoryDoctorEvidenceTurns = shouldAttachMemoryDoctorEvidence(text)
+      ? selectMemoryDoctorEvidenceTurns(text, await conversation.getRecentTurns(user, 8).catch(() => []))
+      : [];
+    await conversation.remember(user, text).catch(() => {});
+    if (memoryDoctorEvidenceTurns.length > 0 && shouldPreferMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns)) {
+      const fallback = renderMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns);
+      await ctx.reply(fallback);
+      await conversation.rememberAssistantReply(user, fallback).catch(() => {});
+      return;
+    }
+
     let bridgeFailed = false;
     let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
@@ -3221,13 +3412,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       routingDecision: ''
     };
     try {
-      builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+      const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
+        ? buildUpdateWithText(
+            ctx.update as unknown as Record<string, unknown>,
+            buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
+          )
+        : ctx.update as unknown as Record<string, unknown>;
+      builderReply = await runBuilderTelegramBridge(bridgeUpdate);
     } catch (bridgeError) {
       bridgeFailed = true;
       console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
     }
     console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
+      if (memoryDoctorEvidenceTurns.length > 0 && isMemoryDoctorBridgeDetourReply(builderReply.responseText)) {
+        const fallback = renderMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns);
+        await ctx.reply(fallback);
+        await conversation.rememberAssistantReply(user, fallback).catch(() => {});
+        return;
+      }
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
         /\b(?:no prior list|what are you choosing between|which one|which option)\b/i.test(builderReply.responseText);
       if (!contradictsResolvedList && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {

@@ -104,6 +104,7 @@ const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
+const completionDeliveryInFlight = new Set<string>();
 const cancelledMissionCache = new Map<string, number>();
 const pausedMissionCache = new Map<string, number>();
 const heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -634,7 +635,7 @@ async function fetchMissionCompletionSummary(
         const projectLineage = asRecord(payload.projectLineage);
         const projectPath = firstString(projectLineage, ['projectPath', 'project_path']);
         const previewUrl = firstString(projectLineage, ['previewUrl', 'preview_url']);
-        const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
+        const openLink = await readyProjectOpenLink(previewUrl, projectPath);
         const providerLabel = completedProvider && typeof completedProvider.providerId === 'string'
           ? completedProvider.providerId
           : 'provider';
@@ -642,7 +643,7 @@ async function fetchMissionCompletionSummary(
           providerLabel,
           response: responseText,
           openLink,
-          previewPending: Boolean(projectPath && !openLink)
+          previewPending: false
         };
       } finally {
         clearTimeout(timeout);
@@ -669,25 +670,33 @@ async function sendFetchedCompletionSummary(
   if (shouldSuppressMissionHandoff(event.missionId)) {
     return 0;
   }
-  clearHeartbeatForMission(event.missionId);
-  const message = formatProviderCompletionForTelegram({
-    providerLabel: completion.providerLabel,
-    response: completion.response,
-    missionId: event.missionId,
-    requestId: subscription.requestId,
-    goal: subscription.goal,
-    verbosity,
-    openLink: completion.openLink,
-    previewPending: completion.previewPending
-  });
-  const chunks = chunkForTelegram(message);
-  for (let i = 0; i < chunks.length; i++) {
-    const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
-    await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+  if (completionDeliveryCache.has(event.missionId) || completionDeliveryInFlight.has(event.missionId)) {
+    return 0;
   }
-  completionDeliveryCache.add(event.missionId);
-  await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
-  return chunks.length;
+  completionDeliveryInFlight.add(event.missionId);
+  try {
+    clearHeartbeatForMission(event.missionId);
+    const message = formatProviderCompletionForTelegram({
+      providerLabel: completion.providerLabel,
+      response: completion.response,
+      missionId: event.missionId,
+      requestId: subscription.requestId,
+      goal: subscription.goal,
+      verbosity,
+      openLink: completion.openLink,
+      previewPending: completion.previewPending
+    });
+    const chunks = chunkForTelegram(message);
+    for (let i = 0; i < chunks.length; i++) {
+      const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
+      await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+    }
+    completionDeliveryCache.add(event.missionId);
+    await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
+    return chunks.length;
+  } finally {
+    completionDeliveryInFlight.delete(event.missionId);
+  }
 }
 
 function scheduleDelayedCompletionSummary(
@@ -774,9 +783,9 @@ const VOICE_LINES = {
   ],
   completed: [
     '✨ Spark shipped it.',
-    '✨ Spark has the build ready.',
-    '✨ Spark finished the build.',
-    '✨ Spark shipped something you can open.'
+    '✨ Spark finished the run.',
+    '✨ Spark has the result ready.',
+    '✨ Spark wrapped this one.'
   ],
   failed: [
     'This run needs attention.',
@@ -930,6 +939,15 @@ function projectOpenLink(projectPath: string | null): string | null {
   return projectPreviewLink(projectPath) || localIndexLink(projectPath);
 }
 
+async function readyProjectOpenLink(previewUrl: string | null, projectPath: string | null): Promise<string | null> {
+  const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
+  if (!openLink) return null;
+  if (/^https?:\/\//i.test(openLink)) {
+    return await httpPreviewIsReachable(openLink) ? openLink : null;
+  }
+  return openLink;
+}
+
 function relayStringField(data: Record<string, unknown> | undefined, field: string): string | null {
   if (!data || typeof data[field] !== 'string') return null;
   const value = data[field].trim();
@@ -964,12 +982,7 @@ async function httpPreviewIsReachable(url: string): Promise<boolean> {
 
 async function readyProjectOpenLinkFromEvent(event: DeliverableRelayEvent): Promise<string | null> {
   const projectPath = projectPathFromEvent(event);
-  const openLink = normalizePreviewLink(previewLinkFromEvent(event), projectPath) || projectOpenLink(projectPath);
-  if (!openLink) return null;
-  if (/^https?:\/\//i.test(openLink)) {
-    return await httpPreviewIsReachable(openLink) ? openLink : null;
-  }
-  return openLink;
+  return readyProjectOpenLink(previewLinkFromEvent(event), projectPath);
 }
 
 function openProjectLines(openLink: string | null): string[] {
@@ -1385,6 +1398,7 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   deliveryCache.clear();
   openTaskStartCache.clear();
   completionDeliveryCache.clear();
+  completionDeliveryInFlight.clear();
   cancelledMissionCache.clear();
   pausedMissionCache.clear();
 }
@@ -1402,6 +1416,13 @@ export async function sendFetchedCompletionSummaryForTests(
   completion: MissionCompletionSummary
 ): Promise<number> {
   return sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+}
+
+export function resolveReadyProjectOpenLinkForTests(
+  previewUrl: string | null,
+  projectPath: string | null
+): Promise<string | null> {
+  return readyProjectOpenLink(previewUrl, projectPath);
 }
 
 function heartbeatKey(event: DeliverableRelayEvent): string {

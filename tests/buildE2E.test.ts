@@ -269,6 +269,44 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('/run exact reply probes with negated file creation stay on simple Spark run path', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/spark/run')) {
+				return { data: { success: true, missionId: 'spark-realpath-probe', requestId: body.requestId, providers: ['codex'] } };
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 558, replies);
+		const indexModule: any = await import('../src/index');
+
+		const missionId = await indexModule.handleRunCommand(
+			ctx,
+			'Reply exactly TESTER_REALPATH_OK and do not create files.',
+			['codex'],
+			undefined,
+			{ allowBuildIntent: true }
+		);
+
+		assert.equal(missionId, 'spark-realpath-probe');
+		assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'expected exact reply probe to POST to /api/spark/run');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'negated file creation should not use the PRD bridge');
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('build intent keeps going when the prompt also changes update preferences', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -335,6 +373,165 @@ async function run(): Promise<void> {
 
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('memory doctor evidence includes user turns from final Builder replies', async () => {
+		restoreAxios();
+		const testUserId = 8319079564;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const capturedBridgeTexts: string[] = [];
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messagePayload = (updatePayload as any).message || {};
+			capturedBridgeTexts.push(String(messagePayload.text || ''));
+			return {
+				used: true,
+				responseText: 'Builder acknowledged the turn.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'plain_chat'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const firstReplies: string[] = [];
+			const firstCtx = makeFakeCtx(testUserId, testUserId, 5641, firstReplies);
+			firstCtx.message.text = 'what is route confidence in one sentence';
+			(firstCtx as any).update = { update_id: 5641, message: firstCtx.message };
+			await indexModule.handleTextMessage(firstCtx);
+
+			const doctorReplies: string[] = [];
+			const doctorCtx = makeFakeCtx(testUserId, testUserId, 5642, doctorReplies);
+			doctorCtx.message.text = 'run memory doctor for last request';
+			(doctorCtx as any).update = { update_id: 5642, message: doctorCtx.message };
+			await indexModule.handleTextMessage(doctorCtx);
+
+			const doctorPayload = capturedBridgeTexts[capturedBridgeTexts.length - 1] || '';
+			assert.match(doctorPayload, /Spark Telegram Memory Doctor evidence/);
+			assert.match(doctorPayload, /- user: what is route confidence in one sentence/);
+			assert.match(doctorPayload, /- assistant: Builder acknowledged the turn\./);
+			assert.doesNotMatch(doctorPayload, /all your chips work/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('memory doctor replaces Builder tool detours with local evidence fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079566;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			return {
+				used: true,
+				responseText: /memory doctor/i.test(messageText)
+					? 'Both Spark MCP tools need permission to run. Which do you prefer?'
+					: 'Route confidence is evidence-backed route selection.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'plain_chat'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const firstReplies: string[] = [];
+			const firstCtx = makeFakeCtx(testUserId, testUserId, 5643, firstReplies);
+			firstCtx.message.text = 'what is route confidence in one sentence';
+			(firstCtx as any).update = { update_id: 5643, message: firstCtx.message };
+			await indexModule.handleTextMessage(firstCtx);
+
+			const doctorReplies: string[] = [];
+			const doctorCtx = makeFakeCtx(testUserId, testUserId, 5644, doctorReplies);
+			doctorCtx.message.text = 'run memory doctor for last request';
+			(doctorCtx as any).update = { update_id: 5644, message: doctorCtx.message };
+			await indexModule.handleTextMessage(doctorCtx);
+
+			const reply = doctorReplies.join('\n');
+			assert.match(reply, /Memory Doctor/);
+			assert.match(reply, /without MCP\/tool approval/);
+			assert.doesNotMatch(reply, /Which do you prefer/);
+			assert.match(reply, /Route confidence is evidence-backed route selection/);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('memory doctor blankness requests bypass pending-task recovery', async () => {
+		restoreAxios();
+		const testUserId = 8319079565;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let bridgeCalls = 0;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			bridgeCalls += 1;
+			return {
+				used: true,
+				responseText: 'Builder should not handle this blankness request.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'plain_chat'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const priorReplies: string[] = [];
+			const priorCtx = makeFakeCtx(testUserId, testUserId, 5651, priorReplies);
+			priorCtx.message.text = 'what is route confidence in one sentence';
+			(priorCtx as any).update = { update_id: 5651, message: priorCtx.message };
+			await indexModule.handleTextMessage(priorCtx);
+			await conversationModule.conversation.remember(
+				{ id: testUserId, username: 'memory-test' },
+				'run memory doctor for last request'
+			);
+			await conversationModule.conversation.rememberAssistantReply(
+				{ id: testUserId, username: 'memory-test' },
+				'Both Spark MCP tools need permission to run. Which do you prefer?'
+			);
+			await conversationModule.conversation.recordInterruptedTask(
+				{ id: testUserId, username: 'memory-test' },
+				{ message: 'What do you know about yourself and where do you lack?', failure: 'message is too long', stage: 'telegram_message_handler' }
+			);
+
+			const blankReplies: string[] = [];
+			const blankCtx = makeFakeCtx(testUserId, testUserId, 5652, blankReplies);
+			blankCtx.message.text = 'you went blank and lost context, what happened?';
+			(blankCtx as any).update = { update_id: 5652, message: blankCtx.message };
+			await indexModule.handleTextMessage(blankCtx);
+
+			assert.equal(bridgeCalls, 1);
+			assert.match(blankReplies.join('\n'), /Memory Doctor/);
+			assert.match(blankReplies.join('\n'), /detoured into MCP\/tool permission/);
+			assert.doesNotMatch(blankReplies.join('\n'), /I recovered the last interrupted task/i);
+			assert.doesNotMatch(blankReplies.join('\n'), /Builder should not handle/);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
 	});
 
 	await test('chip status overclaim probe does not fall through to provider fallback', async () => {
@@ -481,89 +678,33 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /Canvas:/);
 	});
 
-	await test('natural creator requests plan standards-backed missions', async () => {
+	await test('domain chip text route previews before creator or generic build routes', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
 			captured.push({ url, body });
-			if (url.includes('/api/creator/mission/execute')) {
-				return {
-					data: {
-						ok: true,
-						started: true,
-						missionId: body.missionId,
-						trace: {
-							mission_id: body.missionId,
-							links: {
-								kanban: '/kanban?mission=mission-creator-telegram-1'
-							}
-						}
-					}
-				};
-			}
-			if (url.includes('/api/creator/mission')) {
-				return {
-					data: {
-						ok: true,
-						missionId: 'mission-creator-telegram-1',
-						requestId: body.requestId,
-						taskCount: 4,
-						canvasUrl: '/canvas?pipeline=creator-telegram-1&mission=mission-creator-telegram-1',
-						trace: {
-							mission_id: 'mission-creator-telegram-1',
-							creator_mode: 'full_path',
-							artifacts: ['domain_chip', 'benchmark_pack', 'specialization_path', 'autoloop_policy'],
-							intent_packet: {
-								target_domain: 'AI security questionnaires',
-								privacy_mode: body.privacyMode,
-								risk_level: body.riskLevel
-							},
-							links: {
-								kanban: '/kanban?mission=mission-creator-telegram-1'
-							}
-						}
-					}
-				};
-			}
 			return { data: { success: true } };
 		};
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 561, replies);
-		ctx.message.text = 'create a private benchmarked specialization path with an autoloop for AI security questionnaires';
-
+		const ctx = makeFakeCtx(8319079055, 8319079055, 562, replies);
+		ctx.message.text = 'build a domain-chip for Telegram memory routing';
 		const indexModule: any = await import('../src/index');
-		assert.equal(
-			indexModule.parseNaturalCreatorMissionIntent(ctx.message.text)?.artifactLabel,
-			'specialization path'
-		);
+
 		await indexModule.handleTextMessage(ctx);
 
-		const call = captured.find((item) => item.url.includes('/api/creator/mission'));
-		assert.ok(call, 'expected natural creator request to plan a creator mission');
-		assert.equal(call!.body.privacyMode, 'local_only');
-		assert.equal(call!.body.riskLevel, 'medium');
-		assert.match(call!.body.brief, /creator-system standards/);
-		assert.match(replies[0] || '', /Planning specialization path creator mission/);
-		assert.match(replies.join('\n'), /Creator plan is ready/);
-		assert.match(replies.join('\n'), /Next\n- say: run it/);
-		assert.doesNotMatch(replies.join('\n'), /\/creator run mission-creator-telegram-1/);
-		assert.doesNotMatch(replies.join('\n'), /Usage: \/creator/);
-
-		const runCtx = makeFakeCtx(8319079055, 8319079055, 562, replies);
-		runCtx.message.text = 'run it';
-		await indexModule.handleTextMessage(runCtx);
-
-		const executeCall = captured.find((item) => item.url.includes('/api/creator/mission/execute'));
-		assert.ok(executeCall, 'expected run it to execute the pending creator mission');
-		assert.deepEqual(executeCall!.body, { missionId: 'mission-creator-telegram-1' });
-		assert.match(replies.join('\n'), /Creator build started/);
+		assert.match(replies.join('\n'), /I can build this as domain-chip-telegram-memory-routing/);
+		assert.match(replies.join('\n'), /Reply "go"/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/creator-mission')), 'domain chip creation should not start a creator mission');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'domain chip creation should wait for confirmation before PRD write');
 
 		restoreAxios();
 		restoreEnv();

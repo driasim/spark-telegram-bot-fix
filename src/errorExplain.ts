@@ -50,6 +50,11 @@ function compactDetail(text: string): string {
     .replace(/\bsk-[A-Za-z0-9_-]{6,}\b/g, '[REDACTED]')
     .trim();
   if (!oneLine) return 'Spark did not receive a detailed error from the failed component.';
+  if (
+    /spark_intelligence\.cli|spark-intelligence-builder|simulate-telegram-update|runpy\.run_module/i.test(oneLine)
+  ) {
+    return 'Builder bridge command did not finish cleanly. Run /diagnose for the current Builder and memory status.';
+  }
   return oneLine.length > 220 ? `${oneLine.slice(0, 217)}...` : oneLine;
 }
 
@@ -226,8 +231,8 @@ export function explainSparkError(error: unknown, context: SparkErrorContext = '
       category: 'telegram_polling_conflict',
       userLine: 'Telegram says another Spark process is already polling this bot token.',
       detail,
-      check: 'Run /diagnose to confirm which Telegram profile and relay port are active.',
-      repair: 'Operator fix: stop duplicate bot processes, then run spark restart spark-telegram-bot for the intended profile.'
+      check: 'Check the intended Telegram profile logs and confirm no other local, hosted, WSL, Docker, or old laptop session is polling the same BotFather token.',
+      repair: 'Operator fix: stop the other poller or rotate the BotFather token, then start only the intended Spark Telegram profile.'
     };
   }
 

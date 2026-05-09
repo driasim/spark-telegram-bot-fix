@@ -104,14 +104,14 @@ async function main(): Promise<void> {
       const sessionsCtx = fakeCtx('/recursive sessions');
       await handleRecursiveCommand(sessionsCtx);
       assert.match(sessionsCtx.replies.join('\n'), /Domain Chip Creator/);
-      assert.match(sessionsCtx.replies.join('\n'), /Local\n- status files on this machine/);
-      assert.doesNotMatch(sessionsCtx.replies.join('\n'), /127\.0\.0\.1:5173/);
+      assert.match(sessionsCtx.replies.join('\n'), /Local\nstatus files on this machine/);
+      assert.doesNotMatch(sessionsCtx.replies.join('\n'), /127\.0\.0\.1:4178/);
 
       const reportCtx = fakeCtx('/recursive report 1');
       await handleRecursiveCommand(reportCtx);
       assert.match(reportCtx.replies.join('\n'), /Latest Domain Chip Creator local run held steady\./);
-      assert.match(reportCtx.replies.join('\n'), /Score\n- 1\/1 rounds\n- best score 0\n- 3 suggestions reviewed/);
-      assert.match(reportCtx.replies.join('\n'), /Workspace\n- local-only mode/);
+      assert.match(reportCtx.replies.join('\n'), /Score\n• 1\/1 rounds\n• best score 0\n• 3 suggestions reviewed/);
+      assert.match(reportCtx.replies.join('\n'), /Workspace\n• local-only mode/);
 
       const traceCtx = fakeCtx('/recursive trace 1');
       await handleRecursiveCommand(traceCtx);
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
       await handleRecursiveCommand(ctx);
       const reply = ctx.replies.join('\n');
       assert.match(reply, /Startup YC/);
-      assert.match(reply, /Review\n- 1 decision waiting/);
+      assert.match(reply, /Review\n• 1 decision waiting/);
       assert.doesNotMatch(reply, /Clear builder loop/);
     } finally {
       if (previousApiUrl === undefined) delete process.env.SPARK_SWARM_API_URL;
@@ -339,9 +339,10 @@ async function main(): Promise<void> {
       await handleRecursiveCommand(ctx);
       const reply = ctx.replies.join('\n');
       assert.equal(mutationPosts, 0);
-      assert.match(reply, /Decision not applied in Telegram: approved\./);
-      assert.match(reply, /Status\n- This item has to be handled in Workspace Decisions\./);
-      assert.match(reply, /Report\n- \/recursive report path_domain_autoloop_crypto_trading/);
+      assert.match(reply, /🟢 Recursive review approved\./);
+      assert.match(reply, /Telegram recorded the decision route\./);
+      assert.match(reply, /This item has to be handled in Workspace Decisions\./);
+      assert.doesNotMatch(reply, /\/recursive report path_domain_autoloop_crypto_trading/);
       assert.match(reply, /http:\/\/workspace\.example\.test\/runs\?tab=decisions/);
       assert.doesNotMatch(reply, /Next:/);
       assert.doesNotMatch(reply, /workspace_route_only/);

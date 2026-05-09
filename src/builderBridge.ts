@@ -16,6 +16,13 @@ import { withHiddenWindows } from './hiddenProcess';
 
 const execFileAsync = promisify(execFile);
 
+function processOutputText(value: unknown): string {
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8');
+  }
+  return typeof value === 'string' ? value : '';
+}
+
 type BuilderBridgeMode = 'auto' | 'off' | 'required';
 
 interface BuilderBridgeConfig {
@@ -1394,7 +1401,7 @@ export function formatRouteProbeReply(payload: Record<string, unknown>): string 
     lines.push(`- Evidence: ${summary}`);
   }
   if (eventId) {
-    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType})` : ''}`);
+    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType.replace(/_/g, ' ')})` : ''}`);
   }
   lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
   return lines.join('\n');
@@ -1421,18 +1428,33 @@ export async function runBuilderRouteProbe(capabilityKey: string): Promise<Build
     '--json',
   ];
 
-  const { stdout, stderr } = await execFileAsync(
-    config.pythonCommand,
-    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
-    withHiddenWindows({
-      cwd: config.builderRepo,
-      env: pythonSourceEnv(config),
-      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
-      maxBuffer: 1024 * 1024,
-    })
-  );
+  let stdout = '';
+  let stderr = '';
+  let commandError: unknown = null;
+  try {
+    const result = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    stdout = processOutputText(result.stdout);
+    stderr = processOutputText(result.stderr);
+  } catch (error) {
+    const execError = error as { stdout?: unknown; stderr?: unknown };
+    stdout = processOutputText(execError.stdout);
+    stderr = processOutputText(execError.stderr);
+    commandError = error;
+  }
   const trimmedStdout = stdout.trim();
   if (!trimmedStdout) {
+    if (commandError) {
+      throw commandError;
+    }
     throw new Error(`Builder route probe returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;

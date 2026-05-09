@@ -124,6 +124,28 @@ export function classifyBuilderAttachmentTargetFromSnapshot(snapshot: any, targe
   return fallback;
 }
 
+export function resolveLocalSpecializationPathTarget(targetKey: string): RecursiveStartTarget | null {
+  const normalizedTarget = String(targetKey || '').trim();
+  if (!normalizedTarget) return null;
+
+  const candidates = [
+    process.env[specializationRepoEnvVar(normalizedTarget)],
+    path.join(os.homedir(), 'Desktop', `specialization-path-${normalizedTarget}`),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    const repoRoot = path.resolve(candidate);
+    if (existsSync(path.join(repoRoot, 'specialization-path.json'))) {
+      return {
+        kind: 'path',
+        key: normalizedTarget,
+        repoRoot,
+      };
+    }
+  }
+  return null;
+}
+
 async function loadBuilderAttachmentSnapshot(config: PathLoopConfig): Promise<any> {
   const args = [
     '-m',
@@ -146,9 +168,11 @@ async function loadBuilderAttachmentSnapshot(config: PathLoopConfig): Promise<an
 export async function resolveRecursiveStartTarget(targetKey: string): Promise<RecursiveStartTarget> {
   if (!targetKey) return { kind: 'chip', key: targetKey };
   try {
-    return classifyBuilderAttachmentTargetFromSnapshot(await loadBuilderAttachmentSnapshot(resolveConfig()), targetKey);
+    const classified = classifyBuilderAttachmentTargetFromSnapshot(await loadBuilderAttachmentSnapshot(resolveConfig()), targetKey);
+    if (classified.kind === 'path') return classified;
+    return resolveLocalSpecializationPathTarget(targetKey) || classified;
   } catch {
-    return { kind: 'chip', key: targetKey };
+    return resolveLocalSpecializationPathTarget(targetKey) || { kind: 'chip', key: targetKey };
   }
 }
 

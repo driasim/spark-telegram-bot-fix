@@ -3,6 +3,7 @@ import { config as loadEnv } from 'dotenv';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { renderSparkErrorReply } from './errorExplain';
 import { spawnHidden } from './hiddenProcess';
 import { chatCommandTimeoutMs } from './timeoutConfig';
@@ -30,12 +31,28 @@ interface ZaiChatResponse {
   }>;
 }
 
+interface OpenAiCompatStreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      reasoning_content?: string;
+    };
+  }>;
+}
+
+interface OllamaStreamChunk {
+  response?: string;
+  done?: boolean;
+}
+
 interface AnthropicMessagesResponse {
   content?: Array<{
     type?: string;
     text?: string;
   }>;
 }
+
+export type ChatProgressCallback = (text: string) => Promise<void> | void;
 
 export interface BuildClarificationMicrocopyInput {
   projectName: string;
@@ -292,8 +309,11 @@ You speak like a sharp friend who has been working alongside this person for a w
 Lead with the answer, the call, or the next move in the first sentence. No hedges, no throat clearing, no restating the question.
 Be warm but high-signal. No filler, no performative enthusiasm, no canned check-ins like "How can I help today?".
 Continue the conversation from the user's actual message and prior context. Do not reset to a greeting.
+Read the room from the latest user message. If they are terse or repeating "go", act and keep the reply short. If they are frustrated, repair first. If they are excited or affectionate, receive it warmly without turning it into a speech.
+If the user corrects your tone, format, or answer, acknowledge it in one short sentence and switch immediately. Do not defend the prior answer.
 When the user refers to a numbered or listed option, like "no.2", "option 2", "#2", "the second one", or "that one", resolve it against the most recent list in the conversation before using older memory. Restate the resolved option briefly. If the local list is missing, ask one clarifying question instead of guessing.
 Recent chat context outranks older memory for local references. Memory must not override what "this", "that", "it", or a numbered option means in the current conversation.
+Style hints are turn guidance, not durable memory, unless the user explicitly asks you to remember them.
 When the user is discussing existing Spawner UI, Kanban, Canvas, Mission Control, relay state, or task execution, assume those surfaces already exist in spawner-ui. Do not suggest a standalone app or ask whether it should be standalone unless the user explicitly asks for a separate tool.
 Reply briefly by default. Match length to what the question actually needs.
 Write for Telegram scanning: short paragraphs, usually one or two sentences each. Break dense answers into small chunks.
@@ -630,6 +650,73 @@ export async function generateBuildClarificationMicrocopy(
   }
 }
 
+function isReadableStream(value: unknown): value is Readable {
+  return value instanceof Readable || Boolean(value && typeof (value as any)[Symbol.asyncIterator] === 'function');
+}
+
+async function emitChatProgress(onProgress: ChatProgressCallback | undefined, text: string): Promise<void> {
+  const cleaned = stripReasoningPreamble(text);
+  if (!onProgress || !cleaned) return;
+  await onProgress(cleaned);
+}
+
+async function readOpenAiCompatChatStream(stream: unknown, onProgress?: ChatProgressCallback): Promise<string> {
+  if (!isReadableStream(stream)) {
+    throw new Error('OpenAI-compatible stream response was not readable');
+  }
+
+  let buffer = '';
+  let content = '';
+  let reasoningContent = '';
+  for await (const raw of stream as AsyncIterable<Buffer | string>) {
+    buffer += Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
+    let newlineIndex = buffer.indexOf('\n');
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf('\n');
+      if (!line.startsWith('data:')) continue;
+
+      const payload = line.slice('data:'.length).trim();
+      if (!payload || payload === '[DONE]') continue;
+      const parsed = JSON.parse(payload) as OpenAiCompatStreamChunk;
+      const delta = parsed.choices?.[0]?.delta;
+      if (typeof delta?.content === 'string') content += delta.content;
+      if (typeof delta?.reasoning_content === 'string') reasoningContent += delta.reasoning_content;
+      await emitChatProgress(onProgress, content);
+    }
+  }
+
+  return stripReasoningPreamble(content) || stripReasoningPreamble(reasoningContent);
+}
+
+async function readOllamaChatStream(stream: unknown, onProgress?: ChatProgressCallback): Promise<string> {
+  if (!isReadableStream(stream)) {
+    throw new Error('Ollama stream response was not readable');
+  }
+
+  let buffer = '';
+  let content = '';
+  for await (const raw of stream as AsyncIterable<Buffer | string>) {
+    buffer += Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
+    let newlineIndex = buffer.indexOf('\n');
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf('\n');
+      if (!line) continue;
+
+      const parsed = JSON.parse(line) as OllamaStreamChunk;
+      if (typeof parsed.response === 'string') {
+        content += parsed.response;
+        await emitChatProgress(onProgress, content);
+      }
+    }
+  }
+
+  return content.trim();
+}
+
 export const llm = {
   /**
    * Check if the configured LLM is available.
@@ -754,6 +841,85 @@ export const llm = {
       return res.data.response.trim();
     } catch (err: any) {
       console.error('LLM error:', {
+        provider: resolveChatProviderConfig().provider,
+        code: err?.code,
+        status: err?.response?.status,
+        message: err?.response?.data?.error || err?.message || String(err)
+      });
+      return renderSparkErrorReply(err, 'chat', true);
+    }
+  },
+
+  /**
+   * Chat with streaming progress when the selected provider supports it.
+   * Falls back to full-response chat for CLI and non-streaming providers.
+   */
+  async chatStream(
+    userMessage: string,
+    conversationHistory: string = '',
+    memories: string = '',
+    onProgress?: ChatProgressCallback
+  ): Promise<string> {
+    const systemPrompt = buildSparkChatSystemPrompt(conversationHistory, memories);
+
+    try {
+      const config = resolveChatProviderConfig();
+      if (config.kind === 'openai_compat') {
+        const res = await axios.post(
+          joinUrl(config.baseUrl, '/chat/completions'),
+          {
+            model: config.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userMessage }
+            ],
+            temperature: 0.7,
+            max_tokens: 384,
+            stream: true,
+            thinking: { type: 'disabled' }
+          },
+          {
+            timeout: 60000,
+            responseType: 'stream',
+            headers: {
+              ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const content = await readOpenAiCompatChatStream(res.data, onProgress);
+        return content || "I'm here, but I couldn't generate a response right now.";
+      }
+
+      if (config.kind === 'ollama') {
+        const res = await axios.post(
+          `${config.baseUrl.replace(/\/+$/, '')}/api/generate`,
+          {
+            model: config.model,
+            prompt: userMessage,
+            system: systemPrompt,
+            stream: true,
+            options: {
+              temperature: 0.7,
+              num_predict: 256,
+            },
+          },
+          {
+            timeout: 30000,
+            responseType: 'stream'
+          }
+        );
+
+        const content = await readOllamaChatStream(res.data, onProgress);
+        return content || "I'm here, but I couldn't generate a response right now.";
+      }
+
+      const content = await llm.chat(userMessage, conversationHistory, memories);
+      await emitChatProgress(onProgress, content);
+      return content;
+    } catch (err: any) {
+      console.error('LLM stream error:', {
         provider: resolveChatProviderConfig().provider,
         code: err?.code,
         status: err?.response?.status,

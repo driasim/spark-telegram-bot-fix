@@ -169,6 +169,9 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (isVoiceOnboardingSetupQuestion(normalized)) {
     return null;
   }
+  if (shouldPreferConversationalIdeation(normalized)) {
+    return null;
+  }
   if (
     /\bwhere\s+(?:do|does|are|is)\b/i.test(normalized) &&
     /\b(?:lack|lacks|weak|weakness|weaknesses|missing|limitations?)\b/i.test(normalized) &&
@@ -351,8 +354,20 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
   const wantPattern =
     /\bi\s+(?:need|want|could\s+use|would\s+like)\b[^.\n]{0,30}\b(?:a|an|another|new)?\s*(?:domain[-\s]*chip|chip)\b/i;
   const imperativePattern = /^\s*(?:a\s+)?new\s+(?:domain[-\s]*)?chip\s+(?:for|that|which|to)\b/i;
+  const namedPattern = /^\s*(?:a\s+)?(?:new\s+)?domain[-\s]*chip\s+(?:called|named)\s+\S/i;
 
-  if (!createPattern.test(normalized) && !wantPattern.test(normalized) && !imperativePattern.test(normalized)) {
+  if (
+    /\b(?:help\s+me\s+)?(?:shape|scope|brainstorm|think\s+through|plan|design)\b/i.test(normalized) &&
+    (
+      /\b(?:before|prior\s+to)\s+(?:creating|building|making|scaffolding|generating|starting)\b/i.test(normalized) ||
+      /\b(?:do\s+not|don't|dont)\s+(?:build|create|make|scaffold|generate|start)\s+yet\b/i.test(normalized)
+    ) &&
+    /\b(?:domain[-\s]*chip|chip)\b/i.test(normalized)
+  ) {
+    return null;
+  }
+
+  if (!createPattern.test(normalized) && !wantPattern.test(normalized) && !imperativePattern.test(normalized) && !namedPattern.test(normalized)) {
     return null;
   }
 
@@ -377,6 +392,374 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
 
   brief = brief.trim().replace(/[.!?,]+$/g, '').trim();
   return brief.length >= 3 ? brief : null;
+}
+
+export function isMemoryDoctorRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+
+  if (/\bmemory\s+doctor\b/.test(normalized)) {
+    return true;
+  }
+
+  if (
+    /^(?:please\s+)?(?:run|start|use|invoke|call|ask|open)\s+(?:the\s+)?(?:memory\s+)?(?:doctor|audit|diagnostic)\b/.test(normalized) &&
+    /\b(?:memory|context|recall|turn|reply|answer|request|message|trace|previous|last|recent|current)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (
+    /^(?:please\s+)?(?:audit|diagnose|diagnostic|debug|trace|inspect|explain)\s+(?:the\s+)?(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  const namesMemoryFailure =
+    /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+did\s+i\s+just\s+tell\s+you)\b/.test(normalized);
+  const asksForDiagnosis =
+    /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/.test(normalized);
+  return namesMemoryFailure && asksForDiagnosis;
+}
+
+export interface NaturalCreatorMissionIntent {
+  brief: string;
+  privacyMode: 'local_only' | 'github_pr' | 'swarm_shared';
+  riskLevel: 'low' | 'medium' | 'high';
+  reason: string;
+}
+
+export interface NaturalCreatorMissionContext {
+  recentMessages?: string[];
+}
+
+export interface NaturalRecursiveCommandIntent {
+  rawCommand: string;
+  reason: string;
+}
+
+export interface NaturalRecursiveCommandTarget {
+  pathId: string;
+  chipKey?: string | null;
+  label: string;
+  aliases?: string[];
+}
+
+export interface NaturalRecursiveCommandContext {
+  recentMessages?: string[];
+  targets?: NaturalRecursiveCommandTarget[];
+}
+
+function normalizeCreatorMissionPrivacy(text: string): NaturalCreatorMissionIntent['privacyMode'] {
+  if (/\b(?:github|pull\s+request|pr)\b/i.test(text)) return 'github_pr';
+  if (/\b(?:swarm|network|shared|publish|public)\b/i.test(text)) return 'swarm_shared';
+  return 'local_only';
+}
+
+function normalizeCreatorMissionRisk(text: string): NaturalCreatorMissionIntent['riskLevel'] {
+  if (/\b(?:public|network|publish|production|secret|token|auth|payment|financial|trading|delete|destructive)\b/i.test(text)) {
+    return 'high';
+  }
+  if (/\b(?:recursive|autoloop|specialization|benchmark|swarm|creator|qa|test|validator|review)\b/i.test(text)) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function isQaOperatorCreatorMission(text: string): boolean {
+  return (
+    /\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(text) &&
+    /\b(?:benchmark|benchmarks|eval|evals|test\s+suite|qa|recursive|recursion|autoloop|specialization|path|creator|improve|better|standard|standardize|create|build|make|prepare|wire|connect)\b/i.test(text)
+  );
+}
+
+function isContextualQaOperatorCreatorMission(text: string, contextText: string): boolean {
+  if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
+  const contextNamesQaOperator =
+    /\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(contextText);
+  if (!contextNamesQaOperator) return false;
+  const currentAsksForCreatorWork =
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text);
+  const currentNamesQaWork =
+    /\b(?:benchmark|benchmarks|eval|evals|test\s+suite|qa|recursive|recursion|autoloop|specialization|path|creator|review|telegram|workspace|spawner|canvas|kanban)\b/i.test(text);
+  return currentAsksForCreatorWork && currentNamesQaWork;
+}
+
+function isCreatorSystemMission(text: string): boolean {
+  if (/^\s*\//.test(text)) return false;
+  if (/\b(?:what|why|how)\s+(?:is|are|does|do)\b/i.test(text) && !/\b(?:create|build|make|prepare|wire|connect|improve|run)\b/i.test(text)) {
+    return false;
+  }
+  return (
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text) &&
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand)\b/i.test(text)
+  );
+}
+
+function isAmbiguousCreatorFollowup(text: string): boolean {
+  return /\b(?:it|this|that|these|those|current|same|what\s+we(?:'re| are)?\s+(?:working\s+on|discussing|building)|what\s+we\s+talked\s+about)\b/i.test(text);
+}
+
+function creatorContextText(context: NaturalCreatorMissionContext = {}): string {
+  return (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-15)
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isContextualCreatorSystemMission(text: string, contextText: string): boolean {
+  if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
+  return (
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text) &&
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text)
+  );
+}
+
+function qaOperatorCreatorBrief(text: string): string {
+  const focusParts = [];
+  if (/\btelegram\b/i.test(text)) focusParts.push('Telegram natural-language QA flows');
+  if (/\b(?:workspace|swarm)\b/i.test(text)) focusParts.push('Spark Swarm Workspace sync and reporting');
+  if (/\b(?:spawner|canvas|kanban)\b/i.test(text)) focusParts.push('Spawner UI, Canvas, and Kanban creator missions');
+  if (/\b(?:auth|pairing|login)\b/i.test(text)) focusParts.push('auth pairing and failure-message quality');
+  if (/\b(?:recursive|recursion|autoloop)\b/i.test(text)) focusParts.push('recursive autoloop reports and keep/revert decisions');
+  if (/\b(?:benchmark|eval|test\s+suite)\b/i.test(text)) focusParts.push('richer benchmark packs with visible and held-out cases');
+  const focus = focusParts.length > 0
+    ? focusParts.join(', ')
+    : 'Telegram flows, Workspace reports, creator missions, recursive reports, Spawner UI, Canvas, Kanban, auth pairing, and specialization autoloops';
+
+  return [
+    'Improve Spark QA Operator as a private benchmarked specialization path with a gated autoloop.',
+    'Canonical target domain: spark-qa-operator.',
+    'Do not create Spark Telegram, Spark Swarm Workspace, Spawner UI, Canvas, or Kanban as separate root domains; treat them as benchmark lanes and product QA surfaces under Spark QA Operator.',
+    'Reuse and extend the existing Spark QA Operator system first: domain-chip-spark-qa-operator, spark-qa-operator-bench, and specialization-path-spark-qa-operator.',
+    'Make Spark better at QA testing Spark-built products first, then only transfer lessons to user apps after evidence supports it.',
+    `Focus areas: ${focus}.`,
+    'Expand richer benchmark packs with visible cases, held-out cases, trap cases, scoring rubrics, and replayable evidence.',
+    'Use Spark creator-system standards: domain chip contract, benchmark pack, specialization path, autoloop policy, adapter map, validation ledger, local/private boundary, and Swarm review packet only when gates allow it.',
+    'Keep Telegram replies concise and put detailed evidence, traces, screenshots, and benchmark artifacts in Workspace.'
+  ].join(' ');
+}
+
+function normalizeCreatorMissionBrief(text: string, contextText = ''): string {
+  const normalized = text.replace(/\s+/g, ' ').trim().replace(/[.!?]+$/g, '');
+  const combined = [normalized, contextText].filter(Boolean).join(' ');
+  if (isQaOperatorCreatorMission(combined)) {
+    return qaOperatorCreatorBrief(combined);
+  }
+  const briefParts = [
+    normalized,
+    contextText ? `Recent working context: ${contextText}` : '',
+    'Use Spark creator-system standards: creator intent packet, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review packet only when gates allow it.'
+  ];
+  return briefParts.filter(Boolean).join(' ');
+}
+
+export function parseNaturalCreatorMissionIntent(text: string, context: NaturalCreatorMissionContext = {}): NaturalCreatorMissionIntent | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  if (isMemoryDoctorRequest(normalized)) return null;
+  if (shouldPreferConversationalIdeation(normalized)) return null;
+  const contextText = creatorContextText(context);
+  const explicitQaOperatorMission = isQaOperatorCreatorMission(normalized);
+  const contextualQaOperatorMission = isContextualQaOperatorCreatorMission(normalized, contextText);
+  const contextualMission = isContextualCreatorSystemMission(normalized, contextText);
+  if (!explicitQaOperatorMission && !contextualQaOperatorMission && !isCreatorSystemMission(normalized) && !contextualMission) return null;
+  if (isAmbiguousCreatorFollowup(normalized) && !contextText) return null;
+  if (/\b(?:show|list|status|report|trace|review)\b/i.test(normalized) && !/\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|improve|upgrade|expand)\b/i.test(normalized)) {
+    return null;
+  }
+
+  const privacyMode = normalizeCreatorMissionPrivacy(normalized);
+  const qaOperator = explicitQaOperatorMission || contextualQaOperatorMission;
+  return {
+    brief: normalizeCreatorMissionBrief(normalized, contextualMission || contextualQaOperatorMission ? contextText : ''),
+    privacyMode,
+    riskLevel: privacyMode === 'swarm_shared' ? 'high' : normalizeCreatorMissionRisk(normalized),
+    reason: qaOperator
+      ? 'Spark QA Operator creator work needs benchmark packs, held-out checks, autoloop policy, and private Workspace evidence before any network sharing.'
+      : 'Creator-system work needs artifact manifests, benchmark gates, rollback notes, and review boundaries.'
+  };
+}
+
+function naturalRoundCount(text: string): number {
+  const normalized = text.toLowerCase();
+  const numeric = normalized.match(/\b(?:rounds?|passes|iterations?)\s+(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\s+(?:rounds?|passes|iterations?)\b/);
+  if (numeric) return Math.max(1, Math.min(10, Number.parseInt(numeric[1], 10) || 1));
+  if (/\b(?:one|single|a)\s+(?:round|pass|iteration)\b/i.test(text)) return 1;
+  if (/\btwo\s+(?:rounds|passes|iterations)\b/i.test(text)) return 2;
+  if (/\bthree\s+(?:rounds|passes|iterations)\b/i.test(text)) return 3;
+  return 1;
+}
+
+const NATURAL_TARGET_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'at', 'for', 'from', 'in', 'is', 'it', 'me', 'my', 'of', 'on', 'or', 'path', 'report',
+  'show', 'status', 'the', 'this', 'to', 'trace', 'what', 'with'
+]);
+
+function naturalTargetKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function naturalTargetTokens(value: string): string[] {
+  return naturalTargetKey(value)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !NATURAL_TARGET_STOP_WORDS.has(token));
+}
+
+function recursiveChipKeyFromPathId(pathId: string): string | null {
+  const pathKey = pathId.trim();
+  if (/^path:/i.test(pathKey)) return pathKey.replace(/^path:/i, '');
+  const builderChip = pathKey.match(/^path_builder_chip_(.+)$/i)?.[1];
+  if (builderChip) return builderChip.replace(/_/g, '-');
+  return null;
+}
+
+function normalizeNaturalRecursiveTarget(target: NaturalRecursiveCommandTarget): NaturalRecursiveCommandTarget {
+  return {
+    pathId: target.pathId,
+    chipKey: target.chipKey || recursiveChipKeyFromPathId(target.pathId),
+    label: target.label,
+    aliases: target.aliases || []
+  };
+}
+
+function dynamicNaturalRecursiveTarget(text: string, targets: NaturalRecursiveCommandTarget[] | undefined): NaturalRecursiveCommandTarget | null {
+  if (!targets?.length) return null;
+  const textKey = naturalTargetKey(text);
+  const textTokens = new Set(naturalTargetTokens(text));
+  const candidates: Array<{ target: NaturalRecursiveCommandTarget; score: number }> = [];
+
+  for (const rawTarget of targets) {
+    const target = normalizeNaturalRecursiveTarget(rawTarget);
+    const aliases = [target.pathId, target.chipKey || '', target.label, ...(target.aliases || [])]
+      .map(naturalTargetKey)
+      .filter((alias) => alias.length >= 3);
+    let score = 0;
+    for (const alias of aliases) {
+      if (alias.length >= 6 && textKey.includes(alias)) score = Math.max(score, 100 + alias.length);
+      const aliasTokens = naturalTargetTokens(alias);
+      if (aliasTokens.length === 0) continue;
+      const overlap = aliasTokens.filter((token) => textTokens.has(token)).length;
+      const needed = Math.min(3, Math.max(2, Math.ceil(aliasTokens.length * 0.6)));
+      if (overlap >= needed) score = Math.max(score, overlap * 10 + aliasTokens.length);
+    }
+    if (score > 0) candidates.push({ target, score });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates[0]) return null;
+  if (candidates[1] && candidates[1].score === candidates[0].score) return null;
+  return candidates[0].target;
+}
+
+function hasRecursiveContextSignal(text: string): boolean {
+  return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(text);
+}
+
+function knownNaturalRecursiveTarget(text: string): NaturalRecursiveCommandTarget | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const explicitPath = normalized.match(/\bpath:[A-Za-z0-9:_-]+\b/);
+  if (explicitPath) {
+    const pathId = explicitPath[0];
+    if (pathId === 'path:spark-qa-operator') return { pathId, chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+    if (pathId === 'path:startup-yc') return { pathId, chipKey: 'startup-yc', label: 'Startup YC' };
+    return { pathId, chipKey: pathId.replace(/^path:/, ''), label: pathId };
+  }
+  if (/\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(normalized) ||
+      (/\bqa\b/i.test(normalized) && /\b(?:recursive|recursion|loop|round|report|trace|review|decision|improve|improvement)\b/i.test(normalized))) {
+    return { pathId: 'path:spark-qa-operator', chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+  }
+  if (/\bstartup[-\s]+yc\b/i.test(normalized)) {
+    return { pathId: 'path:startup-yc', chipKey: 'startup-yc', label: 'Startup YC' };
+  }
+  if (/\bdomain[-\s]+chip[-\s]+creator\b/i.test(normalized)) {
+    return {
+      pathId: 'path_builder_chip_domain_chip_creator',
+      chipKey: 'domain-chip-creator',
+      label: 'Domain Chip Creator'
+    };
+  }
+  return null;
+}
+
+function naturalRecursiveTarget(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandTarget | null {
+  const direct = knownNaturalRecursiveTarget(text);
+  if (direct) return direct;
+  const dynamicDirect = dynamicNaturalRecursiveTarget(text, context.targets);
+  if (dynamicDirect) return dynamicDirect;
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const canUseContext = /\b(?:it|this|that|same|again|another|more|current|latest|loop|round|pass|iteration|report|readout|summary|status|trace|timeline|evidence|proof|trail|receipts|review|approve|approval|decisions?|blockers?|weakest|weak\s+spot|signal|changed|land|short\s+version|vibe|how'?s|how\s+is|where\s+are\s+we|where\s+did\s+we\s+land|keep\s+going|continue|keep\s+pushing|push\s+it|my\s+call|calls?\s+for\s+me|needs\s+me)\b/i.test(normalized);
+  if (!canUseContext) return null;
+
+  const recent = (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-8)
+    .join('\n');
+  if (!recent || !hasRecursiveContextSignal(recent)) return null;
+  return knownNaturalRecursiveTarget(recent) || dynamicNaturalRecursiveTarget(recent, context.targets);
+}
+
+export function parseNaturalRecursiveCommandIntent(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandIntent | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.startsWith('/')) return null;
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs?)\b/i.test(normalized) ||
+      /\b(?:what|which)\s+(?:loops?|runs?)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'sessions',
+      reason: 'Natural-language request to list recursive loops.'
+    };
+  }
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:paths?|lanes?)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'paths',
+      reason: 'Natural-language request to list recursive paths.'
+    };
+  }
+
+  const target = naturalRecursiveTarget(normalized, context);
+  if (!target) return null;
+
+  if (/\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:recursive|recursion|loop|round|iteration)\b/i.test(normalized) ||
+      /\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:qa\s+tester|qa\s+operator|startup[-\s]+yc|domain[-\s]+chip[-\s]+creator)\b/i.test(normalized) ||
+      /\b(?:improve|make\s+better)\b.*\b(?:qa\s+tester|qa\s+operator)\b.*\b(?:round|loop|iteration)\b/i.test(normalized) ||
+      /\b(?:run|start|do|try)\s+(?:another|one\s+more|a|one|same)\s+(?:round|pass|iteration|loop)\b/i.test(normalized) ||
+      /\b(?:keep\s+going|continue|iterate\s+again|let\s+it\s+cook|keep\s+pushing|push\s+it\s+further|send\s+it\s+again|give\s+it\s+another\s+pass|one\s+more\s+pass)\b/i.test(normalized)) {
+    if (!target.chipKey) return null;
+    return {
+      rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}`,
+      reason: `Natural-language request to start a recursive loop for ${target.label}.`
+    };
+  }
+
+  if (/\b(?:trace|timeline|recent\s+movement|what\s+happened|show\s+the\s+evidence|show\s+evidence|show\s+the\s+receipts|receipts|audit\s+trail|proof|show\s+me\s+proof|show\s+the\s+trail|behind\s+the\s+scenes|what\s+went\s+on|what\s+did\s+it\s+do)\b/i.test(normalized)) {
+    return {
+      rawCommand: `trace ${target.pathId}`,
+      reason: `Natural-language request to trace ${target.label}.`
+    };
+  }
+
+  if (/\b(?:review|decisions?|blockers?|blocked|needs\s+review|waiting\s+for\s+review|approve|approval|do\s+i\s+need\s+to\s+approve|what\s+do\s+you\s+need\s+from\s+me|calls?\s+for\s+me|needs\s+my\s+call|need\s+my\s+call|what\s+needs\s+me|anything\s+stuck|what\s+is\s+stuck)\b/i.test(normalized)) {
+    return {
+      rawCommand: `review ${target.pathId}`,
+      reason: `Natural-language request to review ${target.label} decisions.`
+    };
+  }
+
+  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next)\b/i.test(normalized)) {
+    return {
+      rawCommand: `report ${target.pathId}`,
+      reason: `Natural-language request for ${target.label} recursive report.`
+    };
+  }
+
+  return null;
 }
 
 export function isMissionExecutionConfirmation(text: string): boolean {
@@ -504,6 +887,9 @@ export function isExplicitContextualBuildRequest(text: string): boolean {
 
 export function isBuildContextRecallQuestion(text: string): boolean {
   const normalized = text.trim().toLowerCase();
+  if (isUserMemoryRecallQuestion(normalized)) {
+    return false;
+  }
   return (
     /\b(?:do\s+you\s+)?remember\b.*\b(?:build|building|built|making|project|chip|mission)\b/.test(normalized) ||
     /\bwhat\b.*\b(?:did|have)\s+(?:you|we)\s+(?:just\s+)?(?:build|make|create|ship)\b/.test(normalized) ||
@@ -1092,12 +1478,19 @@ export function buildIdeationSystemHint(text: string): string {
   return [
     modeLine,
     'Do not start a build, canvas, mission, or PRD yet.',
+    /\b(?:do\s+not|don'?t|not)\s+build\s+yet\b/i.test(text)
+      ? 'The user explicitly asked not to build yet. Acknowledge that boundary, then still be useful: give a small starter scaffold before asking a clarifying question.'
+      : '',
+    /\b(?:design|shape|plan|think\s+through|map)\b/i.test(text) && /\b(?:project|app|tool|workspace|kanban|canvas)\b/i.test(text)
+      ? 'For design-only project prompts, do not only ask the user to pick a direction. Provide a tentative v1 structure, likely surfaces or workflows, and one focused question to refine it.'
+      : '',
+    'Do not scold the user, say you already asked, or imply the conversation is blocked. If context is unresolved, offer a provisional interpretation and ask one question.',
     existingSpawnerSurface
       ? 'Do not suggest building a standalone Kanban app or ask whether this should be standalone. Frame suggestions as changes to existing spawner-ui routes, state, and relay behavior.'
       : '',
     'If the user later says yes, create it, run it, spin it up, or kick it off, the Telegram gateway can start the mission. Do not claim you started it during ideation.',
     'If the user refers to no.1, no2, option 2, the second one, or a similar local list reference, resolve it against the most recent list in the conversation before using older memory. If the list is missing, ask one clarifying question instead of guessing.',
-    'Reply like a collaborative product partner: propose 2-4 directions, ask one or two useful questions, and offer a next step.',
+    'Reply like a collaborative product partner: propose 2-4 directions, ask one useful question, and offer a next step.',
     'Keep it concise and natural for Telegram.'
   ].filter(Boolean).join('\n');
 }
@@ -1188,6 +1581,25 @@ export function renderChatRuntimeFailureReply(isAdmin: boolean, bridgeFailed: bo
 
 export function extractPlainChatMemoryDirective(text: string): string | null {
   const trimmed = text.trim();
+  const cleanDirective = (value: string): string => value
+    .replace(/^["']|["']$/g, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+
+  const explicitSavePatterns = [
+    /^(?:memory\s+update|memory\s+note|save\s+to\s+memory)\s*[:,-]\s*(.+?)(?:\s+(?:please\s+)?(?:save|store|remember)\s+this\s+as\s+.+)?[.!?]?$/i,
+    /^(?:please\s+)?(?:save|store|remember)\s+this\s+as\s+(?:my\s+)?(?:current\s+)?(?:plan|focus|context)\s*[:,-]\s*(.+?)[.!?]?$/i,
+    /^(?:please\s+)?(?:save|store|remember)\s+(?:my\s+)?(?:current\s+)?(?:plan|focus|context)\s*[:,-]\s*(.+?)[.!?]?$/i
+  ];
+
+  for (const pattern of explicitSavePatterns) {
+    const match = trimmed.match(pattern);
+    const value = match?.[1]?.trim();
+    if (value) {
+      return cleanDirective(value);
+    }
+  }
+
   const patterns = [
     /^(?:please\s+)?(?:can\s+you\s+)?remember\s+that\s+(.+?)[.!?]?$/i,
     /^(?:please\s+)?(?:can\s+you\s+)?remember\s+(?:this|that)\s*[:,-]\s*(.+?)[.!?]?$/i,
@@ -1201,11 +1613,200 @@ export function extractPlainChatMemoryDirective(text: string): string | null {
     const match = trimmed.match(pattern);
     const value = match?.[1]?.trim();
     if (value) {
-      return value.replace(/^["']|["']$/g, '').trim();
+      return cleanDirective(value);
     }
   }
 
   return null;
+}
+
+function cleanAgentDoctrinePreference(raw: string): string {
+  return raw
+    .replace(/\s+/g, ' ')
+    .replace(/^(?:that\s+)?(?:spark|you|my\s+agent|the\s+agent)\s+(?:should|must|needs?\s+to|can|could|will|would)\s+/i, '')
+    .replace(/^(?:you|spark|my\s+agent|the\s+agent)\s+(?:to\s+)?/i, '')
+    .replace(/^["']|["']$/g, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+}
+
+function classifyAgentDoctrinePreference(text: string): string {
+  const lower = text.toLowerCase();
+  if (/\b(?:paragraph|spacing|blank lines?|format|structure|bullets?|checklists?|markdown|wall of text)\b/.test(lower)) {
+    return 'format';
+  }
+  if (/\b(?:concise|brief|short|terse|detailed|depth|explain|summary|summarize)\b/.test(lower)) {
+    return 'detail';
+  }
+  if (/\b(?:decisive|opinionated|direct|blunt|recommend|push back|call it|your call|choose)\b/.test(lower)) {
+    return 'decision';
+  }
+  if (/\b(?:proactive|notice|patterns?|read the room|infer|anticipate|call out|adjust)\b/.test(lower)) {
+    return 'initiative';
+  }
+  if (/\b(?:tool|tools|mission|missions|build|run|ask before|approval|confirm|start)\b/.test(lower)) {
+    return 'tool_behavior';
+  }
+  if (/\b(?:collaborat|brainstorm|think with me|work with me|back and forth|conversation)\b/.test(lower)) {
+    return 'collaboration';
+  }
+  if (/\b(?:warm|friendly|casual|formal|gentle|playful|serious|energy|vibe|tone)\b/.test(lower)) {
+    return 'tone';
+  }
+  return 'general';
+}
+
+export function extractAgentDoctrinePreference(text: string): string | null {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase();
+  if (
+    /\b(?:just|only)\s+for\s+(?:this|the)\s+(?:reply|turn|message|answer|once)\b/.test(lower) ||
+    /\b(?:for now|right now|in this reply|in this answer|this time only)\b/.test(lower) ||
+    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|tools?|routes?)\b/.test(lower) ||
+    /\b(?:globally|system-wide|production doctrine|default doctrine)\b/.test(lower)
+  ) {
+    return null;
+  }
+
+  const patterns = [
+    /\b(?:from now on|going forward|for future replies|in future replies|for my agent|when you talk to me|with me)\s*,?\s*(.+)$/i,
+    /\b(?:let'?s\s+)?keep\s+(?:things|replies|answers|our\s+chat|this\s+agent|my\s+agent|the\s+agent)\s+(?:always\s+)?(.+)$/i,
+    /\b(?:remember|save|keep|store)\s+(?:this\s+)?(?:as\s+)?(?:my\s+)?(?:agent\s+)?(?:personality|style|tone|format|interaction|collaboration|working|reply|response|communication)\s+(?:preference|rule|doctrine|guidance)?\s*[:,-]?\s*(.+)$/i,
+    /\b(?:adjust|change|update|improve|tune|adapt|shift)\s+(?:your|the|my\s+agent'?s|spark'?s)?\s*(?:personality|style|tone|format|interaction|collaboration|working|reply|response|communication|rules|doctrine)\s+(?:to|so\s+you|so\s+it|toward|around)\s+(.+)$/i,
+    /\b(?:i\s+prefer|i'?d\s+prefer|i\s+want|i'?d\s+like)\s+(?:you|spark|my\s+agent|the\s+agent)\s+to\s+(.+)$/i,
+    /\b(?:be|stay|keep|use|act|respond|reply|talk|speak|write)\s+(?:more\s+|less\s+)?(?:conversational|direct|decisive|warm|casual|formal|brief|concise|detailed|curious|opinionated|proactive|gentle|blunt|structured|paragraph|checklist|dense|friendly)\b.*$/i,
+    /\b(?:do not|don't|dont|stop)\s+(?:be|being|sound|sounding|write|writing|reply|respond|use|give)\b.*$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    const raw = (match?.[1] || match?.[0] || '').trim();
+    const cleaned = cleanAgentDoctrinePreference(raw);
+    if (cleaned && cleaned.length >= 4 && cleaned.length <= 220) {
+      const dimension = classifyAgentDoctrinePreference(`${trimmed} ${cleaned}`);
+      return `Agent interaction preference [${dimension}]: ${cleaned}`;
+    }
+  }
+
+  return null;
+}
+
+export function isStandaloneAgentDoctrinePreference(text: string): boolean {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (!extractAgentDoctrinePreference(trimmed)) {
+    return false;
+  }
+  if (parseBuildIntent(trimmed)) {
+    return false;
+  }
+  if (/\b(?:and|then)\s+(?:build|create|run|start|explain|tell|show|send|open|search|find|what|why|how|which|where)\b/i.test(trimmed)) {
+    return false;
+  }
+  if (/\?\s*$/.test(trimmed) && !/\b(?:can|could|would)\s+you\b.*\b(?:remember|save|keep|adjust|change|update|use|be|respond|reply|talk|write)\b/i.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
+export function isGlobalAgentDoctrineRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|tools?|routes?)\b/.test(normalized) ||
+    /\b(?:globally|system-wide|production doctrine|default doctrine)\b/.test(normalized)
+  ) && /\b(?:style|tone|personality|persona|conversation|conversational|natural language|nlp|context|understand|understanding|interpret|routing|route|reply|response|talk|speak|doctrine|rule|preference|ask|clarify|clarifying|confirmation|missions?|tools?|start)\b/.test(normalized);
+}
+
+export function formatGlobalAgentDoctrineRequestReply(text = ''): string {
+  const localPrinciple = /\b(?:context|workflow|understand|understanding|conversational|conversation|natural language|nlp|routing|route)\b/i.test(text)
+    ? 'For this conversation, I can still apply the local version: I will use the current thread, active workflow, and uncertainty signals before choosing a route, and I will ask when context is ambiguous.'
+    : 'For this conversation, I can still follow the principle: I will ask before launching missions when the target or route is ambiguous.';
+
+  return [
+    'That is a global Spark behavior change, so I should not silently apply it from one chat.',
+    `The right move is an explicit doctrine proposal with scope, affected agents, tests, and rollback. ${localPrinciple}`
+  ].join('\n\n');
+}
+
+export function formatAgentDoctrinePreferenceAcknowledgement(preference: string): string {
+  const detail = extractAgentDoctrinePreferenceDetail(preference);
+  return [
+    'Got it. I will keep that as a preference for how I talk with you.',
+    detail ? `I will adjust around this from here: ${detail}.` : 'I will adjust from here.'
+  ].join('\n\n');
+}
+
+function extractAgentDoctrinePreferenceDetail(preference: string): string {
+  return preference
+    .replace(/^Agent interaction preference \[[^\]]+\]:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+}
+
+function lowerFirstAgentPreferenceClause(detail: string): string {
+  return detail ? `${detail[0].toLowerCase()}${detail.slice(1)}` : detail;
+}
+
+export function formatAgentDoctrinePreferenceForBuilderSync(preference: string): string {
+  const detail = extractAgentDoctrinePreferenceDetail(preference);
+  if (!detail) return '';
+  const clause = lowerFirstAgentPreferenceClause(detail).slice(0, 220);
+  return [
+    'Your style should follow this saved agent interaction preference.',
+    `When you talk to me, ${clause}.`
+  ].join('\n');
+}
+
+export function isAgentDoctrinePreferenceStatusQuestion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  return (
+    /\b(?:what|which|show|list|tell)\b/.test(normalized) &&
+    /\b(?:preferences?|rules?|guidance|doctrine|style|tone|personality|interaction|communication)\b/.test(normalized) &&
+    /\b(?:remember|saved|carrying|using|have|know|for me|with me|my agent|you)\b/.test(normalized)
+  );
+}
+
+export function isUserMemoryRecallQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (
+    /^memory\s+update\s*:/.test(normalized) ||
+    /\b(?:please\s+)?(?:remember|save)\s+(?:this|that)\b/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return (
+    /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission\s+updates?|updates?|about\s+me|about\s+how\s+i|how\s+i\s+work|work\s+style)\b/.test(normalized) ||
+    /\bwhat\b.*\b(?:prefer|preferred|preference|like)\b.*\bremember\b/.test(normalized) ||
+    /\bwhat\s+do\s+you\s+know\s+about\s+how\s+i\s+like\s+to\s+work\b/.test(normalized) ||
+    /\bwhat\b.*\b(?:stable\s+user\s+memory|recent\s+context|only\s+recent\s+context)\b/.test(normalized)
+  );
+}
+
+export function formatAgentDoctrinePreferenceStatus(preferences: string[]): string {
+  if (preferences.length === 0) {
+    return 'I do not have any saved interaction preferences for this chat yet.';
+  }
+
+  const lines = preferences.map((preference) => {
+    const match = preference.match(/^Agent interaction preference \[([a-z_]+)\]:\s*(.+)$/i);
+    if (!match) {
+      return `- ${preference}`;
+    }
+    const dimension = match[1].replace(/_/g, ' ');
+    return `${dimension}: ${match[2]}`;
+  });
+
+  return ['Here is what I am using for how I talk with you.', ...lines].join('\n\n');
 }
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
