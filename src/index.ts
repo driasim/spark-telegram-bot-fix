@@ -2757,7 +2757,7 @@ bot.command('loop', async (ctx) => {
 export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
   if (!requireAdmin(ctx)) return;
 
-  const raw = rawOverride ?? ctx.message.text.replace('/recursive', '').trim();
+  const raw = rawOverride ?? ctx.message.text.replace(/^\/recursive(?:@[A-Za-z0-9_]+)?\b/i, '').trim();
   const parsed = parseRecursiveCommand(raw);
   if (!parsed) return ctx.reply(renderRecursiveHelp());
 
