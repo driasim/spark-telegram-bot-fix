@@ -2765,7 +2765,7 @@ function outcomeTraceTitle(outcome: SparkWorkspaceOutcome, index: number): strin
 function traceTimelineDetail(item: RecursiveTraceView['timeline'][number]): string | null {
   if (item.kind !== 'outcome') return null;
   const metricMatch = /(overall score|scenario score|builder chip loop best metric|average composite score|autoloop cycle count|domain chip quality score)\s+[-+]?\d+(?:\.\d+)?/i.exec(item.summary);
-  if (metricMatch) return metricMatch[0].toLowerCase();
+  if (metricMatch) return metricMatch[0].toLowerCase().replace(/^overall score\b/, 'current run');
   return null;
 }
 
@@ -2962,7 +2962,9 @@ function friendlyArtifactKind(kind: string | null | undefined): string {
 }
 
 function formatMetricLabel(value: string | null | undefined): string {
-  return (value || 'metric').replace(/_/g, ' ').replace(/\s*:\s*/g, ' / ');
+  const normalized = (value || 'metric').replace(/_/g, ' ').replace(/\s*:\s*/g, ' / ');
+  if (normalized === 'overall score') return 'current run';
+  return normalized;
 }
 
 function formatNumber(value: number): string {
