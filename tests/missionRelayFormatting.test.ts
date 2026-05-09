@@ -8,6 +8,7 @@ import {
   heartbeatIntervalMsForTests,
   formatProviderCompletionForTelegram,
   isCompletionDeliveryCachedForTests,
+  loadCompletionDeliveryCacheForTests,
   markMissionRelayCancelled,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
@@ -996,6 +997,47 @@ void (async () => {
     console.log(`ok - ${name}`);
   } catch (error) {
     console.error(`not ok - ${name}`);
+    throw error;
+  }
+
+  const persistentName = 'persists completed mission handoff dedupe across relay restarts';
+  try {
+    resetMissionRelayDeliveryStateForTests();
+    const missionId = `spark-persisted-completion-${process.pid}-${Date.now()}`;
+    const subscription = {
+      missionId,
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-persisted-completion',
+      goal: 'Build a restart-safe completion.',
+      createdAt: '2026-05-09T00:00:00Z'
+    };
+    const event = {
+      type: 'mission_completed' as const,
+      missionId
+    };
+    const completion = {
+      providerLabel: 'codex',
+      response: 'Built the restart-safe completion handoff.'
+    };
+    const bot = {
+      telegram: {
+        sendMessage: async () => {}
+      }
+    };
+
+    await sendFetchedCompletionSummaryForTests(bot as any, 12345, subscription, event, 'normal', completion);
+    assert.equal(isCompletionDeliveryCachedForTests(missionId), true);
+
+    resetMissionRelayDeliveryStateForTests();
+    assert.equal(isCompletionDeliveryCachedForTests(missionId), false);
+
+    await loadCompletionDeliveryCacheForTests();
+    assert.equal(isCompletionDeliveryCachedForTests(missionId), true);
+    assert.equal(claimCompletionDeliveryForTests(missionId), false);
+    console.log(`ok - ${persistentName}`);
+  } catch (error) {
+    console.error(`not ok - ${persistentName}`);
     throw error;
   }
 })();

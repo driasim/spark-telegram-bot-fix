@@ -101,6 +101,7 @@ interface MissionBoardEntry {
 const LEGACY_REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const REGISTRY_PATH = resolveStatePath(`.spark-spawner-missions-${getRelayProfile()}-${getRelayPort()}.json`);
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
+const COMPLETION_DELIVERY_PATH = resolveStatePath(`.spark-telegram-completions-${getRelayProfile()}-${getRelayPort()}.json`);
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
@@ -112,6 +113,7 @@ const heartbeatLastMessages = new Map<string, string>();
 const registry = new Map<string, MissionSubscription>();
 const MISSION_STATE_CACHE_TTL_MS = 6 * 60 * 60_000;
 let registryLoaded = false;
+let completionDeliveryCacheLoaded = false;
 let relayServer: Server | null = null;
 const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
@@ -335,6 +337,23 @@ async function persistRegistry(): Promise<void> {
   }
 }
 
+async function loadCompletionDeliveryCache(): Promise<void> {
+  if (completionDeliveryCacheLoaded) return;
+  completionDeliveryCacheLoaded = true;
+  const delivered = await readJsonFile<string[]>(COMPLETION_DELIVERY_PATH);
+  if (!Array.isArray(delivered)) return;
+  for (const missionId of delivered) {
+    if (typeof missionId === 'string' && missionId.trim()) {
+      completionDeliveryCache.add(missionId.trim());
+    }
+  }
+}
+
+async function persistCompletionDeliveryCache(): Promise<void> {
+  const delivered = Array.from(completionDeliveryCache).slice(-1000);
+  await writeJsonAtomic(COMPLETION_DELIVERY_PATH, delivered);
+}
+
 export async function registerMissionRelay(input: MissionSubscription): Promise<void> {
   await loadRegistry();
   const subscription = {
@@ -429,12 +448,13 @@ function releaseCompletionDeliveryClaim(missionId: string): void {
   completionDeliveryInFlight.delete(missionId.trim());
 }
 
-function markCompletionDelivered(missionId: string): void {
+async function markCompletionDelivered(missionId: string): Promise<void> {
   const normalized = missionId.trim();
   if (!normalized) return;
   completionDeliveryCache.add(normalized);
   completionDeliveryInFlight.delete(normalized);
-  void forgetMissionRelay(normalized);
+  await persistCompletionDeliveryCache();
+  await forgetMissionRelay(normalized);
 }
 
 function subscriptionBelongsToThisRelay(entry: MissionSubscription): boolean {
@@ -748,7 +768,7 @@ async function sendFetchedCompletionSummary(
     const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
     await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
   }
-  markCompletionDelivered(event.missionId);
+  await markCompletionDelivered(event.missionId);
   await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
   return chunks.length;
 }
@@ -1456,6 +1476,7 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   openTaskStartCache.clear();
   completionDeliveryCache.clear();
   completionDeliveryInFlight.clear();
+  completionDeliveryCacheLoaded = false;
   cancelledMissionCache.clear();
   pausedMissionCache.clear();
 }
@@ -1481,6 +1502,10 @@ export async function sendFetchedCompletionSummaryForTests(
   completion: MissionCompletionSummary
 ): Promise<number> {
   return sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+}
+
+export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
+  await loadCompletionDeliveryCache();
 }
 
 function heartbeatKey(event: DeliverableRelayEvent): string {
@@ -1749,6 +1774,7 @@ async function recoverMissionRelaySubscription(bot: Telegraf, subscription: Miss
 }
 
 async function recoverMissionRelaySubscriptions(bot: Telegraf): Promise<void> {
+  await loadCompletionDeliveryCache();
   await loadRegistry();
   const subscriptions = Array.from(registry.values()).filter(subscriptionBelongsToThisRelay);
   if (subscriptions.length) {
@@ -2068,6 +2094,7 @@ export function missionRelayHealthPayload(): MissionRelayHealthPayload {
 }
 
 export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }> {
+  await loadCompletionDeliveryCache();
   await loadRegistry();
 
   if (relayServer) {
@@ -2256,7 +2283,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
             releaseCompletionDeliveryClaim(event.missionId);
             throw error;
           }
-          markCompletionDelivered(event.missionId);
+          await markCompletionDelivered(event.missionId);
           await handleMissionCompletionMemory(bot, chatId, subscription, event, extracted.providerLabel, extracted.response);
           writeJson(res, 200, { ok: true, chunks: chunks.length });
           return;
