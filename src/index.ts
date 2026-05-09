@@ -1082,6 +1082,14 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
 bot.command('probe', handleAgentRouteProbeCommand);
 bot.command('route_probe', handleAgentRouteProbeCommand);
 
+async function handleCapabilityLedgerReviewCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await runAocProbeBatch(ctx, AOC_ALL_ROUTE_KEYS);
+}
+
+bot.command('ledger', handleCapabilityLedgerReviewCommand);
+bot.command('capabilities', handleCapabilityLedgerReviewCommand);
+
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
   const report = await conversation.getConversationFrameDiagnostics(ctx.from);
@@ -3261,9 +3269,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await handleRecursiveCommand(ctx, naturalRecursiveCommand.rawCommand);
     return;
   }
-  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text, {
+  const naturalCreatorIntent = earlyBuildIntent || !conversation.isAdmin(ctx.from) ? null : parseNaturalCreatorMissionIntent(text, {
     recentMessages: naturalRecursiveMessages.slice(-15)
-  }) : null;
+  });
   if (naturalCreatorIntent) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
@@ -3453,7 +3461,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
-    if (pendingClarification && isPendingClarificationFollowup(text)) {
+    const shouldAnswerPendingClarification = Boolean(
+      pendingClarification &&
+      isPendingClarificationFollowup(text) &&
+      (!buildIntent || (!buildIntent.projectPath && /\b(?:it|this|that)\b/i.test(text)))
+    );
+    if (shouldAnswerPendingClarification) {
       await handleClarificationAnswers(ctx, text);
       return;
     }

@@ -1,14 +1,12 @@
 import axios from 'axios';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { spawnerAxiosOptions } from './spawnerAuth';
+import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
 import { DEFAULT_LOCAL_SERVICE_TIMEOUT_MS, localServiceDefaultTimeoutMs, positiveIntegerEnv } from './timeoutConfig';
 import type { SkillTier } from './userTier';
 
-const SPAWNER_UI_URL = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
-const PROJECT_PREVIEW_URL =
-  process.env.SPARK_PROJECT_PREVIEW_URL ||
-  process.env.SPAWNER_UI_PUBLIC_URL ||
-  SPAWNER_UI_URL;
+const SPAWNER_UI_URL = resolveSpawnerUiUrl();
+const PROJECT_PREVIEW_URL = resolveProjectPreviewBaseUrl();
 const SPARK_RUN_PROJECT_PATH = process.env.SPARK_RUN_PROJECT_PATH?.trim();
 
 type MissionAction = 'status' | 'pause' | 'resume' | 'kill';
@@ -349,7 +347,7 @@ function formatLatestMission(entry: BoardEntry): string[] {
 }
 
 function spawnerPublicUrl(): string {
-  return (process.env.SPAWNER_UI_PUBLIC_URL || SPAWNER_UI_URL).replace(/\/+$/, '');
+  return resolveSpawnerPublicUrl().replace(/\/+$/, '');
 }
 
 function creatorMissionKanbanUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
@@ -365,11 +363,101 @@ function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUr
 }
 
 function formatCreatorMode(value: string | undefined): string {
-  return (value || 'unknown').replace(/_/g, ' ');
+  const normalized = (value || 'unknown').replace(/_/g, ' ');
+  if (value === 'full_path') return 'full creator system';
+  if (value === 'specialization_path') return 'specialization path';
+  if (value === 'domain_chip') return 'domain chip';
+  return normalized;
 }
 
 function formatCreatorReadiness(value: string | undefined): string {
   return (value || 'unknown').replace(/_/g, ' ');
+}
+
+function formatCreatorPrivacy(value: string | undefined): string {
+  if (value === 'local_only') return 'private workspace';
+  if (value === 'github_pr') return 'GitHub review';
+  if (value === 'swarm_shared') return 'Swarm sharing';
+  return value || 'private workspace';
+}
+
+function formatCreatorCheckHeadline(status: string): string {
+  if (status === 'passed') return '🟢 Creator checks passed.';
+  if (status === 'failed') return '🔴 Creator checks need attention.';
+  if (status === 'blocked') return '🟡 Creator checks are blocked.';
+  return '🟡 Creator checks finished.';
+}
+
+function creatorValidationIcon(status: string | undefined): string {
+  const normalized = (status || '').toLowerCase();
+  if (/\b(pass|success|validated|complete)\b/.test(normalized)) return '🟢';
+  if (/\b(fail|error|reject)\b/.test(normalized)) return '🔴';
+  if (/\b(skip|block|wait|pending)\b/.test(normalized)) return '🟡';
+  return '⚪';
+}
+
+export function formatCreatorDomainLabel(value: string | undefined): string {
+  const raw = (value || '').trim();
+  if (!raw) return 'Unknown domain';
+
+  const words = raw
+    .replace(/[_/]+/g, '-')
+    .split(/-|\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  const controlWords = new Set([
+    'a',
+    'an',
+    'the',
+    'private',
+    'local',
+    'public',
+    'shared',
+    'network',
+    'benchmark',
+    'benchmarked',
+    'specialization',
+    'specialisation',
+    'path',
+    'autoloop',
+    'auto',
+    'loop',
+    'use',
+    'create',
+    'creator',
+    'mission',
+    'with',
+    'for'
+  ]);
+  const kept = words.filter((word) => !controlWords.has(word.toLowerCase()));
+  const labelWords = kept.length > 0 ? kept : words;
+
+  return labelWords
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (['ai', 'api', 'llm', 'ui', 'ux', 'yc'].includes(lower)) return lower.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+function formatCreatorArtifactLabel(value: string): string {
+  const labels: Record<string, string> = {
+    domain_chip: 'domain chip',
+    benchmark_pack: 'benchmark pack',
+    specialization_path: 'specialization path',
+    autoloop_policy: 'autoloop policy',
+    tool_integration: 'Telegram/Spawner wiring',
+    swarm_publish_packet: 'Swarm review packet',
+    creator_report: 'creator report'
+  };
+  return labels[value] || value.replace(/_/g, ' ');
+}
+
+function formatCreatorArtifactSummary(artifacts: string[] | undefined): string {
+  const usable = Array.isArray(artifacts) ? artifacts.filter((artifact) => artifact.trim()) : [];
+  if (usable.length === 0) return 'workspace plan';
+  return usable.slice(0, 6).map(formatCreatorArtifactLabel).join(', ');
 }
 
 function latestCreatorValidationRun(trace: CreatorMissionTrace): CreatorValidationRun | null {
@@ -384,9 +472,8 @@ function countValidationResults(run: CreatorValidationRun | null, status: Creato
 function formatValidationResultLine(result: CreatorValidationCommandResult): string {
   const artifact = result.artifact_id || result.artifact_type || 'unknown artifact';
   const status = result.status || 'unknown';
-  const command = result.command || 'unknown command';
   const suffix = result.error ? ` (${result.error})` : '';
-  return `- ${status}: ${artifact} - ${command}${suffix}`;
+  return `${status}: ${artifact}${suffix}`;
 }
 
 export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUrl = spawnerPublicUrl()): string {
@@ -397,9 +484,6 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const trace = result.trace || {};
   const intent = trace.intent_packet || {};
   const missionId = result.missionId || trace.mission_id || 'unknown';
-  const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
-    ? trace.artifacts.join(', ')
-    : 'none yet';
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const taskCount = typeof result.taskCount === 'number'
     ? result.taskCount
@@ -409,15 +493,15 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
 
   const lines = [
-    'Creator mission planned.',
-    '',
+    'Creator mission planned',
     `Mission: ${missionId}`,
-    `Mode: ${formatCreatorMode(trace.creator_mode)}`,
-    `Domain: ${intent.target_domain || 'unknown'}`,
-    `Privacy: ${intent.privacy_mode || 'unknown'}`,
-    `Risk: ${intent.risk_level || 'unknown'}`,
-    `Artifacts: ${artifacts}`,
+    `Mode: ${String(trace.creator_mode || 'unknown').replace(/_/g, ' ')}`,
+    `Domain: ${formatCreatorDomainLabel(intent.target_domain)}`,
+    `Privacy: ${intent.privacy_mode || 'local_only'}`,
+    `Risk: ${intent.risk_level || 'medium'}`,
+    `Artifacts: ${Array.isArray(trace.artifacts) && trace.artifacts.length ? trace.artifacts.join(', ') : 'none yet'}`,
     ...(taskCount !== null ? [`Tasks: ${taskCount} queued`] : []),
+    '',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Mission board: ${kanbanUrl}`
   ];
@@ -443,22 +527,23 @@ export function formatCreatorMissionStatusSummary(
   const artifactCount = Array.isArray(trace.artifact_manifests) ? trace.artifact_manifests.length : trace.artifacts?.length || 0;
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
 
+  const domainLabel = formatCreatorDomainLabel(intent.target_domain);
   return [
-    'Creator mission status.',
-    '',
+    'Creator mission status',
     `Mission: ${missionId}`,
-    `Domain: ${intent.target_domain || 'unknown'}`,
+    `Domain: ${domainLabel}`,
     `Stage: ${formatCreatorReadiness(trace.current_stage)} (${formatCreatorReadiness(trace.stage_status)})`,
     `Publish readiness: ${formatCreatorReadiness(trace.publish_readiness)}`,
     `Artifacts: ${artifactCount}`,
-    `Manifest issues: ${issueCount}`,
+    issueCount > 0 ? `Manifest issues: ${issueCount}` : null,
     latestRun
       ? `Latest validation: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
-      : 'Latest validation: none yet',
-    ...(blockers.length > 0 ? [`Blockers: ${blockers.slice(0, 3).join('; ')}`] : []),
+      : 'Latest validation: not run yet',
+    ...(blockers.length > 0 ? [`Blockers: ${blockers[0]}`] : []),
+    '',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Mission board: ${kanbanUrl}`
-  ].join('\n');
+  ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
 export function formatCreatorMissionExecutionSummary(
@@ -474,18 +559,20 @@ export function formatCreatorMissionExecutionSummary(
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const headline = result.started
-    ? 'Creator mission execution started.'
+    ? 'Creator mission execution started'
     : result.skipped
-      ? 'Creator mission execution skipped.'
-      : 'Creator mission execution accepted.';
+      ? 'Creator mission execution was already started'
+      : 'Creator mission execution accepted';
+  const domainLabel = formatCreatorDomainLabel(trace.intent_packet?.target_domain);
 
   return [
     headline,
-    '',
     `Mission: ${missionId}`,
     ...(result.providerId ? [`Provider: ${formatProviderLabel(result.providerId)}`] : []),
-    ...(result.reason ? [`Reason: ${result.reason}`] : []),
     ...(result.projectPath ? [`Workspace: ${result.projectPath}`] : []),
+    ...(domainLabel !== 'Unknown domain' ? [domainLabel] : []),
+    ...(result.reason ? [`Note: ${result.reason}`] : []),
+    '',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Mission board: ${kanbanUrl}`
   ].join('\n');
@@ -509,14 +596,22 @@ export function formatCreatorMissionValidationSummary(
   const status = result.status || run?.status || 'unknown';
 
   return [
-    `Creator mission validation ${status}.`,
-    '',
+    `Creator mission validation ${status}`,
     `Mission: ${missionId}`,
     `Commands: ${results.length}`,
     `Passed: ${countValidationResults(run, 'passed')}`,
     `Failed: ${countValidationResults(run, 'failed')}`,
     `Skipped: ${countValidationResults(run, 'skipped')}`,
-    ...(failedOrSkipped.length > 0 ? ['', 'Needs attention:', ...failedOrSkipped.map(formatValidationResultLine)] : []),
+    ...(failedOrSkipped.length > 0 ? [
+      '',
+      'Needs attention:',
+      ...failedOrSkipped.map((item) => {
+        const artifact = item.artifact_id || item.artifact_type || 'unknown artifact';
+        const command = item.command || item.error || 'no command recorded';
+        return `${artifact} - ${command}`;
+      })
+    ] : []),
+    '',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Mission board: ${kanbanUrl}`
   ].join('\n');
