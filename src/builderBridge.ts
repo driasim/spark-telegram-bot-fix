@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants, mkdirSync, readFileSync } from 'node:fs';
-import { DatabaseSync } from 'node:sqlite';
+import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -16,6 +15,13 @@ import {
 import { withHiddenWindows } from './hiddenProcess';
 
 const execFileAsync = promisify(execFile);
+
+function processOutputText(value: unknown): string {
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8');
+  }
+  return typeof value === 'string' ? value : '';
+}
 
 type BuilderBridgeMode = 'auto' | 'off' | 'required';
 
@@ -366,7 +372,7 @@ export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliver
     provider_id: input.voiceMedia.providerId || tts.provider_id || 'unknown',
     ready: true,
     mime_type: input.voiceMedia.mimeType,
-    voice_compatible: input.voiceMedia.voiceCompatible,
+    voice_compatible: input.voiceMedia.voiceCompatible
   };
   const latency = objectValue(state.latency);
   latency.send_voice_ms = Math.max(0, Math.trunc(input.sendMs));
@@ -383,7 +389,7 @@ export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliver
     last_send_voice_status: deliveryReady ? 'success' : (input.failureReason ? 'failure' : 'document_fallback'),
     last_failure_reason: input.failureReason || '',
     telegram_message_id_present: telegramMessageIdPresent(input.telegramResult),
-    send_method: input.sendMethod,
+    send_method: input.sendMethod
   };
   const sourceLedger = Array.isArray(state.source_ledger) ? [...state.source_ledger] : [];
   if (!sourceLedger.includes('telegram-runner-sendVoice-trace')) {
@@ -391,41 +397,6 @@ export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliver
   }
   state.source_ledger = sourceLedger;
   return state;
-}
-
-export async function recordBuilderVoiceDeliveryProof(input: BuilderVoiceDeliveryProofInput): Promise<void> {
-  const config = resolveBridgeConfig();
-  if (config.mode === 'off') {
-    return;
-  }
-  const stateDbPath = path.join(config.builderHome, 'state.db');
-  const payload = JSON.stringify(buildBuilderVoiceDeliveryRuntimeState(input));
-  mkdirSync(path.dirname(stateDbPath), { recursive: true });
-  const db = new DatabaseSync(stateDbPath);
-  try {
-    db.exec(`
-      PRAGMA busy_timeout = 5000;
-      CREATE TABLE IF NOT EXISTS runtime_state (
-        state_key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-    `);
-    const updatedAt = new Date().toISOString();
-    const statement = db.prepare(`
-      INSERT INTO runtime_state (state_key, value, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(state_key) DO UPDATE SET
-        value = excluded.value,
-        updated_at = excluded.updated_at
-    `);
-    statement.run('telegram:voice:last_runtime_state', payload, updatedAt);
-    if (input.telegramUserId) {
-      statement.run(`telegram:voice:last_runtime_state:${input.telegramUserId}`, payload, updatedAt);
-    }
-  } finally {
-    db.close();
-  }
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1498,7 +1469,7 @@ export function formatRouteProbeReply(payload: Record<string, unknown>): string 
     lines.push(`- Evidence: ${summary}`);
   }
   if (eventId) {
-    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType})` : ''}`);
+    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType.replace(/_/g, ' ')})` : ''}`);
   }
   lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
   return lines.join('\n');
@@ -1525,18 +1496,33 @@ export async function runBuilderRouteProbe(capabilityKey: string): Promise<Build
     '--json',
   ];
 
-  const { stdout, stderr } = await execFileAsync(
-    config.pythonCommand,
-    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
-    withHiddenWindows({
-      cwd: config.builderRepo,
-      env: pythonSourceEnv(config),
-      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
-      maxBuffer: 1024 * 1024,
-    })
-  );
+  let stdout = '';
+  let stderr = '';
+  let commandError: unknown = null;
+  try {
+    const result = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    stdout = processOutputText(result.stdout);
+    stderr = processOutputText(result.stderr);
+  } catch (error) {
+    const execError = error as { stdout?: unknown; stderr?: unknown };
+    stdout = processOutputText(execError.stdout);
+    stderr = processOutputText(execError.stderr);
+    commandError = error;
+  }
   const trimmedStdout = stdout.trim();
   if (!trimmedStdout) {
+    if (commandError) {
+      throw commandError;
+    }
     throw new Error(`Builder route probe returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
@@ -2064,6 +2050,5 @@ function parseBuilderBridgeVoiceMedia(value: unknown): BuilderBridgeVoiceMedia |
     voiceId: String(media.voice_id || '').trim() || undefined,
     spokenText: String(media.spoken_text || '').trim() || undefined,
     synthesisMs: Number.isFinite(Number(media.synthesis_ms)) ? Number(media.synthesis_ms) : undefined,
-    runtimeState: objectValue(media.runtime_state),
   };
 }

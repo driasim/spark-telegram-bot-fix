@@ -39,11 +39,13 @@ import {
   isLocalSparkServiceRequest,
   isMissionExecutionConfirmation,
   isMemoryAcknowledgementReply,
+  isMemoryDoctorRequest,
   isLowInformationLlmReply,
   isStandaloneAgentDoctrinePreference,
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
   parseNaturalChipCreateIntent,
+  parseNaturalCreatorMissionIntent,
   parseMissionUpdatePreferenceIntent,
   parseSpawnerBoardNaturalIntent,
   renderChatRuntimeFailureReply,
@@ -602,6 +604,25 @@ test('extracts natural domain chip create requests without slash-command handoff
     'Telegram memory routing'
   );
   assert.equal(parseNaturalChipCreateIntent('which chips are active?'), null);
+});
+
+test('keeps Memory Doctor and answer-audit requests out of stale creator context', () => {
+  const context = {
+    recentMessages: [
+      'Planning Spark QA Operator benchmark path creator mission...',
+      'Creator plan ready. Build Spark QA Operator with a domain chip, benchmark pack, specialization path, and autoloop policy.'
+    ]
+  };
+
+  for (const prompt of [
+    'run memory doctor for last request',
+    'audit previous turn',
+    'diagnose last answer',
+    'you went blank and lost context, what happened?'
+  ]) {
+    assert.equal(isMemoryDoctorRequest(prompt), true, `${prompt} should be recognized as a Memory Doctor request`);
+    assert.equal(parseNaturalCreatorMissionIntent(prompt, context), null, `${prompt} should not plan a creator mission`);
+  }
 });
 
 test('detects empty or generic LLM failures', () => {

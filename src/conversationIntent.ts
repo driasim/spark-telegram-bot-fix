@@ -163,6 +163,12 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (!normalized || parseBuildIntent(normalized)) {
     return null;
   }
+  if (isVoiceOnboardingSetupQuestion(normalized)) {
+    return null;
+  }
+  if (shouldPreferConversationalIdeation(normalized)) {
+    return null;
+  }
   if (
     /\bwhere\s+(?:do|does|are|is)\b/i.test(normalized) &&
     /\b(?:lack|lacks|weak|weakness|weaknesses|missing|limitations?)\b/i.test(normalized) &&
@@ -173,25 +179,53 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (/^(?:can|could|would|should)\s+you\s+improve\b/i.test(normalized)) {
     return null;
   }
+  const asksSparkToChooseImprovement =
+    /\b(?:what|which)\b.{0,40}\b(?:you|spark|agent)\b.{0,40}\b(?:improve|upgrade|repair|fix|work\s+on)\b/i.test(normalized) ||
+    /\b(?:what|which)\b.{0,40}\b(?:should|would|could)\b.{0,20}\b(?:you|spark|agent)\b.{0,40}\b(?:improve|upgrade|repair|fix|work\s+on)\b/i.test(normalized) ||
+    /\b(?:choose|pick|decide)\b.{0,40}\b(?:improvement|upgrade|capability|weak\s*spot)\b/i.test(normalized);
+  if (asksSparkToChooseImprovement) {
+    return 'Choose the highest-leverage Spark self-improvement for this user, using recent weak-spot evidence, safe probes, rollback, and eval coverage before changing behavior.';
+  }
+
   const mentionsSparkSelf =
-    /\b(?:spark|you|your|agent|self[-\s]*awareness|introspection|capabilit(?:y|ies)|tools?|routes?|systems?)\b/i.test(normalized);
+    /\b(?:spark|you|your|yourself|agent|agents?|self[-\s]*awareness|introspection|capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?|tools?|routes?|systems?|brain|memory|memories|reports?|daily\s+reports?|workflow|workflows?)\b/i.test(normalized);
   const mentionsImprove =
     /\b(?:improve|upgrade|tighten|fix|repair|strengthen|make better|close|reduce)\b/i.test(normalized);
   const mentionsGap =
     /\b(?:weak\s*spots?|gaps?|lacks?|limitations?|missing|where\s+(?:you|it)\s+lack|not\s+good|confidence|evidence|probes?)\b/i.test(normalized);
-  if (!mentionsSparkSelf || !mentionsImprove || !mentionsGap) {
-    return null;
+  if (mentionsSparkSelf && mentionsImprove && mentionsGap) {
+    const cleanupPatterns = [
+      /^(?:can\s+you\s+|please\s+|spark[, ]*)?/i,
+      /\b(?:from|using|with)\s+(?:your\s+)?(?:llm\s+)?(?:wiki|knowledge\s*base|kb|obsidian\s+vault)\b/ig,
+    ];
+    let goal = normalized;
+    for (const pattern of cleanupPatterns) {
+      goal = goal.replace(pattern, '').trim();
+    }
+    goal = goal.replace(/[?.!]+$/, '').trim();
+    return goal.length >= 6 ? goal : 'Improve Spark weak spots with probe-first evidence';
   }
-  const cleanupPatterns = [
-    /^(?:can\s+you\s+|please\s+|spark[, ]*)?/i,
-    /\b(?:from|using|with)\s+(?:your\s+)?(?:llm\s+)?(?:wiki|knowledge\s*base|kb|obsidian\s+vault)\b/ig,
-  ];
-  let goal = normalized;
-  for (const pattern of cleanupPatterns) {
-    goal = goal.replace(pattern, '').trim();
+
+  const asksCapabilityChange =
+    /\b(?:add|install|enable|connect|wire|integrate|give|build|create|scaffold|develop|ship|set\s+up|schedule|automate|make|change|upgrade|improve)\b/i.test(normalized) &&
+    /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?|tools?|routes?|systems?|brain|memory|memories|reports?|daily\s+reports?|email|emails|gmail|calendar|inbox|voice|speech|notifications?|reminders?|workflow|workflows?|browser|browse|files?|filesystem|agents?)\b/i.test(normalized);
+  if (mentionsSparkSelf && asksCapabilityChange) {
+    return `Improve Spark capability safely: ${normalized.replace(/[?.!]+$/, '').trim()}. Treat this as a capability proposal: identify the owner system, required permissions, safe probe, human approval boundary, rollback path, and smallest implementation/eval before claiming it is live.`;
   }
-  goal = goal.replace(/[?.!]+$/, '').trim();
-  return goal.length >= 6 ? goal : 'Improve Spark weak spots with probe-first evidence';
+
+  return null;
+}
+
+function isVoiceOnboardingSetupQuestion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  const simplified = normalized.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return (
+    /\bvoice\b/.test(simplified) &&
+    (
+      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(normalized) ||
+      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(simplified)
+    )
+  );
 }
 
 export function isSparkSelfMemoryDiagnosticQuestion(text: string): boolean {
@@ -301,8 +335,20 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
   const wantPattern =
     /\bi\s+(?:need|want|could\s+use|would\s+like)\b[^.\n]{0,30}\b(?:a|an|another|new)?\s*(?:domain[-\s]*chip|chip)\b/i;
   const imperativePattern = /^\s*(?:a\s+)?new\s+(?:domain[-\s]*)?chip\s+(?:for|that|which|to)\b/i;
+  const namedPattern = /^\s*(?:a\s+)?(?:new\s+)?domain[-\s]*chip\s+(?:called|named)\s+\S/i;
 
-  if (!createPattern.test(normalized) && !wantPattern.test(normalized) && !imperativePattern.test(normalized)) {
+  if (
+    /\b(?:help\s+me\s+)?(?:shape|scope|brainstorm|think\s+through|plan|design)\b/i.test(normalized) &&
+    (
+      /\b(?:before|prior\s+to)\s+(?:creating|building|making|scaffolding|generating|starting)\b/i.test(normalized) ||
+      /\b(?:do\s+not|don't|dont)\s+(?:build|create|make|scaffold|generate|start)\s+yet\b/i.test(normalized)
+    ) &&
+    /\b(?:domain[-\s]*chip|chip)\b/i.test(normalized)
+  ) {
+    return null;
+  }
+
+  if (!createPattern.test(normalized) && !wantPattern.test(normalized) && !imperativePattern.test(normalized) && !namedPattern.test(normalized)) {
     return null;
   }
 
@@ -329,10 +375,386 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
   return brief.length >= 3 ? brief : null;
 }
 
+export function isMemoryDoctorRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+
+  if (/\bmemory\s+doctor\b/.test(normalized)) {
+    return true;
+  }
+
+  if (
+    /^(?:please\s+)?(?:run|start|use|invoke|call|ask|open)\s+(?:the\s+)?(?:memory\s+)?(?:doctor|audit|diagnostic)\b/.test(normalized) &&
+    /\b(?:memory|context|recall|turn|reply|answer|request|message|trace|previous|last|recent|current)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (
+    /^(?:please\s+)?(?:audit|diagnose|diagnostic|debug|trace|inspect|explain)\s+(?:the\s+)?(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  const namesMemoryFailure =
+    /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+did\s+i\s+just\s+tell\s+you)\b/.test(normalized);
+  const asksForDiagnosis =
+    /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/.test(normalized);
+  return namesMemoryFailure && asksForDiagnosis;
+}
+
+export interface NaturalCreatorMissionIntent {
+  brief: string;
+  privacyMode: 'local_only' | 'github_pr' | 'swarm_shared';
+  riskLevel: 'low' | 'medium' | 'high';
+  reason: string;
+}
+
+export interface NaturalCreatorMissionContext {
+  recentMessages?: string[];
+}
+
+export interface NaturalRecursiveCommandIntent {
+  rawCommand: string;
+  reason: string;
+}
+
+export interface NaturalRecursiveCommandTarget {
+  pathId: string;
+  chipKey?: string | null;
+  label: string;
+  aliases?: string[];
+}
+
+export interface NaturalRecursiveCommandContext {
+  recentMessages?: string[];
+  targets?: NaturalRecursiveCommandTarget[];
+}
+
+function normalizeCreatorMissionPrivacy(text: string): NaturalCreatorMissionIntent['privacyMode'] {
+  if (/\b(?:github|pull\s+request|pr)\b/i.test(text)) return 'github_pr';
+  if (/\b(?:swarm|network|shared|publish|public)\b/i.test(text)) return 'swarm_shared';
+  return 'local_only';
+}
+
+function normalizeCreatorMissionRisk(text: string): NaturalCreatorMissionIntent['riskLevel'] {
+  if (/\b(?:public|network|publish|production|secret|token|auth|payment|financial|trading|delete|destructive)\b/i.test(text)) {
+    return 'high';
+  }
+  if (/\b(?:recursive|autoloop|specialization|benchmark|swarm|creator|qa|test|validator|review)\b/i.test(text)) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function isQaOperatorCreatorMission(text: string): boolean {
+  return (
+    /\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(text) &&
+    /\b(?:benchmark|benchmarks|eval|evals|test\s+suite|qa|recursive|recursion|autoloop|specialization|path|creator|improve|better|standard|standardize|create|build|make|prepare|wire|connect)\b/i.test(text)
+  );
+}
+
+function isContextualQaOperatorCreatorMission(text: string, contextText: string): boolean {
+  if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
+  const contextNamesQaOperator =
+    /\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(contextText);
+  if (!contextNamesQaOperator) return false;
+  const currentAsksForCreatorWork =
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text);
+  const currentNamesQaWork =
+    /\b(?:benchmark|benchmarks|eval|evals|test\s+suite|qa|recursive|recursion|autoloop|specialization|path|creator|review|telegram|workspace|spawner|canvas|kanban)\b/i.test(text);
+  return currentAsksForCreatorWork && currentNamesQaWork;
+}
+
+function isCreatorSystemMission(text: string): boolean {
+  if (/^\s*\//.test(text)) return false;
+  if (/\b(?:what|why|how)\s+(?:is|are|does|do)\b/i.test(text) && !/\b(?:create|build|make|prepare|wire|connect|improve|run)\b/i.test(text)) {
+    return false;
+  }
+  return (
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text) &&
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand)\b/i.test(text)
+  );
+}
+
+function isAmbiguousCreatorFollowup(text: string): boolean {
+  return /\b(?:it|this|that|these|those|current|same|what\s+we(?:'re| are)?\s+(?:working\s+on|discussing|building)|what\s+we\s+talked\s+about)\b/i.test(text);
+}
+
+function creatorContextText(context: NaturalCreatorMissionContext = {}): string {
+  return (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-15)
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isContextualCreatorSystemMission(text: string, contextText: string): boolean {
+  if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
+  return (
+    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text) &&
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text)
+  );
+}
+
+function qaOperatorCreatorBrief(text: string): string {
+  const focusParts = [];
+  if (/\btelegram\b/i.test(text)) focusParts.push('Telegram natural-language QA flows');
+  if (/\b(?:workspace|swarm)\b/i.test(text)) focusParts.push('Spark Swarm Workspace sync and reporting');
+  if (/\b(?:spawner|canvas|kanban)\b/i.test(text)) focusParts.push('Spawner UI, Canvas, and Kanban creator missions');
+  if (/\b(?:auth|pairing|login)\b/i.test(text)) focusParts.push('auth pairing and failure-message quality');
+  if (/\b(?:recursive|recursion|autoloop)\b/i.test(text)) focusParts.push('recursive autoloop reports and keep/revert decisions');
+  if (/\b(?:benchmark|eval|test\s+suite)\b/i.test(text)) focusParts.push('richer benchmark packs with visible and held-out cases');
+  const focus = focusParts.length > 0
+    ? focusParts.join(', ')
+    : 'Telegram flows, Workspace reports, creator missions, recursive reports, Spawner UI, Canvas, Kanban, auth pairing, and specialization autoloops';
+
+  return [
+    'Improve Spark QA Operator as a private benchmarked specialization path with a gated autoloop.',
+    'Canonical target domain: spark-qa-operator.',
+    'Do not create Spark Telegram, Spark Swarm Workspace, Spawner UI, Canvas, or Kanban as separate root domains; treat them as benchmark lanes and product QA surfaces under Spark QA Operator.',
+    'Reuse and extend the existing Spark QA Operator system first: domain-chip-spark-qa-operator, spark-qa-operator-bench, and specialization-path-spark-qa-operator.',
+    'Make Spark better at QA testing Spark-built products first, then only transfer lessons to user apps after evidence supports it.',
+    `Focus areas: ${focus}.`,
+    'Expand richer benchmark packs with visible cases, held-out cases, trap cases, scoring rubrics, and replayable evidence.',
+    'Use Spark creator-system standards: domain chip contract, benchmark pack, specialization path, autoloop policy, adapter map, validation ledger, local/private boundary, and Swarm review packet only when gates allow it.',
+    'Keep Telegram replies concise and put detailed evidence, traces, screenshots, and benchmark artifacts in Workspace.'
+  ].join(' ');
+}
+
+function normalizeCreatorMissionBrief(text: string, contextText = ''): string {
+  const normalized = text.replace(/\s+/g, ' ').trim().replace(/[.!?]+$/g, '');
+  const combined = [normalized, contextText].filter(Boolean).join(' ');
+  if (isQaOperatorCreatorMission(combined)) {
+    return qaOperatorCreatorBrief(combined);
+  }
+  const briefParts = [
+    normalized,
+    contextText ? `Recent working context: ${contextText}` : '',
+    'Use Spark creator-system standards: creator intent packet, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review packet only when gates allow it.'
+  ];
+  return briefParts.filter(Boolean).join(' ');
+}
+
+export function parseNaturalCreatorMissionIntent(text: string, context: NaturalCreatorMissionContext = {}): NaturalCreatorMissionIntent | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  if (isMemoryDoctorRequest(normalized)) return null;
+  if (shouldPreferConversationalIdeation(normalized)) return null;
+  const contextText = creatorContextText(context);
+  const explicitQaOperatorMission = isQaOperatorCreatorMission(normalized);
+  const contextualQaOperatorMission = isContextualQaOperatorCreatorMission(normalized, contextText);
+  const contextualMission = isContextualCreatorSystemMission(normalized, contextText);
+  if (!explicitQaOperatorMission && !contextualQaOperatorMission && !isCreatorSystemMission(normalized) && !contextualMission) return null;
+  if (isAmbiguousCreatorFollowup(normalized) && !contextText) return null;
+  if (/\b(?:show|list|status|report|trace|review)\b/i.test(normalized) && !/\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|improve|upgrade|expand)\b/i.test(normalized)) {
+    return null;
+  }
+
+  const privacyMode = normalizeCreatorMissionPrivacy(normalized);
+  const qaOperator = explicitQaOperatorMission || contextualQaOperatorMission;
+  return {
+    brief: normalizeCreatorMissionBrief(normalized, contextualMission || contextualQaOperatorMission ? contextText : ''),
+    privacyMode,
+    riskLevel: privacyMode === 'swarm_shared' ? 'high' : normalizeCreatorMissionRisk(normalized),
+    reason: qaOperator
+      ? 'Spark QA Operator creator work needs benchmark packs, held-out checks, autoloop policy, and private Workspace evidence before any network sharing.'
+      : 'Creator-system work needs artifact manifests, benchmark gates, rollback notes, and review boundaries.'
+  };
+}
+
+function naturalRoundCount(text: string): number {
+  const normalized = text.toLowerCase();
+  const numeric = normalized.match(/\b(?:rounds?|passes|iterations?)\s+(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\s+(?:rounds?|passes|iterations?)\b/);
+  if (numeric) return Math.max(1, Math.min(10, Number.parseInt(numeric[1], 10) || 1));
+  if (/\b(?:one|single|a)\s+(?:round|pass|iteration)\b/i.test(text)) return 1;
+  if (/\btwo\s+(?:rounds|passes|iterations)\b/i.test(text)) return 2;
+  if (/\bthree\s+(?:rounds|passes|iterations)\b/i.test(text)) return 3;
+  return 1;
+}
+
+const NATURAL_TARGET_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'at', 'for', 'from', 'in', 'is', 'it', 'me', 'my', 'of', 'on', 'or', 'path', 'report',
+  'show', 'status', 'the', 'this', 'to', 'trace', 'what', 'with'
+]);
+
+function naturalTargetKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function naturalTargetTokens(value: string): string[] {
+  return naturalTargetKey(value)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !NATURAL_TARGET_STOP_WORDS.has(token));
+}
+
+function recursiveChipKeyFromPathId(pathId: string): string | null {
+  const pathKey = pathId.trim();
+  if (/^path:/i.test(pathKey)) return pathKey.replace(/^path:/i, '');
+  const builderChip = pathKey.match(/^path_builder_chip_(.+)$/i)?.[1];
+  if (builderChip) return builderChip.replace(/_/g, '-');
+  return null;
+}
+
+function normalizeNaturalRecursiveTarget(target: NaturalRecursiveCommandTarget): NaturalRecursiveCommandTarget {
+  return {
+    pathId: target.pathId,
+    chipKey: target.chipKey || recursiveChipKeyFromPathId(target.pathId),
+    label: target.label,
+    aliases: target.aliases || []
+  };
+}
+
+function dynamicNaturalRecursiveTarget(text: string, targets: NaturalRecursiveCommandTarget[] | undefined): NaturalRecursiveCommandTarget | null {
+  if (!targets?.length) return null;
+  const textKey = naturalTargetKey(text);
+  const textTokens = new Set(naturalTargetTokens(text));
+  const candidates: Array<{ target: NaturalRecursiveCommandTarget; score: number }> = [];
+
+  for (const rawTarget of targets) {
+    const target = normalizeNaturalRecursiveTarget(rawTarget);
+    const aliases = [target.pathId, target.chipKey || '', target.label, ...(target.aliases || [])]
+      .map(naturalTargetKey)
+      .filter((alias) => alias.length >= 3);
+    let score = 0;
+    for (const alias of aliases) {
+      if (alias.length >= 6 && textKey.includes(alias)) score = Math.max(score, 100 + alias.length);
+      const aliasTokens = naturalTargetTokens(alias);
+      if (aliasTokens.length === 0) continue;
+      const overlap = aliasTokens.filter((token) => textTokens.has(token)).length;
+      const needed = Math.min(3, Math.max(2, Math.ceil(aliasTokens.length * 0.6)));
+      if (overlap >= needed) score = Math.max(score, overlap * 10 + aliasTokens.length);
+    }
+    if (score > 0) candidates.push({ target, score });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates[0]) return null;
+  if (candidates[1] && candidates[1].score === candidates[0].score) return null;
+  return candidates[0].target;
+}
+
+function hasRecursiveContextSignal(text: string): boolean {
+  return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(text);
+}
+
+function knownNaturalRecursiveTarget(text: string): NaturalRecursiveCommandTarget | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const explicitPath = normalized.match(/\bpath:[A-Za-z0-9:_-]+\b/);
+  if (explicitPath) {
+    const pathId = explicitPath[0];
+    if (pathId === 'path:spark-qa-operator') return { pathId, chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+    if (pathId === 'path:startup-yc') return { pathId, chipKey: 'startup-yc', label: 'Startup YC' };
+    return { pathId, chipKey: pathId.replace(/^path:/, ''), label: pathId };
+  }
+  if (/\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(normalized) ||
+      (/\bqa\b/i.test(normalized) && /\b(?:recursive|recursion|loop|round|report|trace|review|decision|improve|improvement)\b/i.test(normalized))) {
+    return { pathId: 'path:spark-qa-operator', chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+  }
+  if (/\bstartup[-\s]+yc\b/i.test(normalized)) {
+    return { pathId: 'path:startup-yc', chipKey: 'startup-yc', label: 'Startup YC' };
+  }
+  if (/\bdomain[-\s]+chip[-\s]+creator\b/i.test(normalized)) {
+    return {
+      pathId: 'path_builder_chip_domain_chip_creator',
+      chipKey: 'domain-chip-creator',
+      label: 'Domain Chip Creator'
+    };
+  }
+  return null;
+}
+
+function naturalRecursiveTarget(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandTarget | null {
+  const direct = knownNaturalRecursiveTarget(text);
+  if (direct) return direct;
+  const dynamicDirect = dynamicNaturalRecursiveTarget(text, context.targets);
+  if (dynamicDirect) return dynamicDirect;
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const canUseContext = /\b(?:it|this|that|same|again|another|more|current|latest|loop|round|pass|iteration|report|readout|summary|status|trace|timeline|evidence|proof|trail|receipts|review|approve|approval|decisions?|blockers?|weakest|weak\s+spot|signal|changed|land|short\s+version|vibe|how'?s|how\s+is|where\s+are\s+we|where\s+did\s+we\s+land|keep\s+going|continue|keep\s+pushing|push\s+it|my\s+call|calls?\s+for\s+me|needs\s+me)\b/i.test(normalized);
+  if (!canUseContext) return null;
+
+  const recent = (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-8)
+    .join('\n');
+  if (!recent || !hasRecursiveContextSignal(recent)) return null;
+  return knownNaturalRecursiveTarget(recent) || dynamicNaturalRecursiveTarget(recent, context.targets);
+}
+
+export function parseNaturalRecursiveCommandIntent(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandIntent | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.startsWith('/')) return null;
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs?)\b/i.test(normalized) ||
+      /\b(?:what|which)\s+(?:loops?|runs?)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'sessions',
+      reason: 'Natural-language request to list recursive loops.'
+    };
+  }
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:paths?|lanes?)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'paths',
+      reason: 'Natural-language request to list recursive paths.'
+    };
+  }
+
+  const target = naturalRecursiveTarget(normalized, context);
+  if (!target) return null;
+
+  if (/\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:recursive|recursion|loop|round|iteration)\b/i.test(normalized) ||
+      /\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:qa\s+tester|qa\s+operator|startup[-\s]+yc|domain[-\s]+chip[-\s]+creator)\b/i.test(normalized) ||
+      /\b(?:improve|make\s+better)\b.*\b(?:qa\s+tester|qa\s+operator)\b.*\b(?:round|loop|iteration)\b/i.test(normalized) ||
+      /\b(?:run|start|do|try)\s+(?:another|one\s+more|a|one|same)\s+(?:round|pass|iteration|loop)\b/i.test(normalized) ||
+      /\b(?:keep\s+going|continue|iterate\s+again|let\s+it\s+cook|keep\s+pushing|push\s+it\s+further|send\s+it\s+again|give\s+it\s+another\s+pass|one\s+more\s+pass)\b/i.test(normalized)) {
+    if (!target.chipKey) return null;
+    return {
+      rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}`,
+      reason: `Natural-language request to start a recursive loop for ${target.label}.`
+    };
+  }
+
+  if (/\b(?:trace|timeline|recent\s+movement|what\s+happened|show\s+the\s+evidence|show\s+evidence|show\s+the\s+receipts|receipts|audit\s+trail|proof|show\s+me\s+proof|show\s+the\s+trail|behind\s+the\s+scenes|what\s+went\s+on|what\s+did\s+it\s+do)\b/i.test(normalized)) {
+    return {
+      rawCommand: `trace ${target.pathId}`,
+      reason: `Natural-language request to trace ${target.label}.`
+    };
+  }
+
+  if (/\b(?:review|decisions?|blockers?|blocked|needs\s+review|waiting\s+for\s+review|approve|approval|do\s+i\s+need\s+to\s+approve|what\s+do\s+you\s+need\s+from\s+me|calls?\s+for\s+me|needs\s+my\s+call|need\s+my\s+call|what\s+needs\s+me|anything\s+stuck|what\s+is\s+stuck)\b/i.test(normalized)) {
+    return {
+      rawCommand: `review ${target.pathId}`,
+      reason: `Natural-language request to review ${target.label} decisions.`
+    };
+  }
+
+  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next)\b/i.test(normalized)) {
+    return {
+      rawCommand: `report ${target.pathId}`,
+      reason: `Natural-language request for ${target.label} recursive report.`
+    };
+  }
+
+  return null;
+}
+
+function isVoiceTuningTurn(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return (
+    /^(?:make\s+)?(?:it|this|the\s+voice|voice|current\s+voice|my\s+voice)?\s*(?:a\s+little\s+)?(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less\s+polished|expressive)\b/.test(normalized) &&
+    /\b(?:voice|warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|expressive)\b/.test(normalized)
+  );
+}
+
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if (isVoiceTuningRequest(trimmed.toLowerCase())) return false;
+  if (isVoiceTuningTurn(trimmed)) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
@@ -447,7 +869,6 @@ export function inferDefaultBuildFromRecentScoping(currentText: string, recentMe
 export function isExplicitContextualBuildRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
-  if (isVoiceTuningRequest(normalized)) return false;
   const asksToBuild = /\b(?:build|create|make|scaffold|implement|wire|integrate|improve|expand|upgrade|add)\b/.test(normalized);
   const contextualObject = /\b(?:this|that|it|those|these|integration points?|connectors?|domain chip|diagnostic agent|bug recognition|what we built)\b/.test(normalized);
   const executionHint = /\b(?:via|through|using|with|as)\s+(?:codex|mission|spawner|run)\b|\bmission\b|\bcodex\b/.test(normalized);
@@ -456,6 +877,9 @@ export function isExplicitContextualBuildRequest(text: string): boolean {
 
 export function isBuildContextRecallQuestion(text: string): boolean {
   const normalized = text.trim().toLowerCase();
+  if (isUserMemoryRecallQuestion(normalized)) {
+    return false;
+  }
   return (
     /\b(?:do\s+you\s+)?remember\b.*\b(?:build|building|built|making|project|chip|mission)\b/.test(normalized) ||
     /\bwhat\b.*\b(?:did|have)\s+(?:you|we)\s+(?:just\s+)?(?:build|make|create|ship)\b/.test(normalized) ||
@@ -848,8 +1272,8 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   if (!project) return false;
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
-  if (isVoiceTuningRequest(normalized)) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
+  if (isVoiceTuningTurn(text)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
   if (/^(?:where|what|which|show|send|give)\b.*\b(?:link|localhost|preview|url|board|canvas|kanban)\b/.test(normalized)) {
@@ -864,14 +1288,6 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
 
   const pointsAtCurrentProject = /\b(?:this|that|it|app|site|page|screen|project|build|product|dashboard|tool|prototype|design|layout|colors?|colours?|palette|theme|spacing|copy|text|button|flow|workflow|mobile|responsive|spark)\b/.test(normalized);
   return pointsAtCurrentProject;
-}
-
-function isVoiceTuningRequest(normalizedText: string): boolean {
-  const normalized = normalizedText.replace(/\s+/g, ' ').trim();
-  const voiceCue = /\b(?:voice|tts|audio|spoken|speaker|elevenlabs|kokoro)\b/.test(normalized);
-  const tuningCue = /\b(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less polished|expressive)\b/.test(normalized);
-  const shortFollowup = /^(?:make\s+)?(?:it|this|that|the voice|voice|my voice|current voice)?\s*(?:a little\s+)?(?:warmer|softer|gentler|geekier|clearer|crisper|calmer|brighter|more natural|faster|slower|less polished|more expressive)\b/.test(normalized);
-  return tuningCue && (voiceCue || shortFollowup);
 }
 
 export function buildProjectImprovementGoal(
@@ -1149,6 +1565,25 @@ export function renderChatRuntimeFailureReply(isAdmin: boolean, bridgeFailed: bo
 
 export function extractPlainChatMemoryDirective(text: string): string | null {
   const trimmed = text.trim();
+  const cleanDirective = (value: string): string => value
+    .replace(/^["']|["']$/g, '')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+
+  const explicitSavePatterns = [
+    /^(?:memory\s+update|memory\s+note|save\s+to\s+memory)\s*[:,-]\s*(.+?)(?:\s+(?:please\s+)?(?:save|store|remember)\s+this\s+as\s+.+)?[.!?]?$/i,
+    /^(?:please\s+)?(?:save|store|remember)\s+this\s+as\s+(?:my\s+)?(?:current\s+)?(?:plan|focus|context)\s*[:,-]\s*(.+?)[.!?]?$/i,
+    /^(?:please\s+)?(?:save|store|remember)\s+(?:my\s+)?(?:current\s+)?(?:plan|focus|context)\s*[:,-]\s*(.+?)[.!?]?$/i
+  ];
+
+  for (const pattern of explicitSavePatterns) {
+    const match = trimmed.match(pattern);
+    const value = match?.[1]?.trim();
+    if (value) {
+      return cleanDirective(value);
+    }
+  }
+
   const patterns = [
     /^(?:please\s+)?(?:can\s+you\s+)?remember\s+that\s+(.+?)[.!?]?$/i,
     /^(?:please\s+)?(?:can\s+you\s+)?remember\s+(?:this|that)\s*[:,-]\s*(.+?)[.!?]?$/i,
@@ -1162,7 +1597,7 @@ export function extractPlainChatMemoryDirective(text: string): string | null {
     const match = trimmed.match(pattern);
     const value = match?.[1]?.trim();
     if (value) {
-      return value.replace(/^["']|["']$/g, '').trim();
+      return cleanDirective(value);
     }
   }
 
@@ -1213,7 +1648,7 @@ export function extractAgentDoctrinePreference(text: string): string | null {
   if (
     /\b(?:just|only)\s+for\s+(?:this|the)\s+(?:reply|turn|message|answer|once)\b/.test(lower) ||
     /\b(?:for now|right now|in this reply|in this answer|this time only)\b/.test(lower) ||
-    /\b(?:all|every|each)\s+(?:spark\s+)?agents?\b/.test(lower) ||
+    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|tools?|routes?)\b/.test(lower) ||
     /\b(?:globally|system-wide|production doctrine|default doctrine)\b/.test(lower)
   ) {
     return null;
@@ -1241,6 +1676,7 @@ export function extractAgentDoctrinePreference(text: string): string | null {
 
   return null;
 }
+
 export function isStandaloneAgentDoctrinePreference(text: string): boolean {
   const trimmed = text.replace(/\s+/g, ' ').trim();
   if (!extractAgentDoctrinePreference(trimmed)) {
@@ -1258,15 +1694,99 @@ export function isStandaloneAgentDoctrinePreference(text: string): boolean {
   return true;
 }
 
+export function isGlobalAgentDoctrineRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|tools?|routes?)\b/.test(normalized) ||
+    /\b(?:globally|system-wide|production doctrine|default doctrine)\b/.test(normalized)
+  ) && /\b(?:style|tone|personality|persona|conversation|conversational|natural language|nlp|context|understand|understanding|interpret|routing|route|reply|response|talk|speak|doctrine|rule|preference|ask|clarify|clarifying|confirmation|missions?|tools?|start)\b/.test(normalized);
+}
+
+export function formatGlobalAgentDoctrineRequestReply(): string {
+  return [
+    'I cannot change all Spark agents or systems globally from this chat.',
+    'I can keep a preference for this agent with you, though. Say something like: "when you talk to me, use short paragraphs with blank lines."'
+  ].join('\n\n');
+}
+
 export function formatAgentDoctrinePreferenceAcknowledgement(preference: string): string {
-  const detail = preference
-    .replace(/^Agent interaction preference \[[^\]]+\]:\s*/i, '')
-    .replace(/[.!?]+$/g, '')
-    .trim();
+  const detail = extractAgentDoctrinePreferenceDetail(preference);
   return [
     'Got it. I will keep that as a preference for how I talk with you.',
     detail ? `I will adjust around this from here: ${detail}.` : 'I will adjust from here.'
   ].join('\n\n');
+}
+
+function extractAgentDoctrinePreferenceDetail(preference: string): string {
+  return preference
+    .replace(/^Agent interaction preference \[[^\]]+\]:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?]+$/g, '')
+    .trim();
+}
+
+function lowerFirstAgentPreferenceClause(detail: string): string {
+  return detail ? `${detail[0].toLowerCase()}${detail.slice(1)}` : detail;
+}
+
+export function formatAgentDoctrinePreferenceForBuilderSync(preference: string): string {
+  const detail = extractAgentDoctrinePreferenceDetail(preference);
+  if (!detail) return '';
+  const clause = lowerFirstAgentPreferenceClause(detail).slice(0, 220);
+  return [
+    'Your style should follow this saved agent interaction preference.',
+    `When you talk to me, ${clause}.`
+  ].join('\n');
+}
+
+export function isAgentDoctrinePreferenceStatusQuestion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  return (
+    /\b(?:what|which|show|list|tell)\b/.test(normalized) &&
+    /\b(?:preferences?|rules?|guidance|doctrine|style|tone|personality|interaction|communication)\b/.test(normalized) &&
+    /\b(?:remember|saved|carrying|using|have|know|for me|with me|my agent|you)\b/.test(normalized)
+  );
+}
+
+export function isUserMemoryRecallQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (
+    /^memory\s+update\s*:/.test(normalized) ||
+    /\b(?:please\s+)?(?:remember|save)\s+(?:this|that)\b/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return (
+    /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission\s+updates?|updates?|about\s+me|about\s+how\s+i|how\s+i\s+work|work\s+style)\b/.test(normalized) ||
+    /\bwhat\b.*\b(?:prefer|preferred|preference|like)\b.*\bremember\b/.test(normalized) ||
+    /\bwhat\s+do\s+you\s+know\s+about\s+how\s+i\s+like\s+to\s+work\b/.test(normalized) ||
+    /\bwhat\b.*\b(?:stable\s+user\s+memory|recent\s+context|only\s+recent\s+context)\b/.test(normalized)
+  );
+}
+
+export function formatAgentDoctrinePreferenceStatus(preferences: string[]): string {
+  if (preferences.length === 0) {
+    return 'I do not have any saved interaction preferences for this chat yet.';
+  }
+
+  const lines = preferences.map((preference) => {
+    const match = preference.match(/^Agent interaction preference \[([a-z_]+)\]:\s*(.+)$/i);
+    if (!match) {
+      return `- ${preference}`;
+    }
+    const dimension = match[1].replace(/_/g, ' ');
+    return `${dimension}: ${match[2]}`;
+  });
+
+  return ['Here is what I am using for how I talk with you.', ...lines].join('\n\n');
 }
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
