@@ -3037,7 +3037,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isPendingTaskRecoveryQuestion(text)) {
+  if (!earlyBuildIntent && naturalRouteShadow?.route !== 'memory.doctor' && isPendingTaskRecoveryQuestion(text)) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
       const reply = renderPendingTaskRecoveryReply(pendingTask);
@@ -3279,6 +3279,32 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    if (buildIntent) {
+      console.log(`[BuildIntent] route user=${ctx.from?.id} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.build', 'spawner-ui', 'spawner.build');
+      const accessPreference = parseNaturalAccessChangeIntent(text);
+      const normalizedAccessPreference = accessPreference ? normalizeSparkAccessProfile(accessPreference) : null;
+      if (normalizedAccessPreference) {
+        await setSparkAccessProfile(ctx.chat.id, normalizedAccessPreference);
+      }
+      const buildPreference = parseMissionUpdatePreferenceIntent(text, { allowExecutionLanguage: true });
+      if (buildPreference?.verbosity) {
+        await setTelegramRelayVerbosity(ctx.chat.id, buildPreference.verbosity);
+      }
+      if (buildPreference?.links) {
+        await setTelegramMissionLinkPreference(ctx.chat.id, buildPreference.links);
+      }
+      await handleBuildIntent(
+        ctx,
+        buildIntent.prd,
+        buildIntent.projectName,
+        buildIntent.projectPath,
+        buildIntent.buildMode,
+        buildIntent.buildModeReason
+      );
+      return;
+    }
+
     if (await handlePendingCreatorMission(ctx, text)) {
       await conversation.remember(user, text).catch(() => {});
       return;
@@ -3379,32 +3405,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         );
         return;
       }
-    }
-
-    if (buildIntent) {
-      console.log(`[BuildIntent] route user=${ctx.from?.id} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
-      recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.build', 'spawner-ui', 'spawner.build');
-      const accessPreference = parseNaturalAccessChangeIntent(text);
-      const normalizedAccessPreference = accessPreference ? normalizeSparkAccessProfile(accessPreference) : null;
-      if (normalizedAccessPreference) {
-        await setSparkAccessProfile(ctx.chat.id, normalizedAccessPreference);
-      }
-      const buildPreference = parseMissionUpdatePreferenceIntent(text, { allowExecutionLanguage: true });
-      if (buildPreference?.verbosity) {
-        await setTelegramRelayVerbosity(ctx.chat.id, buildPreference.verbosity);
-      }
-      if (buildPreference?.links) {
-        await setTelegramMissionLinkPreference(ctx.chat.id, buildPreference.links);
-      }
-      await handleBuildIntent(
-        ctx,
-        buildIntent.prd,
-        buildIntent.projectName,
-        buildIntent.projectPath,
-        buildIntent.buildMode,
-        buildIntent.buildModeReason
-      );
-      return;
     }
 
     if (isLocalWorkspaceInspectionOnlyRequest(text)) {

@@ -746,6 +746,7 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  if (isLikelyVoiceOrPersonaTuningRequest(trimmed.toLowerCase())) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
