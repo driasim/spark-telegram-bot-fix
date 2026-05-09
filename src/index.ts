@@ -113,6 +113,7 @@ import {
   shouldSuppressMissionHandoff,
   setTelegramMissionLinkPreference,
   setTelegramRelayVerbosity,
+  startMissionHeartbeatForSubscription,
   startMissionRelay
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
@@ -1688,7 +1689,7 @@ export async function handleRunCommand(
 
   await ctx.reply(humanAck(result.providers || providers));
 
-  await registerMissionRelay({
+  const subscription = {
     missionId: result.missionId,
     chatId: String(ctx.chat.id),
     userId: String(ctx.from.id),
@@ -1696,7 +1697,9 @@ export async function handleRunCommand(
     goal,
     createdAt: new Date().toISOString(),
     updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
-  });
+  };
+  await registerMissionRelay(subscription);
+  await startMissionHeartbeatForSubscription(bot, subscription);
   return result.missionId;
 }
 
@@ -1855,7 +1858,7 @@ for (const variant of RUN_VARIANTS) {
       return ctx.reply(`Usage: ${variant.usage}`);
     }
     const providers = variant.name === 'run' ? [missionDefaultProvider()] : variant.providers;
-    await handleRunCommand(ctx, goal, providers, undefined, { allowBuildIntent: variant.name === 'run' });
+    await handleRunCommand(ctx, goal, providers);
   });
 }
 

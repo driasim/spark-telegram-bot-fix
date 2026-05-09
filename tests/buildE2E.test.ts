@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import axios from 'axios';
 import { getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
+import { telegramRelayIdentityFromEnv } from '../src/relayIdentity';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -62,7 +63,11 @@ interface CapturedCall {
 }
 
 async function readMissionRelayRegistry(): Promise<any[]> {
-	return (await readJsonFile<any[]>(resolveStatePath('.spark-spawner-missions.json'))) || [];
+	const identity = telegramRelayIdentityFromEnv();
+	const profileRegistry =
+		(await readJsonFile<any[]>(resolveStatePath(`.spark-spawner-missions-${identity.profile}-${identity.port}.json`))) || [];
+	const legacyRegistry = (await readJsonFile<any[]>(resolveStatePath('.spark-spawner-missions.json'))) || [];
+	return [...profileRegistry, ...legacyRegistry];
 }
 
 function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[]) {
@@ -87,10 +92,14 @@ async function callHandleBuildIntent(opts: {
 	process.env.SPARK_BOT_TEST_MODE = '1';
 	process.env.SPARK_CLARIFICATION_COPY_LLM = '0';
 	process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+	const expectedSpawnerUrl = process.env.SPAWNER_UI_URL;
+	const expectedPublicSpawnerUrl = process.env.SPAWNER_UI_PUBLIC_URL;
 	// Stub the access-policy gate so the test does not require a real
 	// Spark access profile to be loaded. We assume sparkAccessAllows would
 	// pass for an admin tester; the production path runs the real gate.
 	const indexModule: any = await import('../src/index');
+	if (expectedSpawnerUrl !== undefined) process.env.SPAWNER_UI_URL = expectedSpawnerUrl;
+	if (expectedPublicSpawnerUrl !== undefined) process.env.SPAWNER_UI_PUBLIC_URL = expectedPublicSpawnerUrl;
 	if (typeof indexModule.handleBuildIntent !== 'function') {
 		throw new Error('handleBuildIntent not exported from src/index.ts — export it for E2E testing');
 	}
@@ -186,7 +195,7 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('/run build requests route to PRD bridge instead of simple Spark run', async () => {
+	await test('/run build-looking requests use the literal simple Spark run path', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
 		process.env.BOT_DEFAULT_TIER = 'base';
@@ -202,7 +211,7 @@ async function run(): Promise<void> {
 				return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'zai', started: true } } };
 			}
 			if (url.includes('/api/spark/run')) {
-				return { data: { success: true, missionId: 'spark-should-not-run', requestId: body.requestId, providers: ['zai'] } };
+				return { data: { success: true, missionId: 'spark-literal-run-test', requestId: body.requestId, providers: ['zai'] } };
 			}
 			return { data: { success: true } };
 		};
@@ -214,17 +223,13 @@ async function run(): Promise<void> {
 
 		const missionId = await indexModule.handleRunCommand(
 			ctx,
-			'Build a tiny static landing page for a cafe with a menu section.',
-			['zai'],
-			undefined,
-			{ allowBuildIntent: true }
+			'Create exactly two files for a realtime concurrency test: index.html and README.md.',
+			['zai']
 		);
 
-		assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
-		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
-		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-		assert.match(replies.join('\n'), /Project: /);
-		assert.match(replies.join('\n'), /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.equal(missionId, 'spark-literal-run-test');
+		assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'explicit /run should POST to /api/spark/run');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'explicit /run should not be diverted to the PRD bridge');
 
 		restoreAxios();
 		restoreEnv();
