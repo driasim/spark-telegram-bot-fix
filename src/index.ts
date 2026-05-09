@@ -249,9 +249,11 @@ function previewAuditText(text: string, limit = 240): string {
 function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): void {
   const text = typeof deliveredText === 'string' ? deliveredText : String(deliveredText ?? '');
   const auditPath = nodeOutboundAuditPath();
+  const relay = getTelegramRelayIdentity();
   const record = {
     ts: new Date().toISOString(),
     event: 'telegram_node_delivered',
+    relay,
     chat_id: String(chatId ?? ''),
     text_length: text.length,
     text_preview: previewAuditText(text),
