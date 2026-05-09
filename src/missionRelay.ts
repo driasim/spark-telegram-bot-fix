@@ -1874,9 +1874,12 @@ export function relayIdentityMismatchPayload(): Record<string, unknown> {
 }
 
 export interface MissionRelayRuntimeStatus {
-  telegramPolling?: 'active' | 'starting' | 'disabled_smoke';
+  telegramPolling?: 'active' | 'starting' | 'recovering' | 'disabled_smoke';
   pollingActive?: boolean;
   pollingStartedAt?: string | null;
+  pollingError?: string | null;
+  pollingRetryAt?: string | null;
+  bot?: { id?: number; username?: string } | null;
 }
 
 export interface MissionRelayOptions {
