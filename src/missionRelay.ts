@@ -103,6 +103,9 @@ const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
 const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
+const COMPLETION_RECOVERY_SWEEP_MS = 60_000;
+const COMPLETION_RECOVERY_MAX_AGE_MS = 24 * 60 * 60_000;
+let completionRecoveryTimer: ReturnType<typeof setInterval> | null = null;
 
 interface CompletionDeliveryCacheState {
   missionIds?: string[];
@@ -1599,6 +1602,67 @@ function clearHeartbeatForMission(missionId: string): void {
   }
 }
 
+function isRecentRecoverableSubscription(subscription: MissionSubscription, now = Date.now()): boolean {
+  const createdAt = Date.parse(subscription.createdAt || '');
+  if (!Number.isFinite(createdAt)) return true;
+  return now - createdAt <= COMPLETION_RECOVERY_MAX_AGE_MS;
+}
+
+async function recoverCompletedMissionHandoffs(bot: Telegraf, reason: string): Promise<void> {
+  await refreshRegistry();
+  await loadCompletionDeliveryCache();
+
+  const subscriptions = Array.from(registry.values())
+    .filter(subscriptionBelongsToThisRelay)
+    .filter((subscription) => isRecentRecoverableSubscription(subscription))
+    .filter((subscription) => !completionDeliveryCache.has(subscription.missionId));
+
+  if (subscriptions.length === 0) return;
+  console.log(`[MissionRelay] Recovery sweep (${reason}) for ${getRelayProfile()}@${getRelayPort()}: ${subscriptions.length} subscription(s).`);
+
+  for (const subscription of subscriptions) {
+    if (completionDeliveryCache.has(subscription.missionId) || shouldSuppressMissionHandoff(subscription.missionId)) {
+      continue;
+    }
+    const completion = await fetchMissionCompletionSummary(subscription.missionId, { attempts: 1, delayMs: 250 });
+    if (!completion) {
+      continue;
+    }
+    console.log(`[MissionRelay] Recovering completed mission ${subscription.missionId} for ${getRelayProfile()}@${getRelayPort()}.`);
+    await sendFetchedCompletionSummary(
+      bot,
+      Number(subscription.chatId),
+      subscription,
+      {
+        type: 'mission_completed',
+        missionId: subscription.missionId,
+        data: {
+          chatId: subscription.chatId,
+          userId: subscription.userId,
+          requestId: subscription.requestId,
+          goal: subscription.goal,
+          telegramRelay: getTelegramRelayIdentity()
+        }
+      },
+      await getTelegramRelayVerbosity(subscription.chatId),
+      completion
+    );
+  }
+}
+
+function startCompletionRecoverySweeps(bot: Telegraf): void {
+  if (completionRecoveryTimer) return;
+  void recoverCompletedMissionHandoffs(bot, 'startup').catch((error) => {
+    console.warn('[MissionRelay] Completion recovery sweep failed:', error);
+  });
+  completionRecoveryTimer = setInterval(() => {
+    void recoverCompletedMissionHandoffs(bot, 'interval').catch((error) => {
+      console.warn('[MissionRelay] Completion recovery sweep failed:', error);
+    });
+  }, COMPLETION_RECOVERY_SWEEP_MS);
+  completionRecoveryTimer.unref?.();
+}
+
 async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise<void> {
   if (registry.has(event.missionId)) return;
   const data = event.data && typeof event.data === 'object' ? event.data : {};
@@ -1879,6 +1943,7 @@ export interface MissionRelayOptions {
 
 export async function startMissionRelay(bot: Telegraf, options: MissionRelayOptions = {}): Promise<{ port: number }> {
   await loadRegistry();
+  await loadCompletionDeliveryCache();
 
   if (relayServer) {
     return { port: getRelayPort() };
@@ -2107,6 +2172,8 @@ export async function startMissionRelay(bot: Telegraf, options: MissionRelayOpti
       resolve();
     });
   });
+
+  startCompletionRecoverySweeps(bot);
 
   return { port };
 }
