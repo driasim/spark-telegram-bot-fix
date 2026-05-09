@@ -409,7 +409,9 @@ const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
 const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
 const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
+const TELEGRAM_POLLING_CONFLICT_RETRY_MS = 15_000;
 let pollingActive = false;
+let shuttingDown = false;
 
 function extractCommandName(text: string | undefined): string | null {
   if (!text?.startsWith('/')) {
@@ -434,6 +436,72 @@ async function ensurePollingReady(): Promise<{ id?: number; username?: string }>
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function telegramPollingErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || 'unknown polling error');
+}
+
+function isTelegramPollingConflict(error: unknown): boolean {
+  const message = telegramPollingErrorMessage(error).toLowerCase();
+  return message.includes('409') && message.includes('conflict') && message.includes('getupdates');
+}
+
+async function launchTelegramPolling(botIdentity: { id?: number; username?: string }): Promise<void> {
+  const launchPromise = bot.launch();
+  const launchProbe = await Promise.race([
+    launchPromise.then(
+      () => ({ status: 'settled' as const }),
+      (error) => ({ status: 'failed' as const, error })
+    ),
+    wait(TELEGRAM_POLLING_READY_GRACE_MS).then(() => ({ status: 'running' as const }))
+  ]);
+  if (launchProbe.status === 'failed') {
+    throw launchProbe.error;
+  }
+  if (launchProbe.status === 'settled') {
+    throw new Error('Telegram polling stopped during startup.');
+  }
+
+  pollingActive = true;
+  setMissionRelayRuntimeStatus({
+    telegramPolling: 'active',
+    pollingStartedAt: new Date().toISOString(),
+    pollingError: null,
+    pollingRetryAt: null,
+    bot: botIdentity
+  });
+  console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
+
+  void launchPromise.catch((err) => {
+    pollingActive = false;
+    if (shuttingDown) return;
+    const message = telegramPollingErrorMessage(err);
+    if (!isTelegramPollingConflict(err)) {
+      void releaseGatewayOwnership();
+      console.error('Telegram polling stopped:', err);
+      process.exit(1);
+      return;
+    }
+
+    const retryAt = new Date(Date.now() + TELEGRAM_POLLING_CONFLICT_RETRY_MS).toISOString();
+    setMissionRelayRuntimeStatus({
+      telegramPolling: 'recovering',
+      pollingStartedAt: null,
+      pollingError: message,
+      pollingRetryAt: retryAt,
+      bot: botIdentity
+    });
+    console.warn(`Telegram polling conflict detected; retrying at ${retryAt}: ${message}`);
+    setTimeout(() => {
+      if (shuttingDown) return;
+      void launchTelegramPolling(botIdentity).catch((error) => {
+        void releaseGatewayOwnership();
+        console.error('Telegram polling restart failed:', error);
+        process.exit(1);
+      });
+    }, TELEGRAM_POLLING_CONFLICT_RETRY_MS);
+  });
 }
 
 function requireAdmin(ctx: any): boolean {
@@ -3858,6 +3926,7 @@ bot.on(message('audio'), handleVoiceMessage);
 
 // Graceful shutdown
 process.once('SIGINT', () => {
+  shuttingDown = true;
   console.log('Shutting down...');
   void releaseGatewayOwnership();
   if (pollingActive) {
@@ -3865,6 +3934,7 @@ process.once('SIGINT', () => {
   }
 });
 process.once('SIGTERM', () => {
+  shuttingDown = true;
   console.log('Shutting down...');
   void releaseGatewayOwnership();
   if (pollingActive) {
@@ -3885,7 +3955,9 @@ async function start() {
   }
   setMissionRelayRuntimeStatus({
     telegramPolling: TELEGRAM_SMOKE_MODE ? 'disabled' : 'starting',
-    pollingStartedAt: null
+    pollingStartedAt: null,
+    pollingError: null,
+    pollingRetryAt: null
   });
   const relay = await startMissionRelay(bot);
 
@@ -3908,32 +3980,7 @@ async function start() {
   }
 
   const botIdentity = await ensurePollingReady();
-  const launchPromise = bot.launch();
-  const launchProbe = await Promise.race([
-    launchPromise.then(
-      () => ({ status: 'settled' as const }),
-      (error) => ({ status: 'failed' as const, error })
-    ),
-    wait(TELEGRAM_POLLING_READY_GRACE_MS).then(() => ({ status: 'running' as const }))
-  ]);
-  if (launchProbe.status === 'failed') {
-    throw launchProbe.error;
-  }
-  if (launchProbe.status === 'settled') {
-    throw new Error('Telegram polling stopped during startup.');
-  }
-  pollingActive = true;
-  setMissionRelayRuntimeStatus({
-    telegramPolling: 'active',
-    pollingStartedAt: new Date().toISOString(),
-    bot: botIdentity
-  });
-  console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
-  void launchPromise.catch((err) => {
-    void releaseGatewayOwnership();
-    console.error('Telegram polling stopped:', err);
-    process.exit(1);
-  });
+  await launchTelegramPolling(botIdentity);
 }
 
 // Guard: only auto-start when run as the main module. Importing this file
