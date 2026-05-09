@@ -38,6 +38,19 @@ export async function validateRelayRuntime(
   }
 }
 
+export function describeRuntimeHealthError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/TELEGRAM_RELAY_SECRET|SPARK_PROFILE_RELAY_SECRET_MISSING/.test(message)) {
+    return [
+      'This check needs Spark-generated runtime env.',
+      'Run:',
+      '  spark status',
+      '  spark logs spark-telegram-bot --profile primary --lines 80'
+    ].join('\n');
+  }
+  return message;
+}
+
 async function main(): Promise<void> {
   loadSparkTelegramProfileEnv(process.argv.slice(2));
   const missingProfileToken = process.env.SPARK_PROFILE_TOKEN_MISSING?.trim();
@@ -56,7 +69,7 @@ if (require.main === module) {
     try {
       await main();
     } catch (error) {
-      console.error(`Telegram runtime health: FAILED - ${(error as Error).message}`);
+      console.error(`Telegram runtime health: FAILED - ${describeRuntimeHealthError(error)}`);
       process.exit(1);
     }
   })();

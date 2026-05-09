@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describeTelegramTokenError } from '../src/healthPolling';
-import { relayHealthUrl, validateRelayRuntime } from '../src/healthRuntime';
+import { describeRuntimeHealthError, relayHealthUrl, validateRelayRuntime } from '../src/healthRuntime';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -56,4 +56,13 @@ test('explains unreachable relay runtime', async () => {
     () => validateRelayRuntime(fetchImpl as typeof fetch, { TELEGRAM_RELAY_PORT: '8789' } as NodeJS.ProcessEnv),
     /Telegram relay runtime is not reachable at http:\/\/127\.0\.0\.1:8789\/health: HTTP 503/
   );
+});
+
+test('explains direct runtime health without leaking Spark internals', () => {
+  const message = describeRuntimeHealthError(new Error('TELEGRAM_RELAY_SECRET is required'));
+
+  assert.match(message, /Spark-generated runtime env/);
+  assert.match(message, /spark status/);
+  assert.match(message, /spark logs spark-telegram-bot --profile primary --lines 80/);
+  assert.doesNotMatch(message, /EADDRINUSE|python3\.11|keychain/);
 });
