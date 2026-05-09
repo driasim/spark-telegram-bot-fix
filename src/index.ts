@@ -262,7 +262,29 @@ function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): vo
       console.warn('[OutboundAudit] failed to write node delivery audit:', error);
     });
 }
-
+function recordNodeInboundCommand(ctx: any): void {
+  const text = typeof ctx?.message?.text === 'string' ? ctx.message.text : '';
+  const match = text.match(/^\/([A-Za-z0-9_]+)/);
+  if (!match) return;
+  const auditPath = nodeOutboundAuditPath();
+  const relay = getTelegramRelayIdentity();
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'telegram_node_command_received',
+    relay,
+    chat_id: String(ctx?.chat?.id ?? ''),
+    user_id: String(ctx?.from?.id ?? ''),
+    update_id: typeof ctx?.update?.update_id === 'number' ? ctx.update.update_id : null,
+    command: match[1],
+    text_length: text.length,
+    text_preview: previewAuditText(text)
+  };
+  mkdir(path.dirname(auditPath), { recursive: true })
+    .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
+    .catch((error) => {
+      console.warn('[InboundAudit] failed to write node command audit:', error);
+    });
+}
 // Outbound sanitizer: wrap bot.telegram.sendMessage so every Telegram
 // reply (ctx.reply, ctx.telegram.sendMessage, bot.telegram.sendMessage)
 // runs through the deterministic voice rules before delivery. Persona
@@ -286,6 +308,7 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
 }) as typeof bot.telegram.sendMessage;
 
 bot.use(async (ctx, next) => {
+  recordNodeInboundCommand(ctx);
   const originalReply = ctx.reply.bind(ctx);
   ctx.reply = (async (text: any, extra?: any) => {
     if (typeof text !== 'string') {
