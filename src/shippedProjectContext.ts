@@ -30,6 +30,8 @@ export interface ShippedProjectMissionInput {
   goal: string;
   providerLabel?: string;
   response: string;
+  projectPath?: string | null;
+  previewUrl?: string | null;
 }
 
 const STATE_PATH = resolveStatePath('.spark-shipped-project-context.json');
@@ -51,6 +53,30 @@ function normalizeLocalProjectPath(pathValue: string): string {
   const wslDrive = normalized.match(/^\/([a-zA-Z])\/(.+)$/);
   if (wslDrive) return `${wslDrive[1].toUpperCase()}:/${wslDrive[2]}`.replace(/\/+$/, '');
   return normalized.replace(/\/+$/, '');
+}
+
+function cleanLocalPathCandidate(pathValue: string): string {
+  return pathValue
+    .trim()
+    .replace(/^<|>$/g, '')
+    .replace(/[)\].,;]+$/g, '')
+    .trim();
+}
+
+function projectDirectoryFromFilePath(pathValue: string): string | null {
+  const normalized = normalizeLocalProjectPath(cleanLocalPathCandidate(pathValue));
+  const fileName = path.posix.basename(normalized).toLowerCase();
+  if (!['index.html', 'app.js', 'styles.css', 'data.json', 'readme.md'].includes(fileName)) {
+    return null;
+  }
+  const directory = path.posix.dirname(normalized);
+  return directory && directory !== '.' ? directory : null;
+}
+
+function normalizeProjectPathCandidate(pathValue: string): string | null {
+  const cleaned = cleanLocalPathCandidate(pathValue);
+  if (!/^(?:file:\/\/\/?)?[A-Za-z]:[\\/]/.test(cleaned)) return null;
+  return projectDirectoryFromFilePath(cleaned) || normalizeLocalProjectPath(cleaned);
 }
 
 function projectPreviewBaseUrl(): string {
@@ -100,6 +126,18 @@ export function extractProjectPathFromMissionText(text: string): string | null {
     if (decoded) return decoded;
   }
 
+  const markdownLinkPattern = /\]\(\s*<?((?:file:\/\/\/?)?[A-Za-z]:[\\/][^)>\r\n]+)>?\s*\)/g;
+  for (const match of text.matchAll(markdownLinkPattern)) {
+    const candidate = match[1] ? normalizeProjectPathCandidate(match[1]) : null;
+    if (candidate) return candidate;
+  }
+
+  const staticFilePathPattern = /((?:file:\/\/\/?)?[A-Za-z]:[\\/][^\r\n`)\]]*(?:index\.html|app\.js|styles\.css|data\.json|README\.md))/gi;
+  for (const match of text.matchAll(staticFilePathPattern)) {
+    const candidate = match[1] ? projectDirectoryFromFilePath(match[1]) : null;
+    if (candidate) return candidate;
+  }
+
   const patterns = [
     /(?:built|verified|created)[\s\S]{0,240}?(?:in|at)\s+`([^`\r\n]+)`/i,
     /Project:\s*([A-Za-z]:\\[^\r\n]+)/i,
@@ -108,7 +146,10 @@ export function extractProjectPathFromMissionText(text: string): string | null {
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1]) return normalizeLocalProjectPath(match[1].trim().replace(/[.。]\s*$/, ''));
+    if (match?.[1]) {
+      const candidate = normalizeProjectPathCandidate(match[1].trim().replace(/[.。]\s*$/, ''));
+      if (candidate) return candidate;
+    }
   }
   return null;
 }
@@ -153,7 +194,9 @@ function summaryFromResponse(response: string): string | undefined {
 export async function recordShippedProjectFromMission(
   input: ShippedProjectMissionInput
 ): Promise<ShippedProjectContext | null> {
-  const projectPath = extractProjectPathFromMissionText(input.response);
+  const projectPath = input.projectPath
+    ? normalizeProjectPathCandidate(input.projectPath) || normalizeLocalProjectPath(input.projectPath)
+    : extractProjectPathFromMissionText(input.response);
   if (!projectPath) return null;
 
   const chatId = String(input.chatId);
@@ -167,7 +210,7 @@ export async function recordShippedProjectFromMission(
     userId: String(input.userId),
     projectName: projectNameFromGoal(input.goal, projectPath),
     projectPath,
-    previewUrl: extractPreviewUrlFromMissionText(input.response) || projectPreviewUrlForPath(projectPath),
+    previewUrl: input.previewUrl || extractPreviewUrlFromMissionText(input.response) || projectPreviewUrlForPath(projectPath),
     missionId: input.missionId,
     iteration: sameProject ? previous.iteration + 1 : 1,
     shippedAt: previous?.shippedAt && sameProject ? previous.shippedAt : now,

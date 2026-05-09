@@ -580,6 +580,8 @@ interface MissionCompletionSummary {
   response: string;
   openLink?: string | null;
   previewPending?: boolean;
+  projectPath?: string | null;
+  previewUrl?: string | null;
 }
 
 interface MissionLessonApproval {
@@ -616,6 +618,13 @@ function firstString(record: Record<string, unknown> | null, keys: string[]): st
   return null;
 }
 
+function isWeakCompletionResponse(response: string): boolean {
+  const normalized = response.trim().toLowerCase();
+  return normalized === 'completed without a text response' ||
+    normalized === 'completed without text response' ||
+    normalized === 'done';
+}
+
 async function fetchMissionCompletionSummary(
   missionId: string,
   options: MissionCompletionFetchOptions = {}
@@ -643,8 +652,11 @@ async function fetchMissionCompletionSummary(
         const resultSummary = completedProvider && typeof completedProvider.summary === 'string'
           ? completedProvider.summary.trim()
           : '';
-        const responseText = providerSummary || resultSummary;
+        const responseText = isWeakCompletionResponse(providerSummary) && resultSummary
+          ? resultSummary
+          : providerSummary || resultSummary;
         if (phase !== 'completed' || !responseText) continue;
+        if (isWeakCompletionResponse(responseText) && !resultSummary) continue;
 
         const projectLineage = asRecord(payload.projectLineage);
         const projectPath = firstString(projectLineage, ['projectPath', 'project_path']);
@@ -657,7 +669,9 @@ async function fetchMissionCompletionSummary(
           providerLabel,
           response: responseText,
           openLink,
-          previewPending: false
+          previewPending: Boolean(projectPath && !openLink),
+          projectPath,
+          previewUrl
         };
       } finally {
         clearTimeout(timeout);
@@ -707,7 +721,16 @@ async function sendFetchedCompletionSummary(
     }
     completionDeliveryCache.add(event.missionId);
     await persistCompletionDeliveryCache();
-    await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
+    await handleMissionCompletionMemory(
+      bot,
+      chatId,
+      subscription,
+      event,
+      completion.providerLabel,
+      completion.response,
+      completion.projectPath,
+      completion.previewUrl
+    );
     return chunks.length;
   } finally {
     completionDeliveryInFlight.delete(event.missionId);
@@ -1714,7 +1737,9 @@ async function handleMissionCompletionMemory(
   subscription: MissionSubscription,
   event: DeliverableRelayEvent,
   providerLabel: string,
-  response: string
+  response: string,
+  projectPath?: string | null,
+  previewUrl?: string | null
 ): Promise<void> {
   await stageMissionLessonCandidate(subscription, event, providerLabel, response)
     .then((approval) => {
@@ -1732,7 +1757,9 @@ async function handleMissionCompletionMemory(
     requestId: subscription.requestId,
     goal: subscription.goal,
     providerLabel,
-    response
+    response,
+    projectPath,
+    previewUrl
   }).catch((error) => {
     console.warn('[MissionRelay] Failed to record shipped project context:', error);
   });
