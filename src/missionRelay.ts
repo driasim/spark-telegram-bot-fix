@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync } from 'node:fs';
 import type { Telegraf } from 'telegraf';
 import { conversation } from './conversation';
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
@@ -84,9 +83,7 @@ interface MissionBoardEntry {
   taskName?: string | null;
 }
 
-const REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
-const COMPLETION_DELIVERY_CACHE_PATH = resolveStatePath('.spark-telegram-completion-delivery-cache.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
@@ -127,6 +124,29 @@ function getRelayProfile(): string {
 function getRelayHost(): string {
   const raw = process.env.TELEGRAM_RELAY_HOST || process.env.SPARK_TELEGRAM_RELAY_HOST;
   return typeof raw === 'string' && raw.trim() ? raw.trim() : '127.0.0.1';
+}
+
+function relayStateSuffix(): string {
+  return `${getRelayProfile().replace(/[^a-zA-Z0-9_-]+/g, '-')}-${getRelayPort()}`;
+}
+
+function registryPath(): string {
+  return resolveStatePath(`.spark-spawner-missions-${relayStateSuffix()}.json`);
+}
+
+function legacyRegistryPath(): string {
+  return resolveStatePath('.spark-spawner-missions.json');
+}
+
+function completionDeliveryCachePath(): string {
+  return resolveStatePath(`.spark-telegram-completion-delivery-cache-${relayStateSuffix()}.json`);
+}
+
+function legacyCompletionDeliveryCachePaths(): string[] {
+  return [
+    resolveStatePath('.spark-telegram-completion-delivery-cache.json'),
+    resolveStatePath(`.spark-telegram-completions-${relayStateSuffix()}.json`)
+  ];
 }
 
 export function getTelegramRelayIdentity(): { port: number; profile: string; url?: string } {
@@ -273,23 +293,23 @@ async function loadRegistry(): Promise<void> {
   if (registryLoaded) return;
   registryLoaded = true;
 
-  if (!existsSync(REGISTRY_PATH)) return;
-
-  try {
-    const entries = await readJsonFile<MissionSubscription[]>(REGISTRY_PATH);
-    if (!entries) {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry?.missionId && entry.chatId) {
-        if (!subscriptionBelongsToThisRelay(entry)) {
-          continue;
-        }
-        registry.set(entry.missionId, entry);
+  for (const path of [registryPath(), legacyRegistryPath()]) {
+    try {
+      const entries = await readJsonFile<MissionSubscription[]>(path);
+      if (!entries) {
+        continue;
       }
+      for (const entry of entries) {
+        if (entry?.missionId && entry.chatId) {
+          if (!subscriptionBelongsToThisRelay(entry)) {
+            continue;
+          }
+          registry.set(entry.missionId, entry);
+        }
+      }
+    } catch (error) {
+      console.warn(`[MissionRelay] Failed to load registry ${path}:`, error);
     }
-  } catch (error) {
-    console.warn('[MissionRelay] Failed to load registry:', error);
   }
 }
 
@@ -301,7 +321,7 @@ async function refreshRegistry(): Promise<void> {
 
 async function persistRegistry(): Promise<void> {
   try {
-    await writeJsonAtomic(REGISTRY_PATH, Array.from(registry.values()));
+    await writeJsonAtomic(registryPath(), Array.from(registry.values()));
   } catch (error) {
     console.warn('[MissionRelay] Failed to persist registry:', error);
   }
@@ -1398,6 +1418,11 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   pausedMissionCache.clear();
 }
 
+export function resetMissionRelayRegistryForTests(): void {
+  registry.clear();
+  registryLoaded = false;
+}
+
 export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
   return completionDeliveryCache.has(missionId);
 }
@@ -1457,19 +1482,21 @@ export function relayIdentityMismatchPayload(): Record<string, string> {
 }
 
 async function persistCompletionDeliveryCache(): Promise<void> {
-  await writeJsonAtomic(COMPLETION_DELIVERY_CACHE_PATH, {
+  await writeJsonAtomic(completionDeliveryCachePath(), {
     missionIds: Array.from(completionDeliveryCache).slice(-1000),
     updatedAt: new Date().toISOString()
   } satisfies CompletionDeliveryCacheState);
 }
 
 async function loadCompletionDeliveryCache(): Promise<void> {
-  const state = await readJsonFile<string[] | CompletionDeliveryCacheState>(COMPLETION_DELIVERY_CACHE_PATH);
-  const values = Array.isArray(state) ? state : state?.missionIds;
-  if (!Array.isArray(values)) return;
-  for (const missionId of values) {
-    if (typeof missionId === 'string' && missionId.trim()) {
-      completionDeliveryCache.add(missionId);
+  for (const path of [completionDeliveryCachePath(), ...legacyCompletionDeliveryCachePaths()]) {
+    const state = await readJsonFile<string[] | CompletionDeliveryCacheState>(path);
+    const values = Array.isArray(state) ? state : state?.missionIds;
+    if (!Array.isArray(values)) continue;
+    for (const missionId of values) {
+      if (typeof missionId === 'string' && missionId.trim()) {
+        completionDeliveryCache.add(missionId);
+      }
     }
   }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readJsonFile, resolveStatePath, writeJsonAtomic } from '../src/jsonState';
 import {
   buildMissionSurfaceLinks,
   claimCompletionDeliveryForTests,
@@ -14,7 +15,9 @@ import {
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
   relayIdentityMismatchPayload,
+  registerMissionRelay,
   resetMissionRelayDeliveryStateForTests,
+  resetMissionRelayRegistryForTests,
   releaseCompletionDeliveryClaimForTests,
   sendFetchedCompletionSummaryForTests,
   shouldAcknowledgeRelayWithoutTelegramDelivery,
@@ -947,6 +950,71 @@ test('reports this relay identity from env', () => {
 });
 
 void (async () => {
+  const scopedRegistryName = 'stores mission relay subscriptions in profile scoped registries';
+  try {
+    const originalPort = process.env.TELEGRAM_RELAY_PORT;
+    const originalProfile = process.env.SPARK_TELEGRAM_PROFILE;
+    const suffix = `${process.pid}-${Date.now()}`;
+    const sparkMissionId = `spark-scoped-registry-spark-${suffix}`;
+    const testerMissionId = `spark-scoped-registry-tester-${suffix}`;
+    const sparkRegistryPath = resolveStatePath('.spark-spawner-missions-spark-agi-8789.json');
+    const testerRegistryPath = resolveStatePath('.spark-spawner-missions-testerthebester-8788.json');
+
+    try {
+      process.env.TELEGRAM_RELAY_PORT = '8789';
+      process.env.SPARK_TELEGRAM_PROFILE = 'spark-agi';
+      resetMissionRelayRegistryForTests();
+      await registerMissionRelay({
+        missionId: sparkMissionId,
+        chatId: '8319079055',
+        userId: '8319079055',
+        requestId: `req-${sparkMissionId}`,
+        goal: 'Keep Spark AGI isolated.',
+        createdAt: '2026-05-09T00:00:00Z'
+      });
+
+      process.env.TELEGRAM_RELAY_PORT = '8788';
+      process.env.SPARK_TELEGRAM_PROFILE = 'testerthebester';
+      resetMissionRelayRegistryForTests();
+      await registerMissionRelay({
+        missionId: testerMissionId,
+        chatId: '8319079055',
+        userId: '8319079055',
+        requestId: `req-${testerMissionId}`,
+        goal: 'Keep Tester isolated.',
+        createdAt: '2026-05-09T00:00:00Z'
+      });
+
+      const sparkRegistry = (await readJsonFile<any[]>(sparkRegistryPath)) || [];
+      const testerRegistry = (await readJsonFile<any[]>(testerRegistryPath)) || [];
+
+      assert.ok(sparkRegistry.some((entry) => entry.missionId === sparkMissionId));
+      assert.ok(!sparkRegistry.some((entry) => entry.missionId === testerMissionId));
+      assert.ok(testerRegistry.some((entry) => entry.missionId === testerMissionId));
+      assert.ok(!testerRegistry.some((entry) => entry.missionId === sparkMissionId));
+      console.log(`ok - ${scopedRegistryName}`);
+    } finally {
+      const sparkRegistry = (await readJsonFile<any[]>(sparkRegistryPath)) || [];
+      const testerRegistry = (await readJsonFile<any[]>(testerRegistryPath)) || [];
+      await writeJsonAtomic(
+        sparkRegistryPath,
+        sparkRegistry.filter((entry) => entry.missionId !== sparkMissionId && entry.missionId !== testerMissionId)
+      );
+      await writeJsonAtomic(
+        testerRegistryPath,
+        testerRegistry.filter((entry) => entry.missionId !== sparkMissionId && entry.missionId !== testerMissionId)
+      );
+      resetMissionRelayRegistryForTests();
+      if (originalPort === undefined) delete process.env.TELEGRAM_RELAY_PORT;
+      else process.env.TELEGRAM_RELAY_PORT = originalPort;
+      if (originalProfile === undefined) delete process.env.SPARK_TELEGRAM_PROFILE;
+      else process.env.SPARK_TELEGRAM_PROFILE = originalProfile;
+    }
+  } catch (error) {
+    console.error(`not ok - ${scopedRegistryName}`);
+    throw error;
+  }
+
   const name = 'does not cache fetched completion summaries until Telegram delivery succeeds';
   try {
     resetMissionRelayDeliveryStateForTests();
