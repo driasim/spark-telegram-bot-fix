@@ -245,14 +245,26 @@ const bot = new Telegraf(botToken, {
 });
 
 function activeTelegramProfile(): string {
+  return activeTelegramRelayIdentity().profile;
+}
+
+function activeTelegramRelayIdentity(): { port: number; profile: string; url?: string } {
   try {
-    return getTelegramRelayIdentity().profile;
+    return getTelegramRelayIdentity();
   } catch {
-    return process.env.SPARK_TELEGRAM_PROFILE || process.env.TELEGRAM_PROFILE || 'unknown';
+    const profile = process.env.SPARK_TELEGRAM_PROFILE || process.env.TELEGRAM_PROFILE || 'unknown';
+    const port = Number(process.env.TELEGRAM_RELAY_PORT || 0);
+    return {
+      port: Number.isFinite(port) && port > 0 ? Math.trunc(port) : 0,
+      profile
+    };
   }
 }
 
 function recordCommandTelemetry(ctx: any, command: string, phase: TelegramCommandTelemetryPhase, error?: unknown): void {
+  if (phase === 'received') {
+    recordNodeInboundCommand(ctx, command);
+  }
   logTelegramCommand({
     command,
     phase,
@@ -468,12 +480,39 @@ function previewAuditText(text: string, limit = 240): string {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
+function messageTextFromContext(ctx: any): string {
+  const message = ctx?.message;
+  return message && 'text' in message ? String(message.text || '') : '';
+}
+
+function recordNodeInboundCommand(ctx: any, command: string): void {
+  const text = messageTextFromContext(ctx);
+  const auditPath = nodeOutboundAuditPath();
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'telegram_node_command_received',
+    relay: activeTelegramRelayIdentity(),
+    command,
+    chat_id: String(ctx?.chat?.id ?? ''),
+    user_id: String(ctx?.from?.id ?? ''),
+    message_id: String(ctx?.message?.message_id ?? ''),
+    text_length: text.length,
+    text_preview: previewAuditText(text)
+  };
+  mkdir(path.dirname(auditPath), { recursive: true })
+    .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
+    .catch((error) => {
+      console.warn('[OutboundAudit] failed to write node command audit:', error);
+    });
+}
+
 function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): void {
   const text = typeof deliveredText === 'string' ? deliveredText : String(deliveredText ?? '');
   const auditPath = nodeOutboundAuditPath();
   const record = {
     ts: new Date().toISOString(),
     event: 'telegram_node_delivered',
+    relay: activeTelegramRelayIdentity(),
     chat_id: String(chatId ?? ''),
     text_length: text.length,
     text_preview: previewAuditText(text),
