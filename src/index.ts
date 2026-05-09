@@ -201,6 +201,7 @@ import {
 import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
 import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
+import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 
@@ -262,7 +263,53 @@ function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): vo
       console.warn('[OutboundAudit] failed to write node delivery audit:', error);
     });
 }
-function recordNodeInboundCommand(ctx: any): void {
+interface RecentTelegramUpdateRecord {
+  key: string;
+  seenAt: string;
+}
+
+const RECENT_TELEGRAM_UPDATE_TTL_MS = 6 * 60 * 60_000;
+const recentTelegramUpdateKeys = new Map<string, number>();
+
+function telegramUpdateDedupeKey(ctx: any): string | null {
+  const text = typeof ctx?.message?.text === 'string' ? ctx.message.text : '';
+  if (!/^\/[A-Za-z0-9_]+/.test(text)) return null;
+  const updateId = typeof ctx?.update?.update_id === 'number' ? ctx.update.update_id : null;
+  if (updateId === null) return null;
+  return `${String(ctx?.chat?.id ?? '')}:${updateId}`;
+}
+
+function telegramUpdateDedupePath(): string {
+  const relay = getTelegramRelayIdentity();
+  return resolveStatePath(`.spark-telegram-updates-${relay.profile}-${relay.port}.json`);
+}
+
+async function markTelegramCommandUpdateSeen(ctx: any): Promise<boolean> {
+  const key = telegramUpdateDedupeKey(ctx);
+  if (!key) return false;
+  const now = Date.now();
+  const memorySeenAt = recentTelegramUpdateKeys.get(key);
+  if (memorySeenAt && now - memorySeenAt < RECENT_TELEGRAM_UPDATE_TTL_MS) {
+    return true;
+  }
+  recentTelegramUpdateKeys.set(key, now);
+
+  const storePath = telegramUpdateDedupePath();
+  const existing = (await readJsonFile<RecentTelegramUpdateRecord[]>(storePath)) || [];
+  const fresh = existing.filter((record) => {
+    const seenAt = Date.parse(record.seenAt);
+    return Number.isFinite(seenAt) && now - seenAt < RECENT_TELEGRAM_UPDATE_TTL_MS;
+  });
+  if (fresh.some((record) => record.key === key)) {
+    await writeJsonAtomic(storePath, fresh);
+    return true;
+  }
+  fresh.push({ key, seenAt: new Date(now).toISOString() });
+  await writeJsonAtomic(storePath, fresh.slice(-500));
+  return false;
+}
+
+function recordNodeInboundCommand(ctx: any, duplicate = false): void {
   const text = typeof ctx?.message?.text === 'string' ? ctx.message.text : '';
   const match = text.match(/^\/([A-Za-z0-9_]+)/);
   if (!match) return;
@@ -276,6 +323,7 @@ function recordNodeInboundCommand(ctx: any): void {
     user_id: String(ctx?.from?.id ?? ''),
     update_id: typeof ctx?.update?.update_id === 'number' ? ctx.update.update_id : null,
     command: match[1],
+    duplicate,
     text_length: text.length,
     text_preview: previewAuditText(text)
   };
@@ -308,7 +356,9 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
 }) as typeof bot.telegram.sendMessage;
 
 bot.use(async (ctx, next) => {
-  recordNodeInboundCommand(ctx);
+  const duplicateCommand = await markTelegramCommandUpdateSeen(ctx);
+  recordNodeInboundCommand(ctx, duplicateCommand);
+  if (duplicateCommand) return;
   const originalReply = ctx.reply.bind(ctx);
   ctx.reply = (async (text: any, extra?: any) => {
     if (typeof text !== 'string') {
