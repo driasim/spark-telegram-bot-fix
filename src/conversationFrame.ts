@@ -354,6 +354,44 @@ export function renderChoiceContextAcknowledgement(text: string): string | null 
   ].join('\n');
 }
 
+export function extractPreferredNameFromRecentIdentityText(text: string): string | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  const writtenNamePatterns = [
+    /\b(?:still\s+)?(?:my\s+)?name\s+is\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i,
+    /\bwrite\s+it\s+as\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i,
+    /\bspell\s+it\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i
+  ];
+  for (const pattern of writtenNamePatterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    if (/^pronounced?$/i.test(match[1])) continue;
+    const before = normalized.slice(0, match.index ?? 0).toLowerCase();
+    if (/\bpronounced?\s+(?:like|as)\s*$/i.test(before)) continue;
+    return match[1][0].toUpperCase() + match[1].slice(1);
+  }
+  return null;
+}
+
+export function answerFromRecentIdentityCorrection(currentMessage: string, turns: ConversationTurn[]): string | null {
+  if (!/\b(?:just told you|not\s+[A-Z]?[a-z]+|my name|name is|called me)\b/i.test(currentMessage)) return null;
+  const recent = turns.slice(-8);
+  let preferredName: string | null = null;
+  let pronunciation: string | null = null;
+  for (const turn of recent) {
+    if (turn.role !== 'user') continue;
+    preferredName = extractPreferredNameFromRecentIdentityText(turn.text) || preferredName;
+    const pronunciationMatch = turn.text.match(/\bpronounced?\s+(?:like|as)\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i);
+    if (pronunciationMatch?.[1]) {
+      pronunciation = pronunciationMatch[1][0].toUpperCase() + pronunciationMatch[1].slice(1);
+    }
+  }
+  if (!preferredName) return null;
+  return pronunciation && pronunciation.toLowerCase() !== preferredName.toLowerCase()
+    ? `You're ${preferredName}, pronounced like ${pronunciation}.`
+    : `You're ${preferredName}.`;
+}
+
 function selectHotTurns(turns: ConversationTurn[], policy: ContextBudgetPolicy): {
   hotTurns: ConversationTurn[];
   olderTurns: ConversationTurn[];
