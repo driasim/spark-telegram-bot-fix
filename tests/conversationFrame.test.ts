@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {
+  answerFromRecentIdentityCorrection,
   buildConversationFrame,
   buildConversationFrameFromState,
   emptyRollingConversationFrameState,
   estimateTokens,
+  extractPreferredNameFromRecentIdentityText,
   renderChoiceContextAcknowledgement,
   renderConversationFrameContext,
   renderConversationFrameDiagnostics,
@@ -30,6 +32,30 @@ test('budgets reliable 200k effective context on larger model windows', () => {
   assert.equal(frame.budget.safeInputBudgetTokens, 200_000);
   assert.equal(frame.budget.requiresLargerModelForFullTarget, false);
   assert.equal(frame.budget.compactionTriggerTokens, 260_000);
+});
+
+test('separates written names from pronunciation-only identity turns', () => {
+  assert.equal(extractPreferredNameFromRecentIdentityText('my name is pronounced like Gem btw'), null);
+  assert.equal(extractPreferredNameFromRecentIdentityText('still name is Cem, but pronounced like Gem'), 'Cem');
+  assert.equal(extractPreferredNameFromRecentIdentityText('write it as Cem and pronounce it like Gem'), 'Cem');
+});
+
+test('answers close identity repair followups from hot turns', () => {
+  const turns: ConversationTurn[] = [
+    { role: 'user', text: 'my name is pronounced like Gem btw' },
+    { role: 'assistant', text: "Got it, Gem. I'll use that going forward." },
+    { role: 'user', text: 'still name is Cem, but pronounced like Gem' },
+    { role: 'assistant', text: 'Got it, Cem. Pronounced like Gem.' }
+  ];
+
+  assert.match(
+    answerFromRecentIdentityCorrection('i just told you', turns) || '',
+    /You're Cem, pronounced like Gem/
+  );
+  assert.match(
+    answerFromRecentIdentityCorrection('not Maya', turns) || '',
+    /You're Cem, pronounced like Gem/
+  );
 });
 
 test('does not pretend a 200k model reliably holds a full 200k assembled input', () => {

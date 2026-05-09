@@ -11,10 +11,11 @@ Builder owns routing, memory context, personality, character, and answer composi
 `spark-voice-comms` owns speech I/O:
 
 - `voice.status` checks readiness.
+- `voice.status` plus `/voice doctor` separate readiness from Telegram delivery proof.
 - `voice.transcribe` converts Telegram voice/audio into text.
 - `voice.speak` converts Builder's final answer into audio.
 - `voice.onboard` guides setup.
-- `voice.install` can help with local components such as Kokoro.
+- `voice.install` can help with local components such as faster-whisper and Kokoro.
 
 Telegram delivery is the last step. A synthesized audio payload is not proven delivered until the bot successfully sends it as a Telegram voice message.
 
@@ -28,9 +29,14 @@ When asked how voice works, answer conversationally:
 
 - `/voice`
 - `/voice status`
+- `/voice doctor`
 - `/voice map`
 - `/probe voice`
 - `/voice provider`
+- `/voice install faster-whisper`
+- `/voice install kokoro`
+- `/voice install local`
+- `/voice install 11 labs`
 - `/voice onboard local`
 - `/voice onboard paid`
 - `/voice ask <question>`
@@ -41,6 +47,8 @@ When asked how voice works, answer conversationally:
 Natural language should work too:
 
 - `switch my voice to ElevenLabs`
+- `install 11 labs voice`
+- `install faster whisper`
 - `use Kokoro for voice`
 - `use GPT Realtime 2 for voice`
 - `find me a natural geeky QA tester voice`
@@ -58,4 +66,3 @@ Voice tuning phrases must stay in the voice route. They should not launch Spawne
 - Do not describe Codex CLI as a TTS/STT provider.
 - Do not let the voice chip replace Builder's answer with unrelated content.
 - Do not let memory or wiki context override current `voice.status` or delivery traces.
-

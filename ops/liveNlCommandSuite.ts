@@ -2,47 +2,33 @@ import { config as loadEnv } from 'dotenv';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Telegraf } from 'telegraf';
+import {
+  formatLiveNlCopyPastePrompts,
+  parseLiveNlCommandCases,
+  selectLiveNlCommandCases,
+  type LiveNlCommandCase
+} from '../src/liveNlVerdict';
 import { argValue, loadSparkTelegramProfileEnv } from '../src/profileEnv';
 
 loadEnv({ path: path.join(__dirname, '..', '.env'), quiet: true });
 loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true, quiet: true });
 
-interface CommandCase {
-  id: string;
-  suite: string;
-  risk: 'safe' | 'mission' | 'writes_files' | 'external';
-  prompt: string;
-  expectedRoute: string;
-  expectedOutcome: string;
-}
-
-const SUITE_ALIASES: Record<string, string[]> = {
-  memory_architecture: ['memory', 'self_awareness', 'wiki', 'anti_drift']
-};
-
 function hasFlag(name: string): boolean {
   return process.argv.includes(`--${name}`);
 }
 
-function loadCases(): CommandCase[] {
+function argList(name: string): string[] {
+  const value = argValue(process.argv, name);
+  if (!value) return [];
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function loadCases(): LiveNlCommandCase[] {
   const file = path.join(__dirname, 'natural-language-live-commands.json');
-  return JSON.parse(fs.readFileSync(file, 'utf-8')) as CommandCase[];
+  return parseLiveNlCommandCases(JSON.parse(fs.readFileSync(file, 'utf-8')));
 }
 
-function selectCases(cases: CommandCase[]): CommandCase[] {
-  const caseId = argValue(process.argv, 'case');
-  const suite = argValue(process.argv, 'suite');
-  const includeRisky = hasFlag('include-risky');
-  const suiteNames = suite ? new Set(SUITE_ALIASES[suite] ?? [suite]) : null;
-
-  let selected = cases;
-  if (caseId) selected = selected.filter((entry) => entry.id === caseId);
-  if (suiteNames) selected = selected.filter((entry) => suiteNames.has(entry.suite));
-  if (!includeRisky && !caseId) selected = selected.filter((entry) => entry.risk === 'safe');
-  return selected;
-}
-
-function renderCase(entry: CommandCase): string {
+function renderCase(entry: LiveNlCommandCase): string {
   return [
     `TEST CARD ${entry.id}`,
     '',
@@ -63,7 +49,7 @@ function defaultChatId(): string | null {
   return firstAdmin || null;
 }
 
-async function sendPromptCards(selected: CommandCase[]): Promise<void> {
+async function sendPromptCards(selected: LiveNlCommandCase[]): Promise<void> {
   const token = process.env.TEST_BOT_TOKEN?.trim() || process.env.BOT_TOKEN?.trim();
   const chatId = argValue(process.argv, 'chat') || defaultChatId();
   const missingProfileToken = process.env.SPARK_PROFILE_TOKEN_MISSING?.trim();
@@ -86,7 +72,12 @@ async function sendPromptCards(selected: CommandCase[]): Promise<void> {
 async function main(): Promise<void> {
   const profile = loadSparkTelegramProfileEnv(process.argv);
   const cases = loadCases();
-  const selected = selectCases(cases);
+  const selected = selectLiveNlCommandCases(cases, {
+    caseId: argValue(process.argv, 'case'),
+    caseIds: argList('cases'),
+    suite: argValue(process.argv, 'suite'),
+    includeRisky: hasFlag('include-risky')
+  });
 
   if (hasFlag('help') || process.argv.length <= 2) {
     console.log([
@@ -94,14 +85,18 @@ async function main(): Promise<void> {
       '',
       'Usage:',
       '  npm run nl:live -- --list',
+      '  npm run nl:live -- --copy-paste --cases guard-006,guard-007,build-004,domain-chip-003',
       '  npm run nl:live -- --case mission-001',
+      '  npm run nl:live -- --cases guard-006,domain-chip-003',
       '  npm run nl:live -- --suite smoke',
       '  npm run nl:live -- --send --case mission-001',
+      '  npm run nl:live -- --send --cases guard-006,domain-chip-003',
       '  npm run nl:live -- --send --suite smoke',
       '  npm run nl:live -- --profile primary --send --suite smoke',
       '',
       'Notes:',
       '  --send only sends prompt cards. It does not start polling or read updates.',
+      '  --copy-paste prints natural user messages only, plus reply-capture blocks for Codex.',
       '  --profile loads the matching Spark Telegram profile env and bot token.',
       '  Suite alias: memory_architecture expands to memory, self_awareness, wiki, and anti_drift.',
       '  Risky suites are excluded from broad selection unless --include-risky is set.'
@@ -117,6 +112,11 @@ async function main(): Promise<void> {
     for (const entry of selected) {
       console.log(`${entry.id}\t${entry.suite}\t${entry.risk}\t${entry.expectedRoute}`);
     }
+    return;
+  }
+
+  if (hasFlag('copy-paste')) {
+    console.log(formatLiveNlCopyPastePrompts(selected));
     return;
   }
 
