@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants, readFileSync } from 'node:fs';
+import { constants as fsConstants, mkdirSync, readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -399,30 +400,32 @@ export async function recordBuilderVoiceDeliveryProof(input: BuilderVoiceDeliver
   }
   const stateDbPath = path.join(config.builderHome, 'state.db');
   const payload = JSON.stringify(buildBuilderVoiceDeliveryRuntimeState(input));
-  const script = [
-    'import datetime, sqlite3, sys',
-    'db_path, payload, user_id = sys.argv[1], sys.argv[2], sys.argv[3]',
-    'updated_at = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"',
-    'con = sqlite3.connect(db_path)',
-    'con.execute("CREATE TABLE IF NOT EXISTS runtime_state (state_key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")',
-    'keys = ["telegram:voice:last_runtime_state"]',
-    'if user_id:',
-    '    keys.append(f"telegram:voice:last_runtime_state:{user_id}")',
-    'for key in keys:',
-    '    con.execute("INSERT INTO runtime_state (state_key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(state_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", (key, payload, updated_at))',
-    'con.commit()',
-    'con.close()',
-  ].join('\n');
-  await execFileAsync(
-    config.pythonCommand,
-    ['-c', script, stateDbPath, payload, input.telegramUserId],
-    withHiddenWindows({
-      cwd: config.builderRepo,
-      env: pythonSourceEnv(config),
-      timeout: 15000,
-      maxBuffer: 128 * 1024,
-    })
-  );
+  mkdirSync(path.dirname(stateDbPath), { recursive: true });
+  const db = new DatabaseSync(stateDbPath);
+  try {
+    db.exec(`
+      PRAGMA busy_timeout = 5000;
+      CREATE TABLE IF NOT EXISTS runtime_state (
+        state_key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    const updatedAt = new Date().toISOString();
+    const statement = db.prepare(`
+      INSERT INTO runtime_state (state_key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(state_key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `);
+    statement.run('telegram:voice:last_runtime_state', payload, updatedAt);
+    if (input.telegramUserId) {
+      statement.run(`telegram:voice:last_runtime_state:${input.telegramUserId}`, payload, updatedAt);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
