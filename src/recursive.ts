@@ -758,8 +758,8 @@ function localRoundCount(status: LocalRecursiveLoopStatus): string {
 function renderLocalRecursiveWorkspaceHint(): string {
   return [
     'Workspace',
-    '- local-only mode',
-    '- connect Spark Workspace later for reviews, decisions, and network sharing'
+    '• local-only mode',
+    '• connect Spark Workspace later for reviews, decisions, and network sharing'
   ].join('\n');
 }
 
@@ -771,11 +771,11 @@ function renderLocalRecursiveReport(status: LocalRecursiveLoopStatus): string {
     `${outcomeStatusIcon(verdict)} Latest ${label} local run ${friendlyOutcomeVerb(verdict)}.`,
     '',
     'Score',
-    `- ${localRoundCount(status)} rounds`
+    `• ${localRoundCount(status)} rounds`
   ];
-  if (typeof round?.best_metric === 'number') lines.push(`- best score ${formatNumber(round.best_metric)}`);
-  if (typeof round?.suggestions_count === 'number') lines.push(`- ${pluralize(round.suggestions_count, 'suggestion')} reviewed`);
-  lines.push('', 'Local', '- status file saved', '', renderLocalRecursiveWorkspaceHint());
+  if (typeof round?.best_metric === 'number') lines.push(`• best score ${formatNumber(round.best_metric)}`);
+  if (typeof round?.suggestions_count === 'number') lines.push(`• ${pluralize(round.suggestions_count, 'suggestion')} reviewed`);
+  lines.push('', 'Local', '• status file saved', '', renderLocalRecursiveWorkspaceHint());
   return lines.join('\n');
 }
 
@@ -786,21 +786,21 @@ function renderLocalRecursiveTrace(status: LocalRecursiveLoopStatus): string {
     const roundNumber = round.round_index ?? index + 1;
     const score = typeof round.best_metric === 'number' ? `, best score ${formatNumber(round.best_metric)}` : '';
     const suggestions = typeof round.suggestions_count === 'number' ? `, ${pluralize(round.suggestions_count, 'suggestion')}` : '';
-    return `- round ${roundNumber}: ${friendlyOutcomeVerb(verdict)}${score}${suggestions}`;
+    return `• round ${roundNumber}: ${friendlyOutcomeVerb(verdict)}${score}${suggestions}`;
   });
   return [
     `${label} local trace`,
     '',
     'Status',
-    `- ${status.status}`,
-    `- updated ${formatUpdatedAt(status.updated_at)}`,
-    `- ${localRoundCount(status)} rounds`,
+    `• ${status.status}`,
+    `• updated ${formatUpdatedAt(status.updated_at)}`,
+    `• ${localRoundCount(status)} rounds`,
     '',
     'Recent',
-    ...(recent.length > 0 ? recent : ['- no rounds recorded']),
+    ...(recent.length > 0 ? recent : ['• no rounds recorded']),
     '',
     'Local',
-    `- ${status.status_path}`
+    `• ${status.status_path}`
   ].join('\n');
 }
 
@@ -834,12 +834,12 @@ export async function recursiveSessionReview(id: string): Promise<string> {
       `${label} review`,
       '',
       'Status',
-      '- local-only mode',
-      '- no Workspace review queue is connected yet',
+      '• local-only mode',
+      '• no Workspace review queue is connected yet',
       '',
       'Next',
-      `- /recursive report ${id}`,
-      `- /recursive trace ${id}`
+      `• /recursive report ${id}`,
+      `• /recursive trace ${id}`
     ].join('\n');
   }
   const snapshot = await loadSparkWorkspaceSnapshot();
@@ -1418,34 +1418,34 @@ export function renderBuilderChipLoopCompletion(
     `${outcomeStatusIcon(verdict)} Latest ${labelFromKey(chipKey)} run ${friendlyOutcomeVerb(verdict)}.`,
     '',
     'Score',
-    `- ${rounds} rounds`
+    `• ${rounds} rounds`
   ];
 
   if (finalRound) {
     if (typeof finalRound.best_metric === 'number') {
-      lines.push(`- best score ${formatNumber(finalRound.best_metric)}`);
+      lines.push(`• best score ${formatNumber(finalRound.best_metric)}`);
     }
-    lines.push(`- ${pluralize(finalRound.suggestions_count, 'suggestion')} reviewed`);
+    lines.push(`• ${pluralize(finalRound.suggestions_count, 'suggestion')} reviewed`);
   }
 
   if (sync) {
     lines.push(
       '',
       'Workspace',
-      sync.synced ? '- updated' : '- update skipped',
-      `- ${sync.workspaceUrl}`
+      sync.synced ? '• updated' : '• update skipped',
+      `• ${sync.workspaceUrl}`
     );
   } else if (syncError) {
-    lines.push('', 'Workspace', `- update skipped: ${truncateAtWord(syncError, 120)}`);
+    lines.push('', 'Workspace', `• update skipped: ${truncateAtWord(syncError, 120)}`);
   } else {
-    lines.push('', 'Local', '- status file saved');
+    lines.push('', 'Local', '• status file saved');
   }
 
   lines.push(
     '',
     'Report',
-    `- /recursive report ${pathId}`,
-    `- /recursive trace ${pathId}`
+    `• /recursive report ${pathId}`,
+    `• /recursive trace ${pathId}`
   );
   return lines.join('\n');
 }
@@ -1462,23 +1462,23 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
     `${outcomeStatusIcon(verdict)} Latest ${label} run ${friendlyOutcomeVerb(verdict)}.`,
     '',
     'Score',
-    `- ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0} rounds`
+    `• ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0} rounds`
   ];
 
-  if (metricLine) lines.push(`- ${metricLine}`);
+  if (metricLine) lines.push(`• ${metricLine}`);
 
   if (result.workspaceSynced) {
     lines.push(
       '',
       'Workspace',
-      '- updated',
-      `- ${sparkWorkspaceRecursionsUrl()}`
+      '• updated',
+      `• ${sparkWorkspaceRecursionsUrl()}`
     );
   } else {
-    lines.push('', 'Local', '- saved on this machine');
+    lines.push('', 'Local', '• saved on this machine');
   }
 
-  lines.push('', 'Report', `- /recursive report ${pathId}`, `- /recursive trace ${pathId}`);
+  lines.push('', 'Report', `• /recursive report ${pathId}`, `• /recursive trace ${pathId}`);
   return lines.join('\n');
 }
 
@@ -1487,14 +1487,14 @@ export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspace
     `${result.synced ? '🟢' : '🟡'} Recursive artifact sync finished.`,
     '',
     'Workspace',
-    result.synced ? '- updated' : '- update skipped'
+    result.synced ? '• updated' : '• update skipped'
   ];
   lines.push(
-    `- ${result.workspaceUrl}`,
+    `• ${result.workspaceUrl}`,
     '',
     'Report',
-    `- /recursive report ${result.pathId}`,
-    `- /recursive trace ${result.pathId}`
+    `• /recursive report ${result.pathId}`,
+    `• /recursive trace ${result.pathId}`
   );
   return lines.join('\n');
 }
@@ -1522,15 +1522,15 @@ export function renderRecursiveNetworkProposal(result: RecursiveNetworkProposalR
       : `${ready ? '🟢' : '🟡'} ${subject} is ready for review.`,
     '',
     'Status',
-    ready ? '- ready for a human reviewer' : '- private for now'
+    ready ? '• ready for a human reviewer' : '• private for now'
   ];
   if (result.missingGates.length > 0) {
-    lines.push('', 'Before sharing', ...result.missingGates.map((gate) => `- ${friendlyProposalGate(gate)}`));
+    lines.push('', 'Before sharing', ...result.missingGates.map((gate) => `• ${friendlyProposalGate(gate)}`));
   }
-  lines.push('', 'Workspace', result.proposalPath ? '- saved locally' : '- not saved');
+  lines.push('', 'Workspace', result.proposalPath ? '• saved locally' : '• not saved');
   if (isSent) {
-    if (result.submitted && result.submitState) lines.push(`- review state: ${labelFromKey(result.submitState)}`);
-    lines.push(result.submitError ? `- ${result.submitError}` : `- ${sparkWorkspaceDecisionsUrl()}`);
+    if (result.submitted && result.submitState) lines.push(`• review state: ${labelFromKey(result.submitState)}`);
+    lines.push(result.submitError ? `• ${result.submitError}` : `• ${sparkWorkspaceDecisionsUrl()}`);
   }
   return lines.join('\n');
 }
@@ -1693,12 +1693,12 @@ export function renderRecursiveDecision(record: RecursiveDecisionRecord): string
     `${decisionStatusIcon(record.decision)} Recursive review ${action}.`,
     '',
     'Result',
-    applied ? 'Workspace review updated.' : 'Telegram recorded the decision route.'
+    applied ? '• Workspace review updated.' : '• Telegram recorded the decision route.'
   ];
   if (record.workspace_detail) {
-    lines.push(ensureSentence(truncateAtWord(friendlyWorkspaceDecisionDetail(record.workspace_detail), 140)));
+    lines.push(`• ${ensureSentence(truncateAtWord(friendlyWorkspaceDecisionDetail(record.workspace_detail), 140))}`);
   }
-  lines.push('', 'Workspace', sparkWorkspaceDecisionsUrl());
+  lines.push('', 'Workspace', `• ${sparkWorkspaceDecisionsUrl()}`);
   return lines.join('\n');
 }
 
@@ -1707,11 +1707,11 @@ export function renderRecursivePromotionPacket(packet: RecursivePromotionPacket)
     '🟡 Local promotion packet staged.',
     '',
     'Status',
-    'private only',
-    'not shared with the network',
+    '• private only',
+    '• not shared with the network',
     '',
     'Safety',
-    'No memory, Swarm, Builder, or source artifacts were changed.'
+    '• No memory, Swarm, Builder, or source artifacts were changed.'
   ].join('\n');
 }
 
@@ -1720,14 +1720,14 @@ export function renderRecursiveSwarmPacket(packet: RecursiveSwarmPacket): string
     '🟡 Swarm review packet staged.',
     '',
     'Status',
-    'private until review passes',
-    'network sharing blocked',
+    '• private until review passes',
+    '• network sharing blocked',
     '',
     'Why',
-    ensureSentence(sentenceCaseFirst(labelFromKey(packet.publication_gate.reason).toLowerCase())),
+    `• ${ensureSentence(sentenceCaseFirst(labelFromKey(packet.publication_gate.reason).toLowerCase()))}`,
     '',
     'Safety',
-    'No network publication, memory mutation, Builder absorption, or source artifacts were changed.'
+    '• No network publication, memory mutation, Builder absorption, or source artifacts were changed.'
   ].join('\n');
 }
 
@@ -1736,11 +1736,11 @@ export function renderRecursiveCanvasQueue(result: RecursiveCanvasQueueResult): 
     '🟡 Recursive Canvas is ready.',
     '',
     'Canvas',
-    result.canvasUrl,
+    `• ${result.canvasUrl}`,
     '',
     'Plan',
-    `${pluralize(result.load.nodes.length, 'node')}`,
-    'inspect only'
+    `• ${pluralize(result.load.nodes.length, 'node')}`,
+    '• inspect only'
   ].join('\n');
 }
 
@@ -2268,7 +2268,6 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const pathOutcomes = outcomesForPath(snapshot, path);
   const latestOutcome = pathOutcomes.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
   const decisions = inboxForPath(snapshot, path);
-  const artifacts = artifactsForPath(snapshot, path);
   const metricLine = latestOutcome ? formatOutcomeMetric(latestOutcome) : null;
   const comparisonLine = latestOutcome ? formatOutcomeComparison(latestOutcome, pathOutcomes, path.bestOutcomeId) : null;
   const label = pathDisplayLabel(path, spec);
@@ -2290,7 +2289,6 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
     decisions.length > 0 ? `• ${sparkWorkspaceDecisionsUrl()}` : null,
     '',
     'Workspace',
-    artifacts.length > 0 ? `• ${pluralize(artifacts.length, 'saved item')}` : null,
     `• ${sparkWorkspaceRecursionsUrl()}`,
   ].filter(isRenderableLine).join('\n');
 }
@@ -2724,7 +2722,24 @@ function formatOutcomeComparison(
   bestOutcomeId: string | null | undefined
 ): string | null {
   const bestOutcome = bestComparableOutcome(latestOutcome, outcomes, bestOutcomeId);
-  if (!bestOutcome || typeof latestOutcome.metricValue !== 'number' || typeof bestOutcome.metricValue !== 'number') return null;
+  if (typeof latestOutcome.metricValue !== 'number') return null;
+
+  const previousOutcome = previousComparableOutcome(latestOutcome, outcomes);
+  if (previousOutcome && typeof previousOutcome.metricValue === 'number') {
+    const previousDelta = latestOutcome.metricValue - previousOutcome.metricValue;
+    if (Math.abs(previousDelta) >= 0.000001) {
+      const lowerIsBetter = metricGoalPrefersLower(latestOutcome);
+      const latestIsBetter = lowerIsBetter ? previousDelta < 0 : previousDelta > 0;
+      if (latestIsBetter && /improved/i.test(latestOutcome.verdict || '')) {
+        return `Change: improved from ${formatNumber(previousOutcome.metricValue)}.`;
+      }
+      if (!latestIsBetter && /regressed/i.test(latestOutcome.verdict || '')) {
+        return `Change: regressed from ${formatNumber(previousOutcome.metricValue)}.`;
+      }
+    }
+  }
+
+  if (!bestOutcome || typeof bestOutcome.metricValue !== 'number') return null;
 
   const delta = latestOutcome.metricValue - bestOutcome.metricValue;
   if (Math.abs(delta) < 0.000001) return 'Compare: current best for this path.';
@@ -2740,7 +2755,7 @@ function formatOutcomeComparison(
 }
 
 function formatCompareFragment(line: string): string {
-  return line.replace(/^Compare:\s*/i, '').replace(/[.]+$/, '');
+  return line.replace(/^(Compare|Change):\s*/i, '').replace(/[.]+$/, '');
 }
 
 function bestComparableOutcome(
@@ -2765,6 +2780,28 @@ function bestComparableOutcome(
     lowerIsBetter
       ? (a.metricValue as number) - (b.metricValue as number)
       : (b.metricValue as number) - (a.metricValue as number)
+  )[0] ?? null;
+}
+
+function previousComparableOutcome(
+  latestOutcome: SparkWorkspaceOutcome,
+  outcomes: SparkWorkspaceOutcome[]
+): SparkWorkspaceOutcome | null {
+  if (typeof latestOutcome.metricValue !== 'number') return null;
+  const latestCreatedAt = String(latestOutcome.createdAt || '');
+  const comparable = outcomes.filter((outcome) =>
+    outcome.id !== latestOutcome.id &&
+    outcome.metricName === latestOutcome.metricName &&
+    typeof outcome.metricValue === 'number'
+  );
+  if (comparable.length === 0) return null;
+
+  const earlier = latestCreatedAt
+    ? comparable.filter((outcome) => String(outcome.createdAt || '') < latestCreatedAt)
+    : comparable;
+  const candidates = earlier.length > 0 ? earlier : comparable;
+  return candidates.slice().sort((a, b) =>
+    String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
   )[0] ?? null;
 }
 

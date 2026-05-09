@@ -56,7 +56,7 @@ import {
   recursiveSessions,
   recursiveSessionReview,
   recursiveSessionStatus,
-  recursiveTraceView,
+  recursiveTraceReply,
   renderRecursiveDecision,
   renderRecursiveCanvasQueue,
   renderBuilderChipLoopCompletion,
@@ -66,7 +66,6 @@ import {
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
-  renderRecursiveTraceView,
   sparkWorkspaceRecursionsUrl,
   stageRecursivePromotionPacket,
   stageRecursiveSwarmPacket,
@@ -115,8 +114,7 @@ import {
   shouldSuppressMissionHandoff,
   setTelegramMissionLinkPreference,
   setTelegramRelayVerbosity,
-  startMissionRelay,
-  type MissionRelayRuntimeStatus
+  startMissionRelay
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
 import { parseBuildIntent } from './buildIntent';
@@ -197,6 +195,11 @@ import {
   isTelegramImageMessage,
   telegramImageMemoryText
 } from './telegramImageBridge';
+import {
+  buildMemoryDoctorEvidencePrompt,
+  selectMemoryDoctorEvidenceTurns,
+  shouldAttachMemoryDoctorEvidence
+} from './memoryDoctorBridge';
 import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
 import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
@@ -468,11 +471,9 @@ function previewAuditText(text: string, limit = 240): string {
 function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): void {
   const text = typeof deliveredText === 'string' ? deliveredText : String(deliveredText ?? '');
   const auditPath = nodeOutboundAuditPath();
-  const relay = getTelegramRelayIdentity();
   const record = {
     ts: new Date().toISOString(),
     event: 'telegram_node_delivered',
-    relay,
     chat_id: String(chatId ?? ''),
     text_length: text.length,
     text_preview: previewAuditText(text),
@@ -562,14 +563,8 @@ interface PendingCreatorMission {
 const pendingCreatorMissions = new Map<string, PendingCreatorMission>();
 const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
-const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
-const TELEGRAM_POLLING_CONFLICT_RETRY_MS = 15_000;
 let pollingActive = false;
 let pollingStartedAt: string | null = null;
-let pollingError: string | null = null;
-let pollingRetryAt: string | null = null;
-let pollingBotIdentity: { id?: number; username?: string } | null = null;
-let shuttingDown = false;
 
 function extractCommandName(text: string | undefined): string | null {
   if (!text?.startsWith('/')) {
@@ -579,100 +574,12 @@ function extractCommandName(text: string | undefined): string | null {
   return command || null;
 }
 
-async function ensurePollingReady(): Promise<{ id?: number; username?: string }> {
-  const me = await bot.telegram.getMe();
+async function ensurePollingReady(): Promise<void> {
   const webhookInfo = await bot.telegram.getWebhookInfo();
   if (webhookInfo.url) {
     console.warn(`Telegram webhook was active at ${webhookInfo.url}; deleting it before long polling.`);
     await bot.telegram.deleteWebhook({ drop_pending_updates: false });
   }
-  return {
-    id: me.id,
-    username: me.username
-  };
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function telegramPollingErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error || 'unknown polling error');
-}
-
-function isTelegramPollingConflict(error: unknown): boolean {
-  const message = telegramPollingErrorMessage(error).toLowerCase();
-  return message.includes('409') && message.includes('conflict') && message.includes('getupdates');
-}
-
-function currentMissionRelayRuntimeStatus(): MissionRelayRuntimeStatus {
-  return {
-    telegramPolling: TELEGRAM_SMOKE_MODE
-      ? 'disabled_smoke'
-      : pollingActive
-        ? 'active'
-        : pollingError
-          ? 'recovering'
-          : 'starting',
-    pollingActive,
-    pollingStartedAt,
-    pollingError,
-    pollingRetryAt,
-    bot: pollingBotIdentity
-  };
-}
-
-async function launchTelegramPolling(botIdentity: { id?: number; username?: string }): Promise<void> {
-  pollingBotIdentity = botIdentity;
-  pollingError = null;
-  pollingRetryAt = null;
-
-  const launchPromise = bot.launch(() => {
-    pollingActive = true;
-    pollingStartedAt = new Date().toISOString();
-    pollingError = null;
-    pollingRetryAt = null;
-    console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
-  });
-
-  const launchProbe = await Promise.race([
-    launchPromise.then(
-      () => ({ status: 'settled' as const }),
-      (error) => ({ status: 'failed' as const, error })
-    ),
-    wait(TELEGRAM_POLLING_READY_GRACE_MS).then(() => ({ status: 'running' as const }))
-  ]);
-  if (launchProbe.status === 'failed') {
-    throw launchProbe.error;
-  }
-  if (launchProbe.status === 'settled') {
-    throw new Error('Telegram polling stopped during startup.');
-  }
-
-  void launchPromise.catch((err) => {
-    pollingActive = false;
-    pollingStartedAt = null;
-    if (shuttingDown) return;
-    const message = telegramPollingErrorMessage(err);
-    if (!isTelegramPollingConflict(err)) {
-      void releaseGatewayOwnership();
-      console.error('Telegram polling stopped:', err);
-      process.exit(1);
-      return;
-    }
-
-    pollingError = message;
-    pollingRetryAt = new Date(Date.now() + TELEGRAM_POLLING_CONFLICT_RETRY_MS).toISOString();
-    console.warn(`Telegram polling conflict detected; retrying at ${pollingRetryAt}: ${message}`);
-    setTimeout(() => {
-      if (shuttingDown) return;
-      void launchTelegramPolling(botIdentity).catch((error) => {
-        void releaseGatewayOwnership();
-        console.error('Telegram polling restart failed:', error);
-        process.exit(1);
-      });
-    }, TELEGRAM_POLLING_CONFLICT_RETRY_MS);
-  });
 }
 
 function requireAdmin(ctx: any): boolean {
@@ -1740,6 +1647,30 @@ export function parseNaturalRunIntent(text: string): { providers: string[]; goal
   return null;
 }
 
+export interface NaturalRecursiveProposalIntent {
+  target: string;
+  submit: boolean;
+}
+
+export function parseNaturalRecursiveProposalIntent(text: string): NaturalRecursiveProposalIntent | null {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const wantsReviewPacket = /\b(prepare|propose|package|submit|share|send)\b/.test(normalized) &&
+    /\b(review|network|swarm|spark swarm|workspace)\b/.test(normalized);
+  if (!wantsReviewPacket) return null;
+
+  const submit = /\b(submit|share|send)\b/.test(normalized) &&
+    /\b(network|swarm|spark swarm|review)\b/.test(normalized);
+  if (/\bcrypto[-\s]+trading\b/.test(normalized)) return { target: 'crypto-trading', submit };
+  if (/\bstartup[-\s]+yc\b/.test(normalized)) return { target: 'startup-yc', submit };
+  return null;
+}
+
 function humanProviderList(providers: string[]): string {
   const labels = providers.map((id) => PROVIDER_LABELS[id] || id);
   if (labels.length === 1) return labels[0];
@@ -2659,7 +2590,7 @@ bot.command('loop', async (ctx) => {
 export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
   if (!requireAdmin(ctx)) return;
 
-  const raw = rawOverride ?? ctx.message.text.replace(/^\/recursive(?:@[A-Za-z0-9_]+)?\b/i, '').trim();
+  const raw = rawOverride ?? ctx.message.text.replace('/recursive', '').trim();
   const parsed = parseRecursiveCommand(raw);
   if (!parsed) return ctx.reply(renderRecursiveHelp());
 
@@ -2693,7 +2624,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     if (parsed.action === 'trace') {
       if (!parsed.id) return ctx.reply('Usage: /recursive trace <id>');
       await safeSendChatAction(ctx, 'typing');
-      return ctx.reply(renderRecursiveTraceView(await recursiveTraceView(parsed.id)));
+      return ctx.reply(await recursiveTraceReply(parsed.id));
     }
 
     if (parsed.action === 'canvas') {
@@ -2735,7 +2666,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     }
 
     if (parsed.action === 'start') {
-      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <chipKey> [rounds <n>]');
+      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <targetKey> [rounds <n>]');
       const chatId = ctx.chat.id;
       const rounds = parsed.rounds || 3;
       await safeSendChatAction(ctx, 'typing');
@@ -3348,12 +3279,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (!buildIntent && await handlePendingCreatorMission(ctx, text)) {
+    if (await handlePendingCreatorMission(ctx, text)) {
       await conversation.remember(user, text).catch(() => {});
       return;
     }
 
-    let naturalRecursiveIntent = buildIntent ? null : parseNaturalRecursiveCommandIntent(text, {
+    let naturalRecursiveIntent = parseNaturalRecursiveCommandIntent(text, {
       recentMessages: recentRecursiveContext
     });
     if (!naturalRecursiveIntent && shouldLoadRecursiveWorkspaceTargets(text, recentRecursiveContext)) {
@@ -3378,7 +3309,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const naturalChipBrief = buildIntent ? null : parseNaturalChipCreateIntent(text);
+    const naturalChipBrief = parseNaturalChipCreateIntent(text);
     if (naturalChipBrief) {
       await conversation.remember(user, text).catch(() => {});
       recordNaturalRouteExecution(ctx, naturalRouteShadow, 'domain_chip.create', 'domain-chip', 'domain_chip.create');
@@ -3396,7 +3327,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const creatorMissionIntent = buildIntent ? null : parseNaturalCreatorMissionIntent(text, {
+    const creatorMissionIntent = parseNaturalCreatorMissionIntent(text, {
       recentMessages: contextualTurns.filter(Boolean).slice(-15)
     });
     if (creatorMissionIntent) {
@@ -3717,6 +3648,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
   try {
+    const memoryDoctorEvidenceTurns = naturalRouteShadow?.route === 'memory.doctor' && shouldAttachMemoryDoctorEvidence(text)
+      ? selectMemoryDoctorEvidenceTurns(text, await conversation.getRecentTurns(user, 8).catch(() => []))
+      : [];
+    await conversation.remember(user, text).catch(() => {});
     let bridgeFailed = false;
     let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
@@ -3726,7 +3661,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       routingDecision: ''
     };
     try {
-      builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+      const bridgeUpdate = naturalRouteShadow?.route === 'memory.doctor' && shouldAttachMemoryDoctorEvidence(text)
+        ? buildUpdateWithText(
+            ctx.update as unknown as Record<string, unknown>,
+            buildMemoryDoctorEvidencePrompt(
+              text,
+              memoryDoctorEvidenceTurns
+            )
+          )
+        : ctx.update as unknown as Record<string, unknown>;
+      builderReply = await runBuilderTelegramBridge(bridgeUpdate);
     } catch (bridgeError) {
       bridgeFailed = true;
       console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
@@ -3744,9 +3688,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
         return;
       }
-      if (process.env.SPARK_VERBOSE_BRIDGE_LOGS === '1') {
-        console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
-      }
+      console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
     }
 
     // Get context from previous memories
@@ -3902,7 +3844,6 @@ bot.on(message('audio'), handleVoiceMessage);
 
 // Graceful shutdown
 process.once('SIGINT', () => {
-  shuttingDown = true;
   console.log('Shutting down...');
   void releaseGatewayOwnership();
   if (pollingActive) {
@@ -3910,7 +3851,6 @@ process.once('SIGINT', () => {
   }
 });
 process.once('SIGTERM', () => {
-  shuttingDown = true;
   console.log('Shutting down...');
   void releaseGatewayOwnership();
   if (pollingActive) {
@@ -3930,7 +3870,11 @@ async function start() {
     });
   }
   const relay = await startMissionRelay(bot, {
-    getRuntimeStatus: currentMissionRelayRuntimeStatus
+    getRuntimeStatus: () => ({
+      telegramPolling: TELEGRAM_SMOKE_MODE ? 'disabled_smoke' : pollingActive ? 'active' : 'starting',
+      pollingActive,
+      pollingStartedAt
+    })
   });
 
   // Check launch-critical connections.
@@ -3951,8 +3895,12 @@ async function start() {
     return;
   }
 
-  const botIdentity = await ensurePollingReady();
-  await launchTelegramPolling(botIdentity);
+  await ensurePollingReady();
+  await bot.launch(() => {
+    pollingActive = true;
+    pollingStartedAt = new Date().toISOString();
+    console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
+  });
 }
 
 // Guard: only auto-start when run as the main module. Importing this file

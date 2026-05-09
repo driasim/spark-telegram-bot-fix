@@ -32,12 +32,15 @@ export async function validateRelayRuntime(
       runtime?: { telegramPolling?: string; pollingActive?: boolean };
     };
     const pollingState = payload.runtime?.telegramPolling;
-    if (pollingState && pollingState !== 'active' && pollingState !== 'disabled_smoke') {
+    if (!pollingState) {
+      throw new Error('Telegram polling status is missing');
+    }
+    if (pollingState !== 'active' && pollingState !== 'disabled_smoke') {
       throw new Error(`Telegram polling is ${pollingState}`);
     }
     const profile = payload.relay?.profile || telegramRelayIdentityFromEnv(env).profile;
     const port = payload.relay?.port || new URL(url).port;
-    const polling = pollingState ? ` polling=${pollingState}` : '';
+    const polling = ` polling=${pollingState}`;
     return `${profile}@${port}${payload.pid ? ` pid=${payload.pid}` : ''}${polling}`;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -45,19 +48,6 @@ export async function validateRelayRuntime(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function describeRuntimeHealthError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/TELEGRAM_RELAY_SECRET|SPARK_PROFILE_RELAY_SECRET_MISSING/.test(message)) {
-    return [
-      'This check needs Spark-generated runtime env.',
-      'Run:',
-      '  spark status',
-      '  spark logs spark-telegram-bot --profile primary --lines 80'
-    ].join('\n');
-  }
-  return message;
 }
 
 async function main(): Promise<void> {
@@ -78,7 +68,7 @@ if (require.main === module) {
     try {
       await main();
     } catch (error) {
-      console.error(`Telegram runtime health: FAILED - ${describeRuntimeHealthError(error)}`);
+      console.error(`Telegram runtime health: FAILED - ${(error as Error).message}`);
       process.exit(1);
     }
   })();

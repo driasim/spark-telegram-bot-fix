@@ -88,14 +88,5 @@ export function loadSparkTelegramProfileEnv(args: string[], env: NodeJS.ProcessE
     env.SPARK_PROFILE_TOKEN_MISSING = profileSecretId;
     delete env.BOT_TOKEN;
   }
-
-  const profileRelaySecretId = `telegram.profiles.${profile}.relay_secret`;
-  const relaySecret = readSparkSecret(profileRelaySecretId) || readSparkSecret('telegram.relay_secret');
-  if (relaySecret) {
-    env.TELEGRAM_RELAY_SECRET = relaySecret;
-    delete env.SPARK_PROFILE_RELAY_SECRET_MISSING;
-  } else {
-    env.SPARK_PROFILE_RELAY_SECRET_MISSING = profileRelaySecretId;
-  }
   return profile;
 }

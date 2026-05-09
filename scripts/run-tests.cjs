@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('node:child_process');
-const { existsSync } = require('node:fs');
 const path = require('node:path');
 
 const tests = [
@@ -11,6 +10,14 @@ const tests = [
   'tests/buildRoutingMatrix.test.ts',
   'tests/buildE2E.test.ts',
   'tests/conversationIntent.test.ts',
+  'tests/naturalRouteDecision.test.ts',
+  'tests/naturalRouteTelemetry.test.ts',
+  'tests/naturalRouteLedger.test.ts',
+  'tests/naturalRouteReplay.test.ts',
+  'tests/liveNlVerdict.test.ts',
+  'tests/routeBoundaryHandlerHarness.test.ts',
+  'tests/runtimeFreshness.test.ts',
+  'tests/runtimeSyncCompatibility.test.ts',
   'tests/conversationMemory.test.ts',
   'tests/commandTelemetry.test.ts',
   'tests/accessPolicy.test.ts',
@@ -55,24 +62,7 @@ const env = {
 
 const tsNodeBin = path.join(__dirname, '..', 'node_modules', 'ts-node', 'dist', 'bin.js');
 
-function isTrackedTestFile(testFile) {
-  const result = spawnSync('git', ['ls-files', '--error-unmatch', testFile], {
-    cwd: path.join(__dirname, '..'),
-    stdio: 'ignore'
-  });
-  return result.status === 0;
-}
-
 for (const testFile of tests) {
-  if (!existsSync(testFile)) {
-    console.warn(`skip - ${testFile} (not present in this checkout)`);
-    continue;
-  }
-  if (!isTrackedTestFile(testFile)) {
-    console.warn(`skip - ${testFile} (not tracked in this checkout)`);
-    continue;
-  }
-
   const result = spawnSync(process.execPath, [tsNodeBin, testFile], {
     env,
     stdio: 'inherit'

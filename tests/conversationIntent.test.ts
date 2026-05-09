@@ -54,6 +54,11 @@ import {
   shouldPreferConversationalIdeation
 } from '../src/conversationIntent';
 import { buildConversationFrame } from '../src/conversationFrame';
+import {
+  buildMemoryDoctorEvidencePrompt,
+  selectMemoryDoctorEvidenceTurns,
+  shouldAttachMemoryDoctorEvidence
+} from '../src/memoryDoctorBridge';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -623,6 +628,38 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
     assert.equal(isMemoryDoctorRequest(prompt), true, `${prompt} should be recognized as a Memory Doctor request`);
     assert.equal(parseNaturalCreatorMissionIntent(prompt, context), null, `${prompt} should not plan a creator mission`);
   }
+});
+
+test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
+  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
+
+  const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
+    { role: 'user', text: 'do not build yet, help me think through a domain chip for route confidence' },
+    { role: 'assistant', text: 'Good problem to formalize. Route confidence is currently implicit in Builder.' }
+  ]);
+
+  assert.match(prompt, /^audit previous turn/);
+  assert.match(prompt, /Route: memory\.doctor/);
+  assert.match(prompt, /Do not ask the user to paste the previous turn unless no recent turns are listed\./);
+  assert.match(prompt, /- user: do not build yet, help me think through a domain chip for route confidence/);
+  assert.match(prompt, /- assistant: Good problem to formalize\./);
+});
+
+test('selects immediate prior turns for contextual Memory Doctor evidence', () => {
+  const turns = selectMemoryDoctorEvidenceTurns('run memory doctor for last request', [
+    { role: 'user', text: 'all your chips work, right?' },
+    { role: 'assistant', text: 'Spark chip status needs live probes.' },
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' },
+    { role: 'user', text: 'run memory doctor for last request' }
+  ]);
+
+  assert.deepEqual(turns, [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' }
+  ]);
 });
 
 test('detects empty or generic LLM failures', () => {

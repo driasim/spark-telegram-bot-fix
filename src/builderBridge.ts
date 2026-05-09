@@ -59,16 +59,6 @@ export interface BuilderBridgeVoiceMedia {
   voiceId?: string;
   spokenText?: string;
   synthesisMs?: number;
-  runtimeState?: Record<string, unknown>;
-}
-
-export interface BuilderVoiceDeliveryProofInput {
-  telegramUserId: string;
-  voiceMedia: BuilderBridgeVoiceMedia;
-  sendMethod: 'sendVoice' | 'sendAudio';
-  sendMs: number;
-  telegramResult?: unknown;
-  failureReason?: string;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -339,64 +329,6 @@ function arrayValue(value: unknown): unknown[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function telegramMessageIdPresent(result: unknown): boolean {
-  const payload = objectValue(result);
-  if (payload.message_id !== undefined && payload.message_id !== null) {
-    return true;
-  }
-  const nested = objectValue(payload.result);
-  return nested.message_id !== undefined && nested.message_id !== null;
-}
-
-export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliveryProofInput): Record<string, unknown> {
-  const base = objectValue(input.voiceMedia.runtimeState);
-  const state = JSON.parse(JSON.stringify(Object.keys(base).length ? base : {
-    schema_version: 'spark.voice_runtime_state.v1',
-    generated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    surface: 'telegram',
-    dm_voice_replies: 'unknown',
-    canonical_chip_key: 'spark-voice-comms',
-    legacy_alias_visible: false,
-    stt: { provider_id: 'unknown', mode: 'unknown', ready: false },
-    tts: {},
-    claim_levels: {},
-    source_ledger: []
-  })) as Record<string, unknown>;
-
-  const deliveryReady = !input.failureReason && input.sendMethod === 'sendVoice';
-  const tts = objectValue(state.tts);
-  state.tts = {
-    ...tts,
-    provider_id: input.voiceMedia.providerId || tts.provider_id || 'unknown',
-    ready: true,
-    mime_type: input.voiceMedia.mimeType,
-    voice_compatible: input.voiceMedia.voiceCompatible
-  };
-  const latency = objectValue(state.latency);
-  latency.send_voice_ms = Math.max(0, Math.trunc(input.sendMs));
-  state.latency = latency;
-  const claimLevels = objectValue(state.claim_levels);
-  claimLevels.synthesis_ready = true;
-  claimLevels.delivery_ready = deliveryReady;
-  claimLevels.configured = true;
-  claimLevels.conversation_ready = Boolean(claimLevels.conversation_ready && deliveryReady);
-  state.claim_levels = claimLevels;
-  state.telegram_delivery = {
-    ready: deliveryReady,
-    last_send_voice_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    last_send_voice_status: deliveryReady ? 'success' : (input.failureReason ? 'failure' : 'document_fallback'),
-    last_failure_reason: input.failureReason || '',
-    telegram_message_id_present: telegramMessageIdPresent(input.telegramResult),
-    send_method: input.sendMethod
-  };
-  const sourceLedger = Array.isArray(state.source_ledger) ? [...state.source_ledger] : [];
-  if (!sourceLedger.includes('telegram-runner-sendVoice-trace')) {
-    sourceLedger.push('telegram-runner-sendVoice-trace');
-  }
-  state.source_ledger = sourceLedger;
-  return state;
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {

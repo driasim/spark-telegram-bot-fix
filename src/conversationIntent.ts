@@ -743,18 +743,9 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
   return null;
 }
 
-function isVoiceTuningTurn(text: string): boolean {
-  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
-  return (
-    /^(?:make\s+)?(?:it|this|the\s+voice|voice|current\s+voice|my\s+voice)?\s*(?:a\s+little\s+)?(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less\s+polished|expressive)\b/.test(normalized) &&
-    /\b(?:voice|warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|expressive)\b/.test(normalized)
-  );
-}
-
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if (isVoiceTuningTurn(trimmed)) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
@@ -1273,7 +1264,7 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
-  if (isVoiceTuningTurn(text)) return false;
+  if (isLikelyVoiceOrPersonaTuningRequest(normalized)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
   if (/^(?:where|what|which|show|send|give)\b.*\b(?:link|localhost|preview|url|board|canvas|kanban)\b/.test(normalized)) {
@@ -1288,6 +1279,15 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
 
   const pointsAtCurrentProject = /\b(?:this|that|it|app|site|page|screen|project|build|product|dashboard|tool|prototype|design|layout|colors?|colours?|palette|theme|spacing|copy|text|button|flow|workflow|mobile|responsive|spark)\b/.test(normalized);
   return pointsAtCurrentProject;
+}
+
+function isLikelyVoiceOrPersonaTuningRequest(normalized: string): boolean {
+  if (/\b(?:voice|speech|spoken|talk|tone|persona)\b/.test(normalized)) return true;
+  const shortAmbiguousPronounTweak =
+    /^(?:make\s+(?:it|this|that)\b|a\s+little\b|little\b)/.test(normalized) &&
+    normalized.split(/\s+/).length <= 8;
+  if (!shortAmbiguousPronounTweak) return false;
+  return /\b(?:warmer|colder|clearer|softer|friendlier|geekier|geeky|faster|slower|louder|quieter|casual|formal)\b/.test(normalized);
 }
 
 export function buildProjectImprovementGoal(
@@ -1707,8 +1707,8 @@ export function isGlobalAgentDoctrineRequest(text: string): boolean {
 
 export function formatGlobalAgentDoctrineRequestReply(): string {
   return [
-    'I cannot change all Spark agents or systems globally from this chat.',
-    'I can keep a preference for this agent with you, though. Say something like: "when you talk to me, use short paragraphs with blank lines."'
+    'That is a global Spark behavior change, so I should not silently apply it from one chat.',
+    'The right move is an explicit doctrine proposal with scope, affected agents, tests, and rollback. For this conversation, I can still follow the principle: I will ask before launching missions when the target or route is ambiguous.'
   ].join('\n\n');
 }
 

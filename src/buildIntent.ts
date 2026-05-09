@@ -300,16 +300,6 @@ function isConversationFramingMakeRequest(description: string): boolean {
   );
 }
 
-function isVoiceTuningMakeRequest(description: string): boolean {
-  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
-  if (!/^(?:it|this|the\s+voice|voice|current\s+voice|my\s+voice)\b/.test(normalized)) {
-    return false;
-  }
-  return /\b(?:warm|warmer|soft|softer|gentle|geeky|geekier|qa|tester|technical|clear|clearer|crisp|calm|calmer|bright|brighter|natural|faster|slower|polished|less\s+polished|expressive)\b/.test(
-    normalized
-  );
-}
-
 function isSparkCapabilityMakeRequest(description: string): boolean {
   const normalized = description.replace(/\s+/g, ' ').trim();
   const lowered = normalized.toLowerCase();
@@ -361,17 +351,19 @@ function isAmbiguousContextualBuildRequest(text: string, projectPath: string | n
   return true;
 }
 
+function isVoiceTuningMakeRequest(description: string): boolean {
+  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(?:voice|speech|spoken|tone|persona)\b/.test(normalized);
+}
+
 function extractBuildDescription(text: string): string | null {
   const command = text.match(
     /^\s*(?:(?:i|we)\s+(?:want|need|would\s+like|would\s+love)\s+to\s+|can\s+(?:you|we)\s+|could\s+(?:you|we)\s+|let'?s\s+|let\s+us\s+|please\s+)?\/?(?:build|make|create|ship|scaffold|generate|develop)\b\s*(?:(?:right\s+now|now)\s+)?(?:me\s+|us\s+)?(?:(?:a|an|the|this)\s+|new\s+project\s+)?/i
   );
   if (command) {
     const description = text.slice(command[0].length);
-    if (
-      isSparkCapabilityMakeRequest(description) ||
-      (/\bmake\b/i.test(command[0]) &&
-        (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
-    ) {
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
       return null;
     }
     return description;
@@ -386,11 +378,7 @@ function extractBuildDescription(text: string): string | null {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
-    if (
-      isSparkCapabilityMakeRequest(description) ||
-      (/\bmake\b/i.test(inlineCommand[0]) &&
-        (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
-    ) {
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
       return null;
     }
     return description;

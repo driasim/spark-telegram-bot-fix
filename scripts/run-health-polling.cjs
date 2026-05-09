@@ -1,7 +1,7 @@
 const { existsSync } = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
-const useBuiltFile = existsSync('dist/healthPolling.js');
+const useBuiltFile = existsSync('dist/healthRuntime.js');
 const command = useBuiltFile ? process.execPath : 'npx';
 const args = useBuiltFile
   ? ['dist/healthRuntime.js', ...process.argv.slice(2)]
