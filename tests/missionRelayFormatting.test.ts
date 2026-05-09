@@ -13,6 +13,7 @@ import {
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
+  relayIdentityMismatchPayload,
   resetMissionRelayDeliveryStateForTests,
   releaseCompletionDeliveryClaimForTests,
   sendFetchedCompletionSummaryForTests,
@@ -863,6 +864,14 @@ test('requires relay events to match registered Telegram identity', () => {
     type: 'task_completed',
     missionId: 'spark-2'
   }, subscription), false);
+});
+
+test('relay identity mismatch payload includes product-level repair text', () => {
+  const payload = relayIdentityMismatchPayload();
+  assert.equal(payload.error, 'relay_identity_mismatch');
+  assert.match(String(payload.message), /Spawner and Telegram disagree on relay identity/);
+  assert.match(String(payload.repair), /spark restart telegram-starter/);
+  assert.match(String(payload.repair), /spark setup telegram-starter --resume/);
 });
 
 test('suppresses hosted preview generation progress in Telegram', () => {
