@@ -47,6 +47,10 @@ export type MissionRelayTelegramPollingState = 'starting' | 'active' | 'disabled
 export interface MissionRelayRuntimeStatus {
   telegramPolling?: MissionRelayTelegramPollingState;
   pollingStartedAt?: string | null;
+  bot?: {
+    id?: number;
+    username?: string;
+  };
 }
 
 export interface MissionRelayHealthPayload extends Record<string, unknown> {

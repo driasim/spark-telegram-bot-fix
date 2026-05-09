@@ -419,12 +419,17 @@ function extractCommandName(text: string | undefined): string | null {
   return command || null;
 }
 
-async function ensurePollingReady(): Promise<void> {
+async function ensurePollingReady(): Promise<{ id?: number; username?: string }> {
+  const me = await bot.telegram.getMe();
   const webhookInfo = await bot.telegram.getWebhookInfo();
   if (webhookInfo.url) {
     console.warn(`Telegram webhook was active at ${webhookInfo.url}; deleting it before long polling.`);
     await bot.telegram.deleteWebhook({ drop_pending_updates: false });
   }
+  return {
+    id: me.id,
+    username: me.username
+  };
 }
 
 function wait(ms: number): Promise<void> {
@@ -3902,7 +3907,7 @@ async function start() {
     return;
   }
 
-  await ensurePollingReady();
+  const botIdentity = await ensurePollingReady();
   const launchPromise = bot.launch();
   const launchProbe = await Promise.race([
     launchPromise.then(
@@ -3920,7 +3925,8 @@ async function start() {
   pollingActive = true;
   setMissionRelayRuntimeStatus({
     telegramPolling: 'active',
-    pollingStartedAt: new Date().toISOString()
+    pollingStartedAt: new Date().toISOString(),
+    bot: botIdentity
   });
   console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
   void launchPromise.catch((err) => {
