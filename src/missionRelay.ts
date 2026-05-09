@@ -86,6 +86,7 @@ interface MissionBoardEntry {
 
 const REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
+const COMPLETION_DELIVERY_CACHE_PATH = resolveStatePath('.spark-telegram-completion-delivery-cache.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
@@ -102,6 +103,11 @@ const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
 const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
+
+interface CompletionDeliveryCacheState {
+  missionIds?: string[];
+  updatedAt?: string;
+}
 
 function getRelayPort(): number {
 	return telegramRelayIdentityFromEnv().port;
@@ -677,6 +683,7 @@ async function sendFetchedCompletionSummary(
       await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
     }
     completionDeliveryCache.add(event.missionId);
+    await persistCompletionDeliveryCache();
     await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
     return chunks.length;
   } finally {
@@ -1392,6 +1399,20 @@ export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
   return completionDeliveryCache.has(missionId);
 }
 
+export function claimCompletionDeliveryForTests(missionId: string): boolean {
+  if (completionDeliveryCache.has(missionId) || completionDeliveryInFlight.has(missionId)) return false;
+  completionDeliveryInFlight.add(missionId);
+  return true;
+}
+
+export function releaseCompletionDeliveryClaimForTests(missionId: string): void {
+  completionDeliveryInFlight.delete(missionId);
+}
+
+export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
+  await loadCompletionDeliveryCache();
+}
+
 export async function sendFetchedCompletionSummaryForTests(
   bot: Telegraf,
   chatId: number,
@@ -1415,9 +1436,39 @@ function heartbeatKey(event: DeliverableRelayEvent): string {
 }
 
 function heartbeatIntervalMs(verbosity: TelegramRelayVerbosity): number {
-  if (verbosity === 'verbose') return 120_000;
-  if (verbosity === 'normal') return 180_000;
+  if (verbosity === 'verbose') return 30_000;
+  if (verbosity === 'normal') return 45_000;
   return 0;
+}
+
+export function heartbeatIntervalMsForTests(verbosity: TelegramRelayVerbosity): number {
+  return heartbeatIntervalMs(verbosity);
+}
+
+export function relayIdentityMismatchPayload(): Record<string, string> {
+  return {
+    error: 'relay_identity_mismatch',
+    message: 'Spawner and Telegram disagree on relay identity.',
+    repair: 'Run spark restart telegram-starter. If the mismatch keeps returning, run spark setup telegram-starter --resume.'
+  };
+}
+
+async function persistCompletionDeliveryCache(): Promise<void> {
+  await writeJsonAtomic(COMPLETION_DELIVERY_CACHE_PATH, {
+    missionIds: Array.from(completionDeliveryCache).slice(-1000),
+    updatedAt: new Date().toISOString()
+  } satisfies CompletionDeliveryCacheState);
+}
+
+async function loadCompletionDeliveryCache(): Promise<void> {
+  const state = await readJsonFile<string[] | CompletionDeliveryCacheState>(COMPLETION_DELIVERY_CACHE_PATH);
+  const values = Array.isArray(state) ? state : state?.missionIds;
+  if (!Array.isArray(values)) return;
+  for (const missionId of values) {
+    if (typeof missionId === 'string' && missionId.trim()) {
+      completionDeliveryCache.add(missionId);
+    }
+  }
 }
 
 function heartbeatStaleMs(): number {
