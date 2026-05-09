@@ -3310,6 +3310,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const recentRecursiveContext = [...recentMessages, conversationFrameContext].filter(Boolean);
     const buildIntent = earlyBuildIntent;
     const pendingClarification = pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text);
+    const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
@@ -3318,6 +3319,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.clarification_reply');
       await handleClarificationAnswers(ctx, text);
       return;
+    }
+
+    if (isProjectImprovementRequest(text, latestShippedProject)) {
+      const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
+      if (improvementGoal && latestShippedProject) {
+        await conversation.remember(user, text).catch(() => {});
+        await ctx.reply([
+          `Got it. I will improve ${latestShippedProject.projectName}.`,
+          '',
+          'I will keep the existing project intact and ship this as the next polish pass.',
+          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
+        ].filter(Boolean).join('\n'));
+        await handleBuildIntent(
+          ctx,
+          improvementGoal,
+          `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
+          latestShippedProject.projectPath,
+          'advanced_prd',
+          'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
+        );
+        return;
+      }
     }
 
     if (buildIntent) {
@@ -3424,7 +3447,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
     if (isProjectImprovementRequest(text, latestShippedProject)) {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
