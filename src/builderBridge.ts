@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -40,6 +40,7 @@ export interface BuilderBridgeReply {
   bridgeMode: string;
   routingDecision: string;
   voiceMedia?: BuilderBridgeVoiceMedia;
+  voiceTiming?: Record<string, unknown>;
 }
 
 export interface BuilderBridgeVoiceMedia {
@@ -49,6 +50,18 @@ export interface BuilderBridgeVoiceMedia {
   voiceCompatible: boolean;
   providerId?: string;
   voiceId?: string;
+  spokenText?: string;
+  synthesisMs?: number;
+  runtimeState?: Record<string, unknown>;
+}
+
+export interface BuilderVoiceDeliveryProofInput {
+  telegramUserId: string;
+  voiceMedia: BuilderBridgeVoiceMedia;
+  sendMethod: 'sendVoice' | 'sendAudio';
+  sendMs: number;
+  telegramResult?: unknown;
+  failureReason?: string;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -214,10 +227,43 @@ function pythonSourceEnv(config: BuilderBridgeConfig): NodeJS.ProcessEnv {
     ...process.env,
     PYTHONPATH: existingPythonPath ? `${sourcePath}${path.delimiter}${existingPythonPath}` : sourcePath,
   };
-  if (process.env.BOT_TOKEN && !env.TELEGRAM_BOT_TOKEN) {
-    env.TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN;
+  mergeEnvFile(env, path.join(config.builderHome, '.env'));
+  const profileBotToken = process.env.BOT_TOKEN?.trim();
+  if (profileBotToken) {
+    // Telegram file IDs are bot-scoped, so Builder must use the active runner profile token.
+    env.TELEGRAM_BOT_TOKEN = profileBotToken;
   }
   return env;
+}
+
+function mergeEnvFile(env: NodeJS.ProcessEnv, envPath: string): void {
+  let text = '';
+  try {
+    text = readFileSync(envPath, 'utf-8');
+  } catch {
+    return;
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const index = line.indexOf('=');
+    if (index <= 0) continue;
+    const key = line.slice(0, index).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    if (env[key]) continue;
+    env[key] = unquoteEnvValue(line.slice(index + 1).trim());
+  }
+}
+
+function unquoteEnvValue(value: string): string {
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return value.slice(1, -1);
+    }
+  }
+  return value;
 }
 
 function pythonModuleInvocation(config: BuilderBridgeConfig, moduleName: string, args: string[]): string[] {
@@ -286,6 +332,97 @@ function arrayValue(value: unknown): unknown[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function telegramMessageIdPresent(result: unknown): boolean {
+  const payload = objectValue(result);
+  if (payload.message_id !== undefined && payload.message_id !== null) {
+    return true;
+  }
+  const nested = objectValue(payload.result);
+  return nested.message_id !== undefined && nested.message_id !== null;
+}
+
+export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliveryProofInput): Record<string, unknown> {
+  const base = objectValue(input.voiceMedia.runtimeState);
+  const state = JSON.parse(JSON.stringify(Object.keys(base).length ? base : {
+    schema_version: 'spark.voice_runtime_state.v1',
+    generated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    surface: 'telegram',
+    dm_voice_replies: 'unknown',
+    canonical_chip_key: 'spark-voice-comms',
+    legacy_alias_visible: false,
+    stt: { provider_id: 'unknown', mode: 'unknown', ready: false },
+    tts: {},
+    claim_levels: {},
+    source_ledger: []
+  })) as Record<string, unknown>;
+
+  const deliveryReady = !input.failureReason && input.sendMethod === 'sendVoice';
+  const tts = objectValue(state.tts);
+  state.tts = {
+    ...tts,
+    provider_id: input.voiceMedia.providerId || tts.provider_id || 'unknown',
+    ready: true,
+    mime_type: input.voiceMedia.mimeType,
+    voice_compatible: input.voiceMedia.voiceCompatible,
+  };
+  const latency = objectValue(state.latency);
+  latency.send_voice_ms = Math.max(0, Math.trunc(input.sendMs));
+  state.latency = latency;
+  const claimLevels = objectValue(state.claim_levels);
+  claimLevels.synthesis_ready = true;
+  claimLevels.delivery_ready = deliveryReady;
+  claimLevels.configured = true;
+  claimLevels.conversation_ready = Boolean(claimLevels.conversation_ready && deliveryReady);
+  state.claim_levels = claimLevels;
+  state.telegram_delivery = {
+    ready: deliveryReady,
+    last_send_voice_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    last_send_voice_status: deliveryReady ? 'success' : (input.failureReason ? 'failure' : 'document_fallback'),
+    last_failure_reason: input.failureReason || '',
+    telegram_message_id_present: telegramMessageIdPresent(input.telegramResult),
+    send_method: input.sendMethod,
+  };
+  const sourceLedger = Array.isArray(state.source_ledger) ? [...state.source_ledger] : [];
+  if (!sourceLedger.includes('telegram-runner-sendVoice-trace')) {
+    sourceLedger.push('telegram-runner-sendVoice-trace');
+  }
+  state.source_ledger = sourceLedger;
+  return state;
+}
+
+export async function recordBuilderVoiceDeliveryProof(input: BuilderVoiceDeliveryProofInput): Promise<void> {
+  const config = resolveBridgeConfig();
+  if (config.mode === 'off') {
+    return;
+  }
+  const stateDbPath = path.join(config.builderHome, 'state.db');
+  const payload = JSON.stringify(buildBuilderVoiceDeliveryRuntimeState(input));
+  const script = [
+    'import datetime, sqlite3, sys',
+    'db_path, payload, user_id = sys.argv[1], sys.argv[2], sys.argv[3]',
+    'updated_at = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"',
+    'con = sqlite3.connect(db_path)',
+    'con.execute("CREATE TABLE IF NOT EXISTS runtime_state (state_key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")',
+    'keys = ["telegram:voice:last_runtime_state"]',
+    'if user_id:',
+    '    keys.append(f"telegram:voice:last_runtime_state:{user_id}")',
+    'for key in keys:',
+    '    con.execute("INSERT INTO runtime_state (state_key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(state_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", (key, payload, updated_at))',
+    'con.commit()',
+    'con.close()',
+  ].join('\n');
+  await execFileAsync(
+    config.pythonCommand,
+    ['-c', script, stateDbPath, payload, input.telegramUserId],
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: 15000,
+      maxBuffer: 128 * 1024,
+    })
+  );
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1358,7 +1495,7 @@ export function formatRouteProbeReply(payload: Record<string, unknown>): string 
     lines.push(`- Evidence: ${summary}`);
   }
   if (eventId) {
-    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType.replace(/_/g, ' ')})` : ''}`);
+    lines.push(`- Event: ${eventId}${eventType ? ` (${eventType})` : ''}`);
   }
   lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
   return lines.join('\n');
@@ -1845,6 +1982,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         bridge_mode?: unknown;
         routing_decision?: unknown;
         voice_media?: unknown;
+        voice_timing?: unknown;
       };
     };
 
@@ -1886,6 +2024,7 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       bridgeMode,
       routingDecision,
       voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
+      voiceTiming: objectValue(detail.voice_timing),
     };
   } catch (error) {
     if (config.mode === 'required') {
@@ -1920,5 +2059,8 @@ function parseBuilderBridgeVoiceMedia(value: unknown): BuilderBridgeVoiceMedia |
     voiceCompatible: Boolean(media.voice_compatible),
     providerId: String(media.provider_id || '').trim() || undefined,
     voiceId: String(media.voice_id || '').trim() || undefined,
+    spokenText: String(media.spoken_text || '').trim() || undefined,
+    synthesisMs: Number.isFinite(Number(media.synthesis_ms)) ? Number(media.synthesis_ms) : undefined,
+    runtimeState: objectValue(media.runtime_state),
   };
 }

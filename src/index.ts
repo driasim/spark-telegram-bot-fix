@@ -14,7 +14,13 @@ import {
   isPendingTaskRecoveryQuestion,
   renderPendingTaskRecoveryReply
 } from './conversation';
-import { renderChoiceContextAcknowledgement, renderConversationFrameContext, type ConversationFrame } from './conversationFrame';
+import {
+  answerFromRecentIdentityCorrection,
+  extractPreferredNameFromRecentIdentityText,
+  renderChoiceContextAcknowledgement,
+  renderConversationFrameContext,
+  type ConversationFrame
+} from './conversationFrame';
 import {
   getBuilderBridgeStatus,
   runBuilderAgentOperatingContext,
@@ -28,12 +34,13 @@ import {
   runBuilderWikiInventory,
   runBuilderWikiPromoteImprovement,
   runBuilderWikiQuery,
-  runBuilderWikiStatus
+  runBuilderWikiStatus,
+  recordBuilderVoiceDeliveryProof
 } from './builderBridge';
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
-import { installConsoleRedaction } from './redaction';
+import { installConsoleRedaction, redactText } from './redaction';
 import {
   formatCreatorMissionExecutionSummary,
   formatCreatorMissionStatusSummary,
@@ -45,8 +52,10 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
+import { resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
 import {
   parseRecursiveCommand,
+  proposeRecursiveWorkspaceEvidence,
   queueRecursiveCanvas,
   recordRecursiveDecision,
   recursiveReviewCandidates,
@@ -57,18 +66,23 @@ import {
   recursiveTraceView,
   renderRecursiveDecision,
   renderRecursiveCanvasQueue,
+  renderRecursiveArtifactSyncCompletion,
   renderBuilderChipLoopCompletion,
   renderRecursiveHelp,
   renderRecursivePaths,
+  renderRecursiveNetworkProposal,
   renderRecursivePromotionPacket,
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationPathLoopCompletion,
+  sparkWorkspaceBridgeHints,
   sparkWorkspaceRecursionsUrl,
   stageRecursivePromotionPacket,
   stageRecursiveSwarmPacket,
-  syncBuilderChipLoopToWorkspace
+  syncBuilderChipLoopToWorkspace,
+  syncRecursiveArtifactToWorkspace
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import {
@@ -111,6 +125,7 @@ import {
   markMissionRelayResumed,
   registerMissionRelay,
   shouldSuppressMissionHandoff,
+  setMissionRelayRuntimeStatus,
   setTelegramMissionLinkPreference,
   setTelegramRelayVerbosity,
   startMissionHeartbeatForSubscription,
@@ -134,8 +149,6 @@ import {
   extractSparkWikiAnswerQuestion,
   extractSparkWikiPromotionIntent,
   extractSparkWikiQuery,
-  extractAgentDoctrinePreference,
-  formatAgentDoctrinePreferenceAcknowledgement,
   extractPlainChatMemoryDirective,
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
@@ -155,7 +168,6 @@ import {
   isProjectImprovementRequest,
   isLocalSparkServiceRequest,
   isLowInformationLlmReply,
-  isStandaloneAgentDoctrinePreference,
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
   parseNaturalChipCreateIntent,
@@ -186,6 +198,8 @@ import {
   isTelegramImageMessage,
   telegramImageMemoryText
 } from './telegramImageBridge';
+import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
+import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
@@ -211,6 +225,12 @@ async function safeSendChatAction(ctx: any, action: 'typing'): Promise<void> {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`[Telegram] ignored sendChatAction failure: ${detail}`);
   }
+}
+
+function renderTelegramError(prefix: string, error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || 'unknown error');
+  const detail = redactText(raw).trim() || 'unknown error';
+  return `${prefix}: ${detail}`;
 }
 
 function nodeOutboundAuditPath(): string {
@@ -313,6 +333,7 @@ interface PendingDomainChipBuild {
 const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
 const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
+const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
 
 function extractCommandName(text: string | undefined): string | null {
@@ -329,6 +350,10 @@ async function ensurePollingReady(): Promise<void> {
     console.warn(`Telegram webhook was active at ${webhookInfo.url}; deleting it before long polling.`);
     await bot.telegram.deleteWebhook({ drop_pending_updates: false });
   }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function requireAdmin(ctx: any): boolean {
@@ -350,7 +375,61 @@ function buildUpdateWithText(update: Record<string, unknown>, text: string): Rec
   return cloned;
 }
 
+function labelFromRecursiveKey(value: string): string {
+  return value
+    .replace(/^path:/i, '')
+    .replace(/^path_(?:builder_chip|benchmark_prompt_engineer|domain_autoloop|domain_chip_lab)_/i, '')
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function startKeyFromRecursivePathId(pathId: string): string | null {
+  if (/^path:/i.test(pathId)) return pathId.replace(/^path:/i, '');
+  const builderChip = pathId.match(/^path_builder_chip_(.+)$/i)?.[1];
+  return builderChip ? builderChip.replace(/_/g, '-') : null;
+}
+
+function recursiveTargetsFromSessions(sessions: Awaited<ReturnType<typeof recursiveSessions>>): NaturalRecursiveCommandTarget[] {
+  return sessions.map((session) => {
+    const startKey = startKeyFromRecursivePathId(session.session_id);
+    const domainLabel = session.domain ? labelFromRecursiveKey(session.domain) : '';
+    const pathLabel = labelFromRecursiveKey(session.session_id);
+    const label = domainLabel || pathLabel || session.title || session.session_id;
+    return {
+      pathId: session.session_id,
+      chipKey: startKey,
+      label,
+      aliases: [
+        session.trace_id,
+        session.session_id,
+        session.domain || '',
+        domainLabel,
+        pathLabel,
+        session.title
+      ].filter(Boolean)
+    };
+  });
+}
+
+function shouldLoadRecursiveWorkspaceTargets(text: string, recentContext: string[]): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.startsWith('/')) return false;
+  if (/\b(?:recursive|recursion|recursions|autoloop|loop|rounds?|passes|iterations?|benchmark|score|trace|review|decisions?|readout|receipts|proof|approve|path:[A-Za-z0-9:_-]+)\b/i.test(normalized)) {
+    return true;
+  }
+  if (/\b(?:report|status|summary|where\s+did\s+we\s+land|what\s+changed|what'?s\s+next|what\s+needs\s+my\s+call|give\s+it\s+another\s+pass|keep\s+going|continue)\b/i.test(normalized)) {
+    return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(recentContext.slice(-15).join('\n'));
+  }
+  return false;
+}
+
 async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
+  const user = ctx.from;
+  if (user) {
+    await conversation.remember(user, text).catch(() => {});
+  }
   const builderReply = await runBuilderTelegramBridge(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
   if (!builderReply.used || builderReply.bridgeMode === 'bridge_error') {
     return false;
@@ -359,32 +438,71 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
     return false;
   }
   await deliverBuilderReply(ctx, builderReply);
+  if (user && builderReply.responseText) {
+    await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+  }
   return true;
 }
 
 async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>>): Promise<void> {
+  if (builderReply.voiceMedia) {
+    await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia, builderReply.responseText);
+    return;
+  }
   if (builderReply.responseText) {
     await ctx.reply(builderReply.responseText);
   }
-  if (builderReply.voiceMedia) {
-    await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia);
-  }
 }
 
-async function sendBuilderVoiceMedia(ctx: any, voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>): Promise<void> {
+function voiceMediaCaption(
+  voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>,
+  fallbackText = ''
+): string | undefined {
+  return formatVoiceMediaCaption({
+    responseText: fallbackText,
+    spokenText: voiceMedia.spokenText
+  });
+}
+
+async function sendBuilderVoiceMedia(
+  ctx: any,
+  voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>,
+  fallbackText = ''
+): Promise<void> {
   const audioBuffer = Buffer.from(voiceMedia.audioBase64, 'base64');
   const inputFile = {
     source: audioBuffer,
     filename: voiceMedia.filename,
   };
+  const caption = voiceMediaCaption(voiceMedia, fallbackText);
+  const options = caption ? { caption } : undefined;
   console.log(
-    `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length}`
+    `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length} captionChars=${caption?.length || 0} spokenChars=${(voiceMedia.spokenText || '').length}`
   );
+  const sendStartedAt = Date.now();
   if (voiceMedia.voiceCompatible) {
-    await ctx.replyWithVoice(inputFile);
+    const result = await ctx.replyWithVoice(inputFile, options);
+    await recordBuilderVoiceDeliveryProof({
+      telegramUserId: String(ctx.from?.id || ''),
+      voiceMedia,
+      sendMethod: 'sendVoice',
+      sendMs: Date.now() - sendStartedAt,
+      telegramResult: result,
+    }).catch((error) => {
+      console.warn('[BridgeVoice] delivery proof record failed:', redactText(error instanceof Error ? error.message : String(error)));
+    });
     return;
   }
-  await ctx.replyWithAudio(inputFile);
+  const result = await ctx.replyWithAudio(inputFile, options);
+  await recordBuilderVoiceDeliveryProof({
+    telegramUserId: String(ctx.from?.id || ''),
+    voiceMedia,
+    sendMethod: 'sendAudio',
+    sendMs: Date.now() - sendStartedAt,
+    telegramResult: result,
+  }).catch((error) => {
+    console.warn('[BridgeVoice] delivery proof record failed:', redactText(error instanceof Error ? error.message : String(error)));
+  });
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
@@ -1234,6 +1352,221 @@ export function parseNaturalRunIntent(text: string): { providers: string[]; goal
   return null;
 }
 
+export interface NaturalRecursiveProposalIntent {
+  target: string;
+  submit: boolean;
+}
+
+export interface NaturalRecursiveCommandIntent {
+  rawCommand: string;
+  reason: string;
+}
+
+export interface NaturalRecursiveCommandTarget {
+  pathId: string;
+  chipKey?: string | null;
+  label: string;
+  aliases?: string[];
+}
+
+export interface NaturalRecursiveCommandContext {
+  recentMessages?: string[];
+  targets?: NaturalRecursiveCommandTarget[];
+}
+
+function naturalRoundCount(text: string): number {
+  const normalized = text.toLowerCase();
+  const numeric = normalized.match(/\b(?:rounds?|passes|iterations?)\s+(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\s+(?:rounds?|passes|iterations?)\b/);
+  if (numeric) return Math.max(1, Math.min(10, Number.parseInt(numeric[1], 10) || 1));
+  if (/\b(?:one|single|a)\s+(?:round|pass|iteration)\b/i.test(text)) return 1;
+  if (/\btwo\s+(?:rounds|passes|iterations)\b/i.test(text)) return 2;
+  if (/\bthree\s+(?:rounds|passes|iterations)\b/i.test(text)) return 3;
+  return 1;
+}
+
+const NATURAL_TARGET_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'at', 'for', 'from', 'in', 'is', 'it', 'me', 'my', 'of', 'on', 'or', 'path', 'report',
+  'show', 'status', 'the', 'this', 'to', 'trace', 'what', 'with'
+]);
+
+function naturalTargetKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function naturalTargetTokens(value: string): string[] {
+  return naturalTargetKey(value)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !NATURAL_TARGET_STOP_WORDS.has(token));
+}
+
+function recursiveChipKeyFromPathId(pathId: string): string | null {
+  const pathKey = pathId.trim();
+  if (/^path:/i.test(pathKey)) return pathKey.replace(/^path:/i, '');
+  const builderChip = pathKey.match(/^path_builder_chip_(.+)$/i)?.[1];
+  if (builderChip) return builderChip.replace(/_/g, '-');
+  return null;
+}
+
+function normalizeNaturalRecursiveTarget(target: NaturalRecursiveCommandTarget): NaturalRecursiveCommandTarget {
+  return {
+    pathId: target.pathId,
+    chipKey: target.chipKey || recursiveChipKeyFromPathId(target.pathId),
+    label: target.label,
+    aliases: target.aliases || []
+  };
+}
+
+function dynamicNaturalRecursiveTarget(text: string, targets: NaturalRecursiveCommandTarget[] | undefined): NaturalRecursiveCommandTarget | null {
+  if (!targets?.length) return null;
+  const textKey = naturalTargetKey(text);
+  const textTokens = new Set(naturalTargetTokens(text));
+  const candidates: Array<{ target: NaturalRecursiveCommandTarget; score: number }> = [];
+
+  for (const rawTarget of targets) {
+    const target = normalizeNaturalRecursiveTarget(rawTarget);
+    const aliases = [target.pathId, target.chipKey || '', target.label, ...(target.aliases || [])]
+      .map(naturalTargetKey)
+      .filter((alias) => alias.length >= 3);
+    let score = 0;
+    for (const alias of aliases) {
+      if (alias.length >= 6 && textKey.includes(alias)) score = Math.max(score, 100 + alias.length);
+      const aliasTokens = naturalTargetTokens(alias);
+      if (aliasTokens.length === 0) continue;
+      const overlap = aliasTokens.filter((token) => textTokens.has(token)).length;
+      const needed = Math.min(3, Math.max(2, Math.ceil(aliasTokens.length * 0.6)));
+      if (overlap >= needed) score = Math.max(score, overlap * 10 + aliasTokens.length);
+    }
+    if (score > 0) candidates.push({ target, score });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  if (!candidates[0]) return null;
+  if (candidates[1] && candidates[1].score === candidates[0].score) return null;
+  return candidates[0].target;
+}
+
+function hasRecursiveContextSignal(text: string): boolean {
+  return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(text);
+}
+
+function knownNaturalRecursiveTarget(text: string): NaturalRecursiveCommandTarget | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const explicitPath = normalized.match(/\bpath:[A-Za-z0-9:_-]+\b/);
+  if (explicitPath) {
+    const pathId = explicitPath[0];
+    if (pathId === 'path:spark-qa-operator') return { pathId, chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+    if (pathId === 'path:startup-yc') return { pathId, chipKey: 'startup-yc', label: 'Startup YC' };
+    return { pathId, chipKey: pathId.replace(/^path:/, ''), label: pathId };
+  }
+  if (/\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(normalized) ||
+      (/\bqa\b/i.test(normalized) && /\b(?:recursive|recursion|loop|round|report|trace|review|decision|improve|improvement)\b/i.test(normalized))) {
+    return { pathId: 'path:spark-qa-operator', chipKey: 'spark-qa-operator', label: 'Spark QA Operator' };
+  }
+  if (/\bstartup[-\s]+yc\b/i.test(normalized)) {
+    return { pathId: 'path:startup-yc', chipKey: 'startup-yc', label: 'Startup YC' };
+  }
+  if (/\bdomain[-\s]+chip[-\s]+creator\b/i.test(normalized)) {
+    return {
+      pathId: 'path_builder_chip_domain_chip_creator',
+      chipKey: 'domain-chip-creator',
+      label: 'Domain Chip Creator'
+    };
+  }
+  return null;
+}
+
+function naturalRecursiveTarget(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandTarget | null {
+  const direct = knownNaturalRecursiveTarget(text);
+  if (direct) return direct;
+  const dynamicDirect = dynamicNaturalRecursiveTarget(text, context.targets);
+  if (dynamicDirect) return dynamicDirect;
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const canUseContext = /\b(?:it|this|that|same|again|another|more|current|latest|loop|round|pass|iteration|report|readout|summary|status|trace|timeline|evidence|proof|trail|receipts|review|approve|approval|decisions?|blockers?|weakest|weak\s+spot|signal|changed|land|short\s+version|vibe|how'?s|how\s+is|where\s+are\s+we|where\s+did\s+we\s+land|keep\s+going|continue|keep\s+pushing|push\s+it|my\s+call|calls?\s+for\s+me|needs\s+me)\b/i.test(normalized);
+  if (!canUseContext) return null;
+
+  const recent = (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-15)
+    .join('\n');
+  if (!recent || !hasRecursiveContextSignal(recent)) return null;
+  return knownNaturalRecursiveTarget(recent) || dynamicNaturalRecursiveTarget(recent, context.targets);
+}
+
+export function parseNaturalRecursiveCommandIntent(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandIntent | null {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.startsWith('/')) return null;
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs?)\b/i.test(normalized) ||
+      /\b(?:what|which)\s+(?:loops?|runs?)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'sessions',
+      reason: 'Natural-language request to list recursive loops.'
+    };
+  }
+
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:paths?|lanes?)\b/i.test(normalized)) {
+    return {
+      rawCommand: 'paths',
+      reason: 'Natural-language request to list recursive paths.'
+    };
+  }
+
+  const target = naturalRecursiveTarget(normalized, context);
+  if (!target) return null;
+
+  if (/\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:recursive|recursion|loop|round|iteration)\b/i.test(normalized) ||
+      /\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:qa\s+tester|qa\s+operator|startup[-\s]+yc|domain[-\s]+chip[-\s]+creator)\b/i.test(normalized) ||
+      /\b(?:improve|make\s+better)\b.*\b(?:qa\s+tester|qa\s+operator)\b.*\b(?:round|loop|iteration)\b/i.test(normalized) ||
+      /\b(?:run|start|do|try)\s+(?:another|one\s+more|a|one|same)\s+(?:round|pass|iteration|loop)\b/i.test(normalized) ||
+      /\b(?:keep\s+going|continue|iterate\s+again|let\s+it\s+cook|keep\s+pushing|push\s+it\s+further|send\s+it\s+again|give\s+it\s+another\s+pass|one\s+more\s+pass)\b/i.test(normalized)) {
+    if (!target.chipKey) return null;
+    return {
+      rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}`,
+      reason: `Natural-language request to start a recursive loop for ${target.label}.`
+    };
+  }
+
+  if (/\b(?:trace|timeline|recent\s+movement|what\s+happened|show\s+the\s+evidence|show\s+evidence|show\s+the\s+receipts|receipts|audit\s+trail|proof|show\s+me\s+proof|show\s+the\s+trail|behind\s+the\s+scenes|what\s+went\s+on|what\s+did\s+it\s+do)\b/i.test(normalized)) {
+    return {
+      rawCommand: `trace ${target.pathId}`,
+      reason: `Natural-language request to trace ${target.label}.`
+    };
+  }
+
+  if (/\b(?:review|decisions?|blockers?|blocked|needs\s+review|waiting\s+for\s+review|approve|approval|do\s+i\s+need\s+to\s+approve|what\s+do\s+you\s+need\s+from\s+me|calls?\s+for\s+me|needs\s+my\s+call|need\s+my\s+call|what\s+needs\s+me|anything\s+stuck|what\s+is\s+stuck)\b/i.test(normalized)) {
+    return {
+      rawCommand: `review ${target.pathId}`,
+      reason: `Natural-language request to review ${target.label} decisions.`
+    };
+  }
+
+  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next)\b/i.test(normalized)) {
+    return {
+      rawCommand: `report ${target.pathId}`,
+      reason: `Natural-language request for ${target.label} recursive report.`
+    };
+  }
+
+  return null;
+}
+
+export function parseNaturalRecursiveProposalIntent(text: string): NaturalRecursiveProposalIntent | null {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return null;
+  const wantsReviewPacket = /\b(prepare|propose|package|submit|share|send)\b/.test(normalized) &&
+    /\b(review|network|swarm|spark swarm|workspace)\b/.test(normalized);
+  if (!wantsReviewPacket) return null;
+  const submit = /\b(submit|share|send)\b/.test(normalized) && /\b(network|swarm|spark swarm|review)\b/.test(normalized);
+  if (/\bcrypto[-\s]+trading\b/.test(normalized)) return { target: 'crypto-trading', submit };
+  if (/\bstartup[-\s]+yc\b/.test(normalized)) return { target: 'startup-yc', submit };
+  return null;
+}
+
 function humanProviderList(providers: string[]): string {
   const labels = providers.map((id) => PROVIDER_LABELS[id] || id);
   if (labels.length === 1) return labels[0];
@@ -1271,6 +1604,21 @@ type ParsedCreatorCommand = {
   privacyMode?: 'local_only' | 'github_pr' | 'swarm_shared';
   riskLevel?: 'low' | 'medium' | 'high';
 };
+
+type NaturalCreatorMissionIntent = ParsedCreatorCommand & {
+  artifactLabel: string;
+};
+
+type NaturalCreatorMissionContext = {
+  recentMessages?: string[];
+};
+
+type PendingCreatorMission = {
+  missionId: string;
+  timestamp: number;
+};
+
+const pendingCreatorMissions = new Map<string, PendingCreatorMission>();
 
 const CREATOR_USAGE = [
   'Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
@@ -1409,6 +1757,145 @@ function parseCreatorMissionControlCommand(raw: string): ParsedCreatorMissionCon
 
 function isValidCreatorMissionId(missionId: string): boolean {
   return /^mission-creator-[A-Za-z0-9_-]+$/.test(missionId);
+}
+
+function pendingCreatorMissionKey(ctx: any): string {
+  return `${ctx.chat.id}-${ctx.from.id}`;
+}
+
+function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return null;
+  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:creator\s+)?mission)?$/i.test(normalized)) {
+    return 'run';
+  }
+  if (/^(?:validate|check|verify|test)(?:\s+(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+    return 'validate';
+  }
+  if (/^(?:status|show status|what'?s happening|what happened|show me status|check status)(?:\s+(?:for\s+)?(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+    return 'status';
+  }
+  return null;
+}
+
+function normalizeNaturalCreatorText(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function inferNaturalCreatorPrivacyMode(normalized: string): ParsedCreatorCommand['privacyMode'] | undefined {
+  if (/\b(?:private|local|locally|workspace only|personal workspace)\b/.test(normalized)) return 'local_only';
+  if (/\b(?:github|pull request|pr)\b/.test(normalized)) return 'github_pr';
+  if (/\b(?:swarm|network|public|share|shared)\b/.test(normalized)) return 'swarm_shared';
+  return 'local_only';
+}
+
+function inferNaturalCreatorRiskLevel(normalized: string): ParsedCreatorCommand['riskLevel'] | undefined {
+  const match = normalized.match(/\brisk\s+(low|medium|high)\b/);
+  return match ? (match[1] as ParsedCreatorCommand['riskLevel']) : 'medium';
+}
+
+function isQaOperatorCreatorMission(normalized: string): boolean {
+  return (
+    /\b(?:spark qa operator|qa operator|qa tester|quality tester|tester for spark|spark tester)\b/.test(normalized) &&
+    /\b(?:benchmark|benchmarks|eval|evals|test suite|qa|recursive|recursion|autoloop|specialization|path|creator|improve|better|standard|standardize|create|build|make|prepare|wire|connect)\b/.test(normalized)
+  );
+}
+
+function isAmbiguousCreatorFollowup(normalized: string): boolean {
+  return /\b(?:it|this|that|these|those|current|same|what we(?: re| are)?(?: working on| discussing| building)|what we talked about)\b/.test(normalized);
+}
+
+function naturalCreatorContextText(context: NaturalCreatorMissionContext = {}): string {
+  return (context.recentMessages || [])
+    .filter(Boolean)
+    .slice(-15)
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isContextualCreatorSystemMission(normalized: string, contextText: string): boolean {
+  if (!contextText || !isAmbiguousCreatorFollowup(normalized)) return false;
+  return (
+    /\b(?:create|creating|build|building|make|making|improve|improving|upgrade|upgrading|plan|planning|prepare|preparing|scaffold|generate|set up|spin up|turn)\b/.test(normalized) &&
+    /\b(?:creator system|creator mission|domain chip|domain-chip|benchmark pack|benchmark packs|benchmark|benchmarks|evals?|test suite|specialization path|specialisation path|autoloop|autoloops|auto loop|swarm review packet)\b/.test(normalized)
+  );
+}
+
+function qaOperatorCreatorBrief(originalText: string, normalized: string): string {
+  const focusParts: string[] = [];
+  if (/\btelegram\b/.test(normalized)) focusParts.push('Telegram natural-language QA flows');
+  if (/\b(?:workspace|swarm)\b/.test(normalized)) focusParts.push('Spark Swarm Workspace sync and reporting');
+  if (/\b(?:spawner|canvas|kanban)\b/.test(normalized)) focusParts.push('Spawner UI, Canvas, and Kanban creator missions');
+  if (/\b(?:auth|pairing|login)\b/.test(normalized)) focusParts.push('auth pairing and failure-message quality');
+  if (/\b(?:recursive|recursion|autoloop)\b/.test(normalized)) focusParts.push('recursive autoloop reports and keep/revert decisions');
+  if (/\b(?:benchmark|eval|test suite)\b/.test(normalized)) focusParts.push('richer benchmark packs with visible and held-out cases');
+  const focus = focusParts.length > 0
+    ? focusParts.join(', ')
+    : 'Telegram flows, Workspace reports, creator missions, recursive reports, Spawner UI, Canvas, Kanban, auth pairing, and specialization autoloops';
+
+  return [
+    'Improve Spark QA Operator as a private benchmarked specialization path with a gated autoloop.',
+    'Canonical target domain: spark-qa-operator.',
+    'Do not create Spark Telegram, Spark Swarm Workspace, Spawner UI, Canvas, or Kanban as separate root domains; treat them as benchmark lanes and product QA surfaces under Spark QA Operator.',
+    'Reuse and extend the existing Spark QA Operator system first: domain-chip-spark-qa-operator, spark-qa-operator-bench, and specialization-path-spark-qa-operator.',
+    'Make Spark better at QA testing Spark-built products first, then only transfer lessons to user apps after evidence supports it.',
+    `Focus areas: ${focus}.`,
+    'Expand richer benchmark packs with visible cases, held-out cases, trap cases, scoring rubrics, and replayable evidence.',
+    'Use Spark creator-system standards: domain chip contract, benchmark pack, specialization path, autoloop policy, adapter map, validation ledger, local/private boundary, and Swarm review packet only when gates allow it.',
+    'Keep Telegram replies concise and put detailed evidence, traces, screenshots, and benchmark artifacts in Workspace.',
+    `User wording: ${originalText.trim().replace(/\s+/g, ' ')}`
+  ].join(' ');
+}
+
+export function parseNaturalCreatorMissionIntent(text: string, context: NaturalCreatorMissionContext = {}): NaturalCreatorMissionIntent | null {
+  const normalized = normalizeNaturalCreatorText(text);
+  if (!normalized || normalized.startsWith('/')) return null;
+  if (/\b(?:what|which|show|list|status|report|review|trace)\b/.test(normalized) && !/\b(?:create|build|make|plan|scaffold|generate)\b/.test(normalized)) {
+    return null;
+  }
+
+  const contextText = naturalCreatorContextText(context);
+  const contextualMission = isContextualCreatorSystemMission(normalized, contextText);
+  if (isAmbiguousCreatorFollowup(normalized) && !contextText) return null;
+  const hasCreateVerb = /\b(?:create|creating|build|building|make|making|improve|improving|upgrade|upgrading|plan|planning|prepare|preparing|scaffold|generate|set up|spin up)\b/.test(normalized);
+  if (!hasCreateVerb && !contextualMission) return null;
+  const combined = normalizeNaturalCreatorText([text, contextText].filter(Boolean).join(' '));
+  const qaOperator = isQaOperatorCreatorMission(combined);
+
+  const artifactPatterns: Array<{ label: string; pattern: RegExp }> = [
+    { label: 'full creator system', pattern: /\b(?:creator system|creator mission|creator run|full path|domain chip.*benchmark.*(?:specialization|path|autoloop)|specialization.*benchmark.*autoloop)\b/ },
+    { label: 'specialization path', pattern: /\b(?:specialization path|specialisation path|learning path|mastery path)\b/ },
+    { label: 'autoloop', pattern: /\b(?:autoloop|autoloops|auto loop|auto loops|recursive loop|recursive loops|self-improvement loop|self-improvement loops)\b/ },
+    { label: 'benchmark pack', pattern: /\b(?:benchmark pack|benchmark packs|benchmark|benchmarks|eval pack|eval packs|evaluation pack|evaluation packs|test suite|test suites)\b/ },
+    { label: 'domain chip', pattern: /\b(?:domain chip|domain-chip)\b/ }
+  ];
+  const artifact = artifactPatterns.find((entry) => entry.pattern.test(normalized));
+  if (!artifact && !qaOperator && !contextualMission) return null;
+
+  const brief = text.trim().replace(/\s+/g, ' ');
+  if (brief.length < 8) return null;
+  if (qaOperator) {
+    return {
+      brief: qaOperatorCreatorBrief(brief, combined),
+      privacyMode: inferNaturalCreatorPrivacyMode(normalized),
+      riskLevel: inferNaturalCreatorRiskLevel(normalized),
+      artifactLabel: 'Spark QA Operator benchmark path'
+    };
+  }
+
+  return {
+    brief: [
+      brief,
+      contextualMission ? `Recent working context: ${contextText}` : '',
+      '',
+      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, and Swarm review packet only when gates allow it.',
+      'Keep Telegram user-facing output natural and concise; keep detailed evidence in Workspace/Canvas/Kanban.'
+    ].filter((line) => line !== '').join('\n'),
+    privacyMode: inferNaturalCreatorPrivacyMode(normalized),
+    riskLevel: inferNaturalCreatorRiskLevel(normalized),
+    artifactLabel: artifact!.label
+  };
 }
 
 export function formatBuildClarificationReply(projectName: string, questions: string[], assumptions: string[]): string {
@@ -1574,6 +2061,66 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pending.buildModeReason,
     pending.capabilityProposalPacket
   );
+  return true;
+}
+
+async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand): Promise<void> {
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
+  }
+
+  await safeSendChatAction(ctx, 'typing');
+  const requestId = `tg-creator-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
+  const result = await spawner.creatorMission({
+    brief: parsed.brief,
+    requestId,
+    privacyMode: parsed.privacyMode,
+    riskLevel: parsed.riskLevel
+  });
+
+  await ctx.reply(formatCreatorMissionSummary(result));
+  if (result.success && result.missionId) {
+    pendingCreatorMissions.set(pendingCreatorMissionKey(ctx), {
+      missionId: result.missionId,
+      timestamp: Date.now()
+    });
+    await conversation.learnAboutUser(
+      ctx.from,
+      `Planned creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
+    ).catch(() => {});
+  }
+}
+
+async function handlePendingCreatorMissionControl(ctx: any, text: string): Promise<boolean> {
+  const key = pendingCreatorMissionKey(ctx);
+  const pending = pendingCreatorMissions.get(key);
+  if (!pending) return false;
+  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
+    pendingCreatorMissions.delete(key);
+    return false;
+  }
+
+  const action = parsePendingCreatorMissionAction(text);
+  if (!action) return false;
+  await conversation.remember(ctx.from, text).catch(() => {});
+  await safeSendChatAction(ctx, 'typing');
+
+  if (action === 'status') {
+    const result = await spawner.creatorMissionStatus({ missionId: pending.missionId });
+    await ctx.reply(formatCreatorMissionStatusSummary(result));
+    return true;
+  }
+
+  if (action === 'validate') {
+    const result = await spawner.creatorMissionValidate({ missionId: pending.missionId });
+    await ctx.reply(formatCreatorMissionValidationSummary(result));
+    return true;
+  }
+
+  const result = await spawner.creatorMissionExecute({ missionId: pending.missionId });
+  await ctx.reply(formatCreatorMissionExecutionSummary(result));
   return true;
 }
 
@@ -1972,23 +2519,8 @@ bot.command('creator', async (ctx) => {
     return ctx.reply(CREATOR_USAGE);
   }
 
-  await ctx.reply('Planning creator mission through Spawner...');
-
-  const requestId = `tg-creator-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
-  const result = await spawner.creatorMission({
-    brief: parsed.brief,
-    requestId,
-    privacyMode: parsed.privacyMode,
-    riskLevel: parsed.riskLevel
-  });
-
-  await ctx.reply(formatCreatorMissionSummary(result));
-  if (result.success && result.missionId) {
-    await conversation.learnAboutUser(
-      ctx.from,
-      `Started creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
-    ).catch(() => {});
-  }
+  await ctx.reply('Planning creator mission...');
+  await handleCreatorMissionPlan(ctx, parsed);
 });
 
 bot.command('chip', async (ctx) => {
@@ -2009,7 +2541,7 @@ bot.command('chip', async (ctx) => {
   const result = await createChipFromPrompt(prompt);
 
   if (!result.ok) {
-    return ctx.reply(`Chip create failed: ${result.error || 'unknown error'}`);
+    return ctx.reply(renderTelegramError('Chip create failed', result.error));
   }
 
   const lines = [
@@ -2049,7 +2581,7 @@ bot.command('loop', async (ctx) => {
     try {
       const result = await runChipLoop(chipKey, rounds, 3);
       if (!result.ok) {
-        await ctx.telegram.sendMessage(chatId, `Loop failed: ${result.error || 'unknown error'}`);
+        await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop failed', result.error));
         return;
       }
       const lines = [
@@ -2069,7 +2601,7 @@ bot.command('loop', async (ctx) => {
       if (result.statusPath) lines.push(`Status file: ${result.statusPath}`);
       await ctx.telegram.sendMessage(chatId, lines.join('\n'));
     } catch (err: any) {
-      await ctx.telegram.sendMessage(chatId, `Loop crashed: ${err?.message || String(err)}`);
+      await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop crashed', err));
     }
   })();
 });
@@ -2146,24 +2678,51 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     }
 
     if (parsed.action === 'sync') {
+      if (parsed.syncKind) {
+        await safeSendChatAction(ctx, 'typing');
+        const result = await syncRecursiveArtifactToWorkspace({
+          kind: parsed.syncKind,
+          args: parsed.syncArgs || []
+        });
+        return ctx.reply(renderRecursiveArtifactSyncCompletion(result));
+      }
       if (!parsed.id) return ctx.reply('Usage: /recursive sync <id>');
       await safeSendChatAction(ctx, 'typing');
       const packet = await stageRecursiveSwarmPacket(parsed.id);
       return ctx.reply(renderRecursiveSwarmPacket(packet));
     }
 
+    if (parsed.action === 'propose') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive propose <chip-or-path-name> [submit]');
+      await safeSendChatAction(ctx, 'typing');
+      const result = await proposeRecursiveWorkspaceEvidence(parsed.id, parsed.proposeArgs || []);
+      return ctx.reply(renderRecursiveNetworkProposal(result));
+    }
+
     if (parsed.action === 'start') {
-      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <chipKey> [rounds <n>]');
+      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <targetKey> [rounds <n>]');
       const chatId = ctx.chat.id;
       const rounds = parsed.rounds || 3;
+      const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
       await safeSendChatAction(ctx, 'typing');
-      await ctx.reply(`Starting recursive Builder chip loop on ${parsed.chipKey} for ${rounds} round(s). I will post the summary when it finishes.`);
+      const targetLabel = startTarget.kind === 'path' ? 'Spark Swarm specialization path loop' : 'recursive Builder chip loop';
+      await ctx.reply(`Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
 
       void (async () => {
         try {
+          if (startTarget.kind === 'path') {
+            const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
+            if (!result.ok) {
+              await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
+              return;
+            }
+            await ctx.telegram.sendMessage(chatId, renderSpecializationPathLoopCompletion(result));
+            return;
+          }
+
           const result = await runChipLoop(parsed.chipKey!, rounds, 3);
           if (!result.ok) {
-            await ctx.telegram.sendMessage(chatId, `Recursive loop failed: ${result.error || 'unknown error'}`);
+            await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop failed', result.error));
             return;
           }
           let sync = null;
@@ -2175,7 +2734,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
           }
           await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
         } catch (err: any) {
-          await ctx.telegram.sendMessage(chatId, `Recursive loop crashed: ${err?.message || String(err)}`);
+          await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop crashed', err));
         }
       })();
       return;
@@ -2184,7 +2743,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     return ctx.reply(renderRecursiveHelp());
   } catch (err: any) {
     const status = err?.response?.status;
-    const detail = err?.response?.data?.error || err?.message || String(err);
+    const detail = redactText(err?.response?.data?.error || err?.message || String(err));
     if (status === 401 && detail === 'authentication_required') {
       return ctx.reply([
         'Recursive command failed (401): Spark Workspace rejected this agent token for recursive reads.',
@@ -2464,17 +3023,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const earlyBuildIntent = conversation.isAdmin(ctx.from) ? parseBuildIntent(text) : null;
-  const agentDoctrinePreference = earlyBuildIntent ? null : extractAgentDoctrinePreference(text);
-  if (agentDoctrinePreference) {
-    await conversation.storeAgentDoctrinePreference(ctx.from, agentDoctrinePreference).catch(() => {});
-    if (!extractPlainChatMemoryDirective(text) && isStandaloneAgentDoctrinePreference(text)) {
-      const reply = formatAgentDoctrinePreferenceAcknowledgement(agentDoctrinePreference);
-      await conversation.remember(user, text).catch(() => {});
-      await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
-      return;
-    }
-  }
 
   if (!earlyBuildIntent && isPendingTaskRecoveryQuestion(text)) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
@@ -2530,6 +3078,55 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
+    return;
+  }
+  const naturalRecursiveMessages = [
+    ...conversationFrame.hotTurns
+      .filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+      .slice(-15)
+      .map((turn) => turn.text),
+    conversationFrameContext
+  ].filter(Boolean);
+  let naturalRecursiveCommand = earlyBuildIntent || !conversation.isAdmin(ctx.from) ? null : parseNaturalRecursiveCommandIntent(text, {
+    recentMessages: naturalRecursiveMessages
+  });
+  if (!naturalRecursiveCommand && conversation.isAdmin(ctx.from) && shouldLoadRecursiveWorkspaceTargets(text, naturalRecursiveMessages)) {
+    const targets = await recursiveSessions()
+      .then(recursiveTargetsFromSessions)
+      .catch((error) => {
+        console.warn('[RecursiveIntent] Skipping Workspace target lookup:', error);
+        return [] as NaturalRecursiveCommandTarget[];
+      });
+    if (targets.length > 0) {
+      naturalRecursiveCommand = parseNaturalRecursiveCommandIntent(text, {
+        recentMessages: naturalRecursiveMessages,
+        targets
+      });
+    }
+  }
+  if (naturalRecursiveCommand) {
+    await conversation.remember(user, text).catch(() => {});
+    await conversation.rememberAssistantReply(user, `Recursive command routed from natural language: ${naturalRecursiveCommand.rawCommand}`).catch(() => {});
+    await handleRecursiveCommand(ctx, naturalRecursiveCommand.rawCommand);
+    return;
+  }
+  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text, {
+    recentMessages: naturalRecursiveMessages.slice(-15)
+  }) : null;
+  if (naturalCreatorIntent) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
+    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
+    return;
+  }
+  const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
+  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from)) {
+    await conversation.remember(user, text).catch(() => {});
+    const submitArg = naturalRecursiveProposal.submit ? ' submit' : '';
+    await handleRecursiveCommand(ctx, `propose ${naturalRecursiveProposal.target}${submitArg}`);
     return;
   }
   if (!earlyBuildIntent && isSparkChipStatusOverclaimQuestion(text)) {
@@ -2659,6 +3256,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(recentRememberedAnswer);
     await conversation.rememberAssistantReply(user, recentRememberedAnswer).catch(() => {});
+    return;
+  }
+
+  const recentIdentityCorrection = earlyBuildIntent ? null : answerFromRecentIdentityCorrection(
+    text,
+    conversationFrame.hotTurns.filter((turn) => turn.role === 'user' || turn.role === 'assistant')
+  );
+  if (recentIdentityCorrection) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(recentIdentityCorrection);
+    await conversation.rememberAssistantReply(user, recentIdentityCorrection).catch(() => {});
     return;
   }
 
@@ -2992,7 +3600,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   try {
     let bridgeFailed = false;
-    let builderReply = {
+    let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
       responseText: '',
       decision: '',
@@ -3005,13 +3613,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       bridgeFailed = true;
       console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
     }
-    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
+    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
         /\b(?:no prior list|what are you choosing between|which one|which option)\b/i.test(builderReply.responseText);
       if (!contradictsResolvedList && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
-        await ctx.reply(builderReply.responseText);
-        await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        await deliverBuilderReply(ctx, builderReply);
+        if (builderReply.responseText) {
+          await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        }
         return;
       }
       console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
@@ -3047,11 +3657,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (text.toLowerCase().includes('my name is')) {
-      const name = text.replace(/my name is/i, '').trim();
-      if (name) {
-        await conversation.learnAboutUser(user, `Name: ${name}`).catch(() => {});
-      }
+    const preferredName = extractPreferredNameFromRecentIdentityText(text);
+    if (preferredName) {
+      await conversation.learnAboutUser(user, `Name: ${preferredName}`).catch(() => {});
     }
 
   } catch (err) {
@@ -3110,16 +3718,28 @@ export async function handleImageMessage(ctx: any): Promise<void> {
 
 export async function handleVoiceMessage(ctx: any): Promise<void> {
   const user = ctx.from;
+  const startedAt = Date.now();
 
   await conversation.remember(user, '[voice message]').catch(() => {});
+  const rememberedAt = Date.now();
   await safeSendChatAction(ctx, 'typing');
 
   try {
-    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
-    console.log(`[VoiceBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
+    const bridgeUpdate = await buildVoiceBridgeUpdate(ctx);
+    const mediaReadyAt = Date.now();
+    const builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+    const builderReadyAt = Date.now();
+    const voiceTiming = builderReply.voiceTiming && Object.keys(builderReply.voiceTiming).length
+      ? ` voiceTiming=${JSON.stringify(builderReply.voiceTiming)}`
+      : '';
+    console.log(`[VoiceBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}${voiceTiming}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && (builderReply.responseText || builderReply.voiceMedia)) {
       await deliverBuilderReply(ctx, builderReply);
+      const deliveredAt = Date.now();
+      console.log(
+        `[VoiceBridgeTiming] user=${ctx.from?.id} remember_ms=${rememberedAt - startedAt} media_ms=${mediaReadyAt - rememberedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
+      );
       if (builderReply.responseText) {
         await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
       }
@@ -3183,6 +3803,10 @@ async function start() {
       mode: launchConfig.mode
     });
   }
+  setMissionRelayRuntimeStatus({
+    telegramPolling: TELEGRAM_SMOKE_MODE ? 'disabled' : 'starting',
+    pollingStartedAt: null
+  });
   const relay = await startMissionRelay(bot);
 
   // Check launch-critical connections.
@@ -3204,9 +3828,31 @@ async function start() {
   }
 
   await ensurePollingReady();
-  await bot.launch();
+  const launchPromise = bot.launch();
+  const launchProbe = await Promise.race([
+    launchPromise.then(
+      () => ({ status: 'settled' as const }),
+      (error) => ({ status: 'failed' as const, error })
+    ),
+    wait(TELEGRAM_POLLING_READY_GRACE_MS).then(() => ({ status: 'running' as const }))
+  ]);
+  if (launchProbe.status === 'failed') {
+    throw launchProbe.error;
+  }
+  if (launchProbe.status === 'settled') {
+    throw new Error('Telegram polling stopped during startup.');
+  }
   pollingActive = true;
+  setMissionRelayRuntimeStatus({
+    telegramPolling: 'active',
+    pollingStartedAt: new Date().toISOString()
+  });
   console.log('Spark bot is running in polling mode. Press Ctrl+C to stop.');
+  void launchPromise.catch((err) => {
+    void releaseGatewayOwnership();
+    console.error('Telegram polling stopped:', err);
+    process.exit(1);
+  });
 }
 
 // Guard: only auto-start when run as the main module. Importing this file

@@ -9,7 +9,8 @@ import {
   formatWikiInventoryReply,
   formatWikiPromotionReply,
   formatWikiQueryReply,
-  formatWikiStatusReply
+  formatWikiStatusReply,
+  buildBuilderVoiceDeliveryRuntimeState
 } from '../src/builderBridge';
 
 function test(name: string, fn: () => void): void {
@@ -57,6 +58,45 @@ test('formats diagnostics scan replies without emojis while preserving sections'
     ].join('\n')
   );
   assert.doesNotMatch(reply, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+});
+
+test('builds redacted Builder voice delivery proof from Telegram sendVoice result', () => {
+  const state = buildBuilderVoiceDeliveryRuntimeState({
+    telegramUserId: '111',
+    sendMethod: 'sendVoice',
+    sendMs: 42,
+    telegramResult: { message_id: 9191 },
+    voiceMedia: {
+      audioBase64: 'not-persisted',
+      filename: 'reply.ogg',
+      mimeType: 'audio/ogg',
+      voiceCompatible: true,
+      providerId: 'elevenlabs',
+      voiceId: 'voice-secret-ish',
+      spokenText: 'hello',
+      runtimeState: {
+        schema_version: 'spark.voice_runtime_state.v1',
+        stt: { provider_id: 'openai', ready: true },
+        tts: { provider_id: 'elevenlabs', ready: true },
+        claim_levels: { synthesis_ready: true },
+        source_ledger: ['voice.speak']
+      }
+    }
+  });
+
+  assert.deepEqual(state.telegram_delivery, {
+    ready: true,
+    last_send_voice_at: state.telegram_delivery && (state.telegram_delivery as Record<string, unknown>).last_send_voice_at,
+    last_send_voice_status: 'success',
+    last_failure_reason: '',
+    telegram_message_id_present: true,
+    send_method: 'sendVoice'
+  });
+  assert.equal((state.tts as Record<string, unknown>).provider_id, 'elevenlabs');
+  assert.equal((state.claim_levels as Record<string, unknown>).delivery_ready, true);
+  assert.equal((state.latency as Record<string, unknown>).send_voice_ms, 42);
+  assert.match(JSON.stringify(state.source_ledger), /telegram-runner-sendVoice-trace/);
+  assert.doesNotMatch(JSON.stringify(state), /not-persisted/);
 });
 
 test('compacts large cold memory queries before invoking Builder memory', () => {
