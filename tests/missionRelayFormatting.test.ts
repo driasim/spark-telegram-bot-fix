@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   buildMissionSurfaceLinks,
+  claimCompletionDeliveryForTests,
   formatMissionHeartbeatForTelegram,
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
+  heartbeatIntervalMsForTests,
   formatProviderCompletionForTelegram,
   isCompletionDeliveryCachedForTests,
   markMissionRelayCancelled,
@@ -11,6 +13,7 @@ import {
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
   resetMissionRelayDeliveryStateForTests,
+  releaseCompletionDeliveryClaimForTests,
   sendFetchedCompletionSummaryForTests,
   shouldAcknowledgeRelayWithoutTelegramDelivery,
   shouldAcceptRelayEventForThisBot,
@@ -88,6 +91,19 @@ test('keeps minimal structured provider summaries compact', () => {
   assert.doesNotMatch(message, /Files changed: 3/);
   assert.doesNotMatch(message, /src\/kanban\.ts/);
   assert.doesNotMatch(message, /Checks:/);
+});
+
+test('does not claim a no-file completion has something to open', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-no-file',
+    verbosity: 'normal',
+    response: 'MC_TELEGRAM_AFTER_UPDATE_OK'
+  });
+
+  assert.match(message, /Spark/);
+  assert.doesNotMatch(message, /something you can open/i);
+  assert.doesNotMatch(message, /Open it here:/);
 });
 
 test('keeps verbose completion summaries readable and non-console-like', () => {
@@ -485,6 +501,16 @@ test('suppresses same-provider task start bursts until a task finishes', () => {
   }), false);
 });
 
+test('completion handoff claim suppresses concurrent terminal events', () => {
+  resetMissionRelayDeliveryStateForTests();
+
+  assert.equal(claimCompletionDeliveryForTests('spark-race'), true);
+  assert.equal(claimCompletionDeliveryForTests('spark-race'), false);
+
+  releaseCompletionDeliveryClaimForTests('spark-race');
+  assert.equal(claimCompletionDeliveryForTests('spark-race'), true);
+});
+
 test('allows different providers to start different tasks in parallel', () => {
   resetMissionRelayDeliveryStateForTests();
 
@@ -668,6 +694,12 @@ test('formats mission heartbeat as useful work narration', () => {
   assert.match(message, /new signal/);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
+});
+
+test('normal live mission heartbeat starts before medium runs feel silent', () => {
+  assert.equal(heartbeatIntervalMsForTests('normal'), 45_000);
+  assert.equal(heartbeatIntervalMsForTests('verbose'), 30_000);
+  assert.equal(heartbeatIntervalMsForTests('minimal'), 0);
 });
 
 test('suppresses low-signal mission heartbeat summaries', () => {

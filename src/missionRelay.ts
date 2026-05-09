@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync } from 'node:fs';
 import type { Telegraf } from 'telegraf';
 import { conversation } from './conversation';
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 import { relaySecretMatches, requireRelaySecret } from './launchMode';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { recordShippedProjectFromMission } from './shippedProjectContext';
+import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
+
+const MISSION_LESSON_APPROVAL_PATH = resolveStatePath('.spark-mission-lesson-approvals.json');
+let relayRuntimeStatus: MissionRelayRuntimeStatus = {};
 
 type RelayEventType =
   | 'mission_created'
@@ -39,6 +42,20 @@ export interface MissionSubscription {
 
 export type TelegramRelayVerbosity = 'minimal' | 'normal' | 'verbose';
 export type TelegramMissionLinkPreference = 'none' | 'board' | 'canvas' | 'both';
+export type MissionRelayTelegramPollingState = 'starting' | 'active' | 'disabled';
+
+export interface MissionRelayRuntimeStatus {
+  telegramPolling?: MissionRelayTelegramPollingState;
+  pollingStartedAt?: string | null;
+}
+
+export interface MissionRelayHealthPayload extends Record<string, unknown> {
+  ok: boolean;
+  service: 'spark-telegram-bot';
+  relay: ReturnType<typeof getTelegramRelayIdentity>;
+  pid: number;
+  runtime: MissionRelayRuntimeStatus;
+}
 
 interface TelegramRelayPreferences {
   relayVerbosityByChatId?: Record<string, TelegramRelayVerbosity>;
@@ -81,22 +98,29 @@ interface MissionBoardEntry {
   taskName?: string | null;
 }
 
-const REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
+const LEGACY_REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
+const REGISTRY_PATH = resolveStatePath(`.spark-spawner-missions-${getRelayProfile()}-${getRelayPort()}.json`);
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
+const completionDeliveryInFlight = new Set<string>();
 const cancelledMissionCache = new Map<string, number>();
+const pausedMissionCache = new Map<string, number>();
 const heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
 const heartbeatLastMessages = new Map<string, string>();
 const registry = new Map<string, MissionSubscription>();
-const CANCELLED_MISSION_CACHE_TTL_MS = 6 * 60 * 60_000;
+const MISSION_STATE_CACHE_TTL_MS = 6 * 60 * 60_000;
 let registryLoaded = false;
 let relayServer: Server | null = null;
 const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
 const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
+const DEFAULT_NORMAL_HEARTBEAT_INTERVAL_MS = 45_000;
+const DEFAULT_VERBOSE_HEARTBEAT_INTERVAL_MS = 30_000;
+const DEFAULT_COMPLETION_RECOVERY_INTERVAL_MS = 30_000;
+let completionRecoveryTimer: ReturnType<typeof setInterval> | null = null;
 
 function getRelayPort(): number {
 	return telegramRelayIdentityFromEnv().port;
@@ -255,27 +279,38 @@ export function describeTelegramMissionLinkPreference(preference: TelegramMissio
   }
 }
 
-async function loadRegistry(): Promise<void> {
-  if (registryLoaded) return;
-  registryLoaded = true;
-
-  if (!existsSync(REGISTRY_PATH)) return;
-
+async function readRegistryEntriesFromStore(): Promise<MissionSubscription[]> {
+  const byMission = new Map<string, MissionSubscription>();
   try {
     const entries = await readJsonFile<MissionSubscription[]>(REGISTRY_PATH);
-    if (!entries) {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry?.missionId && entry.chatId) {
-        if (!subscriptionBelongsToThisRelay(entry)) {
-          continue;
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (entry?.missionId && entry.chatId && subscriptionBelongsToThisRelay(entry)) {
+          byMission.set(entry.missionId, entry);
         }
-        registry.set(entry.missionId, entry);
+      }
+    }
+
+    const legacyEntries = await readJsonFile<MissionSubscription[]>(LEGACY_REGISTRY_PATH);
+    if (Array.isArray(legacyEntries)) {
+      for (const entry of legacyEntries) {
+        if (entry?.missionId && entry.chatId && subscriptionBelongsToThisRelay(entry)) {
+          byMission.set(entry.missionId, entry);
+        }
       }
     }
   } catch (error) {
     console.warn('[MissionRelay] Failed to load registry:', error);
+  }
+  return Array.from(byMission.values());
+}
+
+async function loadRegistry(): Promise<void> {
+  if (registryLoaded) return;
+  registryLoaded = true;
+
+  for (const entry of await readRegistryEntriesFromStore()) {
+    registry.set(entry.missionId, entry);
   }
 }
 
@@ -287,7 +322,14 @@ async function refreshRegistry(): Promise<void> {
 
 async function persistRegistry(): Promise<void> {
   try {
-    await writeJsonAtomic(REGISTRY_PATH, Array.from(registry.values()));
+    const latest = new Map<string, MissionSubscription>();
+    for (const entry of await readRegistryEntriesFromStore()) {
+      latest.set(entry.missionId, entry);
+    }
+    for (const entry of registry.values()) {
+      latest.set(entry.missionId, entry);
+    }
+    await writeJsonAtomic(REGISTRY_PATH, Array.from(latest.values()));
   } catch (error) {
     console.warn('[MissionRelay] Failed to persist registry:', error);
   }
@@ -306,8 +348,16 @@ export async function registerMissionRelay(input: MissionSubscription): Promise<
 
 function pruneCancelledMissionCache(now = Date.now()): void {
   for (const [missionId, timestamp] of cancelledMissionCache.entries()) {
-    if (now - timestamp > CANCELLED_MISSION_CACHE_TTL_MS) {
+    if (now - timestamp > MISSION_STATE_CACHE_TTL_MS) {
       cancelledMissionCache.delete(missionId);
+    }
+  }
+}
+
+function prunePausedMissionCache(now = Date.now()): void {
+  for (const [missionId, timestamp] of pausedMissionCache.entries()) {
+    if (now - timestamp > MISSION_STATE_CACHE_TTL_MS) {
+      pausedMissionCache.delete(missionId);
     }
   }
 }
@@ -317,12 +367,74 @@ export function markMissionRelayCancelled(missionId: string): void {
   if (!normalized) return;
   pruneCancelledMissionCache();
   cancelledMissionCache.set(normalized, Date.now());
+  pausedMissionCache.delete(normalized);
   clearHeartbeatForMission(normalized);
+}
+
+export function markMissionRelayPaused(missionId: string): void {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  prunePausedMissionCache();
+  pausedMissionCache.set(normalized, Date.now());
+  clearHeartbeatForMission(normalized);
+}
+
+export function markMissionRelayResumed(missionId: string): void {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  pausedMissionCache.delete(normalized);
+}
+
+export function isMissionRelayPaused(missionId: string): boolean {
+  prunePausedMissionCache();
+  return pausedMissionCache.has(missionId.trim());
 }
 
 export function shouldSuppressMissionHandoff(missionId: string): boolean {
   pruneCancelledMissionCache();
-  return cancelledMissionCache.has(missionId.trim());
+  prunePausedMissionCache();
+  const normalized = missionId.trim();
+  return cancelledMissionCache.has(normalized) || pausedMissionCache.has(normalized);
+}
+
+async function forgetMissionRelay(missionId: string): Promise<void> {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  await loadRegistry();
+  registry.delete(normalized);
+  const latest = new Map<string, MissionSubscription>();
+  for (const entry of await readRegistryEntriesFromStore()) {
+    if (entry.missionId !== normalized) {
+      latest.set(entry.missionId, entry);
+    }
+  }
+  for (const entry of registry.values()) {
+    if (entry.missionId !== normalized) {
+      latest.set(entry.missionId, entry);
+    }
+  }
+  await writeJsonAtomic(REGISTRY_PATH, Array.from(latest.values()));
+}
+
+function claimCompletionDelivery(missionId: string): boolean {
+  const normalized = missionId.trim();
+  if (!normalized || completionDeliveryCache.has(normalized) || completionDeliveryInFlight.has(normalized)) {
+    return false;
+  }
+  completionDeliveryInFlight.add(normalized);
+  return true;
+}
+
+function releaseCompletionDeliveryClaim(missionId: string): void {
+  completionDeliveryInFlight.delete(missionId.trim());
+}
+
+function markCompletionDelivered(missionId: string): void {
+  const normalized = missionId.trim();
+  if (!normalized) return;
+  completionDeliveryCache.add(normalized);
+  completionDeliveryInFlight.delete(normalized);
+  void forgetMissionRelay(normalized);
 }
 
 function subscriptionBelongsToThisRelay(entry: MissionSubscription): boolean {
@@ -351,7 +463,9 @@ function shouldDeliverEvent(event: RelayWebhookPayload['event']): event is Deliv
     'task_cancelled',
     'mission_completed',
     'mission_failed',
-    'mission_cancelled'
+    'mission_cancelled',
+    'mission_paused',
+    'mission_resumed'
   ].includes(event.type);
 }
 
@@ -393,16 +507,11 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 };
 
 function spawnerUiUrl(): string {
-  return (process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333').replace(/\/+$/, '');
+  return resolveSpawnerUiUrl().replace(/\/+$/, '');
 }
 
 function spawnerPublicUrl(): string {
-  return (
-    process.env.SPAWNER_UI_PUBLIC_URL ||
-    process.env.PUBLIC_SPAWNER_UI_URL ||
-    process.env.SPAWNER_PUBLIC_URL ||
-    spawnerUiUrl()
-  ).replace(/\/+$/, '');
+  return resolveSpawnerPublicUrl().replace(/\/+$/, '');
 }
 
 export function buildMissionSurfaceLinks(
@@ -521,6 +630,22 @@ interface MissionCompletionSummary {
   previewPending?: boolean;
 }
 
+interface MissionLessonApproval {
+  missionId: string;
+  chatId: string;
+  userId: string;
+  requestId: string;
+  goal: string;
+  providerLabel: string;
+  candidates: string[];
+  sourceRefs: string[];
+  stagedAt: string;
+}
+
+interface MissionLessonApprovalState {
+  pendingByUserId?: Record<string, MissionLessonApproval>;
+}
+
 interface MissionCompletionFetchOptions {
   attempts?: number;
   delayMs?: number;
@@ -604,6 +729,9 @@ async function sendFetchedCompletionSummary(
   verbosity: TelegramRelayVerbosity,
   completion: MissionCompletionSummary
 ): Promise<number> {
+  if (shouldSuppressMissionHandoff(event.missionId)) {
+    return 0;
+  }
   clearHeartbeatForMission(event.missionId);
   const message = formatProviderCompletionForTelegram({
     providerLabel: completion.providerLabel,
@@ -620,8 +748,8 @@ async function sendFetchedCompletionSummary(
     const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
     await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
   }
-  completionDeliveryCache.add(event.missionId);
-  await rememberMissionCompletion(subscription, event, completion.providerLabel, completion.response);
+  markCompletionDelivered(event.missionId);
+  await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
   return chunks.length;
 }
 
@@ -634,10 +762,17 @@ function scheduleDelayedCompletionSummary(
 ): void {
   setTimeout(() => {
     void (async () => {
-      if (completionDeliveryCache.has(event.missionId)) return;
+      if (shouldSuppressMissionHandoff(event.missionId) || !claimCompletionDelivery(event.missionId)) return;
       const completion = await fetchMissionCompletionSummary(event.missionId, { attempts: 12, delayMs: 5000 });
-      if (!completion || completionDeliveryCache.has(event.missionId)) return;
-      await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+      if (!completion || shouldSuppressMissionHandoff(event.missionId)) {
+        releaseCompletionDeliveryClaim(event.missionId);
+        return;
+      }
+      try {
+        await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+      } catch {
+        releaseCompletionDeliveryClaim(event.missionId);
+      }
     })().catch(() => {});
   }, 1000);
 }
@@ -709,9 +844,9 @@ const VOICE_LINES = {
   ],
   completed: [
     '✨ Spark shipped it.',
-    '✨ Spark has the build ready.',
-    '✨ Spark finished the build.',
-    '✨ Spark shipped something you can open.'
+    '✨ Spark finished the run.',
+    '✨ Spark completed the mission.',
+    '✨ Spark has the result ready.'
   ],
   failed: [
     'This run needs attention.',
@@ -835,12 +970,7 @@ function localIndexLink(projectPath: string | null): string | null {
 }
 
 function projectPreviewBaseUrl(): string {
-  const baseUrl =
-    process.env.SPARK_PROJECT_PREVIEW_URL ||
-    process.env.SPAWNER_UI_PUBLIC_URL ||
-    process.env.SPAWNER_UI_URL ||
-    'http://127.0.0.1:3333';
-  return baseUrl.replace(/\/+$/, '');
+  return resolveProjectPreviewBaseUrl().replace(/\/+$/, '');
 }
 
 function projectPreviewLink(projectPath: string | null): string | null {
@@ -1325,11 +1455,21 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   deliveryCache.clear();
   openTaskStartCache.clear();
   completionDeliveryCache.clear();
+  completionDeliveryInFlight.clear();
   cancelledMissionCache.clear();
+  pausedMissionCache.clear();
 }
 
 export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
   return completionDeliveryCache.has(missionId);
+}
+
+export function claimCompletionDeliveryForTests(missionId: string): boolean {
+  return claimCompletionDelivery(missionId);
+}
+
+export function releaseCompletionDeliveryClaimForTests(missionId: string): void {
+  releaseCompletionDeliveryClaim(missionId);
 }
 
 export async function sendFetchedCompletionSummaryForTests(
@@ -1347,15 +1487,31 @@ function heartbeatKey(event: DeliverableRelayEvent): string {
   return event.missionId;
 }
 
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function heartbeatIntervalMs(verbosity: TelegramRelayVerbosity): number {
-  if (verbosity === 'verbose') return 120_000;
-  if (verbosity === 'normal') return 180_000;
+  if (verbosity === 'verbose') {
+    return positiveIntegerEnv('SPARK_TELEGRAM_VERBOSE_HEARTBEAT_INTERVAL_MS', DEFAULT_VERBOSE_HEARTBEAT_INTERVAL_MS);
+  }
+  if (verbosity === 'normal') {
+    return positiveIntegerEnv('SPARK_TELEGRAM_HEARTBEAT_INTERVAL_MS', DEFAULT_NORMAL_HEARTBEAT_INTERVAL_MS);
+  }
   return 0;
 }
 
+export function heartbeatIntervalMsForTests(verbosity: TelegramRelayVerbosity): number {
+  return heartbeatIntervalMs(verbosity);
+}
+
 function heartbeatStaleMs(): number {
-  const parsed = Number.parseInt(process.env.SPARK_TELEGRAM_HEARTBEAT_STALE_MS || '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_HEARTBEAT_STALE_MS;
+  return positiveIntegerEnv('SPARK_TELEGRAM_HEARTBEAT_STALE_MS', DEFAULT_HEARTBEAT_STALE_MS);
+}
+
+function completionRecoveryIntervalMs(): number {
+  return positiveIntegerEnv('SPARK_TELEGRAM_COMPLETION_RECOVERY_INTERVAL_MS', DEFAULT_COMPLETION_RECOVERY_INTERVAL_MS);
 }
 
 function isTerminalMissionStatus(status: string | undefined | null): boolean {
@@ -1471,6 +1627,152 @@ function scheduleHeartbeat(
   heartbeatTimers.set(key, timer);
 }
 
+export async function startMissionHeartbeatForSubscription(
+  bot: Telegraf,
+  subscription: MissionSubscription,
+  taskName = 'the build'
+): Promise<void> {
+  const chatId = Number(subscription.chatId);
+  if (!Number.isFinite(chatId)) return;
+  const verbosity = await getTelegramRelayVerbosity(subscription.chatId);
+  scheduleHeartbeat(
+    bot,
+    chatId,
+    {
+      type: 'mission_started',
+      missionId: subscription.missionId,
+      taskName,
+      data: {
+        chatId: subscription.chatId,
+        userId: subscription.userId,
+        requestId: subscription.requestId,
+        telegramRelay: {
+          port: subscription.relayPort || getRelayPort(),
+          profile: subscription.relayProfile || getRelayProfile()
+        }
+      }
+    },
+    subscription,
+    verbosity
+  );
+}
+
+async function recoverMissionRelaySubscription(bot: Telegraf, subscription: MissionSubscription): Promise<void> {
+  if (!subscriptionBelongsToThisRelay(subscription) || shouldSuppressMissionHandoff(subscription.missionId)) {
+    return;
+  }
+
+  const chatId = Number(subscription.chatId);
+  if (!Number.isFinite(chatId)) {
+    return;
+  }
+
+  const completion = await fetchMissionCompletionSummary(subscription.missionId, { attempts: 1, delayMs: 1000 });
+  if (completion) {
+    console.log(`[MissionRelay] Recovering completed mission ${subscription.missionId} for ${getRelayProfile()}@${getRelayPort()}.`);
+    if (!claimCompletionDelivery(subscription.missionId)) {
+      return;
+    }
+    const event: DeliverableRelayEvent = {
+      type: 'mission_completed',
+      missionId: subscription.missionId,
+      data: {
+        chatId: subscription.chatId,
+        userId: subscription.userId,
+        requestId: subscription.requestId,
+        telegramRelay: {
+          port: subscription.relayPort || getRelayPort(),
+          profile: subscription.relayProfile || getRelayProfile()
+        }
+      }
+    };
+    try {
+      const verbosity = await getTelegramRelayVerbosity(subscription.chatId);
+      await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+    } catch (error) {
+      releaseCompletionDeliveryClaim(subscription.missionId);
+      console.warn(`[MissionRelay] Failed to recover completed mission ${subscription.missionId}:`, error);
+    }
+    return;
+  }
+
+  const snapshot = await fetchMissionBoardEntry(subscription.missionId);
+  const status = (snapshot?.status || '').toLowerCase();
+  console.log(`[MissionRelay] Recovery checked ${subscription.missionId}: status=${status || 'unknown'} completion=no.`);
+  const isCompleted = status === 'completed';
+  const isTerminal = isTerminalMissionStatus(status);
+  if (!isTerminal) {
+    if (!heartbeatTimers.has(subscription.missionId)) {
+      await startMissionHeartbeatForSubscription(bot, subscription, snapshot?.taskName || 'the build');
+    }
+    return;
+  }
+
+  clearHeartbeatForMission(subscription.missionId);
+  if (!isCompleted) {
+    await forgetMissionRelay(subscription.missionId);
+    return;
+  }
+
+  if (!claimCompletionDelivery(subscription.missionId)) {
+    return;
+  }
+
+  const event: DeliverableRelayEvent = {
+    type: 'mission_completed',
+    missionId: subscription.missionId,
+    taskName: snapshot?.taskName || undefined,
+    timestamp: snapshot?.lastUpdated,
+    data: {
+      chatId: subscription.chatId,
+      userId: subscription.userId,
+      requestId: subscription.requestId,
+      telegramRelay: {
+        port: subscription.relayPort || getRelayPort(),
+        profile: subscription.relayProfile || getRelayProfile()
+      }
+    }
+  };
+
+  try {
+    const delayedCompletion = await fetchMissionCompletionSummary(subscription.missionId, { attempts: 2, delayMs: 1000 });
+    if (!delayedCompletion || shouldSuppressMissionHandoff(subscription.missionId)) {
+      releaseCompletionDeliveryClaim(subscription.missionId);
+      return;
+    }
+    const verbosity = await getTelegramRelayVerbosity(subscription.chatId);
+    await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, delayedCompletion);
+  } catch (error) {
+    releaseCompletionDeliveryClaim(subscription.missionId);
+    console.warn(`[MissionRelay] Failed to recover terminal mission ${subscription.missionId}:`, error);
+  }
+}
+
+async function recoverMissionRelaySubscriptions(bot: Telegraf): Promise<void> {
+  await loadRegistry();
+  const subscriptions = Array.from(registry.values()).filter(subscriptionBelongsToThisRelay);
+  if (subscriptions.length) {
+    console.log(`[MissionRelay] Recovery sweep for ${getRelayProfile()}@${getRelayPort()}: ${subscriptions.length} subscription(s).`);
+  }
+  for (const subscription of subscriptions) {
+    await recoverMissionRelaySubscription(bot, subscription);
+  }
+}
+
+function startMissionRelayRecovery(bot: Telegraf): void {
+  if (completionRecoveryTimer) {
+    return;
+  }
+  void recoverMissionRelaySubscriptions(bot).catch((error) => {
+    console.warn('[MissionRelay] Completion recovery sweep failed:', error);
+  });
+  completionRecoveryTimer = setInterval(() => {
+    void recoverMissionRelaySubscriptions(bot).catch((error) => {
+      console.warn('[MissionRelay] Completion recovery sweep failed:', error);
+    });
+  }, completionRecoveryIntervalMs());
+}
+
 function clearHeartbeatForMission(missionId: string): void {
   for (const [key, timer] of heartbeatTimers.entries()) {
     if (key === missionId || key.startsWith(`${missionId}:`)) {
@@ -1499,27 +1801,21 @@ async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise
   });
 }
 
-async function rememberMissionCompletion(
+async function handleMissionCompletionMemory(
+  bot: Telegraf,
+  chatId: number,
   subscription: MissionSubscription,
   event: DeliverableRelayEvent,
   providerLabel: string,
   response: string
 ): Promise<void> {
-  const userId = Number(subscription.userId);
-  if (!Number.isFinite(userId)) return;
-
-  const summaryLine = response
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith('-')) || response;
-  const note = [
-    `Completed Spawner mission ${event.missionId} via ${humanizeProviderLabel(providerLabel)}.`,
-    `Goal: ${clipText(subscription.goal, 260)}`,
-    `Result: ${clipText(summaryLine, 500)}`
-  ].join(' ');
-
-  await conversation.learnAboutUser({ id: userId }, note).catch((error) => {
-    console.warn('[MissionRelay] Failed to remember mission completion:', error);
+  await stageMissionLessonCandidate(subscription, event, providerLabel, response)
+    .then((approval) => {
+      if (!missionLessonApprovalPromptEnabled()) return;
+      return bot.telegram.sendMessage(chatId, formatMissionLessonApprovalPrompt(approval));
+    })
+    .catch((error) => {
+      console.warn('[MissionRelay] Failed to stage mission lesson candidate:', error);
   });
 
   await recordShippedProjectFromMission({
@@ -1533,6 +1829,152 @@ async function rememberMissionCompletion(
   }).catch((error) => {
     console.warn('[MissionRelay] Failed to record shipped project context:', error);
   });
+}
+
+function missionLessonApprovalPromptEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_MISSION_LESSON_PROMPTS || '').trim().toLowerCase());
+}
+
+async function readMissionLessonApprovalState(): Promise<MissionLessonApprovalState> {
+  return (await readJsonFile<MissionLessonApprovalState>(MISSION_LESSON_APPROVAL_PATH)) || { pendingByUserId: {} };
+}
+
+async function writeMissionLessonApprovalState(state: MissionLessonApprovalState): Promise<void> {
+  await writeJsonAtomic(MISSION_LESSON_APPROVAL_PATH, {
+    pendingByUserId: state.pendingByUserId || {}
+  });
+}
+
+async function stageMissionLessonCandidate(
+  subscription: MissionSubscription,
+  event: DeliverableRelayEvent,
+  providerLabel: string,
+  response: string
+): Promise<MissionLessonApproval> {
+  const userId = String(subscription.userId || '').trim();
+  if (!userId) {
+    throw new Error('mission_lesson_missing_user');
+  }
+  const candidates = buildMissionLessonCandidates({
+    goal: subscription.goal,
+    response,
+    providerLabel
+  });
+  const approval: MissionLessonApproval = {
+    missionId: event.missionId,
+    chatId: subscription.chatId,
+    userId,
+    requestId: subscription.requestId,
+    goal: subscription.goal,
+    providerLabel,
+    candidates,
+    sourceRefs: [`mission:${event.missionId}`, `request:${subscription.requestId}`],
+    stagedAt: new Date().toISOString()
+  };
+  const state = await readMissionLessonApprovalState();
+  const pendingByUserId = pruneOldMissionLessonApprovals(state.pendingByUserId || {});
+  pendingByUserId[userId] = approval;
+  await writeMissionLessonApprovalState({ pendingByUserId });
+  return approval;
+}
+
+export function buildMissionLessonCandidates(input: {
+  goal: string;
+  response: string;
+  providerLabel?: string;
+}): string[] {
+  const parsed = parseJsonObject(input.response);
+  const summary =
+    (parsed && (stringField(parsed, 'summary') || stringField(parsed, 'result'))) ||
+    extractFreeformLeadSummary(input.response) ||
+    input.response;
+  const verification = parsed ? stringArray(parsed.verification) : extractSectionBullets(input.response, /^verification\b/i, 2);
+  const changedFiles = parsed ? stringArray(parsed.changed_files).concat(stringArray(parsed.files_changed)) : [];
+  const goal = clipText(input.goal, 140);
+  const provider = humanizeProviderLabel(input.providerLabel || 'provider');
+  const rawCandidates = [
+    `Workflow lesson: for future missions like "${goal}", reuse the approach that worked here: ${clipText(summary, 220)}`,
+    verification.length
+      ? `Verification lesson: before closing similar missions, include verification evidence like: ${clipText(verification[0], 180)}`
+      : `Verification lesson: before closing similar missions, include the result, route, and verification evidence instead of only the mission id.`,
+    changedFiles.length
+      ? `Evidence lesson: for build missions, preserve changed-file or preview evidence before reusing the lesson: ${clipText(changedFiles.slice(0, 4).join(', '), 180)}`
+      : `Memory hygiene lesson: when ${provider} finishes a mission, turn only reusable operating guidance into memory; keep raw completion logs as operational state.`
+  ];
+  return dedupeMissionLessons(rawCandidates.map((candidate) => clipText(candidate, 360))).slice(0, 3);
+}
+
+function dedupeMissionLessons(candidates: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const candidate of candidates) {
+    const normalized = compactWhitespace(candidate).toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function formatMissionLessonApprovalPrompt(approval: MissionLessonApproval): string {
+  return compactTelegramBlocks(
+    'Mission lesson candidate',
+    'I will not save the completion log as memory automatically.',
+    [
+      'What should I remember from this mission?',
+      ...approval.candidates.map((candidate, index) => `${index + 1}. ${candidate}`)
+    ].join('\n'),
+    'Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.',
+    'Shipped-project context was recorded separately as operational state.'
+  );
+}
+
+export async function approvePendingMissionLesson(userId: string | number, rememberText: string): Promise<string | null> {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return null;
+  const state = await readMissionLessonApprovalState();
+  const pendingByUserId = state.pendingByUserId || {};
+  const approval = pendingByUserId[normalizedUserId];
+  if (!approval) return null;
+
+  const text = rememberText.trim();
+  if (!text) return null;
+  const selection = text.match(/^(\d+)$/);
+  const selectedIndex = selection ? Number(selection[1]) - 1 : -1;
+  if (selection && (selectedIndex < 0 || selectedIndex >= approval.candidates.length)) {
+    return `Pick 1-${approval.candidates.length}, or send /remember <edited lesson>.`;
+  }
+  const lesson = selection ? approval.candidates[selectedIndex] : text.replace(/^lesson:\s*/i, '').trim();
+  if (!lesson) return null;
+
+  const numericUserId = Number(normalizedUserId);
+  if (!Number.isFinite(numericUserId)) return null;
+  const note = [
+    `Approved mission lesson from Spawner mission ${approval.missionId} via ${humanizeProviderLabel(approval.providerLabel)}.`,
+    `Lesson: ${clipText(lesson, 700)}`,
+    `Source refs: ${approval.sourceRefs.join(', ')}.`,
+    `Goal: ${clipText(approval.goal, 220)}`
+  ].join(' ');
+  await conversation.learnAboutUser({ id: numericUserId }, note);
+
+  delete pendingByUserId[normalizedUserId];
+  await writeMissionLessonApprovalState({ pendingByUserId });
+  return [
+    `Saved mission lesson: ${clipText(lesson, 700)}`,
+    `Source: mission ${approval.missionId}`
+  ].join('\n');
+}
+
+function pruneOldMissionLessonApprovals(pendingByUserId: Record<string, MissionLessonApproval>): Record<string, MissionLessonApproval> {
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const next: Record<string, MissionLessonApproval> = {};
+  for (const [userId, approval] of Object.entries(pendingByUserId)) {
+    const stagedAt = Date.parse(approval.stagedAt);
+    if (!Number.isFinite(stagedAt) || stagedAt >= cutoff) {
+      next[userId] = approval;
+    }
+  }
+  return next;
 }
 
 function readJsonBody(req: IncomingMessage): Promise<RelayWebhookPayload | null> {
@@ -1609,6 +2051,22 @@ export function relayEventMatchesSubscription(
   return identity.chatId === subscription.chatId && identity.userId === subscription.userId;
 }
 
+export function setMissionRelayRuntimeStatus(status: MissionRelayRuntimeStatus): void {
+  relayRuntimeStatus = { ...status };
+}
+
+export function missionRelayHealthPayload(): MissionRelayHealthPayload {
+  const polling = relayRuntimeStatus.telegramPolling;
+  const ready = polling !== 'starting';
+  return {
+    ok: ready,
+    service: 'spark-telegram-bot',
+    relay: getTelegramRelayIdentity(),
+    pid: process.pid,
+    runtime: relayRuntimeStatus
+  };
+}
+
 export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }> {
   await loadRegistry();
 
@@ -1620,12 +2078,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
 
 	relayServer = createServer(async (req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
-      writeJson(res, 200, {
-        ok: true,
-        service: 'spark-telegram-bot',
-        relay: getTelegramRelayIdentity(),
-        pid: process.pid
-      });
+      const payload = missionRelayHealthPayload();
+      writeJson(res, payload.ok ? 200 : 503, payload);
       return;
     }
 
@@ -1667,7 +2121,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       await refreshRegistry();
       subscription = registry.get(event.missionId);
     }
-    if (!subscription) {
+    if (!subscription || !subscriptionBelongsToThisRelay(subscription)) {
       writeJson(res, 202, { ok: true, ignored: 'unknown_mission' });
       return;
     }
@@ -1693,20 +2147,76 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       const linkPreference = await getTelegramMissionLinkPreference(subscription.chatId);
 
       if (event.type === 'mission_cancelled') {
+        const alreadySuppressed = shouldSuppressMissionHandoff(event.missionId);
         markMissionRelayCancelled(event.missionId);
+        if (!alreadySuppressed) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission cancelled.',
+              '',
+              `Mission: ${event.missionId}`,
+              'I will suppress any late handoff messages for this run.'
+            ].join('\n')
+          );
+        }
         writeJson(res, 200, { ok: true, cancelled: true });
         return;
       }
 
+      if (event.type === 'mission_paused') {
+        const alreadyPaused = isMissionRelayPaused(event.missionId);
+        markMissionRelayPaused(event.missionId);
+        if (!alreadyPaused) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission paused.',
+              '',
+              `Mission: ${event.missionId}`,
+              'I will hold Telegram auto-handoffs until it resumes.'
+            ].join('\n')
+          );
+        }
+        writeJson(res, 200, { ok: true, paused: true });
+        return;
+      }
+
+      if (event.type === 'mission_resumed') {
+        const wasPaused = isMissionRelayPaused(event.missionId);
+        markMissionRelayResumed(event.missionId);
+        if (wasPaused) {
+          await bot.telegram.sendMessage(
+            chatId,
+            [
+              'Mission resumed.',
+              '',
+              `Mission: ${event.missionId}`,
+              'Telegram handoffs are enabled again.'
+            ].join('\n')
+          );
+        }
+        writeJson(res, 200, { ok: true, resumed: true });
+        return;
+      }
+
 	      if (event.type === 'mission_completed' || isProviderLevelCompletionEvent(event)) {
-	        const completion = completionDeliveryCache.has(event.missionId)
-	          ? null
-	          : await fetchMissionCompletionSummary(event.missionId);
-	        if (completion) {
-	          const chunks = await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
-	          writeJson(res, 200, { ok: true, chunks, completionFetched: true });
+	        if (!claimCompletionDelivery(event.missionId)) {
+	          writeJson(res, 202, { ok: true, duplicate: true, completionClaimed: true });
 	          return;
 	        }
+	        const completion = await fetchMissionCompletionSummary(event.missionId);
+	        if (completion) {
+	          try {
+	            const chunks = await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+	            writeJson(res, 200, { ok: true, chunks, completionFetched: true });
+	            return;
+	          } catch (error) {
+	            releaseCompletionDeliveryClaim(event.missionId);
+	            throw error;
+	          }
+	        }
+	        releaseCompletionDeliveryClaim(event.missionId);
 	        scheduleDelayedCompletionSummary(bot, chatId, subscription, event, verbosity);
 	        writeJson(res, 202, { ok: true, queued: 'completion_summary_retry' });
 	        return;
@@ -1715,6 +2225,14 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       if (event.type === 'task_completed') {
         const extracted = extractProviderResponse(event);
         if (extracted) {
+          if (shouldSuppressMissionHandoff(event.missionId)) {
+            writeJson(res, 200, { ok: true, suppressed: true });
+            return;
+          }
+          if (!claimCompletionDelivery(event.missionId)) {
+            writeJson(res, 202, { ok: true, duplicate: true, completionClaimed: true });
+            return;
+          }
           clearHeartbeatForMission(event.missionId);
           const hasProjectLink = !!(previewLinkFromEvent(event) || projectPathFromEvent(event));
           const openLink = hasProjectLink ? await readyProjectOpenLinkFromEvent(event) : undefined;
@@ -1729,11 +2247,17 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
             previewPending: hasProjectLink && !openLink
           });
           const chunks = chunkForTelegram(message);
-          for (let i = 0; i < chunks.length; i++) {
-            const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
-            await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+          try {
+            for (let i = 0; i < chunks.length; i++) {
+              const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
+              await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+            }
+          } catch (error) {
+            releaseCompletionDeliveryClaim(event.missionId);
+            throw error;
           }
-          await rememberMissionCompletion(subscription, event, extracted.providerLabel, extracted.response);
+          markCompletionDelivered(event.missionId);
+          await handleMissionCompletionMemory(bot, chatId, subscription, event, extracted.providerLabel, extracted.response);
           writeJson(res, 200, { ok: true, chunks: chunks.length });
           return;
         }
@@ -1786,6 +2310,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       resolve();
     });
   });
+
+  startMissionRelayRecovery(bot);
 
   return { port };
 }
