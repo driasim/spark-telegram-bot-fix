@@ -330,6 +330,12 @@ function isConversationFramingMakeRequest(description: string): boolean {
   );
 }
 
+function isVoiceTuningMakeRequest(description: string): boolean {
+  const normalized = description.replace(/\s+/g, ' ').trim();
+  return /^(?:my\s+|our\s+|the\s+)?voice\b/i.test(normalized) &&
+    /\b(?:clearer|warmer|colder|faster|slower|friendlier|geekier|nerdier|natural|casual|formal|concise|verbose|shorter|longer|tone|style)\b/i.test(normalized);
+}
+
 function isSparkCapabilityMakeRequest(description: string): boolean {
   const normalized = description.replace(/\s+/g, ' ').trim();
   const lowered = normalized.toLowerCase();
@@ -394,7 +400,7 @@ function extractBuildDescription(text: string): string | null {
     if (/\bmake\b/i.test(command[0]) && /^\s*sure\b/i.test(description)) {
       return null;
     }
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && isConversationFramingMakeRequest(description))) {
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
       return null;
     }
     return description;
@@ -415,7 +421,7 @@ function extractBuildDescription(text: string): string | null {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && isConversationFramingMakeRequest(description))) {
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
       return null;
     }
     return description;

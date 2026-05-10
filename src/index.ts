@@ -35,7 +35,7 @@ import {
 } from './builderBridge';
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
-import { sanitizeAndSplitTelegramText } from './outboundSanitize';
+import { sanitizeAndSplitTelegramText, TELEGRAM_SAFE_MESSAGE_LIMIT } from './outboundSanitize';
 import { installConsoleRedaction, redactText } from './redaction';
 import {
   formatCreatorMissionExecutionSummary,
@@ -109,6 +109,11 @@ import {
   type SparkAccessProfile,
   type SparkAccessRequirement
 } from './accessPolicy';
+import {
+  accessActionNeedsConfirmation,
+  runSparkAccessAction,
+  type SparkAccessActionId
+} from './accessActions';
 import {
   describeTelegramMissionLinkPreference,
   describeTelegramRelayVerbosity,
@@ -377,6 +382,67 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
 // runs through the deterministic voice rules before delivery. Persona
 // forbids em dashes; production telemetry showed ~50% leak rate before
 // this shim. Mirrors spark_character.output_sanitizer (Python).
+type TelegramTextSend = (text: string, extra?: any) => Promise<any>;
+
+function telegramDeliveryErrorText(error: unknown): string {
+  const parts: string[] = [];
+  if (error instanceof Error && error.message) {
+    parts.push(error.message);
+  }
+  const record = error as any;
+  for (const value of [
+    record?.description,
+    record?.response?.description,
+    record?.response?.body?.description,
+    record?.payload?.description,
+  ]) {
+    if (typeof value === 'string' && value.trim()) {
+      parts.push(value);
+    }
+  }
+  return parts.join('\n');
+}
+
+export function isTelegramMessageTooLongError(error: unknown): boolean {
+  return /message(?: text)? is too long|message_too_long/i.test(telegramDeliveryErrorText(error));
+}
+
+async function sendSanitizedTelegramText(
+  text: string,
+  extra: any,
+  send: TelegramTextSend,
+  onDelivered?: (chunk: string) => void,
+  maxChars = TELEGRAM_SAFE_MESSAGE_LIMIT
+): Promise<any> {
+  const chunks = sanitizeAndSplitTelegramText(text, maxChars);
+  let lastDelivery: any = null;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const chunkExtra = index === 0 ? extra : undefined;
+    try {
+      lastDelivery = await send(chunk, chunkExtra);
+      onDelivered?.(chunk);
+    } catch (error) {
+      if (isTelegramMessageTooLongError(error) && maxChars > 900) {
+        lastDelivery = await sendSanitizedTelegramText(
+          chunk,
+          chunkExtra,
+          send,
+          onDelivered,
+          Math.max(900, Math.floor(maxChars / 2))
+        );
+        continue;
+      }
+      throw error;
+    }
+  }
+  return lastDelivery;
+}
+
+async function replyWithSanitizedTelegramText(ctx: any, text: string, extra?: any): Promise<any> {
+  return sendSanitizedTelegramText(text, extra, (chunk, chunkExtra) => ctx.reply(chunk, chunkExtra));
+}
+
 const _origSendMessage = bot.telegram.sendMessage.bind(bot.telegram);
 bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
   if (typeof text !== 'string') {
@@ -385,13 +451,12 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
     return delivery;
   }
 
-  const chunks = sanitizeAndSplitTelegramText(text);
-  let lastDelivery: Awaited<ReturnType<typeof _origSendMessage>> | null = null;
-  for (const chunk of chunks) {
-    lastDelivery = await _origSendMessage(chatId, chunk, extra);
-    recordNodeOutboundDelivery(chatId, chunk);
-  }
-  return lastDelivery!;
+  return sendSanitizedTelegramText(
+    text,
+    extra,
+    (chunk, chunkExtra) => _origSendMessage(chatId, chunk, chunkExtra),
+    (chunk) => recordNodeOutboundDelivery(chatId, chunk)
+  );
 }) as typeof bot.telegram.sendMessage;
 
 bot.use(async (ctx, next) => {
@@ -401,12 +466,7 @@ bot.use(async (ctx, next) => {
       return originalReply(text, extra);
     }
 
-    const chunks = sanitizeAndSplitTelegramText(text);
-    let lastReply: Awaited<ReturnType<typeof originalReply>> | null = null;
-    for (const chunk of chunks) {
-      lastReply = await originalReply(chunk, extra);
-    }
-    return lastReply!;
+    return sendSanitizedTelegramText(text, extra, (chunk, chunkExtra) => originalReply(chunk, chunkExtra));
   }) as typeof ctx.reply;
   await next();
 });
@@ -509,7 +569,7 @@ async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<ty
     return;
   }
   if (builderReply.responseText) {
-    await ctx.reply(builderReply.responseText);
+    await replyWithSanitizedTelegramText(ctx, builderReply.responseText);
   }
 }
 
@@ -538,11 +598,26 @@ async function sendBuilderVoiceMedia(
   console.log(
     `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length} captionChars=${caption?.length || 0} spokenChars=${(voiceMedia.spokenText || '').length}`
   );
-  if (voiceMedia.voiceCompatible) {
-    await ctx.replyWithVoice(inputFile, options);
-    return;
+  try {
+    if (voiceMedia.voiceCompatible) {
+      await ctx.replyWithVoice(inputFile, options);
+      return;
+    }
+    await ctx.replyWithAudio(inputFile, options);
+  } catch (error) {
+    if (!caption || !isTelegramMessageTooLongError(error)) {
+      throw error;
+    }
+    console.warn('[BridgeVoice] media caption too long; retrying media without caption and sending text separately');
+    if (voiceMedia.voiceCompatible) {
+      await ctx.replyWithVoice(inputFile);
+    } else {
+      await ctx.replyWithAudio(inputFile);
+    }
+    if (fallbackText) {
+      await replyWithSanitizedTelegramText(ctx, fallbackText);
+    }
   }
-  await ctx.replyWithAudio(inputFile, options);
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
@@ -687,6 +762,11 @@ bot.start(async (ctx) => {
       '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
       '/access <1|2|3|4|5> - Choose what this Telegram chat can do',
+      '/access_setup - Set up the safe Level 4 workspace from Telegram',
+      '/docker_doctor - Check Docker sandbox readiness without changing the computer',
+      '/docker_smoke confirm - Run the no-secret Docker sandbox smoke',
+      '/level5_setup confirm - Prepare whole-computer operator guardrails, then restart',
+      '/level5_disable confirm - Return to workspace-sandbox mode, then restart',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
@@ -1109,7 +1189,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       '',
       'I did not enqueue it because this route cannot prove local workspace access.',
       '',
-      'Next: run `spark access setup`, restart Spark, then try again from this chat.'
+      'Next: send `/access_setup`, restart Spark if prompted, then try again from this chat.'
     ].join('\n'));
     return;
   }
@@ -1941,6 +2021,11 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string): Promi
 
   const action = parsePendingCreatorMissionAction(text);
   if (!action) return false;
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return true;
+  }
   await conversation.remember(ctx.from, text).catch(() => {});
   await safeSendChatAction(ctx, 'typing');
 
@@ -2113,7 +2198,7 @@ export async function handleBuildIntent(
       '',
       'I did not enqueue the build because it could claim local access that this route cannot prove.',
       '',
-      'Next: run `spark access setup`, restart Spark, then try again. If this machine is intentionally read-only, use a writable Mission Control/Codex route.'
+      'Next: send `/access_setup`, restart Spark if prompted, then try again. If this machine is intentionally read-only, use a writable Mission Control/Codex route.'
     ].join('\n'));
     return;
   }
@@ -2304,6 +2389,12 @@ bot.command('models', async (ctx) => {
 
 bot.command('board', async (ctx) => {
   if (!requireAdmin(ctx)) return;
+
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
+  }
 
   await safeSendChatAction(ctx, 'typing');
   const result = await spawner.board();
@@ -2762,6 +2853,38 @@ async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promis
   ].join('\n');
 }
 
+async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+
+  const raw = String(ctx.message?.text || '');
+  const confirmed = /\bconfirm\b/i.test(raw);
+  if (accessActionNeedsConfirmation(actionId) && !confirmed) {
+    const hint = actionId === 'docker_smoke'
+      ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
+      : actionId === 'level5_enable'
+        ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
+        : 'This changes Spark access guardrail state and requires confirmation.';
+    await ctx.reply([hint, '', `To continue, send ${raw.split(/\s+/)[0]} confirm`].join('\n'));
+    return;
+  }
+
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const reply = await runSparkAccessAction(actionId);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    await ctx.reply(`Spark access action failed: ${detail}`);
+  }
+}
+
+bot.command('access_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'workspace_setup'));
+bot.command('docker_doctor', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_doctor'));
+bot.command('docker_smoke', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_smoke'));
+bot.command('level5_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_enable'));
+bot.command('level5_disable', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_disable'));
+
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
 
@@ -2872,6 +2995,12 @@ bot.command('mission', async (ctx) => {
 
   if (!/^(?:spark|mission)-[A-Za-z0-9_-]+$/.test(missionId)) {
     return ctx.reply('Use a real mission ID from /board, for example: /mission status spark-1776768300668 or /mission status mission-creator-1776768300668');
+  }
+
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
   }
 
   await safeSendChatAction(ctx, 'typing');
@@ -3008,16 +3137,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const conversationFrame = await conversation.getConversationFrame(user, text);
-  let conversationFrameContext = [
-    quotedText
-      ? [
-          '[Telegram Reply Target]',
-          `Author: ${quotedAuthor}`,
-          `Message: ${compactTelegramReplyQuote(quotedText)}`
-        ].join('\n')
-      : '',
-    renderConversationFrameContext(conversationFrame, 12_000)
-  ].filter(Boolean).join('\n\n');
+  let conversationFrameContext = renderConversationFrameContext(conversationFrame, 12_000);
+  if (quotedText) {
+    conversationFrameContext = [
+      conversationFrameContext,
+      '[Telegram direct reply target]',
+      `Author: ${quotedAuthor}`,
+      `Message: ${compactTelegramReplyQuote(quotedText)}`
+    ].filter(Boolean).join('\n\n');
+  }
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
@@ -3339,6 +3467,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const accessPreference = parseNaturalAccessChangeIntent(text);
       const normalizedAccessPreference = accessPreference ? normalizeSparkAccessProfile(accessPreference) : null;
       if (normalizedAccessPreference) {
+        const runtimeGate = validateSparkAccessProfileForRuntime(normalizedAccessPreference);
+        if (!runtimeGate.ok) {
+          await ctx.reply(runtimeGate.message);
+          return;
+        }
         await setSparkAccessProfile(ctx.chat.id, normalizedAccessPreference);
       }
       const buildPreference = parseMissionUpdatePreferenceIntent(text, { allowExecutionLanguage: true });
@@ -3446,6 +3579,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const spawnerBoardIntent = parseSpawnerBoardNaturalIntent(text);
     if (spawnerBoardIntent) {
+      const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+      if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+        await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+        return;
+      }
+
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'
@@ -3627,7 +3766,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           )
         : quotedText
           ? buildUpdateWithText(ctx.update as unknown as Record<string, unknown>, replyContextPrompt)
-        : ctx.update as unknown as Record<string, unknown>;
+          : ctx.update as unknown as Record<string, unknown>;
       builderReply = await runBuilderTelegramBridge(bridgeUpdate);
     } catch (bridgeError) {
       bridgeFailed = true;

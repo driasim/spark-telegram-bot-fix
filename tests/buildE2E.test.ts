@@ -747,6 +747,45 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('Builder bridge text replies recover from Telegram message-too-long errors', async () => {
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const indexModule: any = await import('../src/index');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: Array.from({ length: 120 }, (_, index) => `Long reply paragraph ${index + 1}: this is enough content to force chunking.`).join('\n\n'),
+			decision: 'test',
+			bridgeMode: 'test',
+			routingDecision: 'plain_chat'
+		});
+		try {
+			process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+			process.env.BOT_DEFAULT_TIER = 'base';
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8422, 8319079055, 8422001, replies);
+			ctx.message.text = 'tell me the long version';
+			const originalReply = ctx.reply;
+			ctx.reply = async (text: string) => {
+				if (text.length > 1000) {
+					const error: any = new Error('400: Bad Request: message is too long');
+					error.response = { description: 'Bad Request: message is too long' };
+					throw error;
+				}
+				await originalReply(text);
+			};
+
+			await indexModule.handleTextMessage(ctx);
+
+			assert.ok(replies.length > 1, 'expected long reply to be split into smaller Telegram messages');
+			assert.ok(replies.every((reply) => reply.length <= 1000), 'expected every retry chunk to fit the simulated Telegram limit');
+			assert.match(replies.join('\n'), /Long reply paragraph 120/);
+			assert.doesNotMatch(replies.join('\n'), /Reply-aware answer|reasoning path is not healthy/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreEnv();
+		}
+	});
+
 	await test('clarification replies are natural and project-specific', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
