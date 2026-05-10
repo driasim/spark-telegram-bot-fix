@@ -144,15 +144,27 @@ export function sparkHostedFullAccessAllowed(env: NodeJS.ProcessEnv = process.en
   return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_ALLOW_HOSTED_FULL_ACCESS || '').trim().toLowerCase());
 }
 
+function envFlagEnabled(value: unknown): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+}
+
 export function sparkHighAgencyWorkersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
-  return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS || '').trim().toLowerCase());
+  return envFlagEnabled(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS);
+}
+
+export function sparkLevel5RuntimeGuardrailsActive(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    envFlagEnabled(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS) &&
+    envFlagEnabled(env.SPARK_ALLOW_EXTERNAL_PROJECT_PATHS) &&
+    String(env.SPARK_CODEX_SANDBOX || '').trim() === 'danger-full-access'
+  );
 }
 
 export function validateSparkAccessProfileForRuntime(
   profile: SparkAccessProfile,
   env: NodeJS.ProcessEnv = process.env
 ): { ok: true } | { ok: false; message: string } {
-  if (profile === 'operator' && !sparkHighAgencyWorkersAllowed(env)) {
+  if (profile === 'operator' && !sparkLevel5RuntimeGuardrailsActive(env)) {
     return {
       ok: false,
       message: [

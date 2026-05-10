@@ -27,6 +27,7 @@ import {
   sparkAccessAllowsWorkspaceBuilds,
   sparkHostedFullAccessAllowed,
   sparkHighAgencyWorkersAllowed,
+  sparkLevel5RuntimeGuardrailsActive,
   sparkIsHostedRuntime,
   validateSparkAccessProfileForRuntime
 } from '../src/accessPolicy';
@@ -294,6 +295,13 @@ async function main(): Promise<void> {
     assert.equal(sparkHostedFullAccessAllowed({ SPARK_ALLOW_HOSTED_FULL_ACCESS: 'true' }), true);
     assert.equal(sparkHighAgencyWorkersAllowed({}), false);
     assert.equal(sparkHighAgencyWorkersAllowed({ SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1' }), true);
+    assert.equal(sparkLevel5RuntimeGuardrailsActive({}), false);
+    assert.equal(sparkLevel5RuntimeGuardrailsActive({ SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1' }), false);
+    assert.equal(sparkLevel5RuntimeGuardrailsActive({
+      SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1',
+      SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '1',
+      SPARK_CODEX_SANDBOX: 'danger-full-access'
+    }), true);
 
     assert.deepEqual(validateSparkAccessProfileForRuntime('developer', {}), { ok: true });
     assert.deepEqual(validateSparkAccessProfileForRuntime('agent', { SPARK_LIVE_CONTAINER: '1' }), { ok: true });
@@ -306,16 +314,27 @@ async function main(): Promise<void> {
     );
     assert.deepEqual(
       validateSparkAccessProfileForRuntime('operator', {
-        SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1'
+        SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1',
+        SPARK_ALLOW_EXTERNAL_PROJECT_PATHS: '1',
+        SPARK_CODEX_SANDBOX: 'danger-full-access'
       }),
       { ok: true }
     );
+
+    const partialOperatorDenied = validateSparkAccessProfileForRuntime('operator', {
+      SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1'
+    });
+    assert.equal(partialOperatorDenied.ok, false);
+    if (!partialOperatorDenied.ok) {
+      assert.match(partialOperatorDenied.message, /spark access setup --level 5 --enable-high-agency/);
+      assert.match(partialOperatorDenied.message, /spark restart/);
+    }
 
     const operatorDenied = validateSparkAccessProfileForRuntime('operator', {});
     assert.equal(operatorDenied.ok, false);
     if (!operatorDenied.ok) {
       assert.match(operatorDenied.message, /Access level 5 is whole-computer operator mode/);
-      assert.match(operatorDenied.message, /SPARK_ALLOW_HIGH_AGENCY_WORKERS=1/);
+      assert.match(operatorDenied.message, /spark access setup --level 5 --enable-high-agency/);
     }
 
     const denied = validateSparkAccessProfileForRuntime('developer', { SPARK_SPAWNER_HOST: '0.0.0.0' });

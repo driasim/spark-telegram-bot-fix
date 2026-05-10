@@ -23,6 +23,11 @@ export function loadEnvFileIntoProcess(file: string, env: NodeJS.ProcessEnv = pr
   }
 }
 
+export function sparkConfigModulesDir(env: NodeJS.ProcessEnv = process.env): string {
+  const sparkHome = env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  return path.join(sparkHome, 'config', 'modules');
+}
+
 export function readSparkSecret(secretId: string): string | null {
   const viaPython = readSparkSecretViaPythonBridge(secretId);
   if (viaPython) return viaPython;
@@ -72,7 +77,7 @@ export function loadSparkTelegramProfileEnv(args: string[], env: NodeJS.ProcessE
   const profile = argValue(args, 'profile') || env.SPARK_TELEGRAM_PROFILE?.trim() || null;
   if (!profile) return null;
 
-  const configDir = path.join(os.homedir(), '.spark', 'config', 'modules');
+  const configDir = sparkConfigModulesDir(env);
   loadEnvFileIntoProcess(path.join(configDir, 'spark-telegram-bot.env'), env);
   loadEnvFileIntoProcess(path.join(configDir, `spark-telegram-bot.${profile}.env`), env);
 

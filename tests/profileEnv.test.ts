@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { sparkSecretPythonBridgeCommand } from '../src/profileEnv';
+import path from 'node:path';
+import { sparkConfigModulesDir, sparkSecretPythonBridgeCommand } from '../src/profileEnv';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -32,6 +33,12 @@ test('prefers explicit Spark CLI Python over Builder Python', () => {
   } as NodeJS.ProcessEnv);
 
   assert.equal(command.python, 'C:\\SparkPython\\python.exe');
+});
+
+test('uses SPARK_HOME for generated module env files', () => {
+  const configDir = sparkConfigModulesDir({ SPARK_HOME: 'C:\\SparkHome' } as NodeJS.ProcessEnv);
+
+  assert.equal(configDir, path.join('C:\\SparkHome', 'config', 'modules'));
 });
 
 test('runtime health wrapper forwards profile arguments', () => {
