@@ -1123,6 +1123,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
   const newRequestId = `${pending.requestId}-clarified-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(newRequestId);
+  const traceRef = spawnerPrdTraceRef(missionId);
   const tier = getTierForUser(ctx.from.id);
   const runnerPreflight = pending.projectPath ? await probeTelegramRunnerWritability() : null;
   if (runnerPreflight?.runnerWritable === 'no') {
@@ -1145,6 +1146,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       {
         content: prdContent,
         requestId: newRequestId,
+        traceRef,
         projectName: pending.projectName,
         buildMode: pending.buildMode,
         buildModeReason: pending.buildModeReason,
@@ -1527,6 +1529,10 @@ function humanAck(providers: string[]): string {
 function missionIdFromTelegramBuildRequest(requestId: string): string {
   const stamp = requestId.match(/(\d{10,})$/)?.[1];
   return `mission-${stamp || requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+function spawnerPrdTraceRef(missionId: string): string {
+  return `trace:spawner-prd:${missionId}`;
 }
 
 function projectCanvasUrl(baseUrl: string, requestId: string, missionId: string): string {
@@ -2161,6 +2167,7 @@ export async function handleBuildIntent(
   const chatId = Number(ctx.chat.id);
   const requestId = `tg-build-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(requestId);
+  const traceRef = spawnerPrdTraceRef(missionId);
 
   const prdContent = projectPath
     ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
@@ -2173,6 +2180,7 @@ export async function handleBuildIntent(
       {
         content: prdContent,
         requestId,
+        traceRef,
         projectName,
         buildMode,
         buildModeReason,

@@ -192,6 +192,7 @@ async function run(): Promise<void> {
 		assert.ok(writeCall!.body.telegramRelay, 'telegramRelay block present');
 		assert.equal(typeof writeCall!.body.options, 'object');
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
+		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
 		assert.match(replies[0] || '', new RegExp(`Mission: ${missionId}`));
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
 		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
@@ -950,6 +951,7 @@ async function run(): Promise<void> {
 		assert.ok(dispatchCall, 'expected go to force-dispatch pending clarification');
 		const clarifiedMissionId = `mission-${String(dispatchCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(dispatchCall!.body.missionId, clarifiedMissionId);
+		assert.equal(dispatchCall!.body.traceRef, `trace:spawner-prd:${clarifiedMissionId}`);
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
 		assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
 		assert.match(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
