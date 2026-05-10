@@ -20,7 +20,7 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase().replace(/[\s_+\-&]+/g, '');
   if (['1', 'access1', 'level1', 'accesslevel1', 'l1', 'chat', 'chatonly', 'private', 'conversation'].includes(normalized)) return 'chat';
-  if (['2', 'access2', 'level2', 'accesslevel2', 'l2', 'builder', 'mission', 'missions', 'build', 'buildwhenasked', 'buildpermission'].includes(normalized)) return 'builder';
+  if (['2', 'access2', 'level2', 'accesslevel2', 'l2', 'builder', 'mission', 'missions', 'buildwhenasked', 'buildpermission'].includes(normalized)) return 'builder';
   if (['3', 'access3', 'level3', 'accesslevel3', 'l3', 'agent', 'tools', 'research', 'researchbuild', 'researchandbuild', 'web', 'github'].includes(normalized)) return 'agent';
   if (
     [
@@ -31,9 +31,13 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
       'l4',
       'developer',
       'dev',
-      'workspace',
+      'workspaceaccess',
+      'localworkspace',
+      'localworkspaceaccess',
       'localproject',
+      'localprojectaccess',
       'localrepo',
+      'localrepoaccess',
       'sandbox',
       'sandboxed',
       'sandboxedlocal',
@@ -54,7 +58,6 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
       'wholemachine',
       'operatingsystem',
       'os',
-      'full',
       'fullaccess',
       'computeraccess'
     ].includes(normalized)

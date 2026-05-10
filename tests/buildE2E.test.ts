@@ -15,6 +15,9 @@
  */
 
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import axios from 'axios';
 import { getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
@@ -41,6 +44,7 @@ const originalEnv = {
 	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
+	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -183,6 +187,46 @@ async function run(): Promise<void> {
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, writeCall!.body.requestId);
 
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('local build intent does not enqueue when Telegram runner is read-only', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-build-readonly-preflight-'));
+		const stateAsFile = path.join(tempRoot, 'state-as-file');
+		writeFileSync(stateAsFile, 'not a directory');
+		process.env.SPARK_GATEWAY_STATE_DIR = stateAsFile;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'codex', started: true } } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleBuildIntent(
+			ctx,
+			'Build a local static app.',
+			'local-readonly-test',
+			'C:\\Users\\USER\\.spark\\workspaces\\default\\local-readonly-test',
+			'direct',
+			'test'
+		);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'read-only local build should not POST to PRD bridge');
+		assert.match(replies.join('\n'), /current Telegram runner is read-only/);
+		assert.match(replies.join('\n'), /spark access setup/);
+
+		rmSync(tempRoot, { force: true, recursive: true });
 		restoreAxios();
 		restoreEnv();
 	});
@@ -339,7 +383,7 @@ async function run(): Promise<void> {
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected mixed preference/build prompt to POST to /api/prd-bridge/write');
-		assert.match(writeCall!.body.content, /Target operating-system folder: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
+		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
 		assert.match(replies[0] || '', /Project: terminal chef clock/);
@@ -655,7 +699,7 @@ async function run(): Promise<void> {
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected detailed build brief to POST to /api/prd-bridge/write');
 		assert.equal(writeCall!.body.projectName, 'Founder Signal Room');
-		assert.match(writeCall!.body.content, /Target operating-system folder: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
+		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
 		assert.doesNotMatch(replies.join('\n'), /Tell me which number/);

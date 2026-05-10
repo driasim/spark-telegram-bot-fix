@@ -86,7 +86,7 @@ const DEFAULT_POLICY: ContextBudgetPolicy = {
   compactTriggerFraction: 0.65
 };
 
-const NUMBER_WORDS: Record<string, string> = { one: '1', two: '2', three: '3', four: '4' };
+const NUMBER_WORDS: Record<string, string> = { one: '1', two: '2', three: '3', four: '4', five: '5' };
 const OPTION_NUMBER_WORDS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -392,7 +392,7 @@ function extractArtifacts(turns: ConversationTurn[]): ConversationArtifact[] {
     }
 
     const accessValue = extractAccessValue(turn.text);
-    if (accessValue && /\b(?:spark\s+)?access(?:\s+level)?\b|\blevel\s+[1-4]\b|\bfull\s+access\b/i.test(turn.text)) {
+    if (accessValue && hasAccessLexeme(turn.text)) {
       artifacts.push({
         kind: 'access_level',
         key: `access:${turn.turnId ?? sourceIndex}`,
@@ -411,9 +411,9 @@ function inferFocusStack(
   turns: ConversationTurn[],
   artifacts: ConversationArtifact[]
 ): ConversationFocus[] {
-  const recentText = [...turns.slice(-8).map((turn) => turn.text), currentMessage].join('\n');
   const focus: ConversationFocus[] = [];
-  if (/\b(?:spark\s+)?access(?:\s+level)?\b|\blevel\s+[1-4]\b|\bfull\s+access\b/i.test(recentText)) {
+  const latestAccess = latestArtifactOfKind(artifacts, 'access_level');
+  if (latestAccess || hasAccessLexeme(currentMessage)) {
     focus.push({ kind: 'access_level', label: 'Spark access level', confidence: 0.92, source: 'recent_turns' });
   }
   const latestList = [...artifacts].reverse().find((artifact) => artifact.kind === 'list');
@@ -465,10 +465,10 @@ function resolveReference(
   if (accessFocus) {
     const accessValue = extractAccessValue(currentMessage);
     const explicitAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|go\s+to)\b/i.test(currentMessage) &&
-      /\b(?:access|permission|level\s+[1-4]|level\s+(?:one|two|three|four)|full\s+access|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build)\b/i.test(currentMessage);
-    const contextualAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|make)\s+(?:it|that|this|me|us|this\s+chat|the\s+chat)?\s*(?:to|as|into|onto)?\s*(?:level\s*)?(?:[1-4]|one|two|three|four)\b/i.test(currentMessage);
+      hasAccessLexeme(currentMessage);
+    const contextualAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|make)\s+(?:it|that|this|me|us|this\s+chat|the\s+chat)?\s*(?:to|as|into|onto)?\s*(?:level\s*)?(?:[1-5]|one|two|three|four|five)\b/i.test(currentMessage);
     const hasChangeShape = explicitAccessChangeShape || contextualAccessChangeShape;
-    const shortLevelOnly = /^\s*(?:level\s*)?(?:[1-4]|one|two|three|four)\s*[.!?]?\s*$/i.test(currentMessage);
+    const shortLevelOnly = /^\s*(?:level\s*)?(?:[1-5]|one|two|three|four|five)\s*[.!?]?\s*$/i.test(currentMessage);
     if (accessValue && (hasChangeShape || shortLevelOnly)) {
       return {
         kind: 'access_level',
@@ -627,10 +627,14 @@ function extractNumberedItems(text: string): string[] {
 
 function extractAccessValue(text: string): string | null {
   const lower = text.toLowerCase();
-  if (/\bfull\s+access\b/.test(lower)) return '4';
-  const match = text.match(/\b(?:level\s*)?([1-4]|one|two|three|four)\b/i);
+  if (/\b(?:full\s+access|whole[-\s]+computer|operator\s+mode)\b/.test(lower)) return '5';
+  const match = text.match(/\b(?:level\s*)?([1-5]|one|two|three|four|five)\b/i);
   if (!match) return null;
   return NUMBER_WORDS[match[1].toLowerCase()] || match[1];
+}
+
+function hasAccessLexeme(text: string): boolean {
+  return /\b(?:(?:spark\s+)?access(?:\s+level)?|permission|full\s+access|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?\s+local(?:\s+access)?|local\s+(?:workspace|project|repo)\s+access|whole[-\s]+computer|operator\s+mode)\b/i.test(text);
 }
 
 function artifactTitleFromText(text: string): string {

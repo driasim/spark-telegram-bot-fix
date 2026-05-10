@@ -1100,8 +1100,19 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   const newRequestId = `${pending.requestId}-clarified-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(newRequestId);
   const tier = getTierForUser(ctx.from.id);
+  const runnerPreflight = pending.projectPath ? await probeTelegramRunnerWritability() : null;
+  if (runnerPreflight?.runnerWritable === 'no') {
+    await ctx.reply([
+      'The clarified build is allowed, but the current Telegram runner is read-only.',
+      '',
+      'I did not enqueue it because this route cannot prove local workspace access.',
+      '',
+      'Next: run `spark access setup`, restart Spark, then try again from this chat.'
+    ].join('\n'));
+    return;
+  }
   const prdContent = pending.projectPath
-    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nTarget operating-system folder: \`${pending.projectPath}\`\n\n${enrichedPrd}`
+    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
     : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\n\n${enrichedPrd}`;
 
   try {
@@ -1115,6 +1126,13 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         buildModeReason: pending.buildModeReason,
         chatId: String(ctx.chat.id),
         userId: String(ctx.from.id),
+        runnerCapability: runnerPreflight
+          ? {
+              runnerWritable: runnerPreflight.runnerWritable,
+              runnerLabel: runnerPreflight.runnerLabel,
+              checkedAt: runnerPreflight.checkedAt
+            }
+          : { runnerWritable: 'unknown' },
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         forceDispatch: true,
@@ -2096,6 +2114,19 @@ export async function handleBuildIntent(
     await ctx.reply(renderSparkAccessDenial(accessProfile, accessRequirement));
     return;
   }
+  const runnerPreflight = accessRequirement === 'operating_system'
+    ? await probeTelegramRunnerWritability()
+    : null;
+  if (runnerPreflight?.runnerWritable === 'no') {
+    await ctx.reply([
+      'This chat is allowed to request local workspace work, but the current Telegram runner is read-only.',
+      '',
+      'I did not enqueue the build because it could claim local access that this route cannot prove.',
+      '',
+      'Next: run `spark access setup`, restart Spark, then try again. If this machine is intentionally read-only, use a writable Mission Control/Codex route.'
+    ].join('\n'));
+    return;
+  }
 
   const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
   const chatId = Number(ctx.chat.id);
@@ -2103,7 +2134,7 @@ export async function handleBuildIntent(
   const missionId = missionIdFromTelegramBuildRequest(requestId);
 
   const prdContent = projectPath
-    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget operating-system folder: \`${projectPath}\`\n\n${prd}`
+    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
     : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\n\n${prd}`;
 
   const tier = getTierForUser(ctx.from.id);
@@ -2118,6 +2149,13 @@ export async function handleBuildIntent(
         buildModeReason,
         chatId: String(chatId),
         userId: String(ctx.from.id),
+        runnerCapability: runnerPreflight
+          ? {
+              runnerWritable: runnerPreflight.runnerWritable,
+              runnerLabel: runnerPreflight.runnerLabel,
+              checkedAt: runnerPreflight.checkedAt
+            }
+          : { runnerWritable: 'unknown' },
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),

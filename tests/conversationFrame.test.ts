@@ -204,6 +204,26 @@ test('access shorthand still works when no list reference is present', () => {
   assert.equal(frame.referenceResolution.value, '4');
 });
 
+test('generic game levels do not create access focus', () => {
+  const frame = buildConversationFrame('level 3 should be harder but less maze-like', [
+    { role: 'user', text: 'The maze game level 4 boss is too chaotic.' },
+    { role: 'assistant', text: 'We can make the fourth stage calmer and more readable.' }
+  ]);
+
+  assert.equal(frame.referenceResolution.kind, 'none');
+  assert.equal(frame.focusStack.some((focus) => focus.kind === 'access_level'), false);
+});
+
+test('short level references still resolve after explicit access confirmation', () => {
+  const frame = buildConversationFrame('level 5', [
+    { role: 'user', text: 'Change my access level to four please' },
+    { role: 'assistant', text: 'Done - I changed this chat to Access level 4.' }
+  ]);
+
+  assert.equal(frame.referenceResolution.kind, 'access_level');
+  assert.equal(frame.referenceResolution.value, '5');
+});
+
 test('keeps hot turns while compacting older context', () => {
   const turns: ConversationTurn[] = Array.from({ length: 20 }, (_, index) => ({
     role: 'user',

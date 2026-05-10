@@ -55,13 +55,17 @@ async function main(): Promise<void> {
     assert.equal(normalizeSparkAccessProfile('chat'), 'chat');
     assert.equal(normalizeSparkAccessProfile('chat only'), 'chat');
     assert.equal(normalizeSparkAccessProfile('mission'), 'builder');
+    assert.equal(normalizeSparkAccessProfile('build'), null);
     assert.equal(normalizeSparkAccessProfile('build when asked'), 'builder');
     assert.equal(normalizeSparkAccessProfile('github'), 'agent');
     assert.equal(normalizeSparkAccessProfile('research + build'), 'agent');
     assert.equal(normalizeSparkAccessProfile('research & build'), 'agent');
+    assert.equal(normalizeSparkAccessProfile('workspace'), null);
+    assert.equal(normalizeSparkAccessProfile('workspace access'), 'developer');
+    assert.equal(normalizeSparkAccessProfile('local workspace access'), 'developer');
     assert.equal(normalizeSparkAccessProfile('sandbox'), 'developer');
     assert.equal(normalizeSparkAccessProfile('sandboxed local access'), 'developer');
-    assert.equal(normalizeSparkAccessProfile('full'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('full'), null);
     assert.equal(normalizeSparkAccessProfile('full access'), 'operator');
     assert.equal(normalizeSparkAccessProfile('operating system'), 'operator');
     assert.equal(normalizeSparkAccessProfile('OS'), 'operator');
