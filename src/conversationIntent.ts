@@ -1588,6 +1588,7 @@ export function isLowInformationLlmReply(reply: string): boolean {
     !normalized ||
     normalized === 'working memory' ||
     normalized === 'nothing active' ||
+    normalized === 'reply-aware answer' ||
     normalized === 'no concrete guidance' ||
     normalized === 'spark researcher returned no concrete guidance for this message.' ||
     normalized === 'what would you like help with?' ||
@@ -1650,7 +1651,33 @@ export type BuilderReplySuppressionReason =
   | 'diagnostic_wall'
   | 'route_menu'
   | 'memory_acknowledgement'
+  | 'plain_chat_self_awareness_panel'
   | 'low_information';
+
+function isStructuredSelfAwarenessPanel(reply: string): boolean {
+  const normalized = reply.trim().toLowerCase();
+  if (!/^(spark|memory)\s+self-awareness\b/.test(normalized)) return false;
+  return (
+    normalized.includes('workspace:') ||
+    normalized.includes('what looks live') ||
+    normalized.includes('where i still lack') ||
+    normalized.includes('capability evidence') ||
+    normalized.includes('memory traces') ||
+    normalized.includes('memory movement')
+  );
+}
+
+function allowsStructuredSelfAwarenessRoute(routingDecision: string): boolean {
+  const normalized = routingDecision.trim().toLowerCase();
+  return (
+    /^memory(?:_|$)/i.test(normalized) ||
+    normalized.includes('self_awareness') ||
+    normalized.includes('diagnos') ||
+    normalized.includes('status') ||
+    normalized.includes('trace') ||
+    normalized.includes('capability')
+  );
+}
 
 export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
   if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
@@ -1683,6 +1710,9 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
   }
   if (isMemoryAcknowledgementReply(reply)) {
     return 'memory_acknowledgement';
+  }
+  if (isStructuredSelfAwarenessPanel(reply) && !allowsStructuredSelfAwarenessRoute(routingDecision)) {
+    return 'plain_chat_self_awareness_panel';
   }
   if (isLowInformationLlmReply(reply)) {
     return 'low_information';

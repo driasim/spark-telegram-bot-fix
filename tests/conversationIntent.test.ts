@@ -49,6 +49,7 @@ import {
   parseMissionUpdatePreferenceIntent,
   parseSpawnerBoardNaturalIntent,
   renderChatRuntimeFailureReply,
+  builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
   shouldPreferConversationalIdeation
@@ -730,6 +731,7 @@ test('detects empty or generic LLM failures', () => {
   assert.equal(isLowInformationLlmReply('Spark Researcher returned no concrete guidance for this message.'), true);
   assert.equal(isLowInformationLlmReply('What would you like help with?'), true);
   assert.equal(isLowInformationLlmReply('Nothing active'), true);
+  assert.equal(isLowInformationLlmReply('Reply-aware answer'), true);
   assert.equal(isLowInformationLlmReply('Access is not authorized for this channel. Ask the operator to review access.'), true);
   assert.equal(isLowInformationLlmReply(
     "I caught 'mission' in there.\n\nOptions:\n- Show the mission board (say 'what's running')\n- Start a new mission (say 'run <goal>' or use /run)\n\nWhich?"
@@ -742,6 +744,24 @@ test('detects empty or generic LLM failures', () => {
     "Got it - a chip for:\ncreates us cool images out of ASCII patterns\n\nTap this to scaffold it (takes 30-60s):\n/chip create creates us cool images out of ASCII patterns\n\nI hand off to the slash command so you see the scaffolder's output live and can cancel if the brief needs tweaking."
   ), true);
   assert.equal(isLowInformationLlmReply('Here is a real idea.'), false);
+});
+
+test('suppresses self-awareness status panels when Builder routes them as plain chat', () => {
+  const panel = [
+    'Spark self-awareness',
+    '',
+    'Short version: I can see the live Spark stack.',
+    '',
+    'Workspace: default',
+    'Checked: 2026-05-10T10:00:00Z',
+    '',
+    'What looks live',
+    '- Builder memory bridge is online.'
+  ].join('\n');
+
+  assert.equal(builderReplySuppressionReason(panel, 'plain_chat'), 'plain_chat_self_awareness_panel');
+  assert.equal(shouldSuppressBuilderReplyForPlainChat(panel, 'plain_chat'), true);
+  assert.equal(builderReplySuppressionReason(panel, 'self_awareness_status'), null);
 });
 
 test('suppresses memory acknowledgements for normal chat replies', () => {

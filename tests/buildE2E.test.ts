@@ -702,9 +702,12 @@ async function run(): Promise<void> {
 
 	await test('direct Telegram replies preserve the quoted target for Builder bridge', async () => {
 		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const llmModule = require('../src/llm') as typeof import('../src/llm');
 		const indexModule: any = await import('../src/index');
 		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const originalChat = llmModule.llm.chat;
 		let capturedText = '';
+		let capturedFallbackPrompt = '';
 		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, any>) => {
 			capturedText = String(updatePayload.message?.text || '');
 			return {
@@ -714,6 +717,10 @@ async function run(): Promise<void> {
 				bridgeMode: 'test',
 				routingDecision: 'plain_chat'
 			};
+		};
+		(llmModule.llm as any).chat = async (prompt: string) => {
+			capturedFallbackPrompt = prompt;
+			return 'That was the quoted Telegram message about tightening reply targeting.';
 		};
 		try {
 			const replies: string[] = [];
@@ -731,9 +738,12 @@ async function run(): Promise<void> {
 			assert.match(capturedText, /\[Telegram direct reply context\]/);
 			assert.match(capturedText, /Option 2: tighten Telegram reply targeting/);
 			assert.match(capturedText, /\[Current user message\]\s*what does this mean\?/);
-			assert.deepEqual(replies, ['Reply-aware answer']);
+			assert.match(capturedFallbackPrompt, /\[Telegram direct reply context\]/);
+			assert.match(capturedFallbackPrompt, /Option 2: tighten Telegram reply targeting/);
+			assert.deepEqual(replies, ['That was the quoted Telegram message about tightening reply targeting.']);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			(llmModule.llm as any).chat = originalChat;
 		}
 	});
 
