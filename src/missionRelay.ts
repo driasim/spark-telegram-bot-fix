@@ -268,7 +268,7 @@ export function describeTelegramRelayVerbosity(verbosity: TelegramRelayVerbosity
     case 'minimal':
       return 'Minimal sends start, completion, and failures only.';
     case 'verbose':
-      return 'Verbose sends task starts, progress notes, completions, and failures.';
+      return 'Verbose sends useful progress notes, task completions, final handoff, and failures.';
     case 'normal':
     default:
       return 'Normal sends pickup, canvas-ready, final handoff, and failures.';
@@ -1309,11 +1309,8 @@ function shouldDeliverProgressEvent(event: DeliverableRelayEvent, verbosity: Tel
   }
   return [
     'mission_started',
-    'task_started',
     'task_progress',
     'progress',
-    'provider_feedback',
-    'log',
     'task_completed',
     'mission_completed'
   ].includes(event.type);
@@ -1487,7 +1484,7 @@ function heartbeatKey(event: DeliverableRelayEvent): string {
 }
 
 function heartbeatIntervalMs(verbosity: TelegramRelayVerbosity): number {
-  if (verbosity === 'verbose') return 30_000;
+  if (verbosity === 'verbose') return 120_000;
   return 0;
 }
 

@@ -438,8 +438,8 @@ test('normal verbosity suppresses task chatter and noisy progress', () => {
   assert.equal(noisyProgress, null);
 });
 
-test('verbose task pack starts explain the batch without announcing every future step', () => {
-  const message = formatProgressMessageForTelegram(
+test('verbose suppresses task starts but still announces task completions', () => {
+  const started = formatProgressMessageForTelegram(
     {
       type: 'task_started',
       missionId: 'spark-pack',
@@ -463,10 +463,30 @@ test('verbose task pack starts explain the batch without announcing every future
     'verbose',
     'board'
   );
+  const completed = formatProgressMessageForTelegram(
+    {
+      type: 'task_completed',
+      missionId: 'spark-pack',
+      taskId: 'task-1-shell',
+      taskName: 'Create the project shell',
+      source: 'codex',
+      data: { provider: 'codex' }
+    },
+    {
+      missionId: 'spark-pack',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-build-pack',
+      goal: 'Build a sprite creator.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  );
 
-  assert.match(message || '', /Create the project shell/);
-  assert.match(message || '', /working through 4 build steps/);
-  assert.doesNotMatch(message || '', /task-2-scene/);
+  assert.equal(started, null);
+  assert.match(completed || '', /(?:Step(?: \d+)? (?:done|landed|is complete)|Finished step)/);
+  assert.match(completed || '', /Create the project shell/);
 });
 
 test('suppresses same-provider task start bursts until a task finishes', () => {
@@ -552,13 +572,11 @@ test('task start labels are human-readable instead of node slugs', () => {
       goal: 'Build a tiny board.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'normal',
+    'verbose',
     'board'
   );
 
-  assert.match(message || '', /(?:Step 2 started|Step 2 is moving|Now working on step 2|Step 2 is underway)/);
-  assert.match(message || '', /Three\.js sprite forge core/);
-  assert.doesNotMatch(message || '', /node-2/);
+  assert.equal(message, null);
 });
 
 test('task completion messages stay compact and human readable', () => {
@@ -578,7 +596,7 @@ test('task completion messages stay compact and human readable', () => {
       goal: 'Build a sprite creator.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'normal',
+    'verbose',
     'board'
   );
 
@@ -702,7 +720,7 @@ test('formats mission heartbeat as useful work narration', () => {
 
 test('normal live mission heartbeat stays quiet while verbose keeps operator pings', () => {
   assert.equal(heartbeatIntervalMsForTests('normal'), 0);
-  assert.equal(heartbeatIntervalMsForTests('verbose'), 30_000);
+  assert.equal(heartbeatIntervalMsForTests('verbose'), 120_000);
   assert.equal(heartbeatIntervalMsForTests('minimal'), 0);
 });
 
