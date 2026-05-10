@@ -265,9 +265,9 @@ export async function setTelegramMissionLinkPreference(
 export function describeTelegramRelayVerbosity(verbosity: TelegramRelayVerbosity): string {
   switch (verbosity) {
     case 'minimal':
-      return 'Minimal sends start, completion, and failures only.';
+      return 'Minimal sends pickup, final handoff, and failures only.';
     case 'verbose':
-      return 'Verbose sends pickup, canvas-ready, final handoff, failures, and a few meaningful milestone updates.';
+      return 'Verbose adds a few meaningful milestone updates, without task-start chatter.';
     case 'normal':
     default:
       return 'Normal sends pickup, canvas-ready, final handoff, and failures.';
@@ -1310,7 +1310,7 @@ export function formatProgressMessageForTelegram(
     case 'dispatch_started':
       return null;
     case 'task_started':
-      return formatTaskStartedMessage(event);
+      return null;
     case 'task_completed':
       return formatTaskCompletedMessage(event);
     case 'task_progress':
@@ -1433,12 +1433,15 @@ export function resetMissionRelayRegistryForTests(): void {
   registryLoaded = false;
 }
 
-export function claimVerboseNarrationSlotForTests(
+function claimVerboseNarrationSlot(
   event: DeliverableRelayEvent,
   chatId: string | number,
   verbosity: TelegramRelayVerbosity
 ): boolean {
   if (verbosity !== 'verbose') {
+    return true;
+  }
+  if (['mission_started', 'mission_completed', 'mission_failed', 'task_failed', 'task_cancelled'].includes(event.type)) {
     return true;
   }
   const key = `${event.missionId}:${chatId}`;
@@ -1448,6 +1451,14 @@ export function claimVerboseNarrationSlotForTests(
   }
   verboseNarrationCounts.set(key, count + 1);
   return true;
+}
+
+export function claimVerboseNarrationSlotForTests(
+  event: DeliverableRelayEvent,
+  chatId: string | number,
+  verbosity: TelegramRelayVerbosity
+): boolean {
+  return claimVerboseNarrationSlot(event, chatId, verbosity);
 }
 
 export async function sendFetchedCompletionSummaryForTests(
@@ -2105,6 +2116,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       const progressMessage = formatProgressMessageForTelegram(event, subscription, verbosity, linkPreference, payload.summary);
       if (!progressMessage) {
         writeJson(res, 202, { ok: true, ignored: 'event_type_not_delivered' });
+        return;
+      }
+      if (!claimVerboseNarrationSlot(event, chatId, verbosity)) {
+        writeJson(res, 202, { ok: true, ignored: 'verbose_narration_cap' });
         return;
       }
 

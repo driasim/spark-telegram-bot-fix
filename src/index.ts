@@ -1243,7 +1243,8 @@ function startPrdCanvasReadyNotifier(args: {
     const backendFallbackGraceMs = Math.min(60_000, Math.max(15_000, Math.round(readyTimeoutMs * 0.25)));
     const deadline = started + readyTimeoutMs + backendFallbackGraceMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
-    const heartbeatThresholds = [25_000, 75_000, 135_000];
+    const verbosity = await getTelegramRelayVerbosity(args.chatId).catch(() => 'normal' as const);
+    const heartbeatThresholds = verbosity === 'verbose' ? [120_000] : [];
     let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
