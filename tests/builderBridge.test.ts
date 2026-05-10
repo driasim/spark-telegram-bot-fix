@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   compactColdMemoryQuery,
   formatConversationColdMemoryContext,
@@ -418,6 +420,13 @@ test('formats self-awareness improvement questions conversationally instead of a
   assert.doesNotMatch(reply, /Priority actions/);
   assert.doesNotMatch(reply, /Mode: plan_only_probe_first/);
   assert.equal(reply.length < 1000, true);
+});
+
+test('agent operating context bridge uses the shared AOC panel route', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+
+  assert.match(source, /'self',\s*'panel'/);
+  assert.doesNotMatch(source, /'self',\s*'context'/);
 });
 
 test('formats self-improvement plan as probe-first actions', () => {

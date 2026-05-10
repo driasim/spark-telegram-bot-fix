@@ -1811,12 +1811,12 @@ export function formatAgentDoctrinePreferenceStatus(preferences: string[]): stri
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
   if (action === 'remember') {
-    return 'I could not confirm that through Spark memory yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run /diagnose only if you want a health check.';
   }
   if (action === 'recall') {
-    return 'I could not get a useful memory answer yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+    return 'I could not get a useful memory answer yet. Memory is degraded, so current chat should win until recall is healthy again.';
   }
-  return 'I could not inspect Spark memory yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+  return 'I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority.';
 }
 
 export function buildIdeationFallbackReply(text: string): string {

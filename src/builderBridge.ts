@@ -1338,7 +1338,7 @@ export async function runBuilderAgentOperatingContext(
 
   const args = [
     'self',
-    'context',
+    'panel',
     '--home',
     config.builderHome,
     '--human-id',
@@ -1373,7 +1373,7 @@ export async function runBuilderAgentOperatingContext(
   );
   const trimmedStdout = stdout.trim();
   if (!trimmedStdout) {
-    throw new Error(`Builder agent operating context returned empty stdout. stderr=${redactText(stderr.trim())}`);
+    throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
 }

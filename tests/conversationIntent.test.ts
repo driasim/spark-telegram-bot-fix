@@ -1281,7 +1281,8 @@ test('memory fallback does not claim a no-op save succeeded', () => {
   const reply = buildMemoryBridgeUnavailableReply('remember');
 
   assert.match(reply, /could not confirm/i);
-  assert.match(reply, /spark verify --deep/);
+  assert.match(reply, /Memory is degraded/);
+  assert.match(reply, /run \/diagnose only if you want a health check/i);
   assert.doesNotMatch(reply, /remember:/i);
   assert.doesNotMatch(reply, /got it/i);
 });

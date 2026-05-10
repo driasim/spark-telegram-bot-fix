@@ -267,6 +267,12 @@ export function renderSparkErrorReply(
   isAdmin: boolean = false
 ): string {
   const explanation = explainSparkError(error, context);
+  if (context === 'chat' && explanation.category === 'builder_or_memory') {
+    return [
+      'Memory/Builder is degraded right now, so I should stay with the visible chat instead of switching into diagnostics.',
+      'Ask me the same thing again and I will answer from the current thread. Run /diagnose only when you want a health check.'
+    ].join('\n\n');
+  }
   const lines = [
     explanation.userLine,
     `Reason: ${explanation.detail}`,

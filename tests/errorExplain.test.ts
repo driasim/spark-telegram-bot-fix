@@ -82,6 +82,19 @@ test('explains builder memory failures', () => {
   assert.match(reply, /spark verify --onboarding/);
 });
 
+test('keeps conversational builder memory failures out of diagnostic mode', () => {
+  const reply = renderSparkErrorReply(
+    new Error('Command failed: python -m spark_intelligence.cli gateway simulate-telegram-update'),
+    'chat',
+    true
+  );
+
+  assert.match(reply, /visible chat/);
+  assert.match(reply, /Run \/diagnose only when you want a health check/);
+  assert.doesNotMatch(reply, /Spark could not reach the Builder memory path/);
+  assert.doesNotMatch(reply, /spark fix telegram|spark doctor llm|upstream PR draft/);
+});
+
 test('directs provider rate limits to quota or provider switching', () => {
   const explanation = explainSparkError(new Error('HTTP 429: too many requests, quota exceeded'), 'chat');
 
