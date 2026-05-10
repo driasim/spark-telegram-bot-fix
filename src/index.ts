@@ -2775,6 +2775,16 @@ bot.command('access', async (ctx) => {
     return;
   }
 
+  if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    const runtimeGate = validateSparkAccessProfileForRuntime(next);
+    if (runtimeGate.ok) {
+      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      return;
+    }
+  }
+
   if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {
     await ctx.reply(renderSparkAccessLevel5ConfirmationPrompt(), buildSparkAccessLevel5ConfirmKeyboard());
     return;
@@ -2898,6 +2908,17 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
   if (!next) {
     await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, /access 4 sandboxed local projects, or /access 5 whole-computer operator mode.');
     return true;
+  }
+
+  const current = await getSparkAccessProfile(ctx.chat.id);
+  if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    const runtimeGate = validateSparkAccessProfileForRuntime(next);
+    if (runtimeGate.ok) {
+      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      return true;
+    }
   }
 
   if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {

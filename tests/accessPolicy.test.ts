@@ -238,6 +238,8 @@ async function main(): Promise<void> {
     assert.ok(accessCommand, 'expected /access command handler to exist');
     assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
     assert.match(accessCommand[0], /applySparkAccessProfileChange\(ctx, next\)/);
+    assert.match(accessCommand[0], /current === 'operator'/);
+    assert.match(indexSource, /renderSparkAccessBriefStatus\('operator', await probeTelegramRunnerWritability\(\)\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
     assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
     assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
@@ -252,6 +254,13 @@ async function main(): Promise<void> {
     assert.match(indexSource, /\/access 5 - Approve Level 5 setup from Telegram/);
     assert.doesNotMatch(indexSource, /\/level5_setup confirm - Prepare/);
     assert.match(indexSource, /bot\.action\(\/\^spark_access:/);
+  });
+
+  await test('normal guidance keeps level5 setup as a legacy alias only', async () => {
+    const llmSource = await readFile(path.join(__dirname, '..', 'src', 'llm.ts'), 'utf8');
+    assert.match(llmSource, /activated from \/access 5 with one Confirm button/);
+    assert.match(llmSource, /legacy\/admin alias/);
+    assert.doesNotMatch(renderSparkAccessStatus('operator'), /\/level5_setup/);
   });
 
   await test('gates Spawner command side doors by access level', async () => {
