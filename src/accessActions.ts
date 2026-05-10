@@ -67,9 +67,82 @@ export const SPARK_ACCESS_ACTIONS: Record<SparkAccessActionId, SparkAccessAction
   },
 };
 
+const ACTION_COMMANDS: Record<SparkAccessActionId, string> = {
+  workspace_setup: '/access_setup',
+  docker_doctor: '/docker_doctor',
+  docker_smoke: '/docker_smoke',
+  level5_enable: '/level5_setup',
+  level5_disable: '/level5_disable',
+};
+
+const ACTION_LABELS: Record<SparkAccessActionId, string> = {
+  workspace_setup: 'Set up safe workspace',
+  docker_doctor: 'Check Docker',
+  docker_smoke: 'Test Docker sandbox',
+  level5_enable: 'Prepare Level 5',
+  level5_disable: 'Disable Level 5',
+};
+
 export function accessActionNeedsConfirmation(actionId: SparkAccessActionId): boolean {
   const policy = SPARK_ACCESS_ACTIONS[actionId].runPolicy;
   return policy === 'confirm_once' || policy === 'explicit_opt_in';
+}
+
+export function sparkAccessActionCommandText(actionId: SparkAccessActionId): string {
+  return ACTION_COMMANDS[actionId];
+}
+
+export function sparkAccessActionLabel(actionId: SparkAccessActionId): string {
+  return ACTION_LABELS[actionId];
+}
+
+export function formatSparkAccessActionConfirmationPrompt(actionId: SparkAccessActionId): string {
+  const command = sparkAccessActionCommandText(actionId);
+  const hint = actionId === 'docker_smoke'
+    ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
+    : actionId === 'level5_enable'
+      ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
+      : 'This changes Spark access guardrail state and requires confirmation.';
+  return [hint, '', `To continue, send ${command} confirm or tap Confirm.`].join('\n');
+}
+
+export function buildSparkAccessActionKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [
+    [
+      buttonForAction('workspace_setup'),
+      buttonForAction('docker_doctor'),
+    ],
+    [
+      buttonForAction('docker_smoke'),
+    ],
+  ];
+  if (profile === 'operator') {
+    rows.push([
+      buttonForAction('level5_enable'),
+      buttonForAction('level5_disable'),
+    ]);
+  }
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+export function buildSparkAccessConfirmationKeyboard(actionId: SparkAccessActionId): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        {
+          text: `Confirm: ${sparkAccessActionLabel(actionId)}`,
+          callback_data: `spark_access:${actionId}:confirm`,
+        },
+      ]],
+    },
+  };
+}
+
+function buttonForAction(actionId: SparkAccessActionId): { text: string; callback_data: string } {
+  return {
+    text: sparkAccessActionLabel(actionId),
+    callback_data: `spark_access:${actionId}`,
+  };
 }
 
 export async function runSparkAccessAction(

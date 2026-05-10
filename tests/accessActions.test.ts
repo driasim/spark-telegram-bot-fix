@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   accessActionNeedsConfirmation,
+  buildSparkAccessActionKeyboard,
+  buildSparkAccessConfirmationKeyboard,
+  formatSparkAccessActionConfirmationPrompt,
   formatSparkAccessActionReply,
   runSparkAccessAction,
 } from '../src/accessActions';
@@ -66,5 +69,31 @@ void (async () => {
     assert.match(reply, /Docker sandbox smoke passed/);
     assert.match(reply, /without Spark secrets/);
     assert.match(reply, /Docker socket/);
+  });
+
+  await test('renders access action buttons without exposing Level 5 to Level 4 users', () => {
+    const developerKeyboard = buildSparkAccessActionKeyboard('developer').reply_markup.inline_keyboard;
+    const developerCallbacks = developerKeyboard.flat().map((button) => button.callback_data);
+
+    assert.deepEqual(developerCallbacks, [
+      'spark_access:workspace_setup',
+      'spark_access:docker_doctor',
+      'spark_access:docker_smoke',
+    ]);
+
+    const operatorKeyboard = buildSparkAccessActionKeyboard('operator').reply_markup.inline_keyboard;
+    const operatorCallbacks = operatorKeyboard.flat().map((button) => button.callback_data);
+
+    assert.ok(operatorCallbacks.includes('spark_access:level5_enable'));
+    assert.ok(operatorCallbacks.includes('spark_access:level5_disable'));
+  });
+
+  await test('renders confirm button for guarded access actions', () => {
+    const prompt = formatSparkAccessActionConfirmationPrompt('level5_enable');
+    const keyboard = buildSparkAccessConfirmationKeyboard('level5_enable').reply_markup.inline_keyboard;
+
+    assert.match(prompt, /whole-computer operator mode/);
+    assert.match(prompt, /tap Confirm/);
+    assert.equal(keyboard[0][0].callback_data, 'spark_access:level5_enable:confirm');
   });
 })();

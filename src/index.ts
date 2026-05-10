@@ -109,6 +109,9 @@ import {
 } from './accessPolicy';
 import {
   accessActionNeedsConfirmation,
+  buildSparkAccessActionKeyboard,
+  buildSparkAccessConfirmationKeyboard,
+  formatSparkAccessActionConfirmationPrompt,
   runSparkAccessAction,
   type SparkAccessActionId
 } from './accessActions';
@@ -2757,7 +2760,7 @@ bot.command('access', async (ctx) => {
       renderSparkAccessStatus(current),
       '',
       renderSparkAccessCapabilityStatus(current, runnerPreflight)
-    ].join('\n'));
+    ].join('\n'), buildSparkAccessActionKeyboard(current));
     return;
   }
 
@@ -2776,7 +2779,7 @@ bot.command('access', async (ctx) => {
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
   const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply);
+  await ctx.reply(reply, buildSparkAccessActionKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
 });
 
@@ -2793,18 +2796,11 @@ async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promis
   ].join('\n');
 }
 
-async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, confirmed: boolean): Promise<void> {
   if (!requireAdmin(ctx)) return;
 
-  const raw = String(ctx.message?.text || '');
-  const confirmed = /\bconfirm\b/i.test(raw);
   if (accessActionNeedsConfirmation(actionId) && !confirmed) {
-    const hint = actionId === 'docker_smoke'
-      ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
-      : actionId === 'level5_enable'
-        ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
-        : 'This changes Spark access guardrail state and requires confirmation.';
-    await ctx.reply([hint, '', `To continue, send ${raw.split(/\s+/)[0]} confirm`].join('\n'));
+    await ctx.reply(formatSparkAccessActionConfirmationPrompt(actionId), buildSparkAccessConfirmationKeyboard(actionId));
     return;
   }
 
@@ -2819,11 +2815,23 @@ async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessAct
   }
 }
 
+async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+  const raw = String(ctx.message?.text || '');
+  await handleSparkAccessAction(ctx, actionId, /\bconfirm\b/i.test(raw));
+}
+
 bot.command('access_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'workspace_setup'));
 bot.command('docker_doctor', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_doctor'));
 bot.command('docker_smoke', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_smoke'));
 bot.command('level5_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_enable'));
 bot.command('level5_disable', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_disable'));
+
+bot.action(/^spark_access:(workspace_setup|docker_doctor|docker_smoke|level5_enable|level5_disable)(?::(confirm))?$/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const match = String((ctx.callbackQuery as any)?.data || '').match(/^spark_access:(workspace_setup|docker_doctor|docker_smoke|level5_enable|level5_disable)(?::(confirm))?$/);
+  if (!match) return;
+  await handleSparkAccessAction(ctx, match[1] as SparkAccessActionId, match[2] === 'confirm');
+});
 
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
@@ -2843,7 +2851,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
   const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply);
+  await ctx.reply(reply, buildSparkAccessActionKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
   return true;
 }

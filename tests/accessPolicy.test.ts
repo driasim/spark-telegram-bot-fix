@@ -226,6 +226,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('docker_smoke'/);
     assert.match(indexSource, /bot\.command\('level5_setup'/);
     assert.match(indexSource, /bot\.command\('level5_disable'/);
+    assert.match(indexSource, /bot\.action\(\/\^spark_access:/);
   });
 
   await test('gates Spawner command side doors by access level', async () => {
