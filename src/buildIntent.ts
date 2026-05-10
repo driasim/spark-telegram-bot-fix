@@ -306,6 +306,13 @@ function isBuildRouteMetaDiscussion(text: string): boolean {
   if (/^(?:is|are)\s+this\s+the\s+(?:best|right|safe|secure)\s+way\s+to\s+(?:build|make|create|install|setup|set\s+up)\b/.test(normalized)) {
     return true;
   }
+  if (
+    /^(?:how\s+)?(?:should|would|could|can)\s+(?:we|you|the\s+agent|spark|[\w\s,]+)\b/.test(normalized) &&
+    /\b(?:aoc|agent\s+operating\s+context|design|access|sandbox(?:es|ed)?|workspace|docker|ssh|modal|route|hijack|deterministic)\b/.test(normalized) &&
+    /\b(?:fit\s+into|work|show|handle|cover|prevent|avoid|hijack|design)\b/.test(normalized)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -400,6 +407,7 @@ function extractBuildDescription(text: string): string | null {
     const prefix = text.slice(0, inlineCommand.index).toLowerCase();
     if (
       /\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) ||
+      /\bhow\s+(?:should|would|could|can)\b/.test(prefix) ||
       /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(prefix) ||
       /\b(?:best|right|safe|secure)\s+way\s+to\b/.test(prefix) ||
       isNegatedBuildCommandPrefix(prefix)

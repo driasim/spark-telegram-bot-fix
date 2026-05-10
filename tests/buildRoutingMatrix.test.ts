@@ -145,6 +145,10 @@ test('non-build utility requests still route away from builder', () => {
   assert.equal(parseBuildIntent('keep it simple can we make sure that access level 4 gets the access level 4'), null);
   assert.equal(parseBuildIntent('is this the best way to create a sandbox are you sure'), null);
   assert.equal(
+    parseBuildIntent('How should local workspace access, Docker build, and tests fit into the AOC design?'),
+    null
+  );
+  assert.equal(
     parseBuildIntent('And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'),
     null
   );

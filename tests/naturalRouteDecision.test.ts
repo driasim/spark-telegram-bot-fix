@@ -230,7 +230,8 @@ test('keeps route/access/sandbox design talk out of Spark self-improvement actio
     'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that',
     'how can we make sure that access level 4 does create the right setup for access level to be really 4',
     'keep it simple can we make sure that access level 4 gets the access level 4',
-    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'
+    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?',
+    'How should local workspace access, Docker build, and tests fit into the AOC design?'
   ];
 
   for (const prompt of prompts) {
