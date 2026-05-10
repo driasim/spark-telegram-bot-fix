@@ -2,6 +2,13 @@ import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 
 export type SparkAccessProfile = 'chat' | 'builder' | 'agent' | 'developer';
 export type SparkAccessRequirement = 'spawner_build' | 'external_research' | 'operating_system';
+export type SparkRunnerWritableState = 'yes' | 'no' | 'unknown';
+
+export interface SparkAccessRunnerCapability {
+  runnerWritable: SparkRunnerWritableState;
+  runnerLabel?: string;
+  failureReason?: string;
+}
 
 interface SparkAccessPreferences {
   accessByChatId?: Record<string, SparkAccessProfile>;
@@ -171,7 +178,7 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
     case 'agent':
       return 'Access level 3: Spark can inspect public links, docs, and GitHub repos when you ask. It can also use Spawner for explicit build requests, but not local folders.';
     case 'developer':
-      return 'Access level 4: Spark can use Spawner/Codex for operating-system work, local project builds, debugging, repo inspection, public research, and deeper missions. It still must not reveal secrets or run destructive actions without explicit approval.';
+      return 'Access level 4: Spark is authorized to use the local-agent route for operating-system work, local project builds, debugging, repo inspection, public research, and deeper missions. The current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
     case 'builder':
     default:
       return 'Access level 2: Spark can use Spawner only when you clearly ask it to build something or run a mission. Public web/GitHub inspection stays off until level 3 or 4.';
@@ -221,13 +228,46 @@ export function renderSparkAccessStatus(profile: SparkAccessProfile): string {
   ].join('\n');
 }
 
-export function renderSparkAccessBriefStatus(profile: SparkAccessProfile): string {
+function renderRunnerCapabilitySummary(runner?: SparkAccessRunnerCapability): string | null {
+  if (!runner) return null;
+  if (runner.runnerWritable === 'yes') {
+    return 'Current runner: writable preflight passed, so local-agent actions can run here when the access level allows them.';
+  }
+  if (runner.runnerWritable === 'no') {
+    const reason = runner.failureReason ? ` (${runner.failureReason})` : '';
+    return `Current runner: read-only${reason}. Access may allow local work, but this route cannot write from here.`;
+  }
+  return 'Current runner: writability unknown. Spark should check runner capability before promising file or OS actions.';
+}
+
+export function renderSparkAccessCapabilityStatus(profile: SparkAccessProfile, runner?: SparkAccessRunnerCapability): string {
+  const runnerSummary = renderRunnerCapabilitySummary(runner) || 'Current runner: not checked in this reply.';
+  const canDoLocalHere = profile === 'developer' && runner?.runnerWritable === 'yes';
+  const localVerdict = canDoLocalHere
+    ? 'Verdict: Level 4 authorizes local work and this runner is writable.'
+    : profile === 'developer'
+      ? 'Verdict: Level 4 authorizes local work, but actual edits/attachments need a writable runner or a routed Spawner/Codex mission.'
+      : `Verdict: ${sparkAccessLabel(profile)} does not authorize local operating-system work yet.`;
+
+  return [
+    `Configured access: ${sparkAccessLabel(profile)}.`,
+    runnerSummary,
+    localVerdict,
+    '',
+    'Important distinction: access level is permission; runner capability is what this exact process can do right now. AOC should show both before Spark claims an action is possible.'
+  ].join('\n');
+}
+
+export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner?: SparkAccessRunnerCapability): string {
+  const runnerSummary = renderRunnerCapabilitySummary(runner);
   if (profile === 'developer') {
-    return [
+    const lines = [
       `You are on ${sparkAccessLabel(profile)}.`,
-      'That means I can use Spawner/Codex for local projects, repo inspection, debugging, public research, and requested missions.',
+      'That means Spark is authorized to use the local-agent route for projects, repo inspection, debugging, public research, and requested missions.',
+      runnerSummary,
       'You can say "change my access level to 3" if you want to remove local filesystem/project access.'
-    ].join('\n\n');
+    ].filter(Boolean);
+    return lines.join('\n\n');
   }
 
   if (profile === 'agent') {
@@ -263,7 +303,9 @@ export function renderSparkAccessConversationHelp(profile: SparkAccessProfile): 
     'Level 1: chat, memory, recall, diagnostics.',
     'Level 2: requested Spawner builds.',
     'Level 3: public links/docs/GitHub research plus builds.',
-    'Level 4: local projects, files, debugging, and deeper missions.',
+    'Level 4: authorization for local projects, files, debugging, and deeper missions.',
+    '',
+    'Separate from that, the current runner must be writable. If Level 4 says allowed but the runner is read-only, Spark should say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.',
     '',
     'You can say things like "change my access level to 3" or "what can level 4 do?"'
   ].join('\n');
@@ -273,9 +315,9 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
   if (profile === 'developer') {
     return [
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
-      'For local desktop, filesystem, repo, debugging, or project-inspection requests, do not say you cannot inspect local files as a blanket limitation.',
-      'Plain chat cannot directly read the filesystem, but this chat can hand the work to Spawner/Codex for local operating-system work when the user asks.',
-      'If you are not already executing through that path, say you can use the local agent path and ask for or infer the target safely.'
+      'For local desktop, filesystem, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
+      'Access level 4 means authorized, not automatically writable in every runner.',
+      'If this runner is read-only, say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.'
     ].join('\n');
   }
 

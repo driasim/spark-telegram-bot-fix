@@ -1110,6 +1110,10 @@ export function isAccessStatusQuestion(text: string): boolean {
     return false;
   }
 
+  if (isAccessCapabilityMismatchQuestion(normalized)) {
+    return false;
+  }
+
   if (/\b(?:set|change|raise|lower|switch|update|make)\b.*\baccess\b/.test(normalized)) {
     return false;
   }
@@ -1203,14 +1207,61 @@ export function parseContextualAccessChangeIntent(text: string, recentMessages: 
   return parseNaturalAccessChangeIntent(`change access ${normalized}`);
 }
 
-export function isAccessHelpQuestion(text: string): boolean {
+export function hasRecentAccessCapabilityMismatch(recentMessages: string[]): boolean {
+  const normalized = recentMessages.slice(-8).join('\n').toLowerCase();
+  const mentionsAccess =
+    /\b(?:access\s+level|level\s*[1-4]|level\s+(?:one|two|three|four)|full\s+access|permissions?)\b/.test(normalized);
+  const mentionsRuntimeCapability =
+    /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach))\b/.test(normalized);
+  return mentionsAccess && mentionsRuntimeCapability;
+}
+
+export function isAccessCapabilityMismatchQuestion(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
     return false;
   }
 
   const mentionsAccess =
+    /\b(?:access\s+level|level\s*[1-4]|level\s+(?:one|two|three|four)|full\s+access|permissions?)\b/.test(normalized);
+  const mentionsRuntimeCapability =
+    /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach)|confined)\b/.test(normalized);
+  const namesMismatch =
+    /\b(?:how|why|when|but|mismatch|different|gap|problem|issue|doesn'?t|dont\s+get|don't\s+get|stopped|blocked)\b/.test(normalized);
+
+  return mentionsAccess && mentionsRuntimeCapability && namesMismatch;
+}
+
+export function isContextualAccessCapabilityMismatchQuestion(text: string, recentMessages: string[]): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+  if (!hasRecentAccessCapabilityMismatch(recentMessages)) {
+    return false;
+  }
+
+  return (
+    isAccessCapabilityMismatchQuestion(normalized) ||
+    /\b(?:is|was)\s+(?:this\s+)?(?:(?:an?|the)\s+)?access\s+level\s+problem\b/.test(normalized) ||
+    /\bhow\s+is\s+this\s+read[-\s]*only\b/.test(normalized) ||
+    /\bread[-\s]*only\b.*\b(?:dont\s+get|don't\s+get|why|how)\b/.test(normalized)
+  );
+}
+
+export function isAccessHelpQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+
+  if (isAccessCapabilityMismatchQuestion(normalized)) {
+    return false;
+  }
+
+  const mentionsAccess =
     /\b(?:spark\s+)?access\s+(?:level|levels|profile|profiles|tier|tiers|system)\b/.test(normalized) ||
+    /\bwhat\s+can\s+(?:access\s+)?level\s*[1-4]\s+do\b/.test(normalized) ||
     /\bpermission\s+(?:level|levels|management|surface|system)\b/.test(normalized) ||
     /\bwhat\s+can\s+i\s+(?:unlock|do)\b.*\baccess\b/.test(normalized) ||
     /\baccess\b.*\b(?:unlock|allow|permission|permissions)\b/.test(normalized);

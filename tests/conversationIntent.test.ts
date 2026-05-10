@@ -21,12 +21,15 @@ import {
   extractPlainChatMemoryDirective,
   extractSparkWikiQuery,
   formatMissionUpdatePreferenceAcknowledgement,
+  hasRecentAccessCapabilityMismatch,
   hasRecentAccessConversation,
   hasLocalOptionReference,
   inferRecentConversationFocus,
   inferDefaultBuildFromRecentScoping,
   inferMissionFromRecentContext,
   inferMissionGoalFromRecentContext,
+  isAccessCapabilityMismatchQuestion,
+  isContextualAccessCapabilityMismatchQuestion,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   builderReplySuppressionReason,
@@ -529,6 +532,36 @@ test('keeps explicit design-only project prompts in conversation', () => {
   assert.match(hint, /small starter scaffold/);
   assert.match(hint, /do not only ask the user to pick a direction/i);
   assert.match(hint, /Do not scold the user/);
+});
+
+test('keeps access and build bug reports out of deterministic route menus', () => {
+  const keywordAudit = 'words like build access and other things hijack chat instantly, can you check whether we fixed that';
+  assert.equal(isAccessStatusQuestion(keywordAudit), false);
+  assert.equal(isAccessHelpQuestion(keywordAudit), false);
+  assert.equal(parseNaturalAccessChangeIntent(keywordAudit), null);
+
+  const mismatch = 'how is this read only when we are at access level 4';
+  assert.equal(isAccessCapabilityMismatchQuestion(mismatch), true);
+  assert.equal(isAccessStatusQuestion(mismatch), false);
+  assert.equal(isAccessHelpQuestion(mismatch), false);
+  assert.equal(parseNaturalAccessChangeIntent(mismatch), null);
+
+  const report = 'when access level 4 was saying full access, the mac only had read-only access and could not do anything';
+  assert.equal(isAccessCapabilityMismatchQuestion(report), true);
+  assert.equal(parseNaturalAccessChangeIntent(report), null);
+});
+
+test('detects contextual access capability mismatch follow-ups', () => {
+  const recent = [
+    'Access: Level 4 allowed',
+    'Current runner: read-only',
+    'Writable route: required via Spawner/Codex mission'
+  ];
+
+  assert.equal(hasRecentAccessCapabilityMismatch(recent), true);
+  assert.equal(isContextualAccessCapabilityMismatchQuestion('is the access level problem?', recent), true);
+  assert.equal(isContextualAccessCapabilityMismatchQuestion('how is this read only i dont get it', recent), true);
+  assert.equal(isContextualAccessCapabilityMismatchQuestion('is the access level problem?', ['what should we build next?']), false);
 });
 
 test('keeps mission-control product refinement in conversation', () => {

@@ -92,6 +92,7 @@ import {
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
   renderSparkAccessBriefStatus,
+  renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
   renderSparkAccessConversationHelp,
   renderSparkAccessDenial,
@@ -147,6 +148,8 @@ import {
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
   inferMissionFromRecentContext,
+  isContextualAccessCapabilityMismatchQuestion,
+  isAccessCapabilityMismatchQuestion,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
@@ -2899,10 +2902,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (
+    !earlyBuildIntent &&
+    (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
+  ) {
+    await conversation.remember(user, text).catch(() => {});
+    const [accessProfile, runnerPreflight] = await Promise.all([
+      getSparkAccessProfile(ctx.chat.id),
+      probeTelegramRunnerWritability()
+    ]);
+    const reply = renderSparkAccessCapabilityStatus(accessProfile, runnerPreflight);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   if (!earlyBuildIntent && isAccessStatusQuestion(text)) {
     await conversation.remember(user, text).catch(() => {});
-    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-    const reply = renderSparkAccessBriefStatus(accessProfile);
+    const [accessProfile, runnerPreflight] = await Promise.all([
+      getSparkAccessProfile(ctx.chat.id),
+      probeTelegramRunnerWritability()
+    ]);
+    const reply = renderSparkAccessBriefStatus(accessProfile, runnerPreflight);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

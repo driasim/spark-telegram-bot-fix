@@ -8,6 +8,7 @@ import {
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
   renderSparkAccessBriefStatus,
+  renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
   renderSparkAccessConversationHelp,
   renderSparkAccessDenial,
@@ -117,8 +118,8 @@ async function main(): Promise<void> {
     assert.equal(sparkAccessLevel('developer'), 4);
     assert.equal(sparkAccessLabel('agent'), 'Access level 3');
     assert.equal(sparkAccessLabel('developer'), 'Access level 4');
-    assert.match(describeSparkAccessProfile('developer'), /must not reveal secrets/);
-    assert.match(describeSparkAccessProfile('developer'), /operating-system work/);
+    assert.match(describeSparkAccessProfile('developer'), /authorized to use the local-agent route/);
+    assert.match(describeSparkAccessProfile('developer'), /prove it is writable/);
     assert.match(describeSparkAccessProfile('agent'), /not local folders/);
     assert.match(renderSparkAccessStatus('agent'), /Spark access: Access level 3/);
     assert.match(renderSparkAccessStatus('agent'), /What each access level allows/);
@@ -143,8 +144,24 @@ async function main(): Promise<void> {
   await test('renders compact conversational access replies', () => {
     const status = renderSparkAccessBriefStatus('developer');
     assert.match(status, /You are on Access level 4/);
+    assert.match(status, /authorized to use the local-agent route/);
     assert.match(status, /change my access level to 3/);
     assert.doesNotMatch(status, /What each access level allows/);
+
+    const writableStatus = renderSparkAccessBriefStatus('developer', {
+      runnerWritable: 'yes',
+      runnerLabel: 'test runner writable'
+    });
+    assert.match(writableStatus, /Current runner: writable preflight passed/);
+
+    const mismatchStatus = renderSparkAccessCapabilityStatus('developer', {
+      runnerWritable: 'no',
+      runnerLabel: 'test runner read-only',
+      failureReason: 'EROFS'
+    });
+    assert.match(mismatchStatus, /Configured access: Access level 4/);
+    assert.match(mismatchStatus, /Current runner: read-only \(EROFS\)/);
+    assert.match(mismatchStatus, /access level is permission; runner capability/);
 
     const confirmations = [
       ['chat', 'Done - I changed this chat to Access level 1.'],
@@ -162,7 +179,8 @@ async function main(): Promise<void> {
 
     const help = renderSparkAccessConversationHelp('builder');
     assert.match(help, /currently Access level 2/);
-    assert.match(help, /Level 4: local projects/);
+    assert.match(help, /Level 4: authorization for local projects/);
+    assert.match(help, /runner is read-only/);
     assert.doesNotMatch(help, /\/access 1/);
   });
 
@@ -208,7 +226,7 @@ async function main(): Promise<void> {
 
   await test('renders runtime access hints that prevent filesystem access contradictions', () => {
     assert.match(renderSparkAccessRuntimeHint('developer'), /Current Spark access: Access level 4/);
-    assert.match(renderSparkAccessRuntimeHint('developer'), /do not say you cannot inspect local files/);
+    assert.match(renderSparkAccessRuntimeHint('developer'), /check runner writability/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /Spawner\/Codex/);
     assert.match(renderSparkAccessRuntimeHint('agent'), /Current Spark access: Access level 3/);
     assert.match(renderSparkAccessRuntimeHint('agent'), /Use \/access 4/);
