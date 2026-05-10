@@ -486,8 +486,9 @@ test('verbose suppresses task starts but still announces task completions', () =
   );
 
   assert.equal(started, null);
-  assert.match(completed || '', /(?:Step(?: \d+)? (?:done|landed|is complete)|Finished step)/);
+  assert.match(completed || '', /Milestone complete/);
   assert.match(completed || '', /Create the project shell/);
+  assert.doesNotMatch(completed || '', /\bStep\b/i);
 });
 
 test('suppresses same-provider task start bursts until a task finishes', () => {
@@ -556,7 +557,7 @@ test('allows different providers to start different tasks in parallel', () => {
   }), false);
 });
 
-test('task start labels are human-readable instead of node slugs', () => {
+test('task starts stay quiet in Telegram narration', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
@@ -603,7 +604,7 @@ test('task completion messages stay compact and avoid step language', () => {
 
   assert.match(message || '', /Milestone complete/);
   assert.match(message || '', /localStorage and saved sprites/);
-  assert.doesNotMatch(message || '', /\\bStep\\b/i);
+  assert.doesNotMatch(message || '', /\bStep\b/i);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
 });
@@ -629,13 +630,6 @@ test('verbose progress only narrates concrete movement', () => {
     'verbose',
     'board'
   );
-
-  assert.match(message || '', /(?:Checkpoint|Small update|Progress note|Good signal)/);
-  assert.match(message || '', /Wire launch sequence/);
-  assert.match(message || '', /added persisted launch state/);
-  assert.doesNotMatch(message || '', /MissionControl/);
-  assert.doesNotMatch(message || '', /spark-123/);
-  assert.doesNotMatch(message || '', /\\bStep\\b/i);
   const lowSignal = formatProgressMessageForTelegram(
     {
       type: 'progress',
@@ -655,6 +649,11 @@ test('verbose progress only narrates concrete movement', () => {
     'verbose',
     'board'
   );
+
+  assert.match(message || '', /(?:Checkpoint|Small update|Progress note|Good signal)/);
+  assert.match(message || '', /Wire launch sequence/);
+  assert.match(message || '', /added persisted launch state/);
+  assert.doesNotMatch(message || '', /\bStep\b/i);
   assert.equal(lowSignal, null);
 });
 
@@ -674,6 +673,7 @@ test('verbose narration caps intermediate updates to three per mission', () => {
   assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), false);
   assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'normal'), true);
 });
+
 test('suppresses internal skill and dispatch chatter', () => {
   const subscription = {
     missionId: 'spark-123',

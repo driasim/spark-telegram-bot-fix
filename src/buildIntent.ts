@@ -354,7 +354,9 @@ function isAmbiguousContextualBuildRequest(text: string, projectPath: string | n
 function isVoiceTuningMakeRequest(description: string): boolean {
   const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
   if (!normalized) return false;
-  return /\b(?:voice|speech|spoken|tone|persona)\b/.test(normalized);
+  if (/\b(?:voice|speech|spoken|audio|tts|talking|narration)\b/.test(normalized)) return true;
+  return /\b(?:warmer|colder|clearer|faster|slower|geekier|friendlier|calmer|louder|quieter)\b/.test(normalized) &&
+    /\b(?:tone|style|persona|delivery)\b/.test(normalized);
 }
 
 function extractBuildDescription(text: string): string | null {

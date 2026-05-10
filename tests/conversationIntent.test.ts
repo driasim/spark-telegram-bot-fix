@@ -59,6 +59,7 @@ import {
   isMemoryDoctorBridgeDetourReply,
   renderMemoryDoctorEvidenceFallback,
   selectMemoryDoctorEvidenceTurns,
+  shouldPreferMemoryDoctorEvidenceFallback,
   shouldAttachMemoryDoctorEvidence
 } from '../src/memoryDoctorBridge';
 
@@ -625,7 +626,8 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
     'run memory doctor for last request',
     'audit previous turn',
     'diagnose last answer',
-    'you went blank and lost context, what happened?'
+    'you went blank and lost context, what happened?',
+    'what should improve in your memory pathing based on that diagnosis'
   ]) {
     assert.equal(isMemoryDoctorRequest(prompt), true, `${prompt} should be recognized as a Memory Doctor request`);
     assert.equal(parseNaturalCreatorMissionIntent(prompt, context), null, `${prompt} should not plan a creator mission`);
@@ -635,6 +637,7 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
 test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
   assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
   assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('what should improve in your memory pathing based on that diagnosis'), true);
   assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
 
   const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
@@ -664,8 +667,36 @@ test('selects immediate prior turns for contextual Memory Doctor evidence', () =
   ]);
 });
 
+test('skips prior identical Memory Doctor invocations when selecting evidence', () => {
+  const turns = selectMemoryDoctorEvidenceTurns('run memory doctor for last request', [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' },
+    { role: 'user', text: 'run memory doctor for last request' },
+    { role: 'assistant', text: 'Builder acknowledged the turn.' }
+  ]);
+
+  assert.deepEqual(turns, [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Route confidence is evidence-backed route selection.' }
+  ]);
+});
+
+test('prefers a user-assistant pair when Memory Doctor evidence buffers have orphan replies', () => {
+  const turns = selectMemoryDoctorEvidenceTurns('run memory doctor for last request', [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Builder acknowledged the turn.' },
+    { role: 'assistant', text: 'Builder acknowledged the turn.' }
+  ]);
+
+  assert.deepEqual(turns, [
+    { role: 'user', text: 'what is route confidence in one sentence' },
+    { role: 'assistant', text: 'Builder acknowledged the turn.' }
+  ]);
+});
+
 test('renders local fallback for Memory Doctor tool detours', () => {
   assert.equal(isMemoryDoctorBridgeDetourReply('Both Spark MCP tools need permission to run.'), true);
+  assert.equal(isMemoryDoctorBridgeDetourReply('Still hitting the permissions gate. Approve `mcpsparkspark_reflect`.'), true);
   assert.equal(isMemoryDoctorBridgeDetourReply('I do not have visibility into what happened.'), true);
   assert.equal(isMemoryDoctorBridgeDetourReply('The previous turn was routed correctly.'), false);
 
@@ -677,6 +708,19 @@ test('renders local fallback for Memory Doctor tool detours', () => {
   assert.match(reply, /Memory Doctor/);
   assert.match(reply, /without MCP\/tool approval/);
   assert.match(reply, /detoured into MCP\/tool permission/);
+  assert.equal(
+    shouldPreferMemoryDoctorEvidenceFallback('you went blank and lost context, what happened?', [
+      { role: 'user', text: 'run memory doctor for last request' },
+      { role: 'assistant', text: 'Both Spark MCP tools need permission to run.' }
+    ]),
+    true
+  );
+  assert.equal(
+    shouldPreferMemoryDoctorEvidenceFallback('run memory doctor for last request', [
+      { role: 'assistant', text: 'Both Spark MCP tools need permission to run.' }
+    ]),
+    false
+  );
 });
 
 test('detects empty or generic LLM failures', () => {
@@ -785,6 +829,10 @@ test('extracts natural Spark self-improvement goals without stealing builds or w
   );
   assert.equal(
     extractSparkSelfImprovementGoal('Where does your memory still lack right now, and how would we improve it?'),
+    null
+  );
+  assert.equal(
+    extractSparkSelfImprovementGoal('what should improve in your memory pathing based on that diagnosis'),
     null
   );
   assert.equal(extractSparkSelfImprovementGoal('search your wiki for weak spots'), null);

@@ -2759,7 +2759,9 @@ function traceOutcomeStatusLabel(status: string): string {
 function outcomeTraceTitle(outcome: SparkWorkspaceOutcome, index: number): string {
   if (/(^|[:_])baseline$/i.test(outcome.id)) return 'baseline';
   if (index === 0) return 'latest run';
-  return 'previous round';
+  if (index === 1) return 'previous run';
+  if (index === 2) return '2 runs back';
+  return `${index} runs back`;
 }
 
 function traceTimelineDetail(item: RecursiveTraceView['timeline'][number]): string | null {
@@ -2791,7 +2793,7 @@ function dedupeOutcomeTraceItems(
 }
 
 function repeatedOutcomeTraceTitle(title: string, count: number): string {
-  if (title === 'previous round') return `${count} previous rounds`;
+  if (title === 'previous run' || title === 'previous round') return `${count} previous runs`;
   if (title === 'baseline') return `${count} baseline runs`;
   return `${count} ${title}`;
 }
@@ -2834,6 +2836,9 @@ function formatOutcomeComparison(
   const previousOutcome = previousComparableOutcome(latestOutcome, outcomes);
   if (previousOutcome && typeof previousOutcome.metricValue === 'number') {
     const previousDelta = latestOutcome.metricValue - previousOutcome.metricValue;
+    if (Math.abs(previousDelta) < 0.000001 && /flat|steady|held/i.test(latestOutcome.verdict || '')) {
+      return 'Change: unchanged from previous run.';
+    }
     if (Math.abs(previousDelta) >= 0.000001) {
       const lowerIsBetter = metricGoalPrefersLower(latestOutcome);
       const latestIsBetter = lowerIsBetter ? previousDelta < 0 : previousDelta > 0;
@@ -2963,7 +2968,7 @@ function friendlyArtifactKind(kind: string | null | undefined): string {
 
 function formatMetricLabel(value: string | null | undefined): string {
   const normalized = (value || 'metric').replace(/_/g, ' ').replace(/\s*:\s*/g, ' / ');
-  if (normalized === 'overall score') return 'current run';
+  if (normalized === 'overall score' || normalized.startsWith('overall score / ')) return 'current run';
   return normalized;
 }
 

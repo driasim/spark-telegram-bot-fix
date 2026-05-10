@@ -4,7 +4,7 @@ export interface MemoryDoctorEvidenceTurn {
 }
 
 const CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
-  /\b(?:previous|last|recent|current|turn|reply|answer|response|request|message|what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
+  /\b(?:previous|last|recent|current|turn|reply|answer|response|request|message|diagnosis|diagnostic|based\s+on\s+(?:that|this|the)|memory\s+pathing|context\s+pathing|recall\s+pathing|context\s+movement|memory\s+movement|what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
 
 function compactEvidenceText(value: string, limit = 700): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -32,9 +32,47 @@ export function selectMemoryDoctorEvidenceTurns(
   maxTurns = 2
 ): MemoryDoctorEvidenceTurn[] {
   const turns = [...recentTurns];
-  const last = turns[turns.length - 1];
-  if (last && normalizeEvidenceRole(String(last.role || 'user')) === 'user' && sameNormalizedText(String(last.text || ''), userRequest)) {
-    turns.pop();
+  while (turns.length) {
+    const last = turns[turns.length - 1];
+    const previous = turns[turns.length - 2];
+    if (last && normalizeEvidenceRole(String(last.role || 'user')) === 'user' && sameNormalizedText(String(last.text || ''), userRequest)) {
+      turns.pop();
+      continue;
+    }
+    if (
+      last &&
+      previous &&
+      normalizeEvidenceRole(String(last.role || 'assistant')) === 'assistant' &&
+      normalizeEvidenceRole(String(previous.role || 'user')) === 'user' &&
+      sameNormalizedText(String(previous.text || ''), userRequest)
+    ) {
+      turns.pop();
+      turns.pop();
+      continue;
+    }
+    break;
+  }
+  if (maxTurns <= 2) {
+    const normalizedTurns = turns
+      .map((turn) => ({
+        role: normalizeEvidenceRole(String(turn.role || 'user')),
+        text: String(turn.text || '').trim(),
+      }))
+      .filter((turn) => turn.text.length > 0);
+
+    for (let i = normalizedTurns.length - 1; i >= 0; i -= 1) {
+      const assistant = normalizedTurns[i];
+      if (assistant.role !== 'assistant') continue;
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const user = normalizedTurns[j];
+        if (user.role === 'user' && !sameNormalizedText(user.text, userRequest)) {
+          return [user, assistant];
+        }
+      }
+    }
+
+    const latest = normalizedTurns.filter((turn) => !sameNormalizedText(turn.text, userRequest));
+    return latest.slice(-Math.max(1, maxTurns));
   }
   return turns.slice(-Math.max(1, maxTurns));
 }
@@ -75,7 +113,10 @@ export function isMemoryDoctorBridgeDetourReply(reply: string): boolean {
   return (
     /\bmcp\b.*\bpermission/.test(normalized) ||
     /\bpermission\b.*\bmcp\b/.test(normalized) ||
+    /\bpermissions?\s+gate\b/.test(normalized) ||
     /\bapprove\b.*\btool/.test(normalized) ||
+    /\bapprove\b.*\bmcp/.test(normalized) ||
+    /\bmcpspark/.test(normalized) ||
     /\btool prompt\b/.test(normalized) ||
     /\brun\s+\/diagnose\b/.test(normalized) ||
     /\bi do(?:n't| not) have visibility\b/.test(normalized) ||
@@ -127,4 +168,27 @@ export function renderMemoryDoctorEvidenceFallback(
 
   lines.push('', 'Diagnosis:', diagnosis);
   return lines.join('\n');
+}
+
+export function shouldPreferMemoryDoctorEvidenceFallback(
+  userRequest: string,
+  recentTurns: MemoryDoctorEvidenceTurn[]
+): boolean {
+  const normalizedRequest = userRequest.replace(/\s+/g, ' ').trim().toLowerCase();
+  const asksAboutBlankness =
+    /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+happened)\b/.test(normalizedRequest);
+  if (!asksAboutBlankness) {
+    return false;
+  }
+
+  const assistantText = [...recentTurns]
+    .reverse()
+    .find((turn) => normalizeEvidenceRole(String(turn.role || 'user')) === 'assistant')
+    ?.text || '';
+  const normalizedAssistant = assistantText.replace(/\s+/g, ' ').trim().toLowerCase();
+  return (
+    isMemoryDoctorBridgeDetourReply(assistantText) ||
+    /\bcreator\b|\bmission\b|\bplanning\b/.test(normalizedAssistant) ||
+    /\bi do(?:n['’]?t| not) have visibility|\bcan(?:not|'t) verify|\bpaste\b/.test(normalizedAssistant)
+  );
 }

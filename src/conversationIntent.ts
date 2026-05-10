@@ -163,6 +163,9 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (!normalized || parseBuildIntent(normalized)) {
     return null;
   }
+  if (isMemoryDoctorRequest(normalized)) {
+    return null;
+  }
   if (isVoiceOnboardingSetupQuestion(normalized)) {
     return null;
   }
@@ -402,7 +405,15 @@ export function isMemoryDoctorRequest(text: string): boolean {
     /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+did\s+i\s+just\s+tell\s+you)\b/.test(normalized);
   const asksForDiagnosis =
     /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/.test(normalized);
-  return namesMemoryFailure && asksForDiagnosis;
+  if (namesMemoryFailure && asksForDiagnosis) {
+    return true;
+  }
+
+  const asksForMemoryDoctorImprovement =
+    /\b(?:what|how|where|which)\b.*\b(?:improve|fix|repair|tighten|change|better|strengthen)\b/.test(normalized) &&
+    /\b(?:memory|context|recall|pathing|diagnos|doctor|audit)\b/.test(normalized) &&
+    /\b(?:based\s+on\s+(?:that|this|the)\s+(?:diagnosis|diagnostic|audit|doctor\s+report)|that\s+diagnosis|this\s+diagnosis|memory\s+pathing|context\s+pathing|recall\s+pathing|context\s+movement|memory\s+movement)\b/.test(normalized);
+  return asksForMemoryDoctorImprovement;
 }
 
 export interface NaturalCreatorMissionIntent {
@@ -1283,12 +1294,12 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
 }
 
 function isLikelyVoiceOrPersonaTuningRequest(normalized: string): boolean {
-  if (/\b(?:voice|speech|spoken|talk|tone|persona)\b/.test(normalized)) return true;
+  if (/\b(?:voice|speech|spoken|talk|tone|persona|personality|delivery|narration|tts)\b/.test(normalized)) return true;
   const shortAmbiguousPronounTweak =
     /^(?:make\s+(?:it|this|that)\b|a\s+little\b|little\b)/.test(normalized) &&
     normalized.split(/\s+/).length <= 8;
   if (!shortAmbiguousPronounTweak) return false;
-  return /\b(?:warmer|colder|clearer|softer|friendlier|geekier|geeky|faster|slower|louder|quieter|casual|formal)\b/.test(normalized);
+  return /\b(?:warmer|colder|clearer|softer|friendlier|geekier|geeky|faster|slower|louder|quieter|casual|formal|calmer)\b/.test(normalized);
 }
 
 export function buildProjectImprovementGoal(
@@ -1470,12 +1481,19 @@ export function buildIdeationSystemHint(text: string): string {
   return [
     modeLine,
     'Do not start a build, canvas, mission, or PRD yet.',
+    /\b(?:do\s+not|don'?t|not)\s+build\s+yet\b/i.test(text)
+      ? 'The user explicitly asked not to build yet. Acknowledge that boundary, then still be useful: give a small starter scaffold before asking a clarifying question.'
+      : '',
+    /\b(?:design|shape|plan|think\s+through|map)\b/i.test(text) && /\b(?:project|app|tool|workspace|kanban|canvas)\b/i.test(text)
+      ? 'For design-only project prompts, do not only ask the user to pick a direction. Provide a tentative v1 structure, likely surfaces or workflows, and one focused question to refine it.'
+      : '',
+    'Do not scold the user, say you already asked, or imply the conversation is blocked. If context is unresolved, offer a provisional interpretation and ask one question.',
     existingSpawnerSurface
       ? 'Do not suggest building a standalone Kanban app or ask whether this should be standalone. Frame suggestions as changes to existing spawner-ui routes, state, and relay behavior.'
       : '',
     'If the user later says yes, create it, run it, spin it up, or kick it off, the Telegram gateway can start the mission. Do not claim you started it during ideation.',
     'If the user refers to no.1, no2, option 2, the second one, or a similar local list reference, resolve it against the most recent list in the conversation before using older memory. If the list is missing, ask one clarifying question instead of guessing.',
-    'Reply like a collaborative product partner: propose 2-4 directions, ask one or two useful questions, and offer a next step.',
+    'Reply like a collaborative product partner: propose 2-4 directions, ask one useful question, and offer a next step.',
     'Keep it concise and natural for Telegram.'
   ].filter(Boolean).join('\n');
 }
@@ -1706,10 +1724,14 @@ export function isGlobalAgentDoctrineRequest(text: string): boolean {
   ) && /\b(?:style|tone|personality|persona|conversation|conversational|natural language|nlp|context|understand|understanding|interpret|routing|route|reply|response|talk|speak|doctrine|rule|preference|ask|clarify|clarifying|confirmation|missions?|tools?|start)\b/.test(normalized);
 }
 
-export function formatGlobalAgentDoctrineRequestReply(): string {
+export function formatGlobalAgentDoctrineRequestReply(text = ''): string {
+  const localPrinciple = /\b(?:context|workflow|understand|understanding|conversational|conversation|natural language|nlp|routing|route)\b/i.test(text)
+    ? 'For this conversation, I can still apply the local version: I will use the current thread, active workflow, and uncertainty signals before choosing a route, and I will ask when context is ambiguous.'
+    : 'For this conversation, I can still follow the principle: I will ask before launching missions when the target or route is ambiguous.';
+
   return [
     'That is a global Spark behavior change, so I should not silently apply it from one chat.',
-    'The right move is an explicit doctrine proposal with scope, affected agents, tests, and rollback. For this conversation, I can still follow the principle: I will ask before launching missions when the target or route is ambiguous.'
+    `The right move is an explicit doctrine proposal with scope, affected agents, tests, and rollback. ${localPrinciple}`
   ].join('\n\n');
 }
 

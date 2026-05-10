@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { existsSync } from 'node:fs';
 import type { Telegraf } from 'telegraf';
 import { conversation } from './conversation';
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
@@ -8,6 +9,7 @@ import { recordShippedProjectFromMission } from './shippedProjectContext';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
 
 const MISSION_LESSON_APPROVAL_PATH = resolveStatePath('.spark-mission-lesson-approvals.json');
+let relayRuntimeStatus: MissionRelayRuntimeStatus = {};
 
 type RelayEventType =
   | 'mission_created'
@@ -41,6 +43,20 @@ export interface MissionSubscription {
 
 export type TelegramRelayVerbosity = 'minimal' | 'normal' | 'verbose';
 export type TelegramMissionLinkPreference = 'none' | 'board' | 'canvas' | 'both';
+export type MissionRelayTelegramPollingState = 'starting' | 'active' | 'disabled';
+
+export interface MissionRelayRuntimeStatus {
+  telegramPolling?: MissionRelayTelegramPollingState;
+  pollingStartedAt?: string | null;
+}
+
+export interface MissionRelayHealthPayload extends Record<string, unknown> {
+  ok: boolean;
+  service: 'spark-telegram-bot';
+  relay: ReturnType<typeof getTelegramRelayIdentity>;
+  pid: number;
+  runtime: MissionRelayRuntimeStatus;
+}
 
 interface TelegramRelayPreferences {
   relayVerbosityByChatId?: Record<string, TelegramRelayVerbosity>;
@@ -102,9 +118,6 @@ const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
 const VERBOSE_NARRATION_LIMIT = 3;
 const verboseNarrationCounts = new Map<string, number>();
-const COMPLETION_RECOVERY_SWEEP_MS = 60_000;
-const COMPLETION_RECOVERY_MAX_AGE_MS = 24 * 60 * 60_000;
-let completionRecoveryTimer: ReturnType<typeof setInterval> | null = null;
 
 interface CompletionDeliveryCacheState {
   missionIds?: string[];
@@ -296,6 +309,7 @@ async function loadRegistry(): Promise<void> {
   registryLoaded = true;
 
   for (const path of [registryPath(), legacyRegistryPath()]) {
+    if (!existsSync(path)) continue;
     try {
       const entries = await readJsonFile<MissionSubscription[]>(path);
       if (!entries) {
@@ -663,7 +677,7 @@ async function fetchMissionCompletionSummary(
         const projectLineage = asRecord(payload.projectLineage);
         const projectPath = firstString(projectLineage, ['projectPath', 'project_path']);
         const previewUrl = firstString(projectLineage, ['previewUrl', 'preview_url']);
-        const openLink = await readyProjectOpenLink(previewUrl, projectPath);
+        const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
         const providerLabel = completedProvider && typeof completedProvider.providerId === 'string'
           ? completedProvider.providerId
           : 'provider';
@@ -823,9 +837,9 @@ const VOICE_LINES = {
   ],
   completed: [
     '✨ Spark shipped it.',
-    '✨ Spark finished the run.',
-    '✨ Spark has the result ready.',
-    '✨ Spark wrapped this one.'
+    '✨ Spark has the build ready.',
+    '✨ Spark finished the build.',
+    '✨ Spark shipped something you can open.'
   ],
   failed: [
     'This run needs attention.',
@@ -883,7 +897,7 @@ function looksLikeInternalProgress(message: string): boolean {
 }
 
 function looksLikeMeaningfulProgress(message: string): boolean {
-  return /\b(?:added|built|created|implemented|wired|rendered|verified|validated|passed|fixed|resolved|updated|wrote|polished|tightened|preserved|completed|finished|shipped|ready|blocked|failed|found|missing|error)\b/i.test(message);
+  return /\b(?:added|built|created|implemented|wired|rendered|reviewed|reviewing|verified|validated|passed|fixed|resolved|updated|wrote|writing|polished|tightened|preserved|completed|finished|shipped|ready|blocked|failed|found|missing|error)\b/i.test(message);
 }
 
 function usefulProgressSummary(message: string, taskLabel: string): string | null {
@@ -988,15 +1002,6 @@ function projectOpenLink(projectPath: string | null): string | null {
   return projectPreviewLink(projectPath) || localIndexLink(projectPath);
 }
 
-async function readyProjectOpenLink(previewUrl: string | null, projectPath: string | null): Promise<string | null> {
-  const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
-  if (!openLink) return null;
-  if (/^https?:\/\//i.test(openLink)) {
-    return await httpPreviewIsReachable(openLink) ? openLink : null;
-  }
-  return openLink;
-}
-
 function relayStringField(data: Record<string, unknown> | undefined, field: string): string | null {
   if (!data || typeof data[field] !== 'string') return null;
   const value = data[field].trim();
@@ -1031,7 +1036,12 @@ async function httpPreviewIsReachable(url: string): Promise<boolean> {
 
 async function readyProjectOpenLinkFromEvent(event: DeliverableRelayEvent): Promise<string | null> {
   const projectPath = projectPathFromEvent(event);
-  return readyProjectOpenLink(previewLinkFromEvent(event), projectPath);
+  const openLink = normalizePreviewLink(previewLinkFromEvent(event), projectPath) || projectOpenLink(projectPath);
+  if (!openLink) return null;
+  if (/^https?:\/\//i.test(openLink)) {
+    return await httpPreviewIsReachable(openLink) ? openLink : null;
+  }
+  return openLink;
 }
 
 function openProjectLines(openLink: string | null): string[] {
@@ -1507,13 +1517,6 @@ export async function sendFetchedCompletionSummaryForTests(
   return sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
 }
 
-export function resolveReadyProjectOpenLinkForTests(
-  previewUrl: string | null,
-  projectPath: string | null
-): Promise<string | null> {
-  return readyProjectOpenLink(previewUrl, projectPath);
-}
-
 function heartbeatKey(event: DeliverableRelayEvent): string {
   return event.missionId;
 }
@@ -1681,67 +1684,6 @@ function clearHeartbeatForMission(missionId: string): void {
       heartbeatLastMessages.delete(key);
     }
   }
-}
-
-function isRecentRecoverableSubscription(subscription: MissionSubscription, now = Date.now()): boolean {
-  const createdAt = Date.parse(subscription.createdAt || '');
-  if (!Number.isFinite(createdAt)) return true;
-  return now - createdAt <= COMPLETION_RECOVERY_MAX_AGE_MS;
-}
-
-async function recoverCompletedMissionHandoffs(bot: Telegraf, reason: string): Promise<void> {
-  await refreshRegistry();
-  await loadCompletionDeliveryCache();
-
-  const subscriptions = Array.from(registry.values())
-    .filter(subscriptionBelongsToThisRelay)
-    .filter((subscription) => isRecentRecoverableSubscription(subscription))
-    .filter((subscription) => !completionDeliveryCache.has(subscription.missionId));
-
-  if (subscriptions.length === 0) return;
-  console.log(`[MissionRelay] Recovery sweep (${reason}) for ${getRelayProfile()}@${getRelayPort()}: ${subscriptions.length} subscription(s).`);
-
-  for (const subscription of subscriptions) {
-    if (completionDeliveryCache.has(subscription.missionId) || shouldSuppressMissionHandoff(subscription.missionId)) {
-      continue;
-    }
-    const completion = await fetchMissionCompletionSummary(subscription.missionId, { attempts: 1, delayMs: 250 });
-    if (!completion) {
-      continue;
-    }
-    console.log(`[MissionRelay] Recovering completed mission ${subscription.missionId} for ${getRelayProfile()}@${getRelayPort()}.`);
-    await sendFetchedCompletionSummary(
-      bot,
-      Number(subscription.chatId),
-      subscription,
-      {
-        type: 'mission_completed',
-        missionId: subscription.missionId,
-        data: {
-          chatId: subscription.chatId,
-          userId: subscription.userId,
-          requestId: subscription.requestId,
-          goal: subscription.goal,
-          telegramRelay: getTelegramRelayIdentity()
-        }
-      },
-      await getTelegramRelayVerbosity(subscription.chatId),
-      completion
-    );
-  }
-}
-
-function startCompletionRecoverySweeps(bot: Telegraf): void {
-  if (completionRecoveryTimer) return;
-  void recoverCompletedMissionHandoffs(bot, 'startup').catch((error) => {
-    console.warn('[MissionRelay] Completion recovery sweep failed:', error);
-  });
-  completionRecoveryTimer = setInterval(() => {
-    void recoverCompletedMissionHandoffs(bot, 'interval').catch((error) => {
-      console.warn('[MissionRelay] Completion recovery sweep failed:', error);
-    });
-  }, COMPLETION_RECOVERY_SWEEP_MS);
-  completionRecoveryTimer.unref?.();
 }
 
 async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise<void> {
@@ -2016,17 +1958,23 @@ export function relayEventMatchesSubscription(
   return identity.chatId === subscription.chatId && identity.userId === subscription.userId;
 }
 
-export interface MissionRelayRuntimeStatus {
-  telegramPolling?: 'active' | 'starting' | 'disabled_smoke';
-  pollingActive?: boolean;
-  pollingStartedAt?: string | null;
+export function setMissionRelayRuntimeStatus(status: MissionRelayRuntimeStatus): void {
+  relayRuntimeStatus = { ...status };
 }
 
-export interface MissionRelayOptions {
-  getRuntimeStatus?: () => MissionRelayRuntimeStatus;
+export function missionRelayHealthPayload(): MissionRelayHealthPayload {
+  const polling = relayRuntimeStatus.telegramPolling;
+  const ready = polling !== 'starting';
+  return {
+    ok: ready,
+    service: 'spark-telegram-bot',
+    relay: getTelegramRelayIdentity(),
+    pid: process.pid,
+    runtime: relayRuntimeStatus
+  };
 }
 
-export async function startMissionRelay(bot: Telegraf, options: MissionRelayOptions = {}): Promise<{ port: number }> {
+export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }> {
   await loadRegistry();
   await loadCompletionDeliveryCache();
 
@@ -2038,13 +1986,8 @@ export async function startMissionRelay(bot: Telegraf, options: MissionRelayOpti
 
 	relayServer = createServer(async (req, res) => {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
-      writeJson(res, 200, {
-        ok: true,
-        service: 'spark-telegram-bot',
-        relay: getTelegramRelayIdentity(),
-        pid: process.pid,
-        runtime: options.getRuntimeStatus?.()
-      });
+      const payload = missionRelayHealthPayload();
+      writeJson(res, payload.ok ? 200 : 503, payload);
       return;
     }
 
@@ -2261,8 +2204,6 @@ export async function startMissionRelay(bot: Telegraf, options: MissionRelayOpti
       resolve();
     });
   });
-
-  startCompletionRecoverySweeps(bot);
 
   return { port };
 }
