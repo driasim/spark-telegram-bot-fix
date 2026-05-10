@@ -141,6 +141,7 @@ import {
   startMissionRelay
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
+import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './authorityStatus';
 import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
 import { parseBuildIntent } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
@@ -1076,12 +1077,24 @@ async function handleCapabilityGardenCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleAuthorityStatusCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readAuthorityStatusSummary();
+    await ctx.reply(renderAuthorityStatusSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('probe', handleAgentRouteProbeCommand);
 bot.command('route_probe', handleAgentRouteProbeCommand);
 bot.command('nl_route', handleNaturalRouteProbeCommand);
 bot.command('natural_route', handleNaturalRouteProbeCommand);
 bot.command('ledger', handleCapabilityLedgerReviewCommand);
 bot.command('capabilities', handleCapabilityGardenCommand);
+bot.command('authority', handleAuthorityStatusCommand);
 
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;

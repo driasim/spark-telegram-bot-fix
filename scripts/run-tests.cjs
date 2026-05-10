@@ -23,6 +23,7 @@ const tests = [
   'tests/conversationMemory.test.ts',
   'tests/commandTelemetry.test.ts',
   'tests/accessPolicy.test.ts',
+  'tests/authorityStatus.test.ts',
   'tests/operatorActions.test.ts',
   'tests/providerRouting.test.ts',
   'tests/modelSwitch.test.ts',
