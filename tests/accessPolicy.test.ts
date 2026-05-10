@@ -185,7 +185,8 @@ async function main(): Promise<void> {
     });
     assert.match(mismatchStatus, /Configured access: Access level 4/);
     assert.match(mismatchStatus, /Current runner: read-only \(EROFS\)/);
-    assert.match(mismatchStatus, /access level is permission; runner capability/);
+    assert.doesNotMatch(mismatchStatus, /Important distinction/);
+    assert.doesNotMatch(mismatchStatus, /AOC should show/);
 
     const operatorStatus = renderSparkAccessBriefStatus('operator', { runnerWritable: 'yes' });
     assert.match(operatorStatus, /You are on Access level 5/);
@@ -222,6 +223,8 @@ async function main(): Promise<void> {
     assert.match(help, /Level 5: whole-computer operator mode/);
     assert.match(help, /runner is read-only/);
     assert.doesNotMatch(help, /\/access 1/);
+    assert.doesNotMatch(renderSparkAccessLevelGuide(), /\/level5_setup/);
+    assert.match(renderSparkAccessLevelGuide(), /\/access 5/);
 
     const level5Prompt = renderSparkAccessLevel5ConfirmationPrompt();
     assert.match(level5Prompt, /trusted local machine/);
@@ -385,15 +388,18 @@ async function main(): Promise<void> {
     });
     assert.equal(partialOperatorDenied.ok, false);
     if (!partialOperatorDenied.ok) {
-      assert.match(partialOperatorDenied.message, /\/level5_setup confirm/);
-      assert.match(partialOperatorDenied.message, /Restart Spark/);
+      assert.match(partialOperatorDenied.message, /\/access 5/);
+      assert.match(partialOperatorDenied.message, /Tap Confirm/);
+      assert.match(partialOperatorDenied.message, /restart itself if needed/);
+      assert.doesNotMatch(partialOperatorDenied.message, /\/level5_setup/);
     }
 
     const operatorDenied = validateSparkAccessProfileForRuntime('operator', {});
     assert.equal(operatorDenied.ok, false);
     if (!operatorDenied.ok) {
-      assert.match(operatorDenied.message, /Access level 5 is whole-computer operator mode/);
-      assert.match(operatorDenied.message, /\/level5_setup confirm/);
+      assert.match(operatorDenied.message, /Access level 5 needs one clear confirmation/);
+      assert.match(operatorDenied.message, /\/access 5/);
+      assert.doesNotMatch(operatorDenied.message, /\/level5_setup/);
     }
 
     const denied = validateSparkAccessProfileForRuntime('developer', { SPARK_SPAWNER_HOST: '0.0.0.0' });

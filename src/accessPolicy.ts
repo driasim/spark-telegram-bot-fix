@@ -168,12 +168,12 @@ export function validateSparkAccessProfileForRuntime(
     return {
       ok: false,
       message: [
-        'Access level 5 is whole-computer operator mode, but this runtime is not running with Level 5 guardrails yet.',
+        'Access level 5 needs one clear confirmation before Spark uses whole-computer operator mode.',
         '',
         'Safe path:',
-        '1. Send `/level5_setup confirm` from this trusted local Telegram admin chat.',
-        '2. Restart Spark so Telegram and Spawner load the new guardrails.',
-        '3. Send `/access 5` again.',
+        '1. Send `/access 5` from this trusted local Telegram admin chat.',
+        '2. Tap Confirm.',
+        '3. Spark will prepare the guardrails and restart itself if needed.',
         '',
         'Until then, use `/access 4` for sandboxed local work inside the Spark workspace.'
       ].join('\n')
@@ -315,9 +315,7 @@ export function renderSparkAccessCapabilityStatus(profile: SparkAccessProfile, r
   return [
     `Configured access: ${sparkAccessLabel(profile)}.`,
     runnerSummary,
-    localVerdict,
-    '',
-    'Important distinction: access level is permission; runner capability is what this exact process can do right now. AOC should show both before Spark claims an action is possible.'
+    localVerdict
   ].join('\n');
 }
 
@@ -490,7 +488,7 @@ export function renderSparkAccessLevelGuide(): string {
     '',
     '5. Whole-computer operator mode',
     '- Spark can work outside Spark sandboxes on trusted local installs when high-agency guardrails are enabled.',
-    '- Guardrail setup from Telegram: `/level5_setup confirm`, then restart Spark.',
+    '- Setup from Telegram: send `/access 5` and tap Confirm. Spark will restart itself if needed.',
     '- Use this rarely, for explicit operator tasks that truly need broader filesystem access.',
     '- Spark still must not reveal secrets or run destructive actions without clear approval.'
   ].join('\n');
