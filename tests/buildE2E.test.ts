@@ -664,6 +664,8 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
 		assert.match(reply, /Canvas: http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+		assert.match(reply, /Next update: I will message when the build is ready\./);
+		assert.doesNotMatch(reply, /step starts or finishes/);
 	});
 
 	await test('clarification replies are natural and project-specific', async () => {

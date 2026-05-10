@@ -400,7 +400,7 @@ test('verbose mission start does not paste the whole build brief', () => {
   assert.doesNotMatch(message || '', /Target operating-system folder/);
 });
 
-test('normal verbosity announces task starts but suppresses noisy progress', () => {
+test('normal verbosity suppresses task chatter and noisy progress', () => {
   const subscription = {
     missionId: 'spark-123',
     chatId: '8319079055',
@@ -434,12 +434,11 @@ test('normal verbosity announces task starts but suppresses noisy progress', () 
     'board'
   );
 
-  assert.match(started || '', /(?:Step(?: \d+)? (?:started|is moving|is underway)|Now working on step)/);
-  assert.match(started || '', /Create static shell/);
+  assert.equal(started, null);
   assert.equal(noisyProgress, null);
 });
 
-test('task pack starts explain the batch without announcing every future step', () => {
+test('verbose task pack starts explain the batch without announcing every future step', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
@@ -461,7 +460,7 @@ test('task pack starts explain the batch without announcing every future step', 
       goal: 'Build a sprite creator.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'normal',
+    'verbose',
     'board'
   );
 
@@ -701,8 +700,8 @@ test('formats mission heartbeat as useful work narration', () => {
   assert.doesNotMatch(message, /Mission: spark-123/);
 });
 
-test('normal live mission heartbeat starts before medium runs feel silent', () => {
-  assert.equal(heartbeatIntervalMsForTests('normal'), 45_000);
+test('normal live mission heartbeat stays quiet while verbose keeps operator pings', () => {
+  assert.equal(heartbeatIntervalMsForTests('normal'), 0);
   assert.equal(heartbeatIntervalMsForTests('verbose'), 30_000);
   assert.equal(heartbeatIntervalMsForTests('minimal'), 0);
 });

@@ -1421,6 +1421,7 @@ function startPrdCanvasReadyNotifier(args: {
   void (async () => {
     const started = Date.now();
     const readyTimeoutMs = localServiceTimeoutMs('SPARK_SPAWNER_PRD_READY_TIMEOUT_MS');
+    const verbosity = await getTelegramRelayVerbosity(args.chatId);
     const deadline = started + readyTimeoutMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
     const heartbeatThresholds = [25_000, 75_000, 135_000];
@@ -1432,7 +1433,7 @@ function startPrdCanvasReadyNotifier(args: {
       }
       try {
         const elapsedMs = Date.now() - started;
-        if (heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
+        if (verbosity === 'verbose' && heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
           const elapsedSec = Math.round(elapsedMs / 1000);
           await bot.telegram.sendMessage(
             args.chatId,
@@ -2167,7 +2168,7 @@ export function formatCanvasReadySummary(args: {
       lines.push(`+${tasks.length - taskTitles.length} more`);
     }
   }
-  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', "I'll post progress here when a step starts or finishes.");
+  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'Next update: I will message when the build is ready.');
   return lines.join('\n');
 }
 
@@ -3325,12 +3326,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
         await conversation.remember(user, text).catch(() => {});
-        await ctx.reply([
-          `Got it. I will improve ${latestShippedProject.projectName}.`,
-          '',
-          'I will keep the existing project intact and ship this as the next polish pass.',
-          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
-        ].filter(Boolean).join('\n'));
         await handleBuildIntent(
           ctx,
           improvementGoal,
@@ -3452,12 +3447,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       if (improvementGoal && latestShippedProject) {
         await conversation.remember(user, text).catch(() => {});
         recordNaturalRouteExecution(ctx, naturalRouteShadow, 'project.iteration', 'spawner-ui', 'project.iteration');
-        await ctx.reply([
-          `Got it. I will improve ${latestShippedProject.projectName}.`,
-          '',
-          'I will keep the existing project intact and ship this as the next polish pass.',
-          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
-        ].filter(Boolean).join('\n'));
         await handleBuildIntent(
           ctx,
           improvementGoal,
