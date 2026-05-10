@@ -171,8 +171,8 @@ export function validateSparkAccessProfileForRuntime(
         'Access level 5 is whole-computer operator mode, but this runtime is not running with Level 5 guardrails yet.',
         '',
         'Safe path:',
-        '1. Run `spark access setup --level 5 --enable-high-agency` on this trusted local install.',
-        '2. Run `spark restart` so Telegram and Spawner load the new guardrails.',
+        '1. Send `/level5_setup confirm` from this trusted local Telegram admin chat.',
+        '2. Restart Spark so Telegram and Spawner load the new guardrails.',
         '3. Send `/access 5` again.',
         '',
         'Until then, use `/access 4` for sandboxed local work inside the Spark workspace.'
@@ -232,7 +232,7 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
     case 'agent':
       return 'Access level 3: Spark can inspect public links, docs, and GitHub repos when you ask. It can also use Spawner for explicit build requests, but not local folders.';
     case 'developer':
-      return 'Access level 4: Spark is authorized for sandboxed local work inside approved Spark workspaces. `spark access setup` prepares that workspace; the current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
+      return 'Access level 4: Spark is authorized for sandboxed local work inside approved Spark workspaces. `/access_setup` prepares that workspace from Telegram; the current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
     case 'operator':
       return 'Access level 5: Spark is authorized for whole-computer operator work on a trusted local install. This requires high-agency worker guardrails, runner writability, and extra care around secrets, destructive actions, and files outside Spark sandboxes.';
     case 'builder':
@@ -327,7 +327,7 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
     const lines = [
       `You are on ${sparkAccessLabel(profile)}.`,
       'That means Spark is authorized to work inside approved Spark sandboxes and local workspaces, plus repo inspection, debugging, public research, and requested missions.',
-      'If the workspace is not ready yet, the safe setup path is `spark access setup`.',
+      'If the workspace is not ready yet, send `/access_setup` and Spark will prepare it from Telegram.',
       runnerSummary,
       'You can say "change my access level to 3" if you want to remove sandboxed local filesystem/project access, or `/access 5` for rare whole-computer operator mode.'
     ].filter(Boolean);
@@ -392,7 +392,7 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
       'For sandboxed local workspace, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
       'Access level 4 means authorized inside approved Spark sandboxes, not automatically writable in every runner.',
-      'If the Level 4 workspace is missing, use `spark access setup` instead of dumping Docker, SSH, or filesystem commands into chat.',
+      'If the Level 4 workspace is missing, use `/access_setup` instead of dumping Docker, SSH, or filesystem commands into chat.',
       'If this runner is read-only, say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.'
     ].join('\n');
   }
@@ -447,12 +447,13 @@ export function renderSparkAccessLevelGuide(): string {
     '',
     '4. Workspace sandbox (recommended for local builders)',
     '- Spark can help with projects, debugging, files, and deeper build missions inside approved Spark workspaces.',
-    '- Safe setup command: `spark access setup`.',
+    '- Safe setup from Telegram: `/access_setup`.',
     '- Good when you want Spark to feel like a real local agent without handing it the whole computer.',
     '- Spark still must not reveal secrets or run destructive actions without clear approval.',
     '',
     '5. Whole-computer operator mode',
     '- Spark can work outside Spark sandboxes on trusted local installs when high-agency guardrails are enabled.',
+    '- Guardrail setup from Telegram: `/level5_setup confirm`, then restart Spark.',
     '- Use this rarely, for explicit operator tasks that truly need broader filesystem access.',
     '- Spark still must not reveal secrets or run destructive actions without clear approval.'
   ].join('\n');

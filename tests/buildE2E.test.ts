@@ -224,7 +224,7 @@ async function run(): Promise<void> {
 
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'read-only local build should not POST to PRD bridge');
 		assert.match(replies.join('\n'), /current Telegram runner is read-only/);
-		assert.match(replies.join('\n'), /spark access setup/);
+		assert.match(replies.join('\n'), /\/access_setup/);
 
 		rmSync(tempRoot, { force: true, recursive: true });
 		restoreAxios();

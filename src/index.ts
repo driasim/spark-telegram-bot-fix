@@ -108,6 +108,11 @@ import {
   type SparkAccessRequirement
 } from './accessPolicy';
 import {
+  accessActionNeedsConfirmation,
+  runSparkAccessAction,
+  type SparkAccessActionId
+} from './accessActions';
+import {
   describeTelegramMissionLinkPreference,
   describeTelegramRelayVerbosity,
   getTelegramMissionLinkPreference,
@@ -685,6 +690,11 @@ bot.start(async (ctx) => {
       '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
       '/access <1|2|3|4|5> - Choose what this Telegram chat can do',
+      '/access_setup - Set up the safe Level 4 workspace from Telegram',
+      '/docker_doctor - Check Docker sandbox readiness without changing the computer',
+      '/docker_smoke confirm - Run the no-secret Docker sandbox smoke',
+      '/level5_setup confirm - Prepare whole-computer operator guardrails, then restart',
+      '/level5_disable confirm - Return to workspace-sandbox mode, then restart',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
@@ -1107,7 +1117,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       '',
       'I did not enqueue it because this route cannot prove local workspace access.',
       '',
-      'Next: run `spark access setup`, restart Spark, then try again from this chat.'
+      'Next: send `/access_setup`, restart Spark if prompted, then try again from this chat.'
     ].join('\n'));
     return;
   }
@@ -2128,7 +2138,7 @@ export async function handleBuildIntent(
       '',
       'I did not enqueue the build because it could claim local access that this route cannot prove.',
       '',
-      'Next: run `spark access setup`, restart Spark, then try again. If this machine is intentionally read-only, use a writable Mission Control/Codex route.'
+      'Next: send `/access_setup`, restart Spark if prompted, then try again. If this machine is intentionally read-only, use a writable Mission Control/Codex route.'
     ].join('\n'));
     return;
   }
@@ -2782,6 +2792,38 @@ async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promis
     renderSparkAccessCapabilityStatus(profile, runnerPreflight)
   ].join('\n');
 }
+
+async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+
+  const raw = String(ctx.message?.text || '');
+  const confirmed = /\bconfirm\b/i.test(raw);
+  if (accessActionNeedsConfirmation(actionId) && !confirmed) {
+    const hint = actionId === 'docker_smoke'
+      ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
+      : actionId === 'level5_enable'
+        ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
+        : 'This changes Spark access guardrail state and requires confirmation.';
+    await ctx.reply([hint, '', `To continue, send ${raw.split(/\s+/)[0]} confirm`].join('\n'));
+    return;
+  }
+
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const reply = await runSparkAccessAction(actionId);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    await ctx.reply(`Spark access action failed: ${detail}`);
+  }
+}
+
+bot.command('access_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'workspace_setup'));
+bot.command('docker_doctor', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_doctor'));
+bot.command('docker_smoke', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_smoke'));
+bot.command('level5_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_enable'));
+bot.command('level5_disable', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_disable'));
 
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
