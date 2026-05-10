@@ -189,8 +189,10 @@ async function main(): Promise<void> {
     const accessCommand = indexSource.match(/bot\.command\('access', async \(ctx\) => \{[\s\S]*?\n\}\);/);
     assert.ok(accessCommand, 'expected /access command handler to exist');
     assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
-    assert.match(accessCommand[0], /renderSparkAccessChangeConfirmation\(next\)/);
+    assert.match(accessCommand[0], /renderSparkAccessChangeReply\(next\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
+    assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
+    assert.match(indexSource, /renderSparkAccessCapabilityStatus\(profile, runnerPreflight\)/);
   });
 
   await test('agent operating context uses Telegram-safe command aliases', async () => {

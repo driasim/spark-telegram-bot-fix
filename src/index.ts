@@ -104,6 +104,7 @@ import {
   sparkAccessLevel,
   sparkMissionNeedsOperatingSystemAccess,
   validateSparkAccessProfileForRuntime,
+  type SparkAccessProfile,
   type SparkAccessRequirement
 } from './accessPolicy';
 import {
@@ -2692,7 +2693,12 @@ bot.command('access', async (ctx) => {
   const raw = ctx.message.text.replace('/access', '').trim();
   const current = await getSparkAccessProfile(ctx.chat.id);
   if (!raw || raw.toLowerCase() === 'status') {
-    await ctx.reply(renderSparkAccessStatus(current));
+    const runnerPreflight = await probeTelegramRunnerWritability();
+    await ctx.reply([
+      renderSparkAccessStatus(current),
+      '',
+      renderSparkAccessCapabilityStatus(current, runnerPreflight)
+    ].join('\n'));
     return;
   }
 
@@ -2710,10 +2716,23 @@ bot.command('access', async (ctx) => {
 
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = renderSparkAccessChangeConfirmation(next);
+  const reply = await renderSparkAccessChangeReply(next);
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
 });
+
+async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
+  const confirmation = renderSparkAccessChangeConfirmation(profile);
+  if (profile !== 'developer') {
+    return confirmation;
+  }
+  const runnerPreflight = await probeTelegramRunnerWritability();
+  return [
+    confirmation,
+    '',
+    renderSparkAccessCapabilityStatus(profile, runnerPreflight)
+  ].join('\n');
+}
 
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
@@ -2732,7 +2751,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
 
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = renderSparkAccessChangeConfirmation(next);
+  const reply = await renderSparkAccessChangeReply(next);
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
   return true;
