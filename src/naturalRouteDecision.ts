@@ -43,6 +43,7 @@ import {
 import type {
   NaturalRecursiveCommandTarget
 } from './conversationIntent';
+import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
 import type { ShippedProjectContext } from './shippedProjectContext';
 
 export type NaturalRouteOwnerSystem =
@@ -176,6 +177,15 @@ function buildIntentPayload(buildIntent: BuildIntent): Record<string, unknown> {
   };
 }
 
+function routeAllowed(route: DeterministicRouteId, text: string): boolean {
+  return evaluateDeterministicRoute(route, text).allow;
+}
+
+function routeBlockedByFirewall(text: string, route: DeterministicRouteId): NaturalRouteDecision {
+  const verdict = evaluateDeterministicRoute(route, text);
+  return noRoute(text, [`route_firewall:${verdict.reason}`]);
+}
+
 export function decideNaturalRoute(
   text: string,
   context: NaturalRouteDecisionContext = {}
@@ -215,7 +225,8 @@ export function decideNaturalRoute(
     });
   }
 
-  const buildIntent = parseBuildIntent(normalized);
+  const parsedBuildIntent = parseBuildIntent(normalized);
+  const buildIntent = parsedBuildIntent && routeAllowed('spawner.build', normalized) ? parsedBuildIntent : null;
   const chipBrief = parseNaturalChipCreateIntent(normalized);
   const conversationalIdeation = shouldPreferConversationalIdeation(normalized);
   const earlyCreatorMission = isReadoutOnlyFollowup(normalized) || conversationalIdeation
@@ -235,6 +246,7 @@ export function decideNaturalRoute(
     });
   }
   if (isProjectImprovementRequest(normalized, context.shippedProject)) {
+    if (!routeAllowed('spawner.project_iteration', normalized)) return routeBlockedByFirewall(normalized, 'spawner.project_iteration');
     return decision({
       route: 'project.iteration',
       owner_system: 'spawner-ui',
@@ -252,6 +264,7 @@ export function decideNaturalRoute(
     });
   }
   if (chipBrief) {
+    if (!routeAllowed('domain_chip.create', normalized)) return routeBlockedByFirewall(normalized, 'domain_chip.create');
     return decision({
       route: 'domain_chip.create',
       owner_system: 'domain-chip',
@@ -280,6 +293,7 @@ export function decideNaturalRoute(
 
   const explicitAccessLevel = parseNaturalAccessChangeIntent(normalized);
   if (explicitAccessLevel) {
+    if (!routeAllowed('access.change', normalized)) return routeBlockedByFirewall(normalized, 'access.change');
     return decision({
       route: 'access.change',
       owner_system: 'spark-telegram-bot',
@@ -295,6 +309,7 @@ export function decideNaturalRoute(
 
   const contextualAccessLevel = parseContextualAccessChangeIntent(normalized, recentMessages);
   if (contextualAccessLevel) {
+    if (!routeAllowed('access.change', normalized)) return routeBlockedByFirewall(normalized, 'access.change');
     return decision({
       route: 'access.change',
       owner_system: 'spark-telegram-bot',
@@ -367,6 +382,7 @@ export function decideNaturalRoute(
 
   const memoryDirective = extractPlainChatMemoryDirective(normalized);
   if (memoryDirective) {
+    if (!routeAllowed('memory.write', normalized)) return routeBlockedByFirewall(normalized, 'memory.write');
     return decision({
       route: 'memory.write',
       owner_system: 'spark-intelligence-builder',
@@ -484,6 +500,7 @@ export function decideNaturalRoute(
 
   const selfImprovementGoal = extractSparkSelfImprovementGoal(normalized);
   if (selfImprovementGoal) {
+    if (!routeAllowed('spark.self_improvement', normalized)) return routeBlockedByFirewall(normalized, 'spark.self_improvement');
     return decision({
       route: 'spark.self_improvement',
       owner_system: 'spark-intelligence-builder',
@@ -546,6 +563,7 @@ export function decideNaturalRoute(
 
   const creatorMission = earlyCreatorMission;
   if (creatorMission) {
+    if (!routeAllowed('creator.mission', normalized)) return routeBlockedByFirewall(normalized, 'creator.mission');
     return decision({
       route: 'creator.mission',
       owner_system: 'spawner-ui',
@@ -603,6 +621,7 @@ export function decideNaturalRoute(
   }
 
   if (isExternalResearchRequest(normalized)) {
+    if (!routeAllowed('spawner.external_research', normalized)) return routeBlockedByFirewall(normalized, 'spawner.external_research');
     return decision({
       route: 'external_research.inspect',
       owner_system: 'spark-intelligence-builder',
@@ -620,6 +639,7 @@ export function decideNaturalRoute(
     allowExecutionLanguage: context.allowMissionPreferenceExecutionLanguage
   });
   if (missionPreference) {
+    if (!routeAllowed('mission_updates.preference', normalized)) return routeBlockedByFirewall(normalized, 'mission_updates.preference');
     return decision({
       route: 'mission_updates.preference',
       owner_system: 'spark-telegram-bot',
@@ -634,6 +654,7 @@ export function decideNaturalRoute(
   }
 
   if (isDiagnosticsScanRequest(normalized)) {
+    if (!routeAllowed('diagnostics.scan', normalized)) return routeBlockedByFirewall(normalized, 'diagnostics.scan');
     return decision({
       route: 'diagnostics.scan',
       owner_system: 'spark-cli',
@@ -648,6 +669,7 @@ export function decideNaturalRoute(
   }
 
   if (isDiagnosticFollowupTestQuestion(normalized)) {
+    if (!routeAllowed('diagnostics.followup_test', normalized)) return routeBlockedByFirewall(normalized, 'diagnostics.followup_test');
     return decision({
       route: 'diagnostics.followup_test',
       owner_system: 'spark-intelligence-builder',
@@ -677,6 +699,7 @@ export function decideNaturalRoute(
 
   const inferredMission = inferMissionFromRecentContext(normalized, recentMessages);
   if (inferredMission) {
+    if (!routeAllowed('spawner.contextual_mission', normalized)) return routeBlockedByFirewall(normalized, 'spawner.contextual_mission');
     return decision({
       route: 'spawner.contextual_mission',
       owner_system: 'spawner-ui',
@@ -692,6 +715,7 @@ export function decideNaturalRoute(
 
   const defaultBuild = inferDefaultBuildFromRecentScoping(normalized, recentMessages);
   if (defaultBuild) {
+    if (!routeAllowed('spawner.default_build', normalized)) return routeBlockedByFirewall(normalized, 'spawner.default_build');
     return decision({
       route: 'spawner.default_build',
       owner_system: 'spawner-ui',

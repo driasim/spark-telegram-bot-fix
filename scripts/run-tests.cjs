@@ -11,6 +11,7 @@ const tests = [
   'tests/buildE2E.test.ts',
   'tests/conversationIntent.test.ts',
   'tests/naturalRouteDecision.test.ts',
+  'tests/routeFirewall.test.ts',
   'tests/naturalRouteTelemetry.test.ts',
   'tests/naturalRouteLedger.test.ts',
   'tests/naturalRouteReplay.test.ts',

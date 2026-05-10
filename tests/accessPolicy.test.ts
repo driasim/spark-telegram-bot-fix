@@ -308,7 +308,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('nl_route', handleNaturalRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('natural_route', handleNaturalRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('ledger', handleCapabilityLedgerReviewCommand\)/);
-    assert.match(indexSource, /bot\.command\('capabilities', handleCapabilityLedgerReviewCommand\)/);
+    assert.match(indexSource, /bot\.command\('capabilities', handleCapabilityGardenCommand\)/);
     assert.match(indexSource, /bot\.command\('voice', async \(ctx\) => \{/);
     assert.match(indexSource, /replyViaBuilder\(ctx, ctx\.message\?\.text \|\| '\/voice'\)/);
     assert.doesNotMatch(indexSource, /spark\.getVoice\(\)/);

@@ -1,0 +1,163 @@
+export type DeterministicRouteId =
+  | 'access.change'
+  | 'access.status'
+  | 'access.help'
+  | 'access.capability_status'
+  | 'operator.safe_action'
+  | 'spawner.build'
+  | 'spawner.pending_clarification'
+  | 'spawner.default_build'
+  | 'spawner.contextual_mission'
+  | 'spawner.contextual_improvement'
+  | 'spawner.project_iteration'
+  | 'spawner.board'
+  | 'spawner.local_service'
+  | 'spawner.external_research'
+  | 'diagnostics.scan'
+  | 'diagnostics.followup_test'
+  | 'domain_chip.create'
+  | 'creator.mission'
+  | 'recursive.proposal'
+  | 'spark.self_improvement'
+  | 'spark.chip_status'
+  | 'spark.wiki'
+  | 'memory.write'
+  | 'natural_run'
+  | 'pending_task.recovery'
+  | 'local_workspace.inspect'
+  | 'mission_updates.preference'
+  | 'domain_chip.pending';
+
+export interface RouteFirewallVerdict {
+  allow: boolean;
+  reason: string;
+  confidence: 'explicit' | 'contextual' | 'blocked';
+}
+
+const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
+  'access.change',
+  'spawner.build',
+  'spawner.pending_clarification',
+  'spawner.default_build',
+  'spawner.contextual_mission',
+  'spawner.contextual_improvement',
+  'spawner.project_iteration',
+  'spawner.external_research',
+  'diagnostics.scan',
+  'diagnostics.followup_test',
+  'domain_chip.create',
+  'creator.mission',
+  'recursive.proposal',
+  'spark.self_improvement',
+  'memory.write',
+  'natural_run',
+  'pending_task.recovery',
+  'local_workspace.inspect',
+  'mission_updates.preference',
+  'domain_chip.pending'
+]);
+
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function isQuestionLike(normalized: string): boolean {
+  return (
+    /\?$/.test(normalized) ||
+    /^(?:what|how|why|when|where|can|could|should|would|do|does|did|is|are|will)\b/.test(normalized) ||
+    /\b(?:can|could|should|would)\s+(?:we|you|spark|the\s+agent)\b/.test(normalized)
+  );
+}
+
+function mentionsSparkSystem(normalized: string): boolean {
+  return /\b(?:spark|builder|memory|aoc|agent|agents?|rec|telegram|spawner|mission|canvas|kanban|codex|runner|harness|access|level\s*[1-5]|sandbox(?:es|ed)?|docker|ssh|modal|workspace|route|routing|hijack(?:s|ed|ing)?|deterministic|diagnos(?:e|tic|tics)|fallback|setup|restart|installer|updates?|upgrades?|voice|chips?|domain[-\s]*chip|state\s+machine)\b/.test(normalized);
+}
+
+function isMetaDiscussion(normalized: string): boolean {
+  return (
+    /\b(?:hijack(?:s|ed|ing)?|deterministic|route|routing|fallback|drift|state\s+machine|access\s+level|runner|read[-\s]*only|writable|sandbox(?:es|ed)?|docker|ssh|modal|restart|setup|installer|updates?|upgrades?)\b/.test(normalized) &&
+    /\b(?:check|audit|review|think|design|plan|decipher|understand|explain|dig|deeper|make\s+sure|cover|fix|solve|avoid|prevent|reliable|future|best\s+way|how|what|why|whether)\b/.test(normalized)
+  );
+}
+
+function isReadoutOrCriticRequest(normalized: string): boolean {
+  return (
+    /\b(?:what\s+happened|what\s+happened\s+with|why\s+didn'?t|score|scorecard|self[-\s]*audit|critic|critique|verdict|honest\s+read|honest\s+critic|wrap\s+up|plan\s+of\s+action)\b/.test(normalized) &&
+    /\b(?:build|mission|system|spark|access|memory|aoc|spawner|updates?|upgrades?|route|chat)\b/.test(normalized)
+  );
+}
+
+function isConcreteProjectBuild(normalized: string): boolean {
+  return (
+    /\b(?:build|create|make|ship|scaffold|generate|develop)\s+this\s+(?:at|in|into)\s+(?:[a-z]:[\\/]|\/)/i.test(normalized) ||
+    /\b(?:build|create|make|ship|scaffold|generate|develop)\b.*\b(?:called|named)\s+[a-z0-9][a-z0-9 '&.-]{2,80}\b/i.test(normalized) ||
+    /\b(?:files|target\s+folder|project\s+path)\s*:/i.test(normalized) ||
+    /\b(?:build|create|make|ship|scaffold|generate|develop)\b.*\b(?:app|dashboard|tool|site|website|page|game|system|tracker|planner|timer|clock)\b.*\b(?:should|needs?|with|that)\b/i.test(normalized)
+  );
+}
+
+function isExplicitAccessChange(normalized: string): boolean {
+  return /^(?:please\s+)?(?:change|set|switch|raise|lower)\s+(?:my\s+|this\s+chat\s+|spark\s+)?access\b/.test(normalized);
+}
+
+function isExplicitDiagnosticRun(normalized: string): boolean {
+  return /^(?:please\s+)?(?:run|start|perform)\s+(?:a\s+)?(?:fresh\s+)?diagnostics?(?:\s+scan)?\b/.test(normalized);
+}
+
+function isShortConfirmation(normalized: string): boolean {
+  return normalized.length <= 90 && /^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)(?:[.! ]*)$/i.test(normalized);
+}
+
+function isExplicitNaturalRun(normalized: string): boolean {
+  return /^(?:ask\s+)?(?:claude|codex|minimax|zai|glm|openrouter|all\s+models?)\b/.test(normalized) || /^\/run\b/.test(normalized);
+}
+
+function isExplicitMemoryWrite(normalized: string): boolean {
+  return /^(?:memory\s+(?:update|note)|save\s+to\s+memory|please\s+)?(?:remember|save|store)\b/.test(normalized) || /^memory\s+(?:update|note)\s*[:,-]/.test(normalized);
+}
+
+function isProtectedPlainChat(normalized: string): boolean {
+  if (!normalized) return false;
+  if (isReadoutOrCriticRequest(normalized)) return true;
+  if (isMetaDiscussion(normalized)) return true;
+  if (mentionsSparkSystem(normalized) && isQuestionLike(normalized)) return true;
+  if (/\b(?:what|which|anything|something|else|other)\b.*\b(?:build|building|create|creating|make|making)\b.*\b(?:updates?|upgrades?|systems?|spark|capabilit(?:y|ies)|improvements?|missing)\b/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+export function evaluateDeterministicRoute(route: DeterministicRouteId, text: string): RouteFirewallVerdict {
+  const normalized = normalize(text);
+  if (!normalized) {
+    return { allow: false, reason: 'empty_message', confidence: 'blocked' };
+  }
+  if (normalized.startsWith('/')) {
+    return { allow: true, reason: 'slash_command', confidence: 'explicit' };
+  }
+
+  if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {
+    return { allow: true, reason: 'concrete_project_build', confidence: 'explicit' };
+  }
+  if (route === 'access.change' && isExplicitAccessChange(normalized)) {
+    return { allow: true, reason: 'explicit_access_change', confidence: 'explicit' };
+  }
+  if (route === 'diagnostics.scan' && isExplicitDiagnosticRun(normalized)) {
+    return { allow: true, reason: 'explicit_diagnostics_run', confidence: 'explicit' };
+  }
+  if (route === 'spawner.pending_clarification' && isShortConfirmation(normalized)) {
+    return { allow: true, reason: 'short_pending_confirmation', confidence: 'contextual' };
+  }
+  if (route === 'natural_run' && isExplicitNaturalRun(normalized)) {
+    return { allow: true, reason: 'explicit_provider_run', confidence: 'explicit' };
+  }
+  if (route === 'memory.write' && isExplicitMemoryWrite(normalized)) {
+    return { allow: true, reason: 'explicit_memory_write', confidence: 'explicit' };
+  }
+
+  if (isProtectedPlainChat(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
+    return { allow: false, reason: 'plain_chat_protected', confidence: 'blocked' };
+  }
+
+  return { allow: true, reason: 'route_evidence_sufficient', confidence: 'contextual' };
+}
