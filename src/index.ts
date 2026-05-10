@@ -684,7 +684,7 @@ bot.start(async (ctx) => {
       '/operating_context or /agent_context - Same, Telegram-safe aliases',
       '/conversation_context - Show conversation-frame diagnostics',
       '/updates <minimal|normal|verbose> - Tune live mission updates',
-      '/access <1|2|3|4> - Choose what this Telegram chat can do',
+      '/access <1|2|3|4|5> - Choose what this Telegram chat can do',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
