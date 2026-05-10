@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   accessActionNeedsConfirmation,
   buildSparkAccessActionKeyboard,
+  buildSparkAccessChangeKeyboard,
   buildSparkAccessConfirmationKeyboard,
   accessActionNeedsSparkRestart,
   formatSparkAccessAutomaticRestartNotice,
@@ -115,6 +116,15 @@ void (async () => {
 
     assert.ok(operatorCallbacks.includes('spark_access:level5_enable'));
     assert.ok(operatorCallbacks.includes('spark_access:level5_disable'));
+  });
+
+  await test('renders compact access-change buttons after choosing a level', () => {
+    const developerKeyboard = buildSparkAccessChangeKeyboard('developer')?.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+    const operatorKeyboard = buildSparkAccessChangeKeyboard('operator')?.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
+
+    assert.deepEqual(developerKeyboard, ['spark_access:workspace_setup']);
+    assert.deepEqual(operatorKeyboard, ['spark_access:level5_disable']);
+    assert.equal(buildSparkAccessChangeKeyboard('agent'), undefined);
   });
 
   await test('renders confirm button for guarded access actions', () => {

@@ -367,6 +367,34 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
   ].join('\n\n');
 }
 
+export function renderSparkAccessChangeSummary(profile: SparkAccessProfile, runner?: SparkAccessRunnerCapability): string {
+  const confirmation = renderSparkAccessChangeConfirmation(profile);
+  if (profile === 'operator') {
+    const runnerLine = runner?.runnerWritable === 'no'
+      ? 'One note: this runner still looks read-only, so Spark may route some local work through Mission Control.'
+      : 'Spark can use this trusted local machine for operator work.';
+    return [
+      confirmation,
+      '',
+      runnerLine,
+      'I will still ask before deleting important files, exposing secrets, publishing, or deploying.',
+      'Use /access 4 when you want the safer workspace sandbox again.',
+    ].join('\n');
+  }
+  if (profile === 'developer') {
+    const runnerLine = runner?.runnerWritable === 'no'
+      ? 'This runner looks read-only, so I may route write work through Mission Control.'
+      : 'I can work inside the safe Spark workspace on this machine.';
+    return [
+      confirmation,
+      '',
+      runnerLine,
+      'Use /access 5 only when you want whole-computer operator mode.',
+    ].join('\n');
+  }
+  return confirmation;
+}
+
 export function renderSparkAccessChangeConfirmation(profile: SparkAccessProfile): string {
   return `Done - I changed this chat to ${sparkAccessLabel(profile)}.`;
 }

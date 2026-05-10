@@ -8,6 +8,7 @@ import {
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
   renderSparkAccessBriefStatus,
+  renderSparkAccessChangeSummary,
   renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
   renderSparkAccessConversationHelp,
@@ -189,6 +190,16 @@ async function main(): Promise<void> {
     assert.match(operatorStatus, /You are on Access level 5/);
     assert.match(operatorStatus, /whole-computer operator work/);
 
+    const operatorChange = renderSparkAccessChangeSummary('operator', { runnerWritable: 'yes' });
+    assert.match(operatorChange, /Done - I changed this chat to Access level 5/);
+    assert.match(operatorChange, /trusted local machine/);
+    assert.match(operatorChange, /still ask before deleting important files/);
+    assert.doesNotMatch(operatorChange, /Important distinction/);
+
+    const developerChange = renderSparkAccessChangeSummary('developer', { runnerWritable: 'yes' });
+    assert.match(developerChange, /safe Spark workspace/);
+    assert.doesNotMatch(developerChange, /Current runner: writable preflight/);
+
     const confirmations = [
       ['chat', 'Done - I changed this chat to Access level 1.'],
       ['builder', 'Done - I changed this chat to Access level 2.'],
@@ -220,7 +231,7 @@ async function main(): Promise<void> {
     assert.match(accessCommand[0], /renderSparkAccessChangeReply\(next\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
     assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
-    assert.match(indexSource, /renderSparkAccessCapabilityStatus\(profile, runnerPreflight\)/);
+    assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
     assert.match(indexSource, /bot\.command\('access_setup'/);
     assert.match(indexSource, /bot\.command\('docker_doctor'/);
     assert.match(indexSource, /bot\.command\('docker_smoke'/);

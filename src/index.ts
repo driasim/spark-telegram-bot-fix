@@ -92,6 +92,7 @@ import {
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
   renderSparkAccessBriefStatus,
+  renderSparkAccessChangeSummary,
   renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
   renderSparkAccessConversationHelp,
@@ -110,6 +111,7 @@ import {
 import {
   accessActionNeedsConfirmation,
   buildSparkAccessActionKeyboard,
+  buildSparkAccessChangeKeyboard,
   buildSparkAccessConfirmationKeyboard,
   formatSparkAccessActionConfirmationPrompt,
   formatSparkAccessAutomaticRestartNotice,
@@ -2781,21 +2783,15 @@ bot.command('access', async (ctx) => {
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
   const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply, buildSparkAccessActionKeyboard(next));
+  await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
 });
 
 async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
-  const confirmation = renderSparkAccessChangeConfirmation(profile);
   if (profile !== 'developer' && profile !== 'operator') {
-    return confirmation;
+    return renderSparkAccessChangeConfirmation(profile);
   }
-  const runnerPreflight = await probeTelegramRunnerWritability();
-  return [
-    confirmation,
-    '',
-    renderSparkAccessCapabilityStatus(profile, runnerPreflight)
-  ].join('\n');
+  return renderSparkAccessChangeSummary(profile, await probeTelegramRunnerWritability());
 }
 
 async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, confirmed: boolean): Promise<void> {

@@ -131,6 +131,24 @@ export function buildSparkAccessActionKeyboard(profile: string): { reply_markup:
   return { reply_markup: { inline_keyboard: rows } };
 }
 
+export function buildSparkAccessChangeKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } | undefined {
+  if (profile === 'operator') {
+    return {
+      reply_markup: {
+        inline_keyboard: [[buttonForAction('level5_disable')]],
+      },
+    };
+  }
+  if (profile === 'developer') {
+    return {
+      reply_markup: {
+        inline_keyboard: [[buttonForAction('workspace_setup')]],
+      },
+    };
+  }
+  return undefined;
+}
+
 export function buildSparkAccessConfirmationKeyboard(actionId: SparkAccessActionId): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
   return {
     reply_markup: {
