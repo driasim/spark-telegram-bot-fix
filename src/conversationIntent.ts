@@ -1559,11 +1559,52 @@ export function isMemoryAcknowledgementReply(reply: string): boolean {
   );
 }
 
-export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDecision: string = ''): boolean {
+export type BuilderReplySuppressionReason =
+  | 'diagnostic_wall'
+  | 'route_menu'
+  | 'memory_acknowledgement'
+  | 'low_information';
+
+export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
   if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
-    return false;
+    return null;
   }
-  return isLowInformationLlmReply(reply) || isMemoryAcknowledgementReply(reply);
+  const normalized = reply.trim().toLowerCase();
+  if (
+    normalized.includes('spark could not reach the builder memory path right now') ||
+    normalized.includes('operator fix: spark fix telegram')
+  ) {
+    return 'diagnostic_wall';
+  }
+  if (
+    (
+      normalized.includes("i caught 'mission'") &&
+      normalized.includes('show the mission board') &&
+      normalized.includes('start a new mission')
+    ) ||
+    (
+      normalized.includes("i caught 'chip'") &&
+      normalized.includes('loop <chip-key>') &&
+      normalized.includes('which chips are active')
+    ) ||
+    (
+      normalized.includes('you want the self-critic') &&
+      normalized.includes('loop domain-chip-spark-ops-critic')
+    )
+  ) {
+    return 'route_menu';
+  }
+  if (isMemoryAcknowledgementReply(reply)) {
+    return 'memory_acknowledgement';
+  }
+  if (isLowInformationLlmReply(reply)) {
+    return 'low_information';
+  }
+  return null;
+}
+
+export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDecision: string = ''): boolean {
+  return builderReplySuppressionReason(reply, routingDecision) !== null;
 }
 
 export function shouldUseBuilderReplyForMemoryDirective(reply: string, routingDecision: string = ''): boolean {

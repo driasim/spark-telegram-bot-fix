@@ -29,6 +29,7 @@ import {
   inferMissionGoalFromRecentContext,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
+  builderReplySuppressionReason,
   isBuildContextRecallQuestion,
   isDiagnosticFollowupTestQuestion,
   isDiagnosticsScanRequest,
@@ -994,6 +995,33 @@ test('suppresses memory acknowledgements for normal chat replies', () => {
     true
   );
   assert.equal(shouldSuppressBuilderReplyForPlainChat('I am doing well. The chat is working normally.'), false);
+  assert.equal(
+    builderReplySuppressionReason(
+      'Spark could not reach the Builder memory path right now.\n\nCheck now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.\n\nOperator fix: spark fix telegram, then spark verify --onboarding.',
+      'plain_chat'
+    ),
+    'diagnostic_wall'
+  );
+  assert.equal(
+    builderReplySuppressionReason(
+      "You want the self-critic.\n\n- Run it now (say 'loop domain-chip-spark-ops-critic')\n- Show the last critic findings (say 'show the last loop result')",
+      'plain_chat'
+    ),
+    'route_menu'
+  );
+  assert.equal(
+    builderReplySuppressionReason('Noted: "yes i was wondering how is the chat with you"', 'plain_chat'),
+    'memory_acknowledgement'
+  );
+  assert.equal(builderReplySuppressionReason('I am doing well. The chat is working normally.', 'plain_chat'), null);
+  assert.equal(
+    builderReplySuppressionReason('Spark Researcher returned no concrete guidance for this message.', 'plain_chat'),
+    'low_information'
+  );
+  assert.equal(
+    builderReplySuppressionReason('Saved memory about your preferred tone.', 'memory_generic_observation'),
+    null
+  );
   assert.equal(
     shouldSuppressBuilderReplyForPlainChat(
       [

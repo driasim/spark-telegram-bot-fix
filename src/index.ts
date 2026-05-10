@@ -168,6 +168,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
   shouldPreferConversationalIdeation
@@ -321,6 +322,46 @@ function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): vo
     .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
     .catch((error) => {
       console.warn('[OutboundAudit] failed to write node delivery audit:', error);
+    });
+}
+
+function finalAnswerGateAuditPath(): string {
+  return (
+    process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH ||
+    path.join(os.homedir(), '.spark', 'state', 'spark-telegram-bot', 'final-answer-gate-audit.jsonl')
+  );
+}
+
+type FinalAnswerGateSuppressionInput = {
+  chatId: unknown;
+  userId: unknown;
+  suppressionReason: string;
+  builderRoutingDecision: string;
+  builderBridgeMode: string;
+  builderReply: string;
+  fallbackRoute: 'local_chat';
+};
+
+function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput): void {
+  const auditPath = finalAnswerGateAuditPath();
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'final_answer_checked',
+    outcome: 'suppressed_builder_reply',
+    chat_id: String(input.chatId ?? ''),
+    user_id: String(input.userId ?? ''),
+    suppression_reason: input.suppressionReason,
+    builder_routing_decision: input.builderRoutingDecision || '',
+    builder_bridge_mode: input.builderBridgeMode || '',
+    builder_reply_length: input.builderReply.length,
+    builder_reply_preview: previewAuditText(input.builderReply, 180),
+    fallback_route: input.fallbackRoute,
+    latest_intent_preserved: true
+  };
+  mkdir(path.dirname(auditPath), { recursive: true })
+    .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
+    .catch((error) => {
+      console.warn('[FinalAnswerGate] failed to write suppression audit:', error);
     });
 }
 
@@ -3433,13 +3474,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
         /\b(?:no prior list|what are you choosing between|which one|which option)\b/i.test(builderReply.responseText);
-      if (!contradictsResolvedList && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
+      const suppressionReason = contradictsResolvedList
+        ? 'contradicts_resolved_list'
+        : builderReplySuppressionReason(builderReply.responseText, builderReply.routingDecision);
+      if (!suppressionReason && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
         await deliverBuilderReply(ctx, builderReply);
         if (builderReply.responseText) {
           await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
         }
         return;
       }
+      recordFinalAnswerGateSuppression({
+        chatId: ctx.chat?.id,
+        userId: ctx.from?.id,
+        suppressionReason: suppressionReason || 'plain_chat_suppression',
+        builderRoutingDecision: builderReply.routingDecision,
+        builderBridgeMode: builderReply.bridgeMode,
+        builderReply: builderReply.responseText,
+        fallbackRoute: 'local_chat'
+      });
       console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
     }
 
