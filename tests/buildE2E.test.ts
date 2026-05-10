@@ -668,6 +668,30 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /step starts or finishes/);
 	});
 
+	await test('quoted orphan PRD prep ping explains Mission Control source', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.buildQuotedMissionStatusOriginReply(
+			'where did this come from',
+			'Still working on maze game. Spark is shaping the PRD and preparing the canvas (25s elapsed).'
+		);
+
+		assert.ok(reply, 'expected a direct Mission Control explanation');
+		assert.match(reply, /PRD\/canvas prep notifier/);
+		assert.match(reply, /older build request/);
+		assert.doesNotMatch(reply, /saved profile|persistent memory/i);
+	});
+
+	await test('quoted final handoff explains mission source', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.buildQuotedMissionStatusOriginReply(
+			'what is this',
+			'Spark has the build ready.\n\nOpen it here:\nhttp://127.0.0.1:3333/preview/demo/index.html'
+		);
+
+		assert.ok(reply, 'expected a direct Mission Control explanation');
+		assert.match(reply, /final Mission Control handoff/);
+	});
+
 	await test('clarification replies are natural and project-specific', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

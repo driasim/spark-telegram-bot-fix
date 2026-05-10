@@ -1421,27 +1421,14 @@ function startPrdCanvasReadyNotifier(args: {
   void (async () => {
     const started = Date.now();
     const readyTimeoutMs = localServiceTimeoutMs('SPARK_SPAWNER_PRD_READY_TIMEOUT_MS');
-    const verbosity = await getTelegramRelayVerbosity(args.chatId);
     const deadline = started + readyTimeoutMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
-    const heartbeatThresholds = [25_000, 75_000, 135_000];
-    let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
       if (shouldSuppressMissionHandoff(args.missionId)) {
         return;
       }
       try {
-        const elapsedMs = Date.now() - started;
-        if (verbosity === 'verbose' && heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
-          const elapsedSec = Math.round(elapsedMs / 1000);
-          await bot.telegram.sendMessage(
-            args.chatId,
-            `Still working on ${args.projectName}. Spark is shaping the PRD and preparing the canvas (${elapsedSec}s elapsed).`
-          ).catch(() => {});
-          heartbeatIndex += 1;
-        }
-
         const poll = await axios.get(resultUrl, spawnerAxiosOptions(3000));
         if (poll.data?.found && poll.data?.result?.success) {
           try {
@@ -3017,6 +3004,44 @@ bot.command('mission', async (ctx) => {
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
 });
 
+function quotedTelegramMessageText(ctx: any): string | null {
+  const quoted = ctx?.message?.reply_to_message;
+  if (!quoted) return null;
+  if (typeof quoted.text === 'string') return quoted.text;
+  if (typeof quoted.caption === 'string') return quoted.caption;
+  return null;
+}
+
+export function buildQuotedMissionStatusOriginReply(text: string, quotedText?: string | null): string | null {
+  if (!quotedText?.trim()) return null;
+  if (!/\b(where did this come from|where is this from|what is this|what sent this|why did (?:you|spark|it) send this)\b/i.test(text)) {
+    return null;
+  }
+
+  const quoted = quotedText.trim();
+  if (/^Still working on .+Spark is shaping the PRD and preparing the canvas/i.test(quoted)) {
+    return [
+      'That came from Spark\'s PRD/canvas prep notifier for an older build request.',
+      '',
+      'It was meant as a live build-status ping, but it can feel orphaned once the chat has moved on. I am tightening that path so prep work does not interrupt unrelated conversation.'
+    ].join('\n');
+  }
+
+  if (/^Canvas is ready for /i.test(quoted)) {
+    return 'That was Mission Control saying the PRD canvas was ready and task execution was about to start.';
+  }
+
+  if (/^(Milestone complete|Step \d+\b)/i.test(quoted)) {
+    return 'That was a Mission Control progress update from an active build. It marks work completed inside the mission, not a new user request.';
+  }
+
+  if (/^.+Spark .*(finished|completed|shipped|has the build ready|has the result ready)/i.test(quoted) || /\bOpen it here:\s*https?:\/\//i.test(quoted)) {
+    return 'That was the final Mission Control handoff for a build, with the preview link and mission result.';
+  }
+
+  return null;
+}
+
 // Handle regular text messages
 export async function handleTextMessage(ctx: any): Promise<void> {
   const user = ctx.from;
@@ -3027,6 +3052,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (await handleTelegramStreamingConfigText(ctx, text)) {
+    return;
+  }
+
+  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx));
+  if (quotedOriginReply) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(quotedOriginReply);
+    await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
     return;
   }
 
