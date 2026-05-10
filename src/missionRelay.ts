@@ -100,6 +100,8 @@ const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
 const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
+const VERBOSE_NARRATION_LIMIT = 3;
+const verboseNarrationCounts = new Map<string, number>();
 const COMPLETION_RECOVERY_SWEEP_MS = 60_000;
 const COMPLETION_RECOVERY_MAX_AGE_MS = 24 * 60 * 60_000;
 let completionRecoveryTimer: ReturnType<typeof setInterval> | null = null;
@@ -268,7 +270,7 @@ export function describeTelegramRelayVerbosity(verbosity: TelegramRelayVerbosity
     case 'minimal':
       return 'Minimal sends start, completion, and failures only.';
     case 'verbose':
-      return 'Verbose sends useful progress notes, task completions, final handoff, and failures.';
+      return 'Verbose sends smart milestones, meaningful progress, final handoff, and failures.';
     case 'normal':
     default:
       return 'Normal sends pickup, canvas-ready, final handoff, and failures.';
@@ -871,11 +873,17 @@ function looksLikeInternalProgress(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
     /\bskill_loaded\b/.test(normalized) ||
+    /\bloaded skills?\b/.test(normalized) ||
     /\bnode-\d+-task\b/.test(normalized) ||
     /\btask-task-\d+\b/.test(normalized) ||
     /\bis working through\b/.test(normalized) && /\btask pack\b/.test(normalized) ||
+    /\bno new checkpoint\b|\bno handoff yet\b|\bstill working\b/.test(normalized) ||
     /\bestimate adjusting\b|\b\d+(?:m \d+s|m|s) elapsed\b/i.test(message)
   );
+}
+
+function looksLikeMeaningfulProgress(message: string): boolean {
+  return /\b(?:added|built|created|implemented|wired|rendered|verified|validated|passed|fixed|resolved|updated|wrote|polished|tightened|preserved|completed|finished|shipped|ready|blocked|failed|found|missing|error)\b/i.test(message);
 }
 
 function usefulProgressSummary(message: string, taskLabel: string): string | null {
@@ -893,6 +901,9 @@ function usefulProgressSummary(message: string, taskLabel: string): string | nul
     return null;
   }
   if (normalized.includes(normalizedTask) && /\b(?:is\s+)?(?:running|in progress|working)\b/.test(normalized)) {
+    return null;
+  }
+  if (!looksLikeMeaningfulProgress(withoutProvider)) {
     return null;
   }
 
@@ -1145,11 +1156,9 @@ function formatTaskStartedMessage(event: DeliverableRelayEvent): string {
 }
 
 function formatTaskCompletedMessage(event: DeliverableRelayEvent): string {
-  const number = taskNumberFromEvent(event);
   const taskLabel = cleanTaskLabel(event.taskName || event.taskId || 'Build step');
-  const seed = `${event.missionId}:${event.taskId || event.taskName || taskLabel}:done`;
   return [
-    number ? voiceLine('taskDone', seed, { n: number }) : 'Step done',
+    'Milestone complete',
     taskLabel
   ].join('\n');
 }
@@ -1286,6 +1295,31 @@ function relayEventKind(event: DeliverableRelayEvent): string | null {
 
 function relayEventHasPlannedTasks(event: DeliverableRelayEvent): boolean {
   return Array.isArray(event.data?.plannedTasks) && event.data.plannedTasks.length > 0;
+}
+
+function verboseNarrationKey(event: DeliverableRelayEvent, chatId: number): string {
+  return `${chatId}:${event.missionId}`;
+}
+
+function isVerboseNarrationEvent(event: DeliverableRelayEvent): boolean {
+  return event.type === 'task_progress' || event.type === 'progress' || event.type === 'task_completed';
+}
+
+function claimVerboseNarrationSlot(event: DeliverableRelayEvent, chatId: number, verbosity: TelegramRelayVerbosity): boolean {
+  if (verbosity !== 'verbose' || !isVerboseNarrationEvent(event)) return true;
+  const key = verboseNarrationKey(event, chatId);
+  const count = verboseNarrationCounts.get(key) || 0;
+  if (count >= VERBOSE_NARRATION_LIMIT) return false;
+  verboseNarrationCounts.set(key, count + 1);
+  return true;
+}
+
+export function claimVerboseNarrationSlotForTests(
+  event: DeliverableRelayEvent,
+  chatId: number,
+  verbosity: TelegramRelayVerbosity
+): boolean {
+  return claimVerboseNarrationSlot(event, chatId, verbosity);
 }
 
 function shouldDeliverProgressEvent(event: DeliverableRelayEvent, verbosity: TelegramRelayVerbosity): boolean {
@@ -1436,6 +1470,7 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   completionDeliveryInFlight.clear();
   cancelledMissionCache.clear();
   pausedMissionCache.clear();
+  verboseNarrationCounts.clear();
 }
 
 export function resetMissionRelayRegistryForTests(): void {
@@ -2200,6 +2235,10 @@ export async function startMissionRelay(bot: Telegraf, options: MissionRelayOpti
       const progressMessage = formatProgressMessageForTelegram(event, subscription, verbosity, linkPreference, payload.summary);
       if (!progressMessage) {
         writeJson(res, 202, { ok: true, ignored: 'event_type_not_delivered' });
+        return;
+      }
+      if (!claimVerboseNarrationSlot(event, chatId, verbosity)) {
+        writeJson(res, 202, { ok: true, ignored: 'verbose_narration_limit' });
         return;
       }
 

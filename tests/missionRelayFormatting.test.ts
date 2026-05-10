@@ -3,6 +3,7 @@ import { readJsonFile, resolveStatePath, writeJsonAtomic } from '../src/jsonStat
 import {
   buildMissionSurfaceLinks,
   claimCompletionDeliveryForTests,
+  claimVerboseNarrationSlotForTests,
   formatMissionHeartbeatForTelegram,
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
@@ -579,7 +580,7 @@ test('task start labels are human-readable instead of node slugs', () => {
   assert.equal(message, null);
 });
 
-test('task completion messages stay compact and human readable', () => {
+test('task completion messages stay compact and avoid step language', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_completed',
@@ -600,13 +601,14 @@ test('task completion messages stay compact and human readable', () => {
     'board'
   );
 
-  assert.match(message || '', /(?:Step 3 done|Step 3 landed|Step 3 is complete|Finished step 3)/);
+  assert.match(message || '', /Milestone complete/);
   assert.match(message || '', /localStorage and saved sprites/);
+  assert.doesNotMatch(message || '', /\\bStep\\b/i);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
 });
 
-test('verbose progress turns useful relay summaries into readable Telegram updates', () => {
+test('verbose progress only narrates concrete movement', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_progress',
@@ -633,8 +635,45 @@ test('verbose progress turns useful relay summaries into readable Telegram updat
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /MissionControl/);
   assert.doesNotMatch(message || '', /spark-123/);
+  assert.doesNotMatch(message || '', /\\bStep\\b/i);
+  const lowSignal = formatProgressMessageForTelegram(
+    {
+      type: 'progress',
+      missionId: 'spark-123',
+      taskName: 'Wire launch sequence',
+      message: 'Loaded skills for T02 css spacing and surface rhythm.',
+      data: {}
+    },
+    {
+      missionId: 'spark-123',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-build-1',
+      goal: 'Build a tiny board.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  );
+  assert.equal(lowSignal, null);
 });
 
+test('verbose narration caps intermediate updates to three per mission', () => {
+  resetMissionRelayDeliveryStateForTests();
+  const event = {
+    type: 'task_progress' as const,
+    missionId: 'spark-narration-cap',
+    taskName: 'Polish operator desk',
+    message: 'Added clearer status cards.',
+    data: {}
+  };
+
+  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
+  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
+  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
+  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), false);
+  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'normal'), true);
+});
 test('suppresses internal skill and dispatch chatter', () => {
   const subscription = {
     missionId: 'spark-123',
