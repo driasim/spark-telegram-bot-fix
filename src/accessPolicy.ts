@@ -15,6 +15,7 @@ interface SparkAccessPreferences {
 }
 
 const ACCESS_PATH = resolveStatePath('.spark-access-policy.json');
+const BULLET = '\u2022';
 
 export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile | null {
   if (typeof value !== 'string') return null;
@@ -276,12 +277,40 @@ export function sparkAccessLabel(profile: SparkAccessProfile): string {
 export function renderSparkAccessStatus(profile: SparkAccessProfile): string {
   return [
     `Spark access: ${sparkAccessLabel(profile)}`,
-    describeSparkAccessProfile(profile),
+    renderSparkAccessCurrentSummary(profile),
     '',
     renderSparkAccessLevelGuide(),
     '',
-    'Change: `/access 1`, `/access 2`, `/access 3`, `/access 4`, or `/access 5`.'
+    'Change anytime: `/access 1` through `/access 5`.'
   ].join('\n');
+}
+
+function renderSparkAccessCurrentSummary(profile: SparkAccessProfile): string {
+  const rows: string[] = [];
+  switch (profile) {
+    case 'chat':
+      rows.push('Chat, memory, recall, and diagnostics are on.');
+      rows.push('Builds, research routes, and local files are off.');
+      break;
+    case 'builder':
+      rows.push('Requested Spawner builds and missions are on.');
+      rows.push('Public research and local files are off.');
+      break;
+    case 'agent':
+      rows.push('Public links, docs, GitHub research, and requested builds are on.');
+      rows.push('Local files are off.');
+      break;
+    case 'developer':
+      rows.push('Sandboxed local work is on inside approved Spark workspaces.');
+      rows.push('Good default for local builders: repo help, debugging, files, and missions.');
+      rows.push('Setup helper: `/access_setup`.');
+      break;
+    case 'operator':
+      rows.push('Whole-computer operator work is on for this trusted local install.');
+      rows.push('Use this only when Spark truly needs files outside Spark workspaces.');
+      break;
+  }
+  return ['Current', ...rows.map((row) => `${BULLET} ${row}`)].join('\n');
 }
 
 function renderRunnerCapabilitySummary(runner?: SparkAccessRunnerCapability): string | null {
@@ -463,11 +492,11 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
 export function renderSparkAccessLevelGuide(): string {
   return [
     'Levels:',
-    '1 - Chat, memory, recall, diagnostics. No builds.',
-    '2 - Requested builds and missions.',
-    '3 - Public research plus requested builds. No local files.',
-    '4 - Workspace files and local debugging. Recommended. Setup: `/access_setup`.',
-    '5 - Whole-computer operator mode. Setup: `/access 5` + Confirm.',
+    `${BULLET} 1 - Chat, memory, recall, diagnostics. No builds.`,
+    `${BULLET} 2 - Requested builds and missions.`,
+    `${BULLET} 3 - Public research plus requested builds. No local files.`,
+    `${BULLET} 4 - Workspace files and local debugging (\`/access 4\`). Recommended; setup: \`/access_setup\`.`,
+    `${BULLET} 5 - Whole-computer operator mode (\`/access 5\`). Confirm once.`,
     '',
     'Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.'
   ].join('\n');

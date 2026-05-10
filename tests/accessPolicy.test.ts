@@ -153,8 +153,8 @@ async function main(): Promise<void> {
     assert.match(renderSparkAccessLevelGuide(), /\/access_setup/);
     assert.match(renderSparkAccessLevelGuide(), /Whole-computer operator mode/);
     assert.match(renderSparkAccessLevelGuide(), /Safety stays on/);
-    assert.ok(renderSparkAccessStatus('operator').length < 700);
-    assert.ok(renderSparkAccessStatus('operator').split('\n').length <= 14);
+    assert.ok(renderSparkAccessStatus('operator').length < 760);
+    assert.ok(renderSparkAccessStatus('operator').split('\n').length <= 16);
     assert.match(renderSparkAccessOnboarding(), /Default right now: Access level 4/);
     assert.match(renderSparkAccessOnboarding('agent'), /Choose how much access this Telegram chat has/);
     assert.match(renderSparkAccessOnboarding('agent'), /Levels:/);
