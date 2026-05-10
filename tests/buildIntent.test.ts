@@ -182,6 +182,14 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(parseBuildIntent('Build a skill that lets you browse my project files.'), null);
   assert.equal(parseBuildIntent('Reply exactly TESTER_REALPATH_OK and do not create files.'), null);
   assert.equal(parseBuildIntent('Reply exactly SPARK_AGI_REALPATH_OK and do not build anything.'), null);
+  assert.equal(
+    parseBuildIntent('Run a safe Level 5 smoke test: create a tiny file at C:\\Users\\USER\\AppData\\Local\\Temp\\spark-telegram-level5-smoke.txt, write "level5 ok", read it back, then delete it. Do not touch anything else. Tell me each step.'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('Check whether C:\\Users\\USER\\Desktop exists. If it exists, list only the first 5 top-level folder names. Do not open files or read file contents.'),
+    null
+  );
   assert.equal(parseBuildIntent('we were gonna build something do you remember what it was'), null);
   assert.equal(parseBuildIntent('what were we going to build?'), null);
   assert.equal(

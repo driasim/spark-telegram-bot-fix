@@ -135,6 +135,14 @@ test('non-build utility requests still route away from builder', () => {
   assert.equal(parseBuildIntent('Create a capability for Spark to read my calendar.'), null);
   assert.equal(parseBuildIntent('Build a skill that lets you browse my project files.'), null);
   assert.equal(
+    parseBuildIntent('Run a safe Level 5 smoke test: create a tiny file at C:\\Users\\USER\\AppData\\Local\\Temp\\spark-telegram-level5-smoke.txt, write "level5 ok", read it back, then delete it. Do not touch anything else. Tell me each step.'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('Check whether C:\\Users\\USER\\Desktop exists. If it exists, list only the first 5 top-level folder names. Do not open files or read file contents.'),
+    null
+  );
+  assert.equal(
     parseBuildIntent('also words like build access and some other things hijack the chat instantly, can you check whether we fixed that'),
     null
   );

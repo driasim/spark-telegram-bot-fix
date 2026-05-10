@@ -142,6 +142,7 @@ import {
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
 import { parseBuildIntent } from './buildIntent';
+import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
@@ -3147,6 +3148,30 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
+  if (safeOperatorAction) {
+    await conversation.remember(user, text).catch(() => {});
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    if (safeOperatorAction.kind === 'level5_smoke' && accessProfile !== 'operator') {
+      await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      return;
+    }
+    if (!sparkAccessAllows(accessProfile, 'operating_system')) {
+      await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      return;
+    }
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const reply = await runSafeOperatorAction(safeOperatorAction);
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    } catch (err: any) {
+      const reply = `Safe operator check failed: ${err?.message || String(err)}`;
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    }
     return;
   }
   const activePendingClarification = conversation.isAdmin(ctx.from)

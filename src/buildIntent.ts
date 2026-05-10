@@ -324,6 +324,32 @@ function isExactReplyNoFileProbe(text: string): boolean {
   );
 }
 
+function isFilesystemOperationProbe(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (
+    /\b(?:smoke\s+test|safe\s+test|probe|check)\b/.test(normalized) &&
+    /\b(?:create|write|read|delete|remove|list|exists?)\b/.test(normalized) &&
+    /\b(?:file|folder|directory|path)\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+(?:touch|open|read|modify|change)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\bcheck\s+whether\b/.test(normalized) &&
+    /\b(?:exists?|list)\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+(?:open|read|touch)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\bcreate\s+a\s+(?:tiny|small|test|temporary)\s+file\b/.test(normalized) &&
+    /\bwrite\b.*\bread\b.*\b(?:delete|remove)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isConversationFramingMakeRequest(description: string): boolean {
   return /^(?:today|tonight|now|chat|conversation|session|thread|this\s+(?:chat|conversation|session|thread)|our\s+(?:chat|conversation|session|thread))\s+(?:also\s+)?(?:about|focused\s+on|for)\b/i.test(
     description.trim()
@@ -434,6 +460,7 @@ function extractBuildDescription(text: string): string | null {
 export function parseBuildIntent(text: string): BuildIntent | null {
   const original = text.trim().replace(/[‘’]/g, "'");
   if (isExactReplyNoFileProbe(original)) return null;
+  if (isFilesystemOperationProbe(original)) return null;
   const trimmed = normalizeBuildCommandText(original);
   if (!trimmed) return null;
   if (isBuildIdeationRequest(trimmed)) return null;
