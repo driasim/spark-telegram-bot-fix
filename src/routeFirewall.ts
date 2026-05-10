@@ -207,3 +207,27 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
 
   return { allow: true, reason: 'route_evidence_sufficient', confidence: 'contextual' };
 }
+
+export function shouldUseRouteArbiter(
+  route: DeterministicRouteId,
+  text: string,
+  verdict: RouteFirewallVerdict = evaluateDeterministicRoute(route, text)
+): boolean {
+  const normalized = normalize(text);
+  if (!normalized || normalized.startsWith('/')) return false;
+  if (!INTERRUPTIVE_ROUTES.has(route)) return false;
+  if (verdict.confidence === 'explicit') return false;
+  if ([
+    'concrete_project_build',
+    'explicit_access_change',
+    'explicit_diagnostics_run',
+    'short_pending_confirmation',
+    'explicit_provider_run',
+    'explicit_memory_write',
+    'explicit_external_research',
+    'bounded_operator_probe'
+  ].includes(verdict.reason)) {
+    return false;
+  }
+  return verdict.reason === 'plain_chat_protected' || verdict.reason === 'route_evidence_sufficient';
+}

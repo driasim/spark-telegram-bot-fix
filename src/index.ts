@@ -145,6 +145,7 @@ import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './ca
 import { parseBuildIntent } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
+import { queueRouteArbiterShadow } from './routeArbiter';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
@@ -319,6 +320,12 @@ function recordNaturalRouteExecution(
 
 function deterministicRouteAllowed(route: DeterministicRouteId, text: string): boolean {
   const verdict = evaluateDeterministicRoute(route, text);
+  queueRouteArbiterShadow({
+    route,
+    text,
+    verdict,
+    profile: activeTelegramProfile()
+  });
   if (!verdict.allow) {
     console.log(`[RouteFirewall] blocked route=${route} reason=${verdict.reason} textLen=${text.length}`);
   }
