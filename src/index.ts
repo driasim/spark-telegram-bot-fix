@@ -112,7 +112,9 @@ import {
   buildSparkAccessActionKeyboard,
   buildSparkAccessConfirmationKeyboard,
   formatSparkAccessActionConfirmationPrompt,
-  runSparkAccessAction,
+  formatSparkAccessAutomaticRestartNotice,
+  runSparkAccessActionDetailed,
+  scheduleSparkRestartAfterAccessChange,
   type SparkAccessActionId
 } from './accessActions';
 import {
@@ -2806,9 +2808,15 @@ async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, 
 
   await safeSendChatAction(ctx, 'typing');
   try {
-    const reply = await runSparkAccessAction(actionId);
+    const result = await runSparkAccessActionDetailed(actionId);
+    const reply = result.needsSparkRestart
+      ? [result.reply, '', formatSparkAccessAutomaticRestartNotice(actionId)].join('\n')
+      : result.reply;
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    if (result.needsSparkRestart) {
+      scheduleSparkRestartAfterAccessChange();
+    }
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     await ctx.reply(`Spark access action failed: ${detail}`);

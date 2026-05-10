@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { withHiddenWindows } from './hiddenProcess';
+import { spawnHidden, withHiddenWindows } from './hiddenProcess';
 import { redactText } from './redaction';
 
 const execFileAsync = promisify(execFile);
@@ -30,6 +30,12 @@ export type SparkCommandRunner = (
   args: string[],
   timeoutMs: number
 ) => Promise<{ stdout: string; stderr: string }>;
+
+export interface SparkAccessActionExecution {
+  reply: string;
+  payload: Record<string, unknown> | null;
+  needsSparkRestart: boolean;
+}
 
 export const SPARK_ACCESS_ACTIONS: Record<SparkAccessActionId, SparkAccessAction> = {
   workspace_setup: {
@@ -149,14 +155,29 @@ export async function runSparkAccessAction(
   actionId: SparkAccessActionId,
   runner: SparkCommandRunner = defaultSparkCommandRunner
 ): Promise<string> {
+  return (await runSparkAccessActionDetailed(actionId, runner)).reply;
+}
+
+export async function runSparkAccessActionDetailed(
+  actionId: SparkAccessActionId,
+  runner: SparkCommandRunner = defaultSparkCommandRunner
+): Promise<SparkAccessActionExecution> {
   const action = SPARK_ACCESS_ACTIONS[actionId];
   const result = await runner(action.command, action.timeoutMs);
   const payload = parseSparkJson(result.stdout);
   if (!payload) {
     const output = redactText([result.stdout, result.stderr].filter(Boolean).join('\n').trim());
-    return [`Spark action ran, but did not return JSON: ${action.id}`, output || 'No output.'].join('\n');
+    return {
+      reply: [`Spark action ran, but did not return JSON: ${action.id}`, output || 'No output.'].join('\n'),
+      payload: null,
+      needsSparkRestart: false,
+    };
   }
-  return formatSparkAccessActionReply(actionId, payload);
+  return {
+    reply: formatSparkAccessActionReply(actionId, payload),
+    payload,
+    needsSparkRestart: accessActionNeedsSparkRestart(actionId, payload),
+  };
 }
 
 async function defaultSparkCommandRunner(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
@@ -213,18 +234,55 @@ export function formatSparkAccessActionReply(actionId: SparkAccessActionId, payl
     return [
       ok ? 'Level 5 guardrails were configured.' : 'Level 5 setup did not complete.',
       activation ? `Activation state: ${activation}.` : '',
-      'Restart Spark, then send /access 5 again so Telegram and Spawner load whole-computer operator mode.',
+      'Spark needs to reload Telegram and Spawner before whole-computer operator mode becomes active.',
       nextLine(payload),
     ].filter(Boolean).join('\n');
   }
   if (actionId === 'level5_disable') {
     return [
       'Level 5 guardrails were disabled.',
-      'Restart Spark to return this runtime to workspace-sandbox mode.',
+      'Spark needs to reload Telegram and Spawner to return this runtime to workspace-sandbox mode.',
       nextLine(payload),
     ].filter(Boolean).join('\n');
   }
   return ok ? 'Spark access action finished.' : 'Spark access action failed.';
+}
+
+export function accessActionNeedsSparkRestart(actionId: SparkAccessActionId, payload: Record<string, unknown>): boolean {
+  if (actionId !== 'level5_enable' && actionId !== 'level5_disable') return false;
+  const level5 = objectValue(payload.level5);
+  const stateMachine = objectValue(payload.state_machine);
+  const activation = String(level5.activation_state || stateMachine.activation_state || '');
+  const next = String(payload.next || '').trim().toLowerCase();
+  return activation === 'restart_required' || stateMachine.requires_restart === true || next === 'spark restart';
+}
+
+export function formatSparkAccessAutomaticRestartNotice(actionId: SparkAccessActionId): string {
+  const verifyCommand = actionId === 'level5_disable' ? '/access 4' : '/access 5';
+  return [
+    'I will restart Spark automatically now so you do not need Terminal or PowerShell.',
+    'Telegram may go quiet for about 30-60 seconds.',
+    `When it comes back, send ${verifyCommand} to verify the new access state.`,
+  ].join('\n');
+}
+
+export function scheduleSparkRestartAfterAccessChange(delayMs = 2_000): void {
+  const script = [
+    "const { spawnSync } = require('node:child_process');",
+    "const delay = Number(process.argv[1] || 2000);",
+    "const spark = process.platform === 'win32' ? 'spark.cmd' : 'spark';",
+    "const run = (args) => spawnSync(spark, args, { stdio: 'ignore', shell: false, windowsHide: true });",
+    "setTimeout(() => {",
+    "  run(['restart', 'spawner-ui', '--allow-dirty-runtime']);",
+    "  run(['restart', 'spark-telegram-bot', '--allow-dirty-runtime']);",
+    "}, delay);",
+  ].join('\n');
+  const child = spawnHidden(process.execPath, ['-e', script, String(delayMs)], {
+    detached: true,
+    stdio: 'ignore',
+    env: process.env,
+  });
+  child.unref();
 }
 
 function accessSummary(payload: Record<string, unknown>): string {

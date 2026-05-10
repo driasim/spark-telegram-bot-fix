@@ -3,9 +3,12 @@ import {
   accessActionNeedsConfirmation,
   buildSparkAccessActionKeyboard,
   buildSparkAccessConfirmationKeyboard,
+  accessActionNeedsSparkRestart,
+  formatSparkAccessAutomaticRestartNotice,
   formatSparkAccessActionConfirmationPrompt,
   formatSparkAccessActionReply,
   runSparkAccessAction,
+  runSparkAccessActionDetailed,
 } from '../src/accessActions';
 
 async function test(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -56,8 +59,34 @@ void (async () => {
 
     assert.match(reply, /Level 5 guardrails were configured/);
     assert.match(reply, /Activation state: restart_required/);
-    assert.match(reply, /Restart Spark/);
-    assert.match(reply, /\/access 5/);
+    assert.match(reply, /reload Telegram and Spawner/);
+    assert.match(reply, /Next: spark restart/);
+  });
+
+  await test('marks Level 5 access changes as automatic Spark restart candidates', async () => {
+    assert.equal(accessActionNeedsSparkRestart('workspace_setup', { next: 'spark restart' }), false);
+    assert.equal(
+      accessActionNeedsSparkRestart('level5_enable', {
+        level5: { activation_state: 'restart_required' },
+        next: 'spark restart',
+      }),
+      true
+    );
+
+    const result = await runSparkAccessActionDetailed('level5_enable', async () => ({
+      stdout: JSON.stringify({
+        ok: true,
+        level5: { activation_state: 'restart_required' },
+        state_machine: { requires_restart: true },
+        next: 'spark restart',
+      }),
+      stderr: '',
+    }));
+
+    assert.equal(result.needsSparkRestart, true);
+    assert.match(formatSparkAccessAutomaticRestartNotice('level5_enable'), /do not need Terminal or PowerShell/);
+    assert.match(formatSparkAccessAutomaticRestartNotice('level5_enable'), /\/access 5/);
+    assert.match(formatSparkAccessAutomaticRestartNotice('level5_disable'), /\/access 4/);
   });
 
   await test('formats Docker smoke as no-secret sandbox evidence', () => {
