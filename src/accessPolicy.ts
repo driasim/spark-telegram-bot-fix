@@ -215,8 +215,8 @@ export function renderSparkAccessDenial(profile: SparkAccessProfile, requirement
   }
   if (requirement === 'external_research') {
     return [
-      `This needs ${sparkAccessLabel('agent')} or ${sparkAccessLabel('developer')}, but this chat is at ${sparkAccessLabel(profile)}.`,
-      'You can say "change my access level to 3" for public links/docs/GitHub research, or "change my access level to 4" for local project and file access.'
+      `This needs ${sparkAccessLabel('agent')} or higher, but this chat is at ${sparkAccessLabel(profile)}.`,
+      'You can say "change my access level to 3" for public links/docs/GitHub research, or "change my access level to 4" when you also want sandboxed local project access. Level 5 is only for rare whole-computer operator work.'
     ].join('\n');
   }
   return [
@@ -237,7 +237,7 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
       return 'Access level 5: Spark is authorized for whole-computer operator work on a trusted local install. This requires high-agency worker guardrails, runner writability, and extra care around secrets, destructive actions, and files outside Spark sandboxes.';
     case 'builder':
     default:
-      return 'Access level 2: Spark can use Spawner only when you clearly ask it to build something or run a mission. Public web/GitHub inspection stays off until level 3 or 4.';
+      return 'Access level 2: Spark can use Spawner only when you clearly ask it to build something or run a mission. Public web/GitHub inspection stays off until level 3 or higher.';
   }
 }
 
@@ -374,11 +374,11 @@ export function renderSparkAccessChangeConfirmation(profile: SparkAccessProfile)
 export function renderSparkAccessConversationHelp(profile: SparkAccessProfile): string {
   return [
     `Yes. Spark has chat access levels, and this chat is currently ${sparkAccessLabel(profile)}.`,
-    'Level 1: chat, memory, recall, diagnostics.',
-    'Level 2: requested Spawner builds.',
-    'Level 3: public links/docs/GitHub research plus builds.',
-    'Level 4: sandboxed local projects, files, debugging, and deeper missions.',
-    'Level 5: whole-computer operator mode for trusted local installs.',
+    'Level 1: chat only - conversation, memory, recall, diagnostics.',
+    'Level 2: build when asked - requested Spawner builds and missions.',
+    'Level 3: research agent - public links/docs/GitHub research plus builds.',
+    'Level 4: sandboxed local projects - workspace sandbox for files, debugging, and deeper missions inside approved Spark workspaces.',
+    'Level 5: whole-computer operator mode - trusted local installs only.',
     '',
     'Separate from that, the current runner must be writable. If Level 4 or 5 says allowed but the runner is read-only, Spark should say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.',
     '',
@@ -432,20 +432,20 @@ export function renderSparkAccessLevelGuide(): string {
   return [
     'What each access level allows:',
     '',
-    '1. Chat, memory, recall, diagnostics',
+    '1. Chat only',
     '- Talk with Spark, save memories, recall notes, and run diagnostics.',
     '- Spark will not start builds or missions.',
     '',
-    '2. Requested builds and missions',
+    '2. Build when asked',
     '- Spark can start a Spawner build only after you clearly ask.',
     '- Good when you want control before anything gets built.',
     '',
-    '3. Public research plus requested builds',
+    '3. Research agent',
     '- Spark can research public links, docs, and GitHub repos when you ask.',
     '- Spark can also start builds and missions you request.',
     '- Spark will not work across your computer or local project files.',
     '',
-    '4. Sandboxed local projects and files (recommended for local builders)',
+    '4. Workspace sandbox (recommended for local builders)',
     '- Spark can help with projects, debugging, files, and deeper build missions inside approved Spark workspaces.',
     '- Safe setup command: `spark access setup`.',
     '- Good when you want Spark to feel like a real local agent without handing it the whole computer.',
