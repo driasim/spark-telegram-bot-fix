@@ -5,6 +5,7 @@ import {
   compactColdMemoryQuery,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
+  formatMemoryInPlaySummary,
   formatRouteProbeReply,
   formatSelfImprovementPlanReply,
   formatSelfAwarenessReply,
@@ -117,6 +118,34 @@ test('formats authoritative cold memory context for prompt injection', () => {
   assert.match(result.contextText, /recent_conversation\/conversation\.focus/);
   assert.match(result.contextText, /\[class=recent_conversation; freshness=recent; time=2026-05-10T00:00:00Z\]/);
   assert.match(result.contextText, /access level 3 and level 4/);
+  assert.deepEqual(result.sources[0], {
+    source: 'recent_conversation/conversation.focus',
+    sourceClass: 'recent_conversation',
+    freshness: 'recent',
+    timestamp: '2026-05-10T00:00:00Z',
+    preview: 'The user was choosing between access level 3 and level 4.'
+  });
+});
+
+test('summarizes memory in play for AOC drilldown', () => {
+  const summary = formatMemoryInPlaySummary({
+    used: true,
+    sourceCount: 1,
+    sources: [
+      {
+        source: 'recent_conversation/conversation.focus',
+        sourceClass: 'recent_conversation',
+        freshness: 'recent',
+        timestamp: '2026-05-10T00:00:00Z',
+        preview: 'The user was choosing between access level 3 and level 4.'
+      }
+    ]
+  });
+
+  assert.match(summary, /Memory in play/);
+  assert.match(summary, /Retrieved: 1 supporting source/);
+  assert.match(summary, /current chat and live AOC override retrieved memory/i);
+  assert.match(summary, /recent_conversation\/conversation\.focus/);
 });
 
 test('filters wiki diagnostic packets from conversational cold memory', () => {

@@ -17,6 +17,7 @@ import {
 import { renderChoiceContextAcknowledgement, renderConversationFrameContext, type ConversationFrame } from './conversationFrame';
 import {
   getBuilderBridgeStatus,
+  formatMemoryInPlaySummary,
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
@@ -817,17 +818,27 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
   try {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const memoryQuery = text.replace(/^\/(?:context|operating_context|agent_context|aoc)(?:@\w+)?\s*/i, '').trim();
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const runnerPreflight = await probeTelegramRunnerWritability();
-    const result = await runBuilderAgentOperatingContext({
-      userId: ctx.from.id,
-      chatId: ctx.chat.id,
-      currentMessage: text,
-      sparkAccessLevel: sparkAccessLevel(accessProfile),
-      runnerWritable: runnerPreflight.runnerWritable,
-      runnerLabel: runnerPreflight.runnerLabel,
-    });
-    await ctx.reply(result.replyText);
+    const [result, memoryInPlay] = await Promise.all([
+      runBuilderAgentOperatingContext({
+        userId: ctx.from.id,
+        chatId: ctx.chat.id,
+        currentMessage: text,
+        sparkAccessLevel: sparkAccessLevel(accessProfile),
+        runnerWritable: runnerPreflight.runnerWritable,
+        runnerLabel: runnerPreflight.runnerLabel,
+      }),
+      memoryQuery
+        ? runBuilderConversationColdContext({
+            userId: ctx.from.id,
+            currentMessage: memoryQuery,
+          })
+        : Promise.resolve({ used: false, contextText: '', sourceCount: 0, bridgeMode: 'not_requested' }),
+    ]);
+    const memorySummary = memoryQuery ? formatMemoryInPlaySummary(memoryInPlay) : '';
+    await ctx.reply([result.replyText, memorySummary].filter(Boolean).join('\n\n'));
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
   }

@@ -87,7 +87,16 @@ export interface BuilderConversationColdContextResult {
   contextText: string;
   sourceCount: number;
   bridgeMode: string;
+  sources?: BuilderColdMemorySource[];
   error?: string;
+}
+
+export interface BuilderColdMemorySource {
+  source: string;
+  sourceClass: string;
+  freshness: string;
+  timestamp: string | null;
+  preview: string;
 }
 
 export interface BuilderSelfAwarenessInput {
@@ -684,16 +693,7 @@ function shouldIncludeColdMemoryItem(item: Record<string, unknown>): boolean {
 }
 
 function coldMemorySourceMeta(item: Record<string, unknown>): string {
-  const sourceClass = stringValue(item.source_class) || 'unknown_source';
-  const freshness =
-    stringValue(item.freshness) ||
-    stringValue(item.freshness_status) ||
-    stringValue(item.status) ||
-    'supporting';
-  const timestamp =
-    stringValue(item.timestamp) ||
-    stringValue(item.created_at) ||
-    stringValue(item.updated_at);
+  const { sourceClass, freshness, timestamp } = coldMemorySourceParts(item);
   return [
     `class=${sourceClass}`,
     `freshness=${freshness}`,
@@ -701,9 +701,30 @@ function coldMemorySourceMeta(item: Record<string, unknown>): string {
   ].filter(Boolean).join('; ');
 }
 
+function coldMemorySourceParts(item: Record<string, unknown>): {
+  sourceClass: string;
+  freshness: string;
+  timestamp: string | null;
+} {
+  return {
+    sourceClass: stringValue(item.source_class) || 'unknown_source',
+    freshness:
+      stringValue(item.freshness) ||
+      stringValue(item.freshness_status) ||
+      stringValue(item.status) ||
+      'supporting',
+    timestamp:
+      stringValue(item.timestamp) ||
+      stringValue(item.created_at) ||
+      stringValue(item.updated_at) ||
+      null,
+  };
+}
+
 export function formatConversationColdMemoryContext(payload: unknown, maxChars = 3000): {
   contextText: string;
   sourceCount: number;
+  sources: BuilderColdMemorySource[];
 } {
   const root = objectValue(payload);
   const packet = objectValue(root.context_packet);
@@ -715,6 +736,7 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
   ];
   let usedChars = lines.join('\n').length;
   let sourceCount = 0;
+  const sources: BuilderColdMemorySource[] = [];
 
   for (const sectionValue of sections) {
     const section = objectValue(sectionValue);
@@ -732,12 +754,20 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
       const lane = stringValue(item.lane) || 'memory';
       const predicate = stringValue(item.predicate);
       const source = predicate ? `${lane}/${predicate}` : lane;
+      const meta = coldMemorySourceParts(item);
       const line = `- ${source} [${coldMemorySourceMeta(item)}]: ${text}`;
       if (usedChars + sectionLines.join('\n').length + line.length > maxChars) {
         break;
       }
       sectionLines.push(line);
       sourceCount += 1;
+      sources.push({
+        source,
+        sourceClass: meta.sourceClass,
+        freshness: meta.freshness,
+        timestamp: meta.timestamp,
+        preview: truncateForPrompt(text, 160),
+      });
     }
     if (sectionLines.length > 1) {
       lines.push(...sectionLines, '');
@@ -750,8 +780,40 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
 
   return {
     contextText: sourceCount > 0 ? lines.join('\n').trim() : '',
-    sourceCount
+    sourceCount,
+    sources,
   };
+}
+
+export function formatMemoryInPlaySummary(result: Pick<BuilderConversationColdContextResult, 'used' | 'sourceCount' | 'sources' | 'error'>): string {
+  if (result.error) {
+    return [
+      'Memory in play',
+      '',
+      'State: degraded',
+      `Reason: ${truncateForPrompt(result.error, 240)}`,
+      'Rule: answer from current visible chat until memory recovers.',
+    ].join('\n');
+  }
+  if (!result.used || !result.sourceCount) {
+    return [
+      'Memory in play',
+      '',
+      'State: none selected',
+      'Rule: current chat and live AOC are the active context.',
+    ].join('\n');
+  }
+  const lines = [
+    'Memory in play',
+    '',
+    `Retrieved: ${result.sourceCount} supporting source${result.sourceCount === 1 ? '' : 's'}`,
+    'Rule: current chat and live AOC override retrieved memory.',
+  ];
+  for (const source of (result.sources || []).slice(0, 4)) {
+    const time = source.timestamp ? ` time=${source.timestamp}` : '';
+    lines.push(`- ${source.source} [class=${source.sourceClass}; freshness=${source.freshness}${time}]`);
+  }
+  return lines.join('\n');
 }
 
 export function formatDiagnosticsScanReply(report: BuilderDiagnosticsScanJson): string {
@@ -1842,6 +1904,7 @@ export async function runBuilderConversationColdContext(
       used: formatted.sourceCount > 0,
       contextText: formatted.contextText,
       sourceCount: formatted.sourceCount,
+      sources: formatted.sources,
       bridgeMode: config.mode,
     };
   } catch (error) {
