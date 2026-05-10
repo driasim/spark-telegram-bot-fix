@@ -950,6 +950,12 @@ test('detects empty or generic LLM failures', () => {
     "I caught 'chip' in there but I'm not sure what you want.\n\nOptions I can actually do:\n- Run a loop on a specific chip (say 'loop <chip-key>')\n- List active chips (say 'which chips are active')"
   ), true);
   assert.equal(isLowInformationLlmReply(
+    'Spark could not reach the Builder memory path right now.\n\nCheck now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.\n\nOperator fix: spark fix telegram, then spark verify --onboarding.'
+  ), true);
+  assert.equal(isLowInformationLlmReply(
+    "You want the self-critic.\n\n- Run it now (say 'loop domain-chip-spark-ops-critic')\n- Show the last critic findings (say 'show the last loop result')"
+  ), true);
+  assert.equal(isLowInformationLlmReply(
     "Got it - a chip for:\ncreates us cool images out of ASCII patterns\n\nTap this to scaffold it (takes 30-60s):\n/chip create creates us cool images out of ASCII patterns\n\nI hand off to the slash command so you see the scaffolder's output live and can cancel if the brief needs tweaking."
   ), true);
   assert.equal(isLowInformationLlmReply('Here is a real idea.'), false);
@@ -971,6 +977,20 @@ test('suppresses memory acknowledgements for normal chat replies', () => {
   );
   assert.equal(
     shouldSuppressBuilderReplyForPlainChat('Spark Researcher returned no concrete guidance for this message.'),
+    true
+  );
+  assert.equal(
+    shouldSuppressBuilderReplyForPlainChat(
+      'Spark could not reach the Builder memory path right now.\n\nCheck now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.\n\nOperator fix: spark fix telegram, then spark verify --onboarding.',
+      'plain_chat'
+    ),
+    true
+  );
+  assert.equal(
+    shouldSuppressBuilderReplyForPlainChat(
+      "You want the self-critic.\n\n- Run it now (say 'loop domain-chip-spark-ops-critic')\n- Show the last critic findings (say 'show the last loop result')",
+      'plain_chat'
+    ),
     true
   );
   assert.equal(shouldSuppressBuilderReplyForPlainChat('I am doing well. The chat is working normally.'), false);

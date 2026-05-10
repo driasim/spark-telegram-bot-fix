@@ -1525,9 +1525,18 @@ export function isLowInformationLlmReply(reply: string): boolean {
     normalized.includes("couldn't generate") ||
     normalized.includes('having trouble thinking') ||
     (
+      normalized.includes('spark could not reach the builder memory path right now') &&
+      normalized.includes('run /diagnose')
+    ) ||
+    normalized.includes('operator fix: spark fix telegram') ||
+    (
       normalized.includes("i caught 'chip'") &&
       normalized.includes('loop <chip-key>') &&
       normalized.includes('which chips are active')
+    ) ||
+    (
+      normalized.includes('you want the self-critic') &&
+      normalized.includes('loop domain-chip-spark-ops-critic')
     ) ||
     (
       normalized.includes('tap this to scaffold') &&
