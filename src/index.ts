@@ -144,6 +144,8 @@ import {
 import { buildDiagnoseReport } from './diagnose';
 import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './authorityStatus';
 import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
+import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
+import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
 import { parseBuildIntent } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
@@ -721,6 +723,8 @@ bot.start(async (ctx) => {
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
       '/context - Show Agent Operating Context',
       '/black_box - Show compact agent black-box trace counts',
+      '/trace_repair - Show trace health repair summary',
+      '/memory_movement - Show memory movement summary',
       '/probe <route> - Run a route probe and record AOC evidence',
       '/operating_context or /agent_context - Same, Telegram-safe aliases',
       '/conversation_context - Show conversation-frame diagnostics',
@@ -1122,6 +1126,28 @@ async function handleAuthorityStatusCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleTraceRepairCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readTraceRepairSummary();
+    await ctx.reply(renderTraceRepairSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+async function handleMemoryMovementCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readMemoryMovementSummary();
+    await ctx.reply(renderMemoryMovementSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('probe', handleAgentRouteProbeCommand);
 bot.command('route_probe', handleAgentRouteProbeCommand);
 bot.command('nl_route', handleNaturalRouteProbeCommand);
@@ -1129,6 +1155,10 @@ bot.command('natural_route', handleNaturalRouteProbeCommand);
 bot.command('ledger', handleCapabilityLedgerReviewCommand);
 bot.command('capabilities', handleCapabilityGardenCommand);
 bot.command('authority', handleAuthorityStatusCommand);
+bot.command('trace_repair', handleTraceRepairCommand);
+bot.command('trace', handleTraceRepairCommand);
+bot.command('memory_movement', handleMemoryMovementCommand);
+bot.command('memory_flow', handleMemoryMovementCommand);
 
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
