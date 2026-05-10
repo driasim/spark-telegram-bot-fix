@@ -215,7 +215,7 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
     case 'agent':
       return 'Access level 3: Spark can inspect public links, docs, and GitHub repos when you ask. It can also use Spawner for explicit build requests, but not local folders.';
     case 'developer':
-      return 'Access level 4: Spark is authorized for sandboxed local work inside approved Spark workspaces. The current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
+      return 'Access level 4: Spark is authorized for sandboxed local work inside approved Spark workspaces. `spark access setup` prepares that workspace; the current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
     case 'operator':
       return 'Access level 5: Spark is authorized for whole-computer operator work on a trusted local install. This requires high-agency worker guardrails, runner writability, and extra care around secrets, destructive actions, and files outside Spark sandboxes.';
     case 'builder':
@@ -310,6 +310,7 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
     const lines = [
       `You are on ${sparkAccessLabel(profile)}.`,
       'That means Spark is authorized to work inside approved Spark sandboxes and local workspaces, plus repo inspection, debugging, public research, and requested missions.',
+      'If the workspace is not ready yet, the safe setup path is `spark access setup`.',
       runnerSummary,
       'You can say "change my access level to 3" if you want to remove sandboxed local filesystem/project access, or `/access 5` for rare whole-computer operator mode.'
     ].filter(Boolean);
@@ -374,6 +375,7 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
       'For sandboxed local workspace, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
       'Access level 4 means authorized inside approved Spark sandboxes, not automatically writable in every runner.',
+      'If the Level 4 workspace is missing, use `spark access setup` instead of dumping Docker, SSH, or filesystem commands into chat.',
       'If this runner is read-only, say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.'
     ].join('\n');
   }
@@ -428,6 +430,7 @@ export function renderSparkAccessLevelGuide(): string {
     '',
     '4. Sandboxed local projects and files (recommended for local builders)',
     '- Spark can help with projects, debugging, files, and deeper build missions inside approved Spark workspaces.',
+    '- Safe setup command: `spark access setup`.',
     '- Good when you want Spark to feel like a real local agent without handing it the whole computer.',
     '- Spark still must not reveal secrets or run destructive actions without clear approval.',
     '',

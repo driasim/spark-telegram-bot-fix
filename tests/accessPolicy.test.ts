@@ -129,6 +129,7 @@ async function main(): Promise<void> {
     assert.equal(sparkAccessLabel('developer'), 'Access level 4');
     assert.equal(sparkAccessLabel('operator'), 'Access level 5');
     assert.match(describeSparkAccessProfile('developer'), /sandboxed local work/);
+    assert.match(describeSparkAccessProfile('developer'), /spark access setup/);
     assert.match(describeSparkAccessProfile('developer'), /prove it is writable/);
     assert.match(describeSparkAccessProfile('operator'), /whole-computer operator work/);
     assert.match(describeSparkAccessProfile('agent'), /not local folders/);
@@ -143,6 +144,7 @@ async function main(): Promise<void> {
     assert.match(renderSparkAccessLevelGuide(), /research public links, docs, and GitHub repos/);
     assert.match(renderSparkAccessLevelGuide(), /recommended for local builders/);
     assert.match(renderSparkAccessLevelGuide(), /inside approved Spark workspaces/);
+    assert.match(renderSparkAccessLevelGuide(), /spark access setup/);
     assert.match(renderSparkAccessLevelGuide(), /Whole-computer operator mode/);
     assert.match(renderSparkAccessLevelGuide(), /must not reveal secrets or run destructive actions/);
     assert.match(renderSparkAccessOnboarding(), /Default right now: Access level 4/);
@@ -159,6 +161,7 @@ async function main(): Promise<void> {
     const status = renderSparkAccessBriefStatus('developer');
     assert.match(status, /You are on Access level 4/);
     assert.match(status, /approved Spark sandboxes/);
+    assert.match(status, /spark access setup/);
     assert.match(status, /change my access level to 3/);
     assert.doesNotMatch(status, /What each access level allows/);
 
@@ -249,6 +252,7 @@ async function main(): Promise<void> {
   await test('renders runtime access hints that prevent filesystem access contradictions', () => {
     assert.match(renderSparkAccessRuntimeHint('developer'), /Current Spark access: Access level 4/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /check runner writability/);
+    assert.match(renderSparkAccessRuntimeHint('developer'), /spark access setup/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /Spawner\/Codex/);
     assert.match(renderSparkAccessRuntimeHint('operator'), /Current Spark access: Access level 5/);
     assert.match(renderSparkAccessRuntimeHint('operator'), /Whole-computer operator mode/);
