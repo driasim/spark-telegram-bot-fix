@@ -240,6 +240,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
     assert.match(indexSource, /renderSparkAccessLevel5ConfirmationPrompt\(\), buildSparkAccessLevel5ConfirmKeyboard\(\)/);
     assert.match(indexSource, /bot\.action\(\/\^spark_access_level:operator:confirm/);
+    assert.match(indexSource, /I prepared the local guardrails\./);
     assert.match(indexSource, /bot\.command\('access_setup'/);
     assert.match(indexSource, /bot\.command\('docker_doctor'/);
     assert.match(indexSource, /bot\.command\('docker_smoke'/);

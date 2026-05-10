@@ -2820,10 +2820,8 @@ async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
     const reply = [
       'Access Level 5 is approved.',
       '',
-      result.reply,
-      '',
       result.needsSparkRestart
-        ? formatSparkAccessAutomaticRestartNotice('level5_enable')
+        ? ['I prepared the local guardrails.', '', formatSparkAccessAutomaticRestartNotice('level5_enable')].join('\n')
         : await renderSparkAccessChangeReply('operator'),
     ].join('\n');
     await ctx.reply(reply);
