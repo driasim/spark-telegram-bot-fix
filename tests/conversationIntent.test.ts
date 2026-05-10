@@ -502,6 +502,8 @@ test('spaces mission preference acknowledgements for Telegram scanning', () => {
 test('keeps build flow language from becoming access changes', () => {
   assert.equal(parseNaturalAccessChangeIntent('change my access level to 4'), '4');
   assert.equal(parseNaturalAccessChangeIntent('set this chat to full access'), 'full access');
+  assert.equal(parseNaturalAccessChangeIntent('set this chat to level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('switch Spark access to sandboxed local'), 'sandboxed local');
   assert.equal(
     parseNaturalAccessChangeIntent('let us build the appointment system with full access to the project brief'),
     null
@@ -1393,6 +1395,8 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('Change my access level to three please'), '3');
   assert.equal(parseNaturalAccessChangeIntent('please switch Spark access to full access'), 'full access');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 4'), '4');
+  assert.equal(parseNaturalAccessChangeIntent('raise my access to level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('switch my access to operator'), 'operator');
   assert.equal(parseNaturalAccessChangeIntent('lower my access to two'), '2');
   assert.equal(parseNaturalAccessChangeIntent('what is my access level?'), null);
   assert.equal(parseNaturalAccessChangeIntent('please remember that my access level is 3'), null);

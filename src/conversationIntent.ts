@@ -1138,25 +1138,25 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
 
   const hasExplicitAccessTarget = /\b(?:spark\s+)?access(?:\s+level|\s+profile|\s+status)?\b|\bpermissions?\b/i.test(normalized);
   const hasStrongChangeVerb = /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\b/i.test(normalized);
-  const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-4]|one|two|three|four|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|developer)\b/i.test(normalized);
+  const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer)\b/i.test(normalized);
   if (!(hasExplicitAccessTarget && hasStrongChangeVerb) && !startsAsDirectAccessChange) {
     return null;
   }
 
   const valuePatterns = [
-    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?([1-4])\b/i,
-    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?(one|two|three|four)\b/i,
-    /\b(?:to|as|into)\s+((?:chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|full|developer|agent|builder|chat))\b/i,
-    /\b(?:access\s+)?(?:level\s*)?([1-4])\b/i,
-    /\b(?:access\s+)?(?:level\s*)?(one|two|three|four)\b/i,
-    /\b(chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|full|developer|agent|builder)\b/i
+    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?([1-5])\b/i,
+    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?(one|two|three|four|five)\b/i,
+    /\b(?:to|as|into)\s+((?:chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder|chat))\b/i,
+    /\b(?:access\s+)?(?:level\s*)?([1-5])\b/i,
+    /\b(?:access\s+)?(?:level\s*)?(one|two|three|four|five)\b/i,
+    /\b(chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder)\b/i
   ];
 
   for (const pattern of valuePatterns) {
     const match = normalized.match(pattern);
     const value = match?.[1]?.trim();
     if (value) {
-      const numberWords: Record<string, string> = { one: '1', two: '2', three: '3', four: '4' };
+      const numberWords: Record<string, string> = { one: '1', two: '2', three: '3', four: '4', five: '5' };
       return numberWords[value.toLowerCase()] || value;
     }
   }
@@ -1174,8 +1174,8 @@ export function inferRecentConversationFocus(recentMessages: string[]): RecentCo
       return (
         /\bspark access\b/.test(normalized) ||
         /\baccess\s+(?:level|levels|profile|profiles)\b/.test(normalized) ||
-        /\bchanged this chat to level [1-4]\b/.test(normalized) ||
-        /\byou are on level [1-4]\b/.test(normalized)
+        /\bchanged this chat to level [1-5]\b/.test(normalized) ||
+        /\byou are on level [1-5]\b/.test(normalized)
       );
     });
   return hasAccessFocus ? 'access' : null;
@@ -1198,8 +1198,8 @@ export function parseContextualAccessChangeIntent(text: string, recentMessages: 
 
   const contextualChange =
     /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade|make|put|move)\s+(?:it|that|this|me|us|the\s+chat)\b/i.test(normalized) ||
-    /^(?:actually\s+|instead\s+|no[, ]*)?(?:do|make|set|switch|use|go\s+to|go\s+with)\s+(?:it\s+)?(?:to\s+|as\s+|at\s+)?(?:level\s+)?(?:[1-4]|one|two|three|four)\b/i.test(normalized) ||
-    /^(?:actually\s+|instead\s+|no[, ]*)?(?:level\s+)?(?:[1-4]|one|two|three|four)\b/i.test(normalized);
+    /^(?:actually\s+|instead\s+|no[, ]*)?(?:do|make|set|switch|use|go\s+to|go\s+with)\s+(?:it\s+)?(?:to\s+|as\s+|at\s+)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized) ||
+    /^(?:actually\s+|instead\s+|no[, ]*)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized);
   if (!contextualChange) {
     return null;
   }
@@ -1210,7 +1210,7 @@ export function parseContextualAccessChangeIntent(text: string, recentMessages: 
 export function hasRecentAccessCapabilityMismatch(recentMessages: string[]): boolean {
   const normalized = recentMessages.slice(-8).join('\n').toLowerCase();
   const mentionsAccess =
-    /\b(?:access\s+level|level\s*[1-4]|level\s+(?:one|two|three|four)|full\s+access|permissions?)\b/.test(normalized);
+    /\b(?:access\s+level|level\s*[1-5]|level\s+(?:one|two|three|four|five)|full\s+access|permissions?)\b/.test(normalized);
   const mentionsRuntimeCapability =
     /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach))\b/.test(normalized);
   return mentionsAccess && mentionsRuntimeCapability;
@@ -1223,7 +1223,7 @@ export function isAccessCapabilityMismatchQuestion(text: string): boolean {
   }
 
   const mentionsAccess =
-    /\b(?:access\s+level|level\s*[1-4]|level\s+(?:one|two|three|four)|full\s+access|permissions?)\b/.test(normalized);
+    /\b(?:access\s+level|level\s*[1-5]|level\s+(?:one|two|three|four|five)|full\s+access|permissions?)\b/.test(normalized);
   const mentionsRuntimeCapability =
     /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach)|confined)\b/.test(normalized);
   const namesMismatch =
@@ -1261,7 +1261,7 @@ export function isAccessHelpQuestion(text: string): boolean {
 
   const mentionsAccess =
     /\b(?:spark\s+)?access\s+(?:level|levels|profile|profiles|tier|tiers|system)\b/.test(normalized) ||
-    /\bwhat\s+can\s+(?:access\s+)?level\s*[1-4]\s+do\b/.test(normalized) ||
+    /\bwhat\s+can\s+(?:access\s+)?level\s*[1-5]\s+do\b/.test(normalized) ||
     /\bpermission\s+(?:level|levels|management|surface|system)\b/.test(normalized) ||
     /\bwhat\s+can\s+i\s+(?:unlock|do)\b.*\baccess\b/.test(normalized) ||
     /\baccess\b.*\b(?:unlock|allow|permission|permissions)\b/.test(normalized);

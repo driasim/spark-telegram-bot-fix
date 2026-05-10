@@ -26,6 +26,7 @@ import {
   sparkMissionNeedsOperatingSystemAccess,
   sparkAccessAllowsWorkspaceBuilds,
   sparkHostedFullAccessAllowed,
+  sparkHighAgencyWorkersAllowed,
   sparkIsHostedRuntime,
   validateSparkAccessProfileForRuntime
 } from '../src/accessPolicy';
@@ -58,10 +59,15 @@ async function main(): Promise<void> {
     assert.equal(normalizeSparkAccessProfile('github'), 'agent');
     assert.equal(normalizeSparkAccessProfile('research + build'), 'agent');
     assert.equal(normalizeSparkAccessProfile('research & build'), 'agent');
-    assert.equal(normalizeSparkAccessProfile('full'), 'developer');
-    assert.equal(normalizeSparkAccessProfile('full access'), 'developer');
-    assert.equal(normalizeSparkAccessProfile('operating system'), 'developer');
-    assert.equal(normalizeSparkAccessProfile('OS'), 'developer');
+    assert.equal(normalizeSparkAccessProfile('sandbox'), 'developer');
+    assert.equal(normalizeSparkAccessProfile('sandboxed local access'), 'developer');
+    assert.equal(normalizeSparkAccessProfile('full'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('full access'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('operating system'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('OS'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('level 5'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('operator'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('whole computer'), 'operator');
     assert.equal(normalizeSparkAccessProfile('local project'), 'developer');
     assert.equal(normalizeSparkAccessProfile('local repo'), 'developer');
     assert.equal(normalizeSparkAccessProfile('unknown'), null);
@@ -101,7 +107,8 @@ async function main(): Promise<void> {
       { profile: 'chat', spawnerBuild: false, externalResearch: false, operatingSystem: false },
       { profile: 'builder', spawnerBuild: true, externalResearch: false, operatingSystem: false },
       { profile: 'agent', spawnerBuild: true, externalResearch: true, operatingSystem: false },
-      { profile: 'developer', spawnerBuild: true, externalResearch: true, operatingSystem: true }
+      { profile: 'developer', spawnerBuild: true, externalResearch: true, operatingSystem: true },
+      { profile: 'operator', spawnerBuild: true, externalResearch: true, operatingSystem: true }
     ] as const;
 
     for (const row of matrix) {
@@ -115,27 +122,34 @@ async function main(): Promise<void> {
 
     assert.equal(sparkAccessAllowsWorkspaceBuilds('agent'), false);
     assert.equal(sparkAccessAllowsWorkspaceBuilds('developer'), true);
+    assert.equal(sparkAccessAllowsWorkspaceBuilds('operator'), true);
     assert.equal(sparkAccessLevel('developer'), 4);
+    assert.equal(sparkAccessLevel('operator'), 5);
     assert.equal(sparkAccessLabel('agent'), 'Access level 3');
     assert.equal(sparkAccessLabel('developer'), 'Access level 4');
-    assert.match(describeSparkAccessProfile('developer'), /authorized to use the local-agent route/);
+    assert.equal(sparkAccessLabel('operator'), 'Access level 5');
+    assert.match(describeSparkAccessProfile('developer'), /sandboxed local work/);
     assert.match(describeSparkAccessProfile('developer'), /prove it is writable/);
+    assert.match(describeSparkAccessProfile('operator'), /whole-computer operator work/);
     assert.match(describeSparkAccessProfile('agent'), /not local folders/);
     assert.match(renderSparkAccessStatus('agent'), /Spark access: Access level 3/);
     assert.match(renderSparkAccessStatus('agent'), /What each access level allows/);
-    assert.match(renderSparkAccessStatus('agent'), /\/access 4  Local projects, files, debugging, deeper missions \(recommended for local builds\)/);
+    assert.match(renderSparkAccessStatus('agent'), /\/access 4  Sandboxed local projects and files \(recommended for local builds\)/);
+    assert.match(renderSparkAccessStatus('agent'), /\/access 5  Whole-computer operator mode/);
     assert.match(renderSparkAccessStatus('builder'), /Requested builds and missions/);
     assert.match(renderSparkAccessStatus('agent'), /\/access 4/);
     assert.match(renderSparkAccessLevelGuide(), /Talk with Spark, save memories, recall notes/);
     assert.match(renderSparkAccessLevelGuide(), /start a Spawner build only after you clearly ask/);
     assert.match(renderSparkAccessLevelGuide(), /research public links, docs, and GitHub repos/);
     assert.match(renderSparkAccessLevelGuide(), /recommended for local builders/);
-    assert.match(renderSparkAccessLevelGuide(), /local projects, debugging, files/);
+    assert.match(renderSparkAccessLevelGuide(), /inside approved Spark workspaces/);
+    assert.match(renderSparkAccessLevelGuide(), /Whole-computer operator mode/);
     assert.match(renderSparkAccessLevelGuide(), /must not reveal secrets or run destructive actions/);
     assert.match(renderSparkAccessOnboarding(), /Default right now: Access level 4/);
     assert.match(renderSparkAccessOnboarding('agent'), /Choose how much access this Telegram chat has/);
     assert.match(renderSparkAccessOnboarding('agent'), /What each access level allows/);
-    assert.match(renderSparkAccessOnboarding('agent'), /\/access 4  Local projects, files, debugging, deeper missions \(recommended for local builds\)/);
+    assert.match(renderSparkAccessOnboarding('agent'), /\/access 4  Sandboxed local projects and files \(recommended for local builds\)/);
+    assert.match(renderSparkAccessOnboarding('agent'), /\/access 5  Whole-computer operator mode/);
     assert.match(renderSparkAccessOnboarding('agent'), /Default right now: Access level 3/);
     assert.match(renderSparkAccessOnboarding('developer'), /Default right now: Access level 4/);
     assert.match(renderSparkAccessOnboarding('agent'), /change this later anytime by sending \/access 1/);
@@ -144,7 +158,7 @@ async function main(): Promise<void> {
   await test('renders compact conversational access replies', () => {
     const status = renderSparkAccessBriefStatus('developer');
     assert.match(status, /You are on Access level 4/);
-    assert.match(status, /authorized to use the local-agent route/);
+    assert.match(status, /approved Spark sandboxes/);
     assert.match(status, /change my access level to 3/);
     assert.doesNotMatch(status, /What each access level allows/);
 
@@ -163,11 +177,16 @@ async function main(): Promise<void> {
     assert.match(mismatchStatus, /Current runner: read-only \(EROFS\)/);
     assert.match(mismatchStatus, /access level is permission; runner capability/);
 
+    const operatorStatus = renderSparkAccessBriefStatus('operator', { runnerWritable: 'yes' });
+    assert.match(operatorStatus, /You are on Access level 5/);
+    assert.match(operatorStatus, /whole-computer operator work/);
+
     const confirmations = [
       ['chat', 'Done - I changed this chat to Access level 1.'],
       ['builder', 'Done - I changed this chat to Access level 2.'],
       ['agent', 'Done - I changed this chat to Access level 3.'],
-      ['developer', 'Done - I changed this chat to Access level 4.']
+      ['developer', 'Done - I changed this chat to Access level 4.'],
+      ['operator', 'Done - I changed this chat to Access level 5.']
     ] as const;
     for (const [profile, expected] of confirmations) {
       const changed = renderSparkAccessChangeConfirmation(profile);
@@ -179,7 +198,8 @@ async function main(): Promise<void> {
 
     const help = renderSparkAccessConversationHelp('builder');
     assert.match(help, /currently Access level 2/);
-    assert.match(help, /Level 4: authorization for local projects/);
+    assert.match(help, /Level 4: sandboxed local projects/);
+    assert.match(help, /Level 5: whole-computer operator mode/);
     assert.match(help, /runner is read-only/);
     assert.doesNotMatch(help, /\/access 1/);
   });
@@ -230,6 +250,8 @@ async function main(): Promise<void> {
     assert.match(renderSparkAccessRuntimeHint('developer'), /Current Spark access: Access level 4/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /check runner writability/);
     assert.match(renderSparkAccessRuntimeHint('developer'), /Spawner\/Codex/);
+    assert.match(renderSparkAccessRuntimeHint('operator'), /Current Spark access: Access level 5/);
+    assert.match(renderSparkAccessRuntimeHint('operator'), /Whole-computer operator mode/);
     assert.match(renderSparkAccessRuntimeHint('agent'), /Current Spark access: Access level 3/);
     assert.match(renderSparkAccessRuntimeHint('agent'), /Use \/access 4/);
     assert.match(renderSparkAccessRuntimeHint('chat'), /Do not claim local filesystem access/);
@@ -249,6 +271,7 @@ async function main(): Promise<void> {
     assert.match(renderSparkAccessDenial('builder', 'external_research'), /change my access level to 4/);
     assert.match(renderSparkAccessDenial('agent', 'operating_system'), /operating system/);
     assert.match(renderSparkAccessDenial('agent', 'operating_system'), /change my access level to 4/);
+    assert.match(renderSparkAccessDenial('agent', 'operating_system'), /\/access 5/);
     assert.match(renderSparkAccessDenial('agent', 'operating_system'), /\/access 4/);
   });
 
@@ -261,6 +284,8 @@ async function main(): Promise<void> {
 
     assert.equal(sparkHostedFullAccessAllowed({}), false);
     assert.equal(sparkHostedFullAccessAllowed({ SPARK_ALLOW_HOSTED_FULL_ACCESS: 'true' }), true);
+    assert.equal(sparkHighAgencyWorkersAllowed({}), false);
+    assert.equal(sparkHighAgencyWorkersAllowed({ SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1' }), true);
 
     assert.deepEqual(validateSparkAccessProfileForRuntime('developer', {}), { ok: true });
     assert.deepEqual(validateSparkAccessProfileForRuntime('agent', { SPARK_LIVE_CONTAINER: '1' }), { ok: true });
@@ -271,6 +296,19 @@ async function main(): Promise<void> {
       }),
       { ok: true }
     );
+    assert.deepEqual(
+      validateSparkAccessProfileForRuntime('operator', {
+        SPARK_ALLOW_HIGH_AGENCY_WORKERS: '1'
+      }),
+      { ok: true }
+    );
+
+    const operatorDenied = validateSparkAccessProfileForRuntime('operator', {});
+    assert.equal(operatorDenied.ok, false);
+    if (!operatorDenied.ok) {
+      assert.match(operatorDenied.message, /Access level 5 is whole-computer operator mode/);
+      assert.match(operatorDenied.message, /SPARK_ALLOW_HIGH_AGENCY_WORKERS=1/);
+    }
 
     const denied = validateSparkAccessProfileForRuntime('developer', { SPARK_SPAWNER_HOST: '0.0.0.0' });
     assert.equal(denied.ok, false);

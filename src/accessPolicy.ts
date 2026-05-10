@@ -1,6 +1,6 @@
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 
-export type SparkAccessProfile = 'chat' | 'builder' | 'agent' | 'developer';
+export type SparkAccessProfile = 'chat' | 'builder' | 'agent' | 'developer' | 'operator';
 export type SparkAccessRequirement = 'spawner_build' | 'external_research' | 'operating_system';
 export type SparkRunnerWritableState = 'yes' | 'no' | 'unknown';
 
@@ -32,14 +32,33 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
       'developer',
       'dev',
       'workspace',
-      'operatingsystem',
-      'os',
       'localproject',
       'localrepo',
-      'full',
-      'fullaccess'
+      'sandbox',
+      'sandboxed',
+      'sandboxedlocal',
+      'sandboxedlocalaccess'
     ].includes(normalized)
   ) return 'developer';
+  if (
+    [
+      '5',
+      'access5',
+      'level5',
+      'accesslevel5',
+      'l5',
+      'operator',
+      'admin',
+      'root',
+      'wholecomputer',
+      'wholemachine',
+      'operatingsystem',
+      'os',
+      'full',
+      'fullaccess',
+      'computeraccess'
+    ].includes(normalized)
+  ) return 'operator';
   return null;
 }
 
@@ -81,11 +100,11 @@ export async function setSparkAccessProfile(
 }
 
 export function sparkAccessAllowsExternalResearch(profile: SparkAccessProfile): boolean {
-  return profile === 'agent' || profile === 'developer';
+  return profile === 'agent' || profile === 'developer' || profile === 'operator';
 }
 
 export function sparkAccessAllowsWorkspaceBuilds(profile: SparkAccessProfile): boolean {
-  return profile === 'developer';
+  return profile === 'developer' || profile === 'operator';
 }
 
 export function sparkAccessAllowsSpawnerBuilds(profile: SparkAccessProfile): boolean {
@@ -93,7 +112,7 @@ export function sparkAccessAllowsSpawnerBuilds(profile: SparkAccessProfile): boo
 }
 
 export function sparkAccessAllowsOperatingSystemWork(profile: SparkAccessProfile): boolean {
-  return profile === 'developer';
+  return profile === 'developer' || profile === 'operator';
 }
 
 export function sparkAccessAllows(profile: SparkAccessProfile, requirement: SparkAccessRequirement): boolean {
@@ -122,21 +141,39 @@ export function sparkHostedFullAccessAllowed(env: NodeJS.ProcessEnv = process.en
   return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_ALLOW_HOSTED_FULL_ACCESS || '').trim().toLowerCase());
 }
 
+export function sparkHighAgencyWorkersAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(env.SPARK_ALLOW_HIGH_AGENCY_WORKERS || '').trim().toLowerCase());
+}
+
 export function validateSparkAccessProfileForRuntime(
   profile: SparkAccessProfile,
   env: NodeJS.ProcessEnv = process.env
 ): { ok: true } | { ok: false; message: string } {
-  if (profile !== 'developer' || !sparkIsHostedRuntime(env) || sparkHostedFullAccessAllowed(env)) {
+  if (profile === 'operator' && !sparkHighAgencyWorkersAllowed(env)) {
+    return {
+      ok: false,
+      message: [
+        'Access level 5 is whole-computer operator mode, and it is not enabled for this runtime.',
+        '',
+        'Use /access 4 for sandboxed local work inside the Spark workspace.',
+        'Only enable Level 5 on a trusted local install after high-agency worker guardrails are ready.',
+        '',
+        'Operator override: set SPARK_ALLOW_HIGH_AGENCY_WORKERS=1 and restart Spark.'
+      ].join('\n')
+    };
+  }
+
+  if ((profile !== 'developer' && profile !== 'operator') || !sparkIsHostedRuntime(env) || sparkHostedFullAccessAllowed(env)) {
     return { ok: true };
   }
 
   return {
     ok: false,
     message: [
-      'Access level 4 is locked for hosted Spark Live right now.',
+      `${sparkAccessLabel(profile)} is locked for hosted Spark Live right now.`,
       '',
       'Use /access 3 for the default hosted experience: chat, memory, public research, and requested Spawner builds.',
-      'Only enable /access 4 on a hosted/VPS install after operator approval guardrails are ready.',
+      'Only enable local or whole-computer access on a hosted/VPS install after operator approval guardrails are ready.',
       '',
       'Operator override: set SPARK_ALLOW_HOSTED_FULL_ACCESS=1 and restart Spark Live.'
     ].join('\n')
@@ -155,8 +192,8 @@ export function sparkMissionNeedsOperatingSystemAccess(goal: string, projectPath
 export function renderSparkAccessDenial(profile: SparkAccessProfile, requirement: SparkAccessRequirement): string {
   if (requirement === 'operating_system') {
     return [
-      `This needs ${sparkAccessLabel('developer')}, but this chat is at ${sparkAccessLabel(profile)}.`,
-      'You can say "change my access level to 4" or send `/access 4` when you want Spark to work across the operating system or local projects.'
+      `This operating system request needs ${sparkAccessLabel('developer')} for sandboxed local work, or ${sparkAccessLabel('operator')} for whole-computer work, but this chat is at ${sparkAccessLabel(profile)}.`,
+      'You can say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.'
     ].join('\n');
   }
   if (requirement === 'external_research') {
@@ -178,7 +215,9 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
     case 'agent':
       return 'Access level 3: Spark can inspect public links, docs, and GitHub repos when you ask. It can also use Spawner for explicit build requests, but not local folders.';
     case 'developer':
-      return 'Access level 4: Spark is authorized to use the local-agent route for operating-system work, local project builds, debugging, repo inspection, public research, and deeper missions. The current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
+      return 'Access level 4: Spark is authorized for sandboxed local work inside approved Spark workspaces. The current runner still has to prove it is writable before Spark claims it can edit or attach files here.';
+    case 'operator':
+      return 'Access level 5: Spark is authorized for whole-computer operator work on a trusted local install. This requires high-agency worker guardrails, runner writability, and extra care around secrets, destructive actions, and files outside Spark sandboxes.';
     case 'builder':
     default:
       return 'Access level 2: Spark can use Spawner only when you clearly ask it to build something or run a mission. Public web/GitHub inspection stays off until level 3 or 4.';
@@ -193,6 +232,8 @@ export function sparkAccessLevel(profile: SparkAccessProfile): number {
       return 3;
     case 'developer':
       return 4;
+    case 'operator':
+      return 5;
     case 'builder':
     default:
       return 2;
@@ -207,6 +248,8 @@ export function sparkAccessLabel(profile: SparkAccessProfile): string {
       return 'Access level 3';
     case 'developer':
       return 'Access level 4';
+    case 'operator':
+      return 'Access level 5';
     case 'builder':
     default:
       return 'Access level 2';
@@ -224,7 +267,8 @@ export function renderSparkAccessStatus(profile: SparkAccessProfile): string {
     '/access 1  Chat, memory, recall, diagnostics',
     '/access 2  Requested builds and missions',
     '/access 3  Public research plus requested builds',
-    '/access 4  Local projects, files, debugging, deeper missions (recommended for local builds)'
+    '/access 4  Sandboxed local projects and files (recommended for local builds)',
+    '/access 5  Whole-computer operator mode (trusted local installs only)'
   ].join('\n');
 }
 
@@ -242,12 +286,14 @@ function renderRunnerCapabilitySummary(runner?: SparkAccessRunnerCapability): st
 
 export function renderSparkAccessCapabilityStatus(profile: SparkAccessProfile, runner?: SparkAccessRunnerCapability): string {
   const runnerSummary = renderRunnerCapabilitySummary(runner) || 'Current runner: not checked in this reply.';
-  const canDoLocalHere = profile === 'developer' && runner?.runnerWritable === 'yes';
+  const canDoLocalHere = (profile === 'developer' || profile === 'operator') && runner?.runnerWritable === 'yes';
   const localVerdict = canDoLocalHere
-    ? 'Verdict: Level 4 authorizes local work and this runner is writable.'
+    ? `Verdict: ${sparkAccessLabel(profile)} authorizes local work and this runner is writable.`
     : profile === 'developer'
-      ? 'Verdict: Level 4 authorizes local work, but actual edits/attachments need a writable runner or a routed Spawner/Codex mission.'
-      : `Verdict: ${sparkAccessLabel(profile)} does not authorize local operating-system work yet.`;
+      ? 'Verdict: Level 4 authorizes sandboxed local work, but actual edits/attachments need a writable runner or a routed Spawner/Codex mission.'
+      : profile === 'operator'
+        ? 'Verdict: Level 5 authorizes whole-computer work, but actual edits/attachments still need a writable runner and high-agency guardrails.'
+        : `Verdict: ${sparkAccessLabel(profile)} does not authorize local operating-system work yet.`;
 
   return [
     `Configured access: ${sparkAccessLabel(profile)}.`,
@@ -263,9 +309,19 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
   if (profile === 'developer') {
     const lines = [
       `You are on ${sparkAccessLabel(profile)}.`,
-      'That means Spark is authorized to use the local-agent route for projects, repo inspection, debugging, public research, and requested missions.',
+      'That means Spark is authorized to work inside approved Spark sandboxes and local workspaces, plus repo inspection, debugging, public research, and requested missions.',
       runnerSummary,
-      'You can say "change my access level to 3" if you want to remove local filesystem/project access.'
+      'You can say "change my access level to 3" if you want to remove sandboxed local filesystem/project access, or `/access 5` for rare whole-computer operator mode.'
+    ].filter(Boolean);
+    return lines.join('\n\n');
+  }
+
+  if (profile === 'operator') {
+    const lines = [
+      `You are on ${sparkAccessLabel(profile)}.`,
+      'That means Spark is authorized for whole-computer operator work on a trusted local install.',
+      runnerSummary,
+      'Use this rarely. Level 4 is safer for normal local builds because it stays inside approved Spark sandboxes.'
     ].filter(Boolean);
     return lines.join('\n\n');
   }
@@ -303,9 +359,10 @@ export function renderSparkAccessConversationHelp(profile: SparkAccessProfile): 
     'Level 1: chat, memory, recall, diagnostics.',
     'Level 2: requested Spawner builds.',
     'Level 3: public links/docs/GitHub research plus builds.',
-    'Level 4: authorization for local projects, files, debugging, and deeper missions.',
+    'Level 4: sandboxed local projects, files, debugging, and deeper missions.',
+    'Level 5: whole-computer operator mode for trusted local installs.',
     '',
-    'Separate from that, the current runner must be writable. If Level 4 says allowed but the runner is read-only, Spark should say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.',
+    'Separate from that, the current runner must be writable. If Level 4 or 5 says allowed but the runner is read-only, Spark should say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.',
     '',
     'You can say things like "change my access level to 3" or "what can level 4 do?"'
   ].join('\n');
@@ -315,9 +372,17 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
   if (profile === 'developer') {
     return [
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
-      'For local desktop, filesystem, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
-      'Access level 4 means authorized, not automatically writable in every runner.',
+      'For sandboxed local workspace, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
+      'Access level 4 means authorized inside approved Spark sandboxes, not automatically writable in every runner.',
       'If this runner is read-only, say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.'
+    ].join('\n');
+  }
+
+  if (profile === 'operator') {
+    return [
+      `Current Spark access: ${sparkAccessLabel(profile)}.`,
+      'Whole-computer operator mode is authorized only for trusted local installs with high-agency guardrails.',
+      'Still check runner writability before promising edits, and prefer sandboxed Level 4 unless the user explicitly needs files outside Spark workspaces.'
     ].join('\n');
   }
 
@@ -325,7 +390,7 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
     return [
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
       'Spark can research public links, docs, GitHub repos, and run requested Spawner missions.',
-      'Do not claim local filesystem access at this level. Use /access 4 when the user asks Spark to inspect local desktop files, local repos, or the operating system.'
+      'Do not claim local filesystem access at this level. Use /access 4 for sandboxed Spark workspaces, or /access 5 for whole-computer operator mode on trusted local installs.'
     ].join('\n');
   }
 
@@ -361,9 +426,14 @@ export function renderSparkAccessLevelGuide(): string {
     '- Spark can also start builds and missions you request.',
     '- Spark will not work across your computer or local project files.',
     '',
-    '4. Local projects, files, debugging, deeper missions (recommended for local builders)',
-    '- Spark can help with local projects, debugging, files, and deeper build missions.',
-    '- Good when you want Spark to feel like a real local agent.',
+    '4. Sandboxed local projects and files (recommended for local builders)',
+    '- Spark can help with projects, debugging, files, and deeper build missions inside approved Spark workspaces.',
+    '- Good when you want Spark to feel like a real local agent without handing it the whole computer.',
+    '- Spark still must not reveal secrets or run destructive actions without clear approval.',
+    '',
+    '5. Whole-computer operator mode',
+    '- Spark can work outside Spark sandboxes on trusted local installs when high-agency guardrails are enabled.',
+    '- Use this rarely, for explicit operator tasks that truly need broader filesystem access.',
     '- Spark still must not reveal secrets or run destructive actions without clear approval.'
   ].join('\n');
 }
@@ -377,9 +447,10 @@ export function renderSparkAccessOnboarding(defaultProfile: SparkAccessProfile =
     '/access 1  Chat, memory, recall, diagnostics',
     '/access 2  Requested builds and missions',
     '/access 3  Public research plus requested builds',
-    '/access 4  Local projects, files, debugging, deeper missions (recommended for local builds)',
+    '/access 4  Sandboxed local projects and files (recommended for local builds)',
+    '/access 5  Whole-computer operator mode (trusted local installs only)',
     '',
     `Default right now: ${sparkAccessLabel(defaultProfile)}.`,
-    'You can change this later anytime by sending /access 1, /access 2, /access 3, or /access 4.'
+    'You can change this later anytime by sending /access 1, /access 2, /access 3, /access 4, or /access 5.'
   ].join('\n');
 }

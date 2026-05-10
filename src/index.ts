@@ -2704,7 +2704,7 @@ bot.command('access', async (ctx) => {
 
   const next = normalizeSparkAccessProfile(raw);
   if (!next) {
-    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, or /access 4 local projects and files.');
+    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, /access 4 sandboxed local projects, or /access 5 whole-computer operator mode.');
     return;
   }
 
@@ -2723,7 +2723,7 @@ bot.command('access', async (ctx) => {
 
 async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
   const confirmation = renderSparkAccessChangeConfirmation(profile);
-  if (profile !== 'developer') {
+  if (profile !== 'developer' && profile !== 'operator') {
     return confirmation;
   }
   const runnerPreflight = await probeTelegramRunnerWritability();
@@ -2739,7 +2739,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
 
   const next = normalizeSparkAccessProfile(raw);
   if (!next) {
-    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, or /access 4 local projects and files.');
+    await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, /access 4 sandboxed local projects, or /access 5 whole-computer operator mode.');
     return true;
   }
 
