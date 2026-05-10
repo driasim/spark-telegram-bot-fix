@@ -699,6 +699,43 @@ async function run(): Promise<void> {
 		assert.match(reply, /final Mission Control handoff/);
 	});
 
+	await test('direct Telegram replies preserve the quoted target for Builder bridge', async () => {
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const indexModule: any = await import('../src/index');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let capturedText = '';
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, any>) => {
+			capturedText = String(updatePayload.message?.text || '');
+			return {
+				used: true,
+				responseText: 'Reply-aware answer',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'plain_chat'
+			};
+		};
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8421, 8319079055, 8421001, replies);
+			ctx.message.text = 'what does this mean?';
+			(ctx.message as any).reply_to_message = {
+				message_id: 7001,
+				text: 'Option 2: tighten Telegram reply targeting before using newer chat history',
+				from: { id: 1001, is_bot: true, first_name: 'Spark AGI', username: 'SparkAGI_bot' }
+			};
+			(ctx as any).update = { update_id: 8421001, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			assert.match(capturedText, /\[Telegram direct reply context\]/);
+			assert.match(capturedText, /Option 2: tighten Telegram reply targeting/);
+			assert.match(capturedText, /\[Current user message\]\s*what does this mean\?/);
+			assert.deepEqual(replies, ['Reply-aware answer']);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+		}
+	});
+
 	await test('clarification replies are natural and project-specific', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

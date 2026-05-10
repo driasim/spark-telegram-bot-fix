@@ -2692,6 +2692,36 @@ function quotedTelegramMessageText(ctx: any): string | null {
   return null;
 }
 
+function compactTelegramReplyQuote(text: string, limit = 1200): string {
+  const compacted = text.replace(/\s+/g, ' ').trim();
+  if (compacted.length <= limit) return compacted;
+  return `${compacted.slice(0, Math.max(0, limit - 16)).trim()} [truncated]`;
+}
+
+function quotedTelegramMessageAuthor(ctx: any): string {
+  const quoted = ctx?.message?.reply_to_message;
+  const from = quoted?.from;
+  if (from?.is_bot) return 'Spark';
+  if (typeof from?.first_name === 'string' && from.first_name.trim()) return from.first_name.trim();
+  if (typeof from?.username === 'string' && from.username.trim()) return `@${from.username.trim()}`;
+  return 'an earlier Telegram message';
+}
+
+export function buildTelegramReplyContextPrompt(text: string, quotedText?: string | null, quotedAuthor = 'an earlier Telegram message'): string {
+  const quote = quotedText?.trim();
+  if (!quote) return text;
+  return [
+    '[Telegram direct reply context]',
+    `The user replied directly to this message from ${quotedAuthor}:`,
+    `"${compactTelegramReplyQuote(quote)}"`,
+    '',
+    'Treat the quoted message as the primary context for this turn. Use newer chat history only as supporting context.',
+    '',
+    '[Current user message]',
+    text
+  ].join('\n');
+}
+
 export function buildQuotedMissionStatusOriginReply(text: string, quotedText?: string | null): string | null {
   if (!quotedText?.trim()) return null;
   if (!/\b(where did this come from|where is this from|what is this|what sent this|why did (?:you|spark|it) send this)\b/i.test(text)) {
@@ -2731,7 +2761,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx));
+  const quotedText = quotedTelegramMessageText(ctx);
+  const replyContextPrompt = buildTelegramReplyContextPrompt(text, quotedText, quotedTelegramMessageAuthor(ctx));
+
+  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedText);
   if (quotedOriginReply) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(quotedOriginReply);
@@ -2762,7 +2795,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       ]
     );
   }
-  let conversationFrameContext = renderConversationFrameContext(conversationFrame, 12_000);
+  let conversationFrameContext = [
+    quotedText
+      ? [
+          '[Telegram Reply Target]',
+          `Author: ${quotedTelegramMessageAuthor(ctx)}`,
+          `Message: ${compactTelegramReplyQuote(quotedText)}`
+        ].join('\n')
+      : '',
+    renderConversationFrameContext(conversationFrame, 12_000)
+  ].filter(Boolean).join('\n\n');
 
   if (earlyMemoryDoctorRequest && shouldPreferMemoryDoctorEvidenceFallback(text, earlyMemoryDoctorEvidenceTurns)) {
     const reply = renderMemoryDoctorEvidenceFallback(text, earlyMemoryDoctorEvidenceTurns);
@@ -3286,7 +3328,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
       const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-      const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+      const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || replyContextPrompt;
       const llmResponse = await llm.chat(
         ideationPrompt,
         [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
@@ -3326,6 +3368,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
             ctx.update as unknown as Record<string, unknown>,
             buildMemoryDoctorEvidencePrompt(text, earlyMemoryDoctorEvidenceTurns)
           )
+        : quotedText
+          ? buildUpdateWithText(ctx.update as unknown as Record<string, unknown>, replyContextPrompt)
         : ctx.update as unknown as Record<string, unknown>;
       builderReply = await runBuilderTelegramBridge(bridgeUpdate);
     } catch (bridgeError) {
@@ -3356,7 +3400,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
 
-    const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+    const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || replyContextPrompt;
 
     // Get LLM response with Spark context
     const response = await llm.chat(chatPrompt, renderSparkAccessRuntimeHint(accessProfile), memories);
