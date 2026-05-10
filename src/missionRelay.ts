@@ -1537,7 +1537,7 @@ export function formatMissionHeartbeatForTelegram(input: {
     if (status && !['running', 'created'].includes(status.toLowerCase())) {
       lines.push(`Mission state: ${status}.`);
     }
-  } else {
+  } else if (summary) {
     lines.push('', 'I will nudge you again when there is new signal.');
   }
 
