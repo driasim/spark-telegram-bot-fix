@@ -135,62 +135,63 @@ async function main(): Promise<void> {
     assert.equal(sparkAccessLabel('agent'), 'Access level 3');
     assert.equal(sparkAccessLabel('developer'), 'Access level 4');
     assert.equal(sparkAccessLabel('operator'), 'Access level 5');
-    assert.match(describeSparkAccessProfile('developer'), /sandboxed local work/);
+    assert.match(describeSparkAccessProfile('developer'), /Sandboxed local work/);
     assert.match(describeSparkAccessProfile('developer'), /\/access_setup/);
-    assert.match(describeSparkAccessProfile('developer'), /prove it is writable/);
-    assert.match(describeSparkAccessProfile('operator'), /whole-computer operator work/);
-    assert.match(describeSparkAccessProfile('agent'), /not local folders/);
+    assert.doesNotMatch(describeSparkAccessProfile('developer'), /prove it is writable/);
+    assert.match(describeSparkAccessProfile('operator'), /Whole-computer operator work/);
+    assert.match(describeSparkAccessProfile('agent'), /No local files/);
     assert.match(renderSparkAccessStatus('agent'), /Spark access: Access level 3/);
-    assert.match(renderSparkAccessStatus('agent'), /What each access level allows/);
-    assert.match(renderSparkAccessStatus('agent'), /\/access 4  Sandboxed local projects and files \(recommended for local builds\)/);
-    assert.match(renderSparkAccessStatus('agent'), /\/access 5  Whole-computer operator mode/);
-    assert.match(renderSparkAccessStatus('builder'), /Requested builds and missions/);
+    assert.match(renderSparkAccessStatus('agent'), /Levels:/);
+    assert.match(renderSparkAccessStatus('agent'), /4 - Workspace files and local debugging/);
+    assert.match(renderSparkAccessStatus('agent'), /5 - Whole-computer operator mode/);
+    assert.match(renderSparkAccessStatus('builder'), /Requested Spawner builds and missions/);
     assert.match(renderSparkAccessStatus('agent'), /\/access 4/);
-    assert.match(renderSparkAccessLevelGuide(), /Talk with Spark, save memories, recall notes/);
-    assert.match(renderSparkAccessLevelGuide(), /start a Spawner build only after you clearly ask/);
-    assert.match(renderSparkAccessLevelGuide(), /research public links, docs, and GitHub repos/);
-    assert.match(renderSparkAccessLevelGuide(), /recommended for local builders/);
-    assert.match(renderSparkAccessLevelGuide(), /inside approved Spark workspaces/);
+    assert.match(renderSparkAccessLevelGuide(), /Chat, memory, recall, diagnostics/);
+    assert.match(renderSparkAccessLevelGuide(), /Requested builds and missions/);
+    assert.match(renderSparkAccessLevelGuide(), /Public research plus requested builds/);
+    assert.match(renderSparkAccessLevelGuide(), /Recommended/);
     assert.match(renderSparkAccessLevelGuide(), /\/access_setup/);
     assert.match(renderSparkAccessLevelGuide(), /Whole-computer operator mode/);
-    assert.match(renderSparkAccessLevelGuide(), /must not reveal secrets or run destructive actions/);
+    assert.match(renderSparkAccessLevelGuide(), /Safety stays on/);
+    assert.ok(renderSparkAccessStatus('operator').length < 700);
+    assert.ok(renderSparkAccessStatus('operator').split('\n').length <= 14);
     assert.match(renderSparkAccessOnboarding(), /Default right now: Access level 4/);
     assert.match(renderSparkAccessOnboarding('agent'), /Choose how much access this Telegram chat has/);
-    assert.match(renderSparkAccessOnboarding('agent'), /What each access level allows/);
-    assert.match(renderSparkAccessOnboarding('agent'), /\/access 4  Sandboxed local projects and files \(recommended for local builds\)/);
-    assert.match(renderSparkAccessOnboarding('agent'), /\/access 5  Whole-computer operator mode/);
+    assert.match(renderSparkAccessOnboarding('agent'), /Levels:/);
+    assert.match(renderSparkAccessOnboarding('agent'), /4 - Workspace files and local debugging/);
+    assert.match(renderSparkAccessOnboarding('agent'), /5 - Whole-computer operator mode/);
     assert.match(renderSparkAccessOnboarding('agent'), /Default right now: Access level 3/);
     assert.match(renderSparkAccessOnboarding('developer'), /Default right now: Access level 4/);
-    assert.match(renderSparkAccessOnboarding('agent'), /change this later anytime by sending \/access 1/);
+    assert.match(renderSparkAccessOnboarding('agent'), /Change it anytime/);
   });
 
   await test('renders compact conversational access replies', () => {
     const status = renderSparkAccessBriefStatus('developer');
     assert.match(status, /You are on Access level 4/);
-    assert.match(status, /approved Spark sandboxes/);
+    assert.match(status, /approved Spark workspaces/);
     assert.match(status, /\/access_setup/);
-    assert.match(status, /change my access level to 3/);
+    assert.match(status, /\/access 3/);
     assert.doesNotMatch(status, /What each access level allows/);
 
     const writableStatus = renderSparkAccessBriefStatus('developer', {
       runnerWritable: 'yes',
       runnerLabel: 'test runner writable'
     });
-    assert.match(writableStatus, /Current runner: writable preflight passed/);
+    assert.match(writableStatus, /Runner: writable here/);
 
     const mismatchStatus = renderSparkAccessCapabilityStatus('developer', {
       runnerWritable: 'no',
       runnerLabel: 'test runner read-only',
       failureReason: 'EROFS'
     });
-    assert.match(mismatchStatus, /Configured access: Access level 4/);
-    assert.match(mismatchStatus, /Current runner: read-only \(EROFS\)/);
+    assert.match(mismatchStatus, /Access: Access level 4/);
+    assert.match(mismatchStatus, /Runner: read-only \(EROFS\)/);
     assert.doesNotMatch(mismatchStatus, /Important distinction/);
     assert.doesNotMatch(mismatchStatus, /AOC should show/);
 
     const operatorStatus = renderSparkAccessBriefStatus('operator', { runnerWritable: 'yes' });
     assert.match(operatorStatus, /You are on Access level 5/);
-    assert.match(operatorStatus, /whole-computer operator work/);
+    assert.match(operatorStatus, /whole-computer operator work/i);
 
     const operatorChange = renderSparkAccessChangeSummary('operator', { runnerWritable: 'yes' });
     assert.match(operatorChange, /Done - I changed this chat to Access level 5/);
@@ -218,11 +219,11 @@ async function main(): Promise<void> {
     }
 
     const help = renderSparkAccessConversationHelp('builder');
-    assert.match(help, /currently Access level 2/);
-    assert.match(help, /Level 4: sandboxed local projects/);
-    assert.match(help, /Level 5: whole-computer operator mode/);
-    assert.match(help, /runner is read-only/);
-    assert.doesNotMatch(help, /\/access 1/);
+    assert.match(help, /This chat is on Access level 2/);
+    assert.match(help, /4 - Workspace files and local debugging/);
+    assert.match(help, /5 - Whole-computer operator mode/);
+    assert.match(help, /writable runner/);
+    assert.match(help, /\/access 1/);
     assert.doesNotMatch(renderSparkAccessLevelGuide(), /\/level5_setup/);
     assert.match(renderSparkAccessLevelGuide(), /\/access 5/);
 
