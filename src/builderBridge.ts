@@ -683,6 +683,24 @@ function shouldIncludeColdMemoryItem(item: Record<string, unknown>): boolean {
   return true;
 }
 
+function coldMemorySourceMeta(item: Record<string, unknown>): string {
+  const sourceClass = stringValue(item.source_class) || 'unknown_source';
+  const freshness =
+    stringValue(item.freshness) ||
+    stringValue(item.freshness_status) ||
+    stringValue(item.status) ||
+    'supporting';
+  const timestamp =
+    stringValue(item.timestamp) ||
+    stringValue(item.created_at) ||
+    stringValue(item.updated_at);
+  return [
+    `class=${sourceClass}`,
+    `freshness=${freshness}`,
+    timestamp ? `time=${timestamp}` : ''
+  ].filter(Boolean).join('; ');
+}
+
 export function formatConversationColdMemoryContext(payload: unknown, maxChars = 3000): {
   contextText: string;
   sourceCount: number;
@@ -714,7 +732,7 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
       const lane = stringValue(item.lane) || 'memory';
       const predicate = stringValue(item.predicate);
       const source = predicate ? `${lane}/${predicate}` : lane;
-      const line = `- ${source}: ${text}`;
+      const line = `- ${source} [${coldMemorySourceMeta(item)}]: ${text}`;
       if (usedChars + sectionLines.join('\n').length + line.length > maxChars) {
         break;
       }

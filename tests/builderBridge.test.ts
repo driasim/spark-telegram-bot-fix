@@ -101,6 +101,8 @@ test('formats authoritative cold memory context for prompt injection', () => {
               lane: 'recent_conversation',
               source_class: 'recent_conversation',
               predicate: 'conversation.focus',
+              freshness: 'recent',
+              timestamp: '2026-05-10T00:00:00Z',
               text: 'The user was choosing between access level 3 and level 4.'
             }
           ]
@@ -111,7 +113,9 @@ test('formats authoritative cold memory context for prompt injection', () => {
 
   assert.equal(result.sourceCount, 1);
   assert.match(result.contextText, /\[Spark Cold Memory Context\]/);
+  assert.match(result.contextText, /Newer conversation frame context wins/);
   assert.match(result.contextText, /recent_conversation\/conversation\.focus/);
+  assert.match(result.contextText, /\[class=recent_conversation; freshness=recent; time=2026-05-10T00:00:00Z\]/);
   assert.match(result.contextText, /access level 3 and level 4/);
 });
 
