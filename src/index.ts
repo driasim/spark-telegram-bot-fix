@@ -1951,6 +1951,11 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string): Promi
 
   const action = parsePendingCreatorMissionAction(text);
   if (!action) return false;
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return true;
+  }
   await conversation.remember(ctx.from, text).catch(() => {});
   await safeSendChatAction(ctx, 'typing');
 
@@ -2314,6 +2319,12 @@ bot.command('models', async (ctx) => {
 
 bot.command('board', async (ctx) => {
   if (!requireAdmin(ctx)) return;
+
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
+  }
 
   await safeSendChatAction(ctx, 'typing');
   const result = await spawner.board();
@@ -2884,6 +2895,12 @@ bot.command('mission', async (ctx) => {
     return ctx.reply('Use a real mission ID from /board, for example: /mission status spark-1776768300668 or /mission status mission-creator-1776768300668');
   }
 
+  const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+  if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+    await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+    return;
+  }
+
   await safeSendChatAction(ctx, 'typing');
   const result = await spawner.missionCommand(action, missionId);
   if (result.success && action === 'kill') {
@@ -3261,6 +3278,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const accessPreference = parseNaturalAccessChangeIntent(text);
       const normalizedAccessPreference = accessPreference ? normalizeSparkAccessProfile(accessPreference) : null;
       if (normalizedAccessPreference) {
+        const runtimeGate = validateSparkAccessProfileForRuntime(normalizedAccessPreference);
+        if (!runtimeGate.ok) {
+          await ctx.reply(runtimeGate.message);
+          return;
+        }
         await setSparkAccessProfile(ctx.chat.id, normalizedAccessPreference);
       }
       const buildPreference = parseMissionUpdatePreferenceIntent(text, { allowExecutionLanguage: true });
@@ -3368,6 +3390,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const spawnerBoardIntent = parseSpawnerBoardNaturalIntent(text);
     if (spawnerBoardIntent) {
+      const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+      if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+        await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
+        return;
+      }
+
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'

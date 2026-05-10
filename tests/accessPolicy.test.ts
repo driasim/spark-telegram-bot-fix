@@ -223,6 +223,37 @@ async function main(): Promise<void> {
     assert.match(indexSource, /renderSparkAccessCapabilityStatus\(profile, runnerPreflight\)/);
   });
 
+  await test('gates Spawner command side doors by access level', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+
+    const pendingCreatorControl = indexSource.match(/async function handlePendingCreatorMissionControl[\s\S]*?\nfunction isPendingClarificationFollowup/);
+    assert.ok(pendingCreatorControl, 'expected pending creator mission control handler to exist');
+    assert.match(pendingCreatorControl[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
+    assert.match(pendingCreatorControl[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
+
+    const boardCommand = indexSource.match(/bot\.command\('board', async \(ctx\) => \{[\s\S]*?\n\}\);/);
+    assert.ok(boardCommand, 'expected /board command handler to exist');
+    assert.match(boardCommand[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
+
+    const missionCommand = indexSource.match(/bot\.command\('mission', async \(ctx\) => \{[\s\S]*?\n\}\);/);
+    assert.ok(missionCommand, 'expected /mission command handler to exist');
+    assert.match(missionCommand[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
+
+    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseSpawnerBoardNaturalIntent\(text\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
+    assert.ok(naturalBoardRoute, 'expected natural Spawner board route to exist');
+    assert.match(naturalBoardRoute[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
+    assert.match(naturalBoardRoute[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
+  });
+
+  await test('validates mixed access change and build intents before mutating access', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    const buildIntentRoute = indexSource.match(/if \(buildIntent\) \{\s*console\.log\(`\[BuildIntent\][\s\S]*?await handleBuildIntent\(/);
+    assert.ok(buildIntentRoute, 'expected main build intent route to exist');
+    assert.match(buildIntentRoute[0], /validateSparkAccessProfileForRuntime\(normalizedAccessPreference\)/);
+    assert.match(buildIntentRoute[0], /await ctx\.reply\(runtimeGate\.message\)/);
+    assert.match(buildIntentRoute[0], /await setSparkAccessProfile\(ctx\.chat\.id, normalizedAccessPreference\)/);
+  });
+
   await test('agent operating context uses Telegram-safe command aliases', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     const distIndexSource = await readFile(path.join(__dirname, '..', 'dist', 'index.js'), 'utf8');
