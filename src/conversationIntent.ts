@@ -12,6 +12,7 @@ const COLLABORATIVE_IDEA_PATTERNS = [
   /\bmaybe\s+we\s+should\s+(?:build|make|create)\b/i,
   /\b(?:should|could)\s+we\s+(?:build|make|create)\b.*\b(?:first\s+version|mvp|v1)\b/i,
   /\bwhat\s+would\s+you\s+(?:build|make|create|suggest)\b/i,
+  /\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:\d+|one|two|three|four|five|a\s+few|some)\s+(?:build\s+)?ideas?\b/i,
   /\bwhat\s+would\s+(?:the\s+)?(?:first\s+version|mvp|v1)\s+be\b/i,
   /\bwhat\s+would\s+be\s+(?:the\s+)?(?:best\s+)?(?:first\s+version|mvp|v1)\b/i,
   /\b(?:first\s+version|mvp|v1)\b.*\b(?:be|look|feel|include|work)\b/i,
@@ -261,10 +262,10 @@ function isVoiceOnboardingSetupQuestion(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
   const simplified = normalized.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   return (
-    /\bvoice\b/.test(simplified) &&
+    /\b(?:voice|elevenlabs|spark voice comms|spark voice|tts)\b/.test(simplified) &&
     (
-      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(normalized) ||
-      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(simplified)
+      /\b(?:set up|setup|configure|onboard|onboarding|prepare|path|env|key|clean file)\b/.test(normalized) ||
+      /\b(?:set up|setup|configure|onboard|onboarding|prepare|path|env|key|clean file)\b/.test(simplified)
     )
   );
 }
@@ -975,6 +976,9 @@ function hasKnownLocalSparkSurface(text: string): boolean {
 }
 
 function isProjectLocalhostRequest(normalized: string): boolean {
+  if (/\b(?:do\s+not|don't|dont)\s+open\s+files?\b/.test(normalized)) {
+    return false;
+  }
   return /\b(?:localhost|local\s*host|local\s+url|open|link)\b/.test(normalized) &&
     /\b(?:project|app|website|site|build|built|shipped|beauty|centre|center|thing|it)\b/.test(normalized) &&
     !/\b(?:spawner|mission board|mission control|kanban|canvas|diagnostic|diagnostics)\b/.test(normalized);
@@ -1124,7 +1128,10 @@ export function isDiagnosticsScanRequest(text: string): boolean {
     /\bspark-intelligence\s+diagnostics\s+scan\b/.test(normalized) ||
     (
       /\b(?:run|start|kick\s+off|execute|do)\b/.test(normalized) &&
-      /\b(?:fresh|new|another|the)?\s*diagnostics?\s+scan\b/.test(normalized)
+      (
+        /\b(?:fresh|new|another|the)?\s*diagnostics?\s+scan\b/.test(normalized) ||
+        /\bdiagnostics?\s+(?:now|please|again)\b/.test(normalized)
+      )
     )
   );
 }
@@ -1431,10 +1438,13 @@ export function isExternalResearchRequest(text: string): boolean {
   const hasExternalTarget =
     /https?:\/\/(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+/i.test(text) ||
     /\bgithub\.com\/[\w.-]+\/[\w.-]+\b/i.test(text) ||
-    /\b[\w.-]+\/[\w.-]+\b/.test(normalized) && /\b(?:github|repo|repository)\b/.test(normalized);
+    /\b[\w.-]+\/[\w.-]+\b/.test(normalized) && /\b(?:github|repo|repository)\b/.test(normalized) ||
+    /\b(?:openclaw|hermes)\b/.test(normalized) && /\b(?:docs?|documentation|repos?|repositories|github|codebase|source\s+code)\b/.test(normalized) ||
+    /\b(?:research|look\s+up|search|find)\b/.test(normalized) && /\b(?:today|latest|current|now|recent|people\s+are\s+saying|web|internet|online|public)\b/.test(normalized);
   if (!hasExternalTarget) return false;
+  if (shouldPreferConversationalIdeation(text)) return false;
 
-  return /\b(?:visit|open|check|check out|look at|look into|inspect|read|analyze|review|browse|pull up|can you)\b/i.test(text);
+  return /\b(?:visit|open|check|check out|look at|look into|inspect|read|analyze|review|browse|pull up|research|look\s+up|search|find|can you)\b/i.test(text);
 }
 
 export function buildExternalResearchGoal(currentText: string, recentMessages: string[]): string {
@@ -1505,6 +1515,13 @@ function hasMissionExecutionLanguage(normalized: string): boolean {
   );
 }
 
+function isMissionUpdatePreferenceCommand(normalized: string): boolean {
+  return (
+    /\bmission\s+updates?\b.*\b(?:verbose|detailed|minimal|quiet|normal|standard)\b/.test(normalized) ||
+    /\b(?:verbose|detailed|minimal|quiet|normal|standard)\b.*\bmission\s+updates?\b/.test(normalized)
+  );
+}
+
 export function parseMissionUpdatePreferenceIntent(
   text: string,
   options: { allowExecutionLanguage?: boolean } = {}
@@ -1514,7 +1531,7 @@ export function parseMissionUpdatePreferenceIntent(
   }
 
   const normalized = text.trim().toLowerCase();
-  if (!options.allowExecutionLanguage && hasMissionExecutionLanguage(normalized)) {
+  if (!options.allowExecutionLanguage && hasMissionExecutionLanguage(normalized) && !isMissionUpdatePreferenceCommand(normalized)) {
     return null;
   }
   if (!/\b(?:mission|missions|spawner|canvas|board|kanban|telegram|updates?|notify|notifications?|links?)\b/.test(normalized)) {
@@ -1829,6 +1846,7 @@ export function extractAgentDoctrinePreference(text: string): string | null {
   }
 
   const patterns = [
+    /\bi\s+prefer\s+when\s+you\s+(.+)$/i,
     /\b(?:from now on|going forward|for future replies|in future replies|for my agent|when you talk to me|with me)\s*,?\s*(.+)$/i,
     /\b(?:let'?s\s+)?keep\s+(?:things|replies|answers|our\s+chat|this\s+agent|my\s+agent|the\s+agent)\s+(?:always\s+)?(.+)$/i,
     /\b(?:remember|save|keep|store)\s+(?:this\s+)?(?:as\s+)?(?:my\s+)?(?:agent\s+)?(?:personality|style|tone|format|interaction|collaboration|working|reply|response|communication)\s+(?:preference|rule|doctrine|guidance)?\s*[:,-]?\s*(.+)$/i,

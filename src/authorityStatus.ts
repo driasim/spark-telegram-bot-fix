@@ -109,7 +109,7 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
       'Authority view is not compiled yet.',
       '',
       'Move',
-      '• Run `spark os compile`, then try `/authority` again.'
+      '- Run `spark os compile`, then try `/authority` again.'
     ].join('\n');
   }
 
@@ -126,16 +126,16 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
     headline,
     '',
     'State',
-    `• Access L${summary.defaultAccessLevel}; lane ${summary.defaultSandboxLane}`,
-    `• ${summary.telegramProfileCount} Telegram access profiles; ${summary.spawnerLaneCount} Spawner lanes`,
-    `• ${browserLine}`,
-    `• ${summary.toxicPairCount} toxic capability pairs; ${publicationLine}`,
+    `- Access L${summary.defaultAccessLevel}; lane ${summary.defaultSandboxLane}`,
+    `- ${summary.telegramProfileCount} Telegram access profiles; ${summary.spawnerLaneCount} Spawner lanes`,
+    `- ${browserLine}`,
+    `- ${summary.toxicPairCount} toxic capability pairs; ${publicationLine}`,
     '',
     'Review',
-    '• This is evidence, not permission.',
-    '• High-agency actions still need source policy, runner state, confirmation, and trace.',
+    '- This is evidence, not permission.',
+    '- High-agency actions still need source policy, runner state, confirmation, and trace.',
     '',
     'Workspace',
-    '• Full evidence: `spark os authority --json`'
+    '- Full evidence: `spark os authority --json`'
   ].join('\n');
 }

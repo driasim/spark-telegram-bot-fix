@@ -111,11 +111,14 @@ function isConcreteProjectBuild(normalized: string): boolean {
 }
 
 function isExplicitAccessChange(normalized: string): boolean {
-  return /^(?:please\s+)?(?:change|set|switch|raise|lower)\s+(?:my\s+|this\s+chat\s+|spark\s+)?access\b/.test(normalized);
+  return (
+    /^(?:please\s+)?(?:change|set|switch|raise|lower)\s+(?:my\s+|our\s+|this\s+chat\s+|the\s+chat\s+|spark\s+)?access\b/.test(normalized) ||
+    /^(?:please\s+)?(?:change|set|switch|raise|lower)\s+(?:me|us|this\s+chat|the\s+chat|it|that)\s+(?:to|as|into|onto)\s+(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|operator|developer|builder|agent|chat)\b/.test(normalized)
+  );
 }
 
 function isExplicitDiagnosticRun(normalized: string): boolean {
-  return /^(?:please\s+)?(?:run|start|perform)\s+(?:a\s+)?(?:fresh\s+)?diagnostics?(?:\s+scan)?\b/.test(normalized);
+  return /^(?:please\s+)?(?:run|start|perform)\s+(?:a\s+)?(?:fresh\s+)?diagnostics?(?:\s+scan)?(?:\s+(?:now|please|again))?\b/.test(normalized);
 }
 
 function isShortConfirmation(normalized: string): boolean {
@@ -141,14 +144,27 @@ function isBoundedOperatorProbe(normalized: string): boolean {
     /\bcheck\s+whether\b.*\bdesktop\b.*\bexists\b/.test(normalized) &&
     /\blist\s+only\s+the\s+first\s+\d+\s+top[-\s]+level\s+folder\s+names\b/.test(normalized) &&
     /\b(?:do\s+not|don't|dont)\s+open\s+files\b/.test(normalized) &&
-    /\b(?:do\s+not|don't|dont)\s+read\s+file\s+contents\b/.test(normalized)
+    (
+      /\b(?:do\s+not|don't|dont)\s+read\s+file\s+contents\b/.test(normalized) ||
+      /\b(?:do\s+not|don't|dont)\s+open\s+files\s+or\s+read\s+file\s+contents\b/.test(normalized)
+    )
   );
 }
 
 function isExplicitExternalResearch(normalized: string): boolean {
   return (
     /\b(?:look\s+(?:at|into)|research|inspect|compare|study|analy[sz]e|dig\s+(?:into|deep\s+into))\b/.test(normalized) &&
-    /\b(?:docs?|documentation|repos?|repositories|github|codebases?|source\s+code|openclaw|hermes)\b/.test(normalized)
+    (
+      /\b(?:docs?|documentation|repos?|repositories|github|codebases?|source\s+code|openclaw|hermes)\b/.test(normalized) ||
+      /\b(?:today|latest|current|recent|people\s+are\s+saying|web|internet|online|public)\b/.test(normalized)
+    )
+  );
+}
+
+function isMissionPreferenceLike(normalized: string): boolean {
+  return (
+    /\b(?:mission|missions|spawner|canvas|board|kanban|telegram|notify|notifications?|links?)\b/.test(normalized) &&
+    /\b(?:updates?|notify|notifications?|links?|send|include|without|verbose|detailed|minimal|quiet|normal|standard|telegram only|start and end|start\s*\/\s*end)\b/.test(normalized)
   );
 }
 
@@ -174,6 +190,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
 
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {
     return { allow: true, reason: 'concrete_project_build', confidence: 'explicit' };
+  }
+  if (route === 'spawner.build' && isMissionPreferenceLike(normalized)) {
+    return { allow: false, reason: 'mission_preference_not_build', confidence: 'blocked' };
   }
   if (route === 'access.change' && isExplicitAccessChange(normalized)) {
     return { allow: true, reason: 'explicit_access_change', confidence: 'explicit' };

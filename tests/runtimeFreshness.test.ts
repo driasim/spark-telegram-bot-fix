@@ -103,12 +103,18 @@ test('default runtime freshness paths cover conversational routing and sync guar
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('spark.toml'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/routeFirewall.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/routeArbiter.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/conversationSmoke.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/operatorActions.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/memoryDoctorBridge.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/recursive.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/pathLoop.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/runtimeFreshnessCheck.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/realtimeConversationSmoke.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/realtime-conversation-smoke.json'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/routeFirewall.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/routeArbiter.js'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/conversationSmoke.js'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/operatorActions.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/memoryDoctorBridge.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/recursive.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/pathLoop.js'));

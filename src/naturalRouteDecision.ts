@@ -44,6 +44,7 @@ import type {
   NaturalRecursiveCommandTarget
 } from './conversationIntent';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
+import { parseSafeOperatorAction } from './operatorActions';
 import type { ShippedProjectContext } from './shippedProjectContext';
 
 export type NaturalRouteOwnerSystem =
@@ -184,6 +185,32 @@ function routeAllowed(route: DeterministicRouteId, text: string): boolean {
 function routeBlockedByFirewall(text: string, route: DeterministicRouteId): NaturalRouteDecision {
   const verdict = evaluateDeterministicRoute(route, text);
   return noRoute(text, [`route_firewall:${verdict.reason}`]);
+}
+
+function parseNaturalProviderRun(text: string): { providers: string[]; goal: string } | null {
+  const normalized = text.trim();
+  if (!normalized) return null;
+  const lower = normalized.toLowerCase();
+  const providerNames = ['claude', 'codex', 'minimax', 'zai', 'glm', 'openrouter'];
+  const provider = providerNames.find((name) => (
+    lower.startsWith(`${name} `) ||
+    lower.startsWith(`${name},`) ||
+    lower.startsWith(`ask ${name} `)
+  ));
+  if (provider) {
+    const goal = normalized
+      .replace(new RegExp(`^ask\\s+${provider}\\s+(?:to\\s+)?`, 'i'), '')
+      .replace(new RegExp(`^${provider}[,\\s:]+`, 'i'), '')
+      .trim();
+    return goal ? { providers: [provider], goal } : null;
+  }
+
+  const allModels = normalized.match(/^all\s+models?\s*:\s*(.+)$/i);
+  if (allModels?.[1]?.trim()) {
+    return { providers: ['minimax', 'zai', 'claude', 'codex'], goal: allModels[1].trim() };
+  }
+
+  return null;
 }
 
 export function decideNaturalRoute(
@@ -346,6 +373,22 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['access_help_question'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  const safeOperatorAction = parseSafeOperatorAction(normalized);
+  if (safeOperatorAction) {
+    if (!routeAllowed('operator.safe_action', normalized)) return routeBlockedByFirewall(normalized, 'operator.safe_action');
+    return decision({
+      route: 'operator.safe_action',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'operator.safe_action',
+      payload: { kind: safeOperatorAction.kind },
+      context_source: 'latest_message',
+      matched_signals: ['bounded_operator_probe'],
       blocked_by: [],
       requires_confirmation: false
     });
@@ -577,6 +620,24 @@ export function decideNaturalRoute(
     });
   }
 
+  const missionPreference = parseMissionUpdatePreferenceIntent(normalized, {
+    allowExecutionLanguage: context.allowMissionPreferenceExecutionLanguage
+  });
+  if (missionPreference) {
+    if (!routeAllowed('mission_updates.preference', normalized)) return routeBlockedByFirewall(normalized, 'mission_updates.preference');
+    return decision({
+      route: 'mission_updates.preference',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'mission_updates.preference',
+      payload: { ...missionPreference },
+      context_source: 'latest_message',
+      matched_signals: ['mission_update_preference'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
   const spawnerBoard = parseSpawnerBoardNaturalIntent(normalized);
   if (spawnerBoard) {
     return decision({
@@ -635,24 +696,6 @@ export function decideNaturalRoute(
     });
   }
 
-  const missionPreference = parseMissionUpdatePreferenceIntent(normalized, {
-    allowExecutionLanguage: context.allowMissionPreferenceExecutionLanguage
-  });
-  if (missionPreference) {
-    if (!routeAllowed('mission_updates.preference', normalized)) return routeBlockedByFirewall(normalized, 'mission_updates.preference');
-    return decision({
-      route: 'mission_updates.preference',
-      owner_system: 'spark-telegram-bot',
-      confidence: 'explicit',
-      action: 'mission_updates.preference',
-      payload: { ...missionPreference },
-      context_source: 'latest_message',
-      matched_signals: ['mission_update_preference'],
-      blocked_by: [],
-      requires_confirmation: false
-    });
-  }
-
   if (isDiagnosticsScanRequest(normalized)) {
     if (!routeAllowed('diagnostics.scan', normalized)) return routeBlockedByFirewall(normalized, 'diagnostics.scan');
     return decision({
@@ -663,6 +706,22 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['diagnostics_scan_request'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  const providerRun = parseNaturalProviderRun(normalized);
+  if (providerRun) {
+    if (!routeAllowed('natural_run', normalized)) return routeBlockedByFirewall(normalized, 'natural_run');
+    return decision({
+      route: 'natural_run',
+      owner_system: 'spawner-ui',
+      confidence: 'explicit',
+      action: 'natural_run',
+      payload: { providers: providerRun.providers, goal: providerRun.goal },
+      context_source: 'latest_message',
+      matched_signals: ['natural_provider_run'],
       blocked_by: [],
       requires_confirmation: false
     });
