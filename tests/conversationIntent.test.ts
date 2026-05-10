@@ -91,6 +91,10 @@ test('routes collaborative mission wording to conversation instead of command he
     ),
     true
   );
+  assert.equal(
+    shouldPreferConversationalIdeation('how do we make setup automatic without making the bot run a command instantly?'),
+    true
+  );
 });
 
 test('keeps explicit build specs on the build path', () => {
@@ -1417,6 +1421,8 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('lower my access to two'), '2');
   assert.equal(parseNaturalAccessChangeIntent('what is my access level?'), null);
   assert.equal(parseNaturalAccessChangeIntent('please remember that my access level is 3'), null);
+  assert.equal(parseNaturalAccessChangeIntent('does access 5 really switch the harness CLI into full access?'), null);
+  assert.equal(parseNaturalAccessChangeIntent('how should access 4 setup work for users?'), null);
 });
 
 test('resolves contextual access change follow-ups from recent access turns', () => {

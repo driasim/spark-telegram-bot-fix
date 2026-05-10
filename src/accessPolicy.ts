@@ -358,10 +358,11 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
 
   if (profile === 'operator') {
     const lines = [
-      `You are on ${sparkAccessLabel(profile)}.`,
-      'Spark is authorized for whole-computer operator work on this trusted install.',
+      `You are already on ${sparkAccessLabel(profile)}.`,
+      '\u2022 Whole-computer operator mode is active for this trusted install.',
       runnerSummary,
-      'Still asks before deleting important files, exposing secrets, publishing, or deploying.'
+      '\u2022 Safety checks still stay on for secrets, deletes, publishing, and deploys.',
+      'Use `/access 4` to return to the safer workspace sandbox.'
     ].filter(Boolean);
     return lines.join('\n\n');
   }

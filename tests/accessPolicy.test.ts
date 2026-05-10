@@ -190,8 +190,10 @@ async function main(): Promise<void> {
     assert.doesNotMatch(mismatchStatus, /AOC should show/);
 
     const operatorStatus = renderSparkAccessBriefStatus('operator', { runnerWritable: 'yes' });
-    assert.match(operatorStatus, /You are on Access level 5/);
-    assert.match(operatorStatus, /whole-computer operator work/i);
+    assert.match(operatorStatus, /You are already on Access level 5/);
+    assert.match(operatorStatus, /Whole-computer operator mode is active/i);
+    assert.match(operatorStatus, /Runner: writable here/);
+    assert.match(operatorStatus, /Use `\/access 4`/);
 
     const operatorChange = renderSparkAccessChangeSummary('operator', { runnerWritable: 'yes' });
     assert.match(operatorChange, /Done - I changed this chat to Access level 5/);

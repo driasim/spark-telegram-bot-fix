@@ -83,10 +83,10 @@ const ACTION_COMMANDS: Record<SparkAccessActionId, string> = {
 
 const ACTION_LABELS: Record<SparkAccessActionId, string> = {
   workspace_setup: 'Set up safe workspace',
-  docker_doctor: 'Check Docker',
-  docker_smoke: 'Test Docker sandbox',
-  level5_enable: 'Prepare Level 5',
-  level5_disable: 'Disable Level 5',
+  docker_doctor: 'Check runner',
+  docker_smoke: 'Test sandbox',
+  level5_enable: 'Confirm Access Level 5',
+  level5_disable: 'Return to Level 4',
 };
 
 export function accessActionNeedsConfirmation(actionId: SparkAccessActionId): boolean {
@@ -154,7 +154,7 @@ export function buildSparkAccessConfirmationKeyboard(actionId: SparkAccessAction
     reply_markup: {
       inline_keyboard: [[
         {
-          text: `Confirm: ${sparkAccessActionLabel(actionId)}`,
+          text: actionId === 'level5_enable' ? 'Confirm Access Level 5' : `Confirm: ${sparkAccessActionLabel(actionId)}`,
           callback_data: `spark_access:${actionId}:confirm`,
         },
       ]],

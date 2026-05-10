@@ -213,7 +213,11 @@ test('keeps route/access/sandbox design talk out of deterministic build and acce
     'how can we make sure that access level 4 does create the right setup for access level to be really 4',
     'keep it simple can we make sure that access level 4 gets the access level 4',
     'is this the best way to create a sandbox are you sure',
-    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'
+    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?',
+    'what should restart Spark mean for nontechnical users after access 5 confirmation?',
+    'how should Docker, SSH, and Modal fit into the access state machine?',
+    'does access 5 really switch the harness CLI into full access across Mac Windows and Ubuntu?',
+    'audit whether setup and restart words hijack chat into instant deterministic answers'
   ];
 
   for (const prompt of prompts) {
@@ -231,14 +235,20 @@ test('keeps route/access/sandbox design talk out of Spark self-improvement actio
     'how can we make sure that access level 4 does create the right setup for access level to be really 4',
     'keep it simple can we make sure that access level 4 gets the access level 4',
     'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?',
-    'How should local workspace access, Docker build, and tests fit into the AOC design?'
+    'How should local workspace access, Docker build, and tests fit into the AOC design?',
+    'what should restart Spark mean for users in the Level 5 flow?',
+    'how do we make setup automatic without making the bot run a command instantly?',
+    'does the access state machine handle Docker sandbox migration correctly?'
   ];
 
   for (const prompt of prompts) {
     const route = decideNaturalRoute(prompt);
-    assert.equal(route.route, 'plain_chat', prompt);
+    assert.ok(['plain_chat', 'conversation.ideation'].includes(route.route), prompt);
     assert.notEqual(route.route, 'spark.self_improvement', prompt);
+    assert.notEqual(route.route, 'spawner.build', prompt);
+    assert.notEqual(route.route, 'access.change', prompt);
     assert.notEqual(route.route, 'diagnostics.followup_test', prompt);
+    assert.equal(route.requires_confirmation, false, prompt);
     assert.notEqual(route.action, 'spark.self_improvement', prompt);
     assert.notEqual(route.action, 'diagnostics.followup_test', prompt);
   }

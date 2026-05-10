@@ -51,7 +51,12 @@ export function shouldPreferConversationalIdeation(text: string): boolean {
     return false;
   }
   const mentionsDomainChipArtifact = /\bdomain[-\s]*chip[-\w]*\b/i.test(trimmed);
-  return hasLocalOptionReference(trimmed) || mentionsDomainChipArtifact || COLLABORATIVE_IDEA_PATTERNS.some((pattern) => pattern.test(trimmed));
+  return (
+    hasLocalOptionReference(trimmed) ||
+    mentionsDomainChipArtifact ||
+    isAccessSandboxRouteDesignDiscussion(trimmed) ||
+    COLLABORATIVE_IDEA_PATTERNS.some((pattern) => pattern.test(trimmed))
+  );
 }
 
 export function isSparkWikiStatusQuestion(text: string): boolean {
@@ -240,7 +245,7 @@ function isAccessSandboxRouteDesignDiscussion(text: string): boolean {
   if (!normalized) return false;
 
   const mentionsAccessOrSandbox =
-    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
+    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|setup|restart|command|commands|terminal|powershell|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
   if (!mentionsAccessOrSandbox) return false;
 
   const asksToDiscussOrVerify =
@@ -1157,9 +1162,12 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
   }
 
   const hasExplicitAccessTarget = /\b(?:spark\s+)?access(?:\s+level|\s+profile|\s+status)?\b|\bpermissions?\b/i.test(normalized);
-  const hasStrongChangeVerb = /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\b/i.test(normalized);
+  const hasStrongAccessChangePhrase = (
+    /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\s+(?:my|our|me|us|this\s+chat'?s?|the\s+chat'?s?|spark)?\s*(?:spark\s+)?access\b/i.test(normalized) ||
+    /\b(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)\s+(?:to|as|into|onto)\s+(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer|agent|builder|chat)\b/i.test(normalized)
+  );
   const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer)\b/i.test(normalized);
-  if (!(hasExplicitAccessTarget && hasStrongChangeVerb) && !startsAsDirectAccessChange) {
+  if (!(hasExplicitAccessTarget && hasStrongAccessChangePhrase) && !startsAsDirectAccessChange) {
     return null;
   }
 

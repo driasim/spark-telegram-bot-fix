@@ -105,19 +105,28 @@ void (async () => {
   await test('renders access action buttons without noisy Level 5 internals', () => {
     const developerKeyboard = buildSparkAccessActionKeyboard('developer').reply_markup.inline_keyboard;
     const developerCallbacks = developerKeyboard.flat().map((button) => button.callback_data);
+    const developerLabels = developerKeyboard.flat().map((button) => button.text);
 
     assert.deepEqual(developerCallbacks, [
       'spark_access:workspace_setup',
       'spark_access:docker_doctor',
       'spark_access:docker_smoke',
     ]);
+    assert.deepEqual(developerLabels, [
+      'Set up safe workspace',
+      'Check runner',
+      'Test sandbox',
+    ]);
 
     const operatorKeyboard = buildSparkAccessActionKeyboard('operator').reply_markup.inline_keyboard;
     const operatorCallbacks = operatorKeyboard.flat().map((button) => button.callback_data);
+    const operatorLabels = operatorKeyboard.flat().map((button) => button.text);
 
     assert.deepEqual(operatorCallbacks, developerCallbacks);
+    assert.deepEqual(operatorLabels, developerLabels);
     assert.ok(!operatorCallbacks.includes('spark_access:level5_enable'));
     assert.ok(!operatorCallbacks.includes('spark_access:level5_disable'));
+    assert.ok(!operatorLabels.includes('Return to Level 4'));
   });
 
   await test('renders compact access-change buttons after choosing a level', () => {
@@ -141,6 +150,7 @@ void (async () => {
 
     assert.match(prompt, /whole-computer operator mode/);
     assert.match(prompt, /tap Confirm/);
+    assert.equal(keyboard[0][0].text, 'Confirm Access Level 5');
     assert.equal(keyboard[0][0].callback_data, 'spark_access:level5_enable:confirm');
   });
 })();
