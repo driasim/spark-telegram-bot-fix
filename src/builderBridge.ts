@@ -128,6 +128,16 @@ export interface BuilderAgentOperatingContextResult {
   replyText: string;
 }
 
+export interface BuilderAgentBlackBoxInput extends BuilderSelfAwarenessInput {
+  requestId?: string;
+  limit?: number;
+}
+
+export interface BuilderAgentBlackBoxResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderRouteProbeResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -1458,6 +1468,103 @@ export async function runBuilderAgentOperatingContext(
     throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
+}
+
+export function formatAgentBlackBoxReply(payload: unknown): string {
+  const root = objectValue(payload);
+  const counts = objectValue(root.counts);
+  const entries = arrayValue(root.entries).map(objectValue);
+  const entryCount = numericValue(counts.entries);
+  const blockerEvents = numericValue(counts.blocker_events);
+  const memoryCandidates = numericValue(counts.memory_candidates);
+
+  if (!entries.length && entryCount === 0) {
+    return [
+      'Agent black box has no matching events.',
+      '',
+      'Review',
+      '• No event evidence is visible for this filter.',
+      '',
+      'Workspace',
+      '• Full evidence: `spark-intelligence self black-box --json`'
+    ].join('\n');
+  }
+
+  const headline = blockerEvents > 0 ? 'Agent black box needs review.' : 'Agent black box is visible.';
+  const lines = [
+    headline,
+    '',
+    'State',
+    `• ${entryCount || entries.length} events; ${blockerEvents} blocker events; ${memoryCandidates} memory candidates`
+  ];
+  if (stringValue(root.request_id)) {
+    lines.push('• Request filter active');
+  }
+
+  if (entries.length) {
+    lines.push('', 'Recent');
+    for (const entry of entries.slice(0, 4)) {
+      const eventType = stringValue(entry.event_type) || 'unknown_event';
+      const route = stringValue(entry.route_chosen) || 'unknown_route';
+      const blockers = arrayValue(entry.blockers).length;
+      lines.push(`• ${eventType}: route ${route}${blockers ? ` (${blockers} blockers)` : ''}`);
+    }
+  }
+
+  lines.push(
+    '',
+    'Review',
+    '• Event evidence is not permission or memory truth.',
+    '• Full details stay in Builder until a trace view is requested.',
+    '',
+    'Workspace',
+    '• Full evidence: `spark-intelligence self black-box --json`'
+  );
+  return lines.join('\n');
+}
+
+export async function runBuilderAgentBlackBox(
+  input: BuilderAgentBlackBoxInput
+): Promise<BuilderAgentBlackBoxResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'black-box',
+    '--home',
+    config.builderHome,
+    '--limit',
+    String(Math.max(1, Math.min(20, Number(input.limit || 12)))),
+    '--json',
+  ];
+  const requestId = String(input.requestId || '').trim();
+  if (requestId) {
+    args.push('--request-id', requestId);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder agent black box returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatAgentBlackBoxReply(payload),
+  };
 }
 
 export function formatRouteProbeReply(payload: Record<string, unknown>): string {

@@ -303,6 +303,9 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('context', handleAgentOperatingContextCommand\)/);
     assert.match(indexSource, /bot\.command\('operating_context', handleAgentOperatingContextCommand\)/);
     assert.match(indexSource, /bot\.command\('agent_context', handleAgentOperatingContextCommand\)/);
+    assert.match(indexSource, /bot\.command\('black_box', handleAgentBlackBoxCommand\)/);
+    assert.match(indexSource, /bot\.command\('blackbox', handleAgentBlackBoxCommand\)/);
+    assert.match(indexSource, /bot\.hears\(\/\^\\\/black-box/);
     assert.match(indexSource, /bot\.command\('probe', handleAgentRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('route_probe', handleAgentRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('nl_route', handleNaturalRouteProbeCommand\)/);

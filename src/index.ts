@@ -18,6 +18,7 @@ import { renderChoiceContextAcknowledgement, renderConversationFrameContext, typ
 import {
   getBuilderBridgeStatus,
   formatMemoryInPlaySummary,
+  runBuilderAgentBlackBox,
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
@@ -719,6 +720,7 @@ bot.start(async (ctx) => {
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
       '/context - Show Agent Operating Context',
+      '/black_box - Show compact agent black-box trace counts',
       '/probe <route> - Run a route probe and record AOC evidence',
       '/operating_context or /agent_context - Same, Telegram-safe aliases',
       '/conversation_context - Show conversation-frame diagnostics',
@@ -891,10 +893,42 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleAgentBlackBoxCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const arg = text.replace(/^\/(?:black_box|blackbox|black-box)(?:@\w+)?\s*/i, '').trim();
+    if (/^(?:help|usage)$/i.test(arg)) {
+      await ctx.reply([
+        'Agent black box',
+        'Usage: /black_box [request_id]',
+        '',
+        'This shows compact event evidence only. It does not promote memory or grant authority.'
+      ].join('\n'));
+      return;
+    }
+    const requestId = arg.split(/\s+/)[0] || '';
+    const result = await runBuilderAgentBlackBox({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      currentMessage: text,
+      requestId,
+      limit: 12,
+    });
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('context', handleAgentOperatingContextCommand);
 bot.command('operating_context', handleAgentOperatingContextCommand);
 bot.command('agent_context', handleAgentOperatingContextCommand);
 bot.command('aoc', handleAgentOperatingContextCommand);
+bot.command('black_box', handleAgentBlackBoxCommand);
+bot.command('blackbox', handleAgentBlackBoxCommand);
+bot.hears(/^\/black-box(?:@\w+)?(?:\s|$)/i, handleAgentBlackBoxCommand);
 
 const AOC_ROUTE_ALIASES: Record<string, string> = {
   builder: 'spark_intelligence_builder',

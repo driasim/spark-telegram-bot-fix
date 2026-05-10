@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   compactColdMemoryQuery,
+  formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
   formatMemoryInPlaySummary,
@@ -460,6 +461,51 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
 
   assert.match(source, /'self',\s*'panel'/);
   assert.doesNotMatch(source, /'self',\s*'context'/);
+});
+
+test('formats black-box payload as compact event evidence', () => {
+  const reply = formatAgentBlackBoxReply({
+    request_id: 'req-private-id',
+    counts: {
+      entries: 3,
+      blocker_events: 1,
+      memory_candidates: 1
+    },
+    entries: [
+      {
+        event_id: 'evt-secret',
+        event_type: 'route_selected',
+        perceived_intent: 'private user wording should stay out',
+        route_chosen: 'spark_memory',
+        blockers: []
+      },
+      {
+        event_id: 'evt-secret-2',
+        event_type: 'blocker_detected',
+        route_chosen: 'action_gate',
+        blockers: ['private blocker detail should stay out']
+      }
+    ]
+  });
+
+  assert.match(reply, /Agent black box needs review/);
+  assert.match(reply, /3 events; 1 blocker events; 1 memory candidates/);
+  assert.match(reply, /Request filter active/);
+  assert.match(reply, /route_selected: route spark_memory/);
+  assert.match(reply, /blocker_detected: route action_gate \(1 blockers\)/);
+  assert.match(reply, /Event evidence is not permission or memory truth/);
+  assert.match(reply, /spark-intelligence self black-box --json/);
+  assert.doesNotMatch(reply, /req-private-id/);
+  assert.doesNotMatch(reply, /evt-secret/);
+  assert.doesNotMatch(reply, /private user wording/);
+  assert.doesNotMatch(reply, /private blocker detail/);
+});
+
+test('black-box bridge invokes Builder self black-box json route', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+
+  assert.match(source, /'self',\s*'black-box'/);
+  assert.match(source, /'--json'/);
 });
 
 test('formats self-improvement plan as probe-first actions', () => {
