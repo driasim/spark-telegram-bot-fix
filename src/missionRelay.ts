@@ -1403,6 +1403,18 @@ export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
   return completionDeliveryCache.has(missionId);
 }
 
+export function claimCompletionDeliveryForTests(missionId: string): boolean {
+  if (completionDeliveryCache.has(missionId) || completionDeliveryInFlight.has(missionId)) {
+    return false;
+  }
+  completionDeliveryInFlight.add(missionId);
+  return true;
+}
+
+export function releaseCompletionDeliveryClaimForTests(missionId: string): void {
+  completionDeliveryInFlight.delete(missionId);
+}
+
 async function saveCompletionDeliveryCache(): Promise<void> {
   await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.values()));
 }
@@ -1414,18 +1426,6 @@ export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
       completionDeliveryCache.add(missionId.trim());
     }
   }
-}
-
-export function claimCompletionDeliveryForTests(missionId: string): boolean {
-  if (completionDeliveryCache.has(missionId) || completionDeliveryInFlight.has(missionId)) {
-    return false;
-  }
-  completionDeliveryInFlight.add(missionId);
-  return true;
-}
-
-export function releaseCompletionDeliveryClaimForTests(missionId: string): void {
-  completionDeliveryInFlight.delete(missionId);
 }
 
 export function resetMissionRelayRegistryForTests(): void {

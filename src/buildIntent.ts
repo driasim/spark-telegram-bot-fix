@@ -300,6 +300,24 @@ function isPreBuildShapingRequest(text: string): boolean {
 function isBuildRouteMetaDiscussion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (
+    /\b(?:what|which|anything|something|thing|else|other|first\s+major\s+focus)\b.*\b(?:healthy|useful|good|better|worth|nice)?\s*(?:to\s+)?build(?:ing)?\b/.test(normalized) &&
+    /\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:is|are)\s+there\b.*\b(?:thing|anything|something|else|other)\b.*\b(?:build|building)\b/.test(normalized) &&
+    /\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:what|which|how|why|is|are|do|does|can|could|should|would)\b.*\b(?:build|building)\b.*\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized) &&
+    !/\b(?:build|create|make|ship|scaffold|generate|develop)\s+(?:a|an|the|new|this)\s+[^?.!]{0,80}\b(?:app|dashboard|tool|site|website|page|game|system|tracker|planner|timer|clock)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
     /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
     /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
   ) {
@@ -333,6 +351,32 @@ function isExactReplyNoFileProbe(text: string): boolean {
     /\breply exactly\b/.test(normalized) &&
     /\b(?:do not|don't)\s+(?:creat(?:e|ing)\s+files?|build\s+anything)\b|\bwithout\s+creat(?:e|ing)\s+files?\b|\bno\s+files?\b/.test(normalized)
   );
+}
+
+function isFilesystemOperationProbe(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (
+    /\b(?:smoke\s+test|safe\s+test|probe|check)\b/.test(normalized) &&
+    /\b(?:create|write|read|delete|remove|list|exists?)\b/.test(normalized) &&
+    /\b(?:file|folder|directory|path)\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+(?:touch|open|read|modify|change)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\bcheck\s+whether\b/.test(normalized) &&
+    /\b(?:exists?|list)\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+(?:open|read|touch)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\bcreate\s+a\s+(?:tiny|small|test|temporary)\s+file\b/.test(normalized) &&
+    /\bwrite\b.*\bread\b.*\b(?:delete|remove)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function isConversationFramingMakeRequest(description: string): boolean {
@@ -462,6 +506,7 @@ function extractBuildDescription(text: string): string | null {
 export function parseBuildIntent(text: string): BuildIntent | null {
   const original = text.trim().replace(/[‘’]/g, "'");
   if (isExactReplyNoFileProbe(original)) return null;
+  if (isFilesystemOperationProbe(original)) return null;
   const trimmed = normalizeBuildCommandText(original);
   if (!trimmed) return null;
   if (isBuildIdeationRequest(trimmed)) return null;

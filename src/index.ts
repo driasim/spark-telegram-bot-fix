@@ -18,6 +18,7 @@ import { renderChoiceContextAcknowledgement, renderConversationFrameContext, typ
 import {
   getBuilderBridgeStatus,
   formatMemoryInPlaySummary,
+  runBuilderAgentBlackBox,
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
@@ -141,7 +142,14 @@ import {
   startMissionRelay
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
+import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './authorityStatus';
+import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
+import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
+import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
 import { parseBuildIntent } from './buildIntent';
+import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
+import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
+import { queueRouteArbiterShadow } from './routeArbiter';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
@@ -314,6 +322,20 @@ function recordNaturalRouteExecution(
   });
 }
 
+function deterministicRouteAllowed(route: DeterministicRouteId, text: string): boolean {
+  const verdict = evaluateDeterministicRoute(route, text);
+  queueRouteArbiterShadow({
+    route,
+    text,
+    verdict,
+    profile: activeTelegramProfile()
+  });
+  if (!verdict.allow) {
+    console.log(`[RouteFirewall] blocked route=${route} reason=${verdict.reason} textLen=${text.length}`);
+  }
+  return verdict.allow;
+}
+
 function nodeOutboundAuditPath(): string {
   return (
     process.env.SPARK_NODE_OUTBOUND_AUDIT_PATH ||
@@ -358,11 +380,15 @@ type FinalAnswerGateSuppressionInput = {
   builderRoutingDecision: string;
   builderBridgeMode: string;
   builderReply: string;
+  requestId?: string;
+  traceRef?: string;
   fallbackRoute: 'local_chat';
 };
 
 function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput): void {
   const auditPath = finalAnswerGateAuditPath();
+  const requestId = String(input.requestId || '').trim();
+  const traceRef = String(input.traceRef || '').trim();
   const record = {
     ts: new Date().toISOString(),
     event: 'final_answer_checked',
@@ -374,6 +400,8 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     builder_bridge_mode: input.builderBridgeMode || '',
     builder_reply_length: input.builderReply.length,
     builder_reply_preview: previewAuditText(input.builderReply, 180),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(traceRef ? { trace_ref: traceRef } : {}),
     fallback_route: input.fallbackRoute,
     latest_intent_preserved: true
   };
@@ -717,6 +745,9 @@ bot.start(async (ctx) => {
       '/models - Show recommended model versions',
       '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
       '/context - Show Agent Operating Context',
+      '/black_box - Show compact agent black-box trace counts',
+      '/trace_repair - Show trace health repair summary',
+      '/memory_movement - Show memory movement summary',
       '/probe <route> - Run a route probe and record AOC evidence',
       '/operating_context or /agent_context - Same, Telegram-safe aliases',
       '/conversation_context - Show conversation-frame diagnostics',
@@ -889,10 +920,42 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleAgentBlackBoxCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+    const arg = text.replace(/^\/(?:black_box|blackbox|black-box)(?:@\w+)?\s*/i, '').trim();
+    if (/^(?:help|usage)$/i.test(arg)) {
+      await ctx.reply([
+        'Agent black box',
+        'Usage: /black_box [request_id]',
+        '',
+        'This shows compact event evidence only. It does not promote memory or grant authority.'
+      ].join('\n'));
+      return;
+    }
+    const requestId = arg.split(/\s+/)[0] || '';
+    const result = await runBuilderAgentBlackBox({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      currentMessage: text,
+      requestId,
+      limit: 12,
+    });
+    await ctx.reply(result.replyText);
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('context', handleAgentOperatingContextCommand);
 bot.command('operating_context', handleAgentOperatingContextCommand);
 bot.command('agent_context', handleAgentOperatingContextCommand);
 bot.command('aoc', handleAgentOperatingContextCommand);
+bot.command('black_box', handleAgentBlackBoxCommand);
+bot.command('blackbox', handleAgentBlackBoxCommand);
+bot.hears(/^\/black-box(?:@\w+)?(?:\s|$)/i, handleAgentBlackBoxCommand);
 
 const AOC_ROUTE_ALIASES: Record<string, string> = {
   builder: 'spark_intelligence_builder',
@@ -1064,12 +1127,61 @@ async function handleCapabilityLedgerReviewCommand(ctx: any): Promise<void> {
   }
 }
 
+async function handleCapabilityGardenCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readCapabilityGardenSummary();
+    await ctx.reply(renderCapabilityGardenSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+async function handleAuthorityStatusCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readAuthorityStatusSummary();
+    await ctx.reply(renderAuthorityStatusSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+async function handleTraceRepairCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readTraceRepairSummary();
+    await ctx.reply(renderTraceRepairSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
+async function handleMemoryMovementCommand(ctx: any): Promise<void> {
+  if (!requireAdmin(ctx)) return;
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const summary = await readMemoryMovementSummary();
+    await ctx.reply(renderMemoryMovementSummary(summary));
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+  }
+}
+
 bot.command('probe', handleAgentRouteProbeCommand);
 bot.command('route_probe', handleAgentRouteProbeCommand);
 bot.command('nl_route', handleNaturalRouteProbeCommand);
 bot.command('natural_route', handleNaturalRouteProbeCommand);
 bot.command('ledger', handleCapabilityLedgerReviewCommand);
-bot.command('capabilities', handleCapabilityLedgerReviewCommand);
+bot.command('capabilities', handleCapabilityGardenCommand);
+bot.command('authority', handleAuthorityStatusCommand);
+bot.command('trace_repair', handleTraceRepairCommand);
+bot.command('trace', handleTraceRepairCommand);
+bot.command('memory_movement', handleMemoryMovementCommand);
+bot.command('memory_flow', handleMemoryMovementCommand);
 
 bot.command('conversation_context', async (ctx) => {
   if (!requireAdmin(ctx)) return;
@@ -1140,6 +1252,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
   const newRequestId = `${pending.requestId}-clarified-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(newRequestId);
+  const traceRef = spawnerPrdTraceRef(missionId);
   const tier = getTierForUser(ctx.from.id);
   const runnerPreflight = pending.projectPath ? await probeTelegramRunnerWritability() : null;
   if (runnerPreflight?.runnerWritable === 'no') {
@@ -1162,6 +1275,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       {
         content: prdContent,
         requestId: newRequestId,
+        traceRef,
         projectName: pending.projectName,
         buildMode: pending.buildMode,
         buildModeReason: pending.buildModeReason,
@@ -1306,7 +1420,7 @@ function startPrdCanvasReadyNotifier(args: {
     }
     await bot.telegram.sendMessage(
       args.chatId,
-      `Analysis is still running after ${Math.round((Date.now() - started) / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
+      `Analysis is still running after ${Math.round(readyTimeoutMs / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
     );
   })();
 }
@@ -1546,6 +1660,10 @@ function humanAck(providers: string[]): string {
 function missionIdFromTelegramBuildRequest(requestId: string): string {
   const stamp = requestId.match(/(\d{10,})$/)?.[1];
   return `mission-${stamp || requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+function spawnerPrdTraceRef(missionId: string): string {
+  return `trace:spawner-prd:${missionId}`;
 }
 
 function projectCanvasUrl(baseUrl: string, requestId: string, missionId: string): string {
@@ -2237,6 +2355,7 @@ export async function handleBuildIntent(
   const chatId = Number(ctx.chat.id);
   const requestId = `tg-build-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(requestId);
+  const traceRef = spawnerPrdTraceRef(missionId);
 
   const prdContent = projectPath
     ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
@@ -2249,6 +2368,7 @@ export async function handleBuildIntent(
       {
         content: prdContent,
         requestId,
+        traceRef,
         projectName,
         buildMode,
         buildModeReason,
@@ -2375,7 +2495,7 @@ for (const variant of RUN_VARIANTS) {
       return ctx.reply(`Usage: ${variant.usage}`);
     }
     const providers = variant.name === 'run' ? [missionDefaultProvider()] : variant.providers;
-    await handleRunCommand(ctx, goal, providers);
+    await handleRunCommand(ctx, goal, providers, undefined, { allowBuildIntent: variant.name === 'run' });
   });
 }
 
@@ -2872,15 +2992,14 @@ bot.command('access', async (ctx) => {
     return;
   }
 
-  const reply = await renderSparkAccessChangeReply(next);
-  await applySparkAccessProfileChange(ctx, next, reply);
+  await applySparkAccessProfileChange(ctx, next);
 });
 
 function accessLevelChangeConfirmed(raw: string): boolean {
   return /\bconfirm\b/i.test(raw);
 }
 
-async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile, precomputedReply?: string): Promise<void> {
+async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile): Promise<void> {
   const runtimeGate = validateSparkAccessProfileForRuntime(next);
   if (!runtimeGate.ok) {
     if (next === 'operator') {
@@ -2893,7 +3012,7 @@ async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile,
 
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = precomputedReply || await renderSparkAccessChangeReply(next);
+  const reply = await renderSparkAccessChangeReply(next);
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
 }
@@ -3133,7 +3252,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
   const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);
-  const earlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
+  const parsedEarlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
+  const earlyBuildIntent = parsedEarlyBuildIntent && deterministicRouteAllowed('spawner.build', text)
+    ? parsedEarlyBuildIntent
+    : null;
   const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx.message));
   if (!earlyBuildIntent && quotedOriginReply) {
     await conversation.remember(user, text).catch(() => {});
@@ -3160,7 +3282,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && !shouldAttachMemoryDoctorEvidence(text) && isPendingTaskRecoveryQuestion(text)) {
+  if (
+    !earlyBuildIntent &&
+    !shouldAttachMemoryDoctorEvidence(text) &&
+    isPendingTaskRecoveryQuestion(text) &&
+    deterministicRouteAllowed('pending_task.recovery', text)
+  ) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
       const reply = renderPendingTaskRecoveryReply(pendingTask);
@@ -3172,7 +3299,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const naturalAccessChange = earlyBuildIntent ? null : parseNaturalAccessChangeIntent(text);
-  if (naturalAccessChange) {
+  if (naturalAccessChange && deterministicRouteAllowed('access.change', text)) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, naturalAccessChange);
     return;
@@ -3183,7 +3310,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
-  if (frameAccessChange) {
+  if (frameAccessChange && deterministicRouteAllowed('access.change', text)) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, frameAccessChange);
     return;
@@ -3193,7 +3320,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const contextualAccessChange = earlyBuildIntent || conversationFrame.referenceResolution.kind === 'list_item'
     ? null
     : parseContextualAccessChangeIntent(text, recentAccessMessages);
-  if (contextualAccessChange) {
+  if (contextualAccessChange && deterministicRouteAllowed('access.change', text)) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, contextualAccessChange);
     return;
@@ -3214,7 +3341,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isAccessStatusQuestion(text)) {
+  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
     await conversation.remember(user, text).catch(() => {});
     const [accessProfile, runnerPreflight] = await Promise.all([
       getSparkAccessProfile(ctx.chat.id),
@@ -3226,7 +3353,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isAccessHelpQuestion(text)) {
+  if (!earlyBuildIntent && isAccessHelpQuestion(text) && deterministicRouteAllowed('access.help', text)) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
@@ -3234,10 +3361,38 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+  const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
+  if (safeOperatorAction && deterministicRouteAllowed('operator.safe_action', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    if (safeOperatorAction.kind === 'level5_smoke' && accessProfile !== 'operator') {
+      await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      return;
+    }
+    if (!sparkAccessAllows(accessProfile, 'operating_system')) {
+      await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      return;
+    }
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const reply = await runSafeOperatorAction(safeOperatorAction);
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    } catch (err: any) {
+      const reply = `Safe operator check failed: ${err?.message || String(err)}`;
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    }
+    return;
+  }
   const activePendingClarification = conversation.isAdmin(ctx.from)
     ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
     : null;
-  if (activePendingClarification && isPendingClarificationFollowup(text)) {
+  if (
+    activePendingClarification &&
+    isPendingClarificationFollowup(text) &&
+    deterministicRouteAllowed('spawner.pending_clarification', text)
+  ) {
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.clarification_reply');
     await handleClarificationAnswers(ctx, text);
     return;
@@ -3274,7 +3429,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
-  if (earlyNaturalChipBrief) {
+  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
     await conversation.remember(user, text).catch(() => {});
     const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
     pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
@@ -3290,14 +3445,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
-  if (naturalCreatorIntent) {
+  if (naturalCreatorIntent && deterministicRouteAllowed('creator.mission', text)) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
     await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
-  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from)) {
+  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from) && deterministicRouteAllowed('recursive.proposal', text)) {
     await conversation.remember(user, text).catch(() => {});
     const submitArg = naturalRecursiveProposal.submit ? ' submit' : '';
     await handleRecursiveCommand(ctx, `propose ${naturalRecursiveProposal.target}${submitArg}`);
@@ -3322,12 +3477,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const memoryDirective = earlyBuildIntent ? null : extractPlainChatMemoryDirective(text);
-  if (memoryDirective) {
+  if (memoryDirective && deterministicRouteAllowed('memory.write', text)) {
     await handlePlainChatMemoryDirective(ctx, user, text, memoryDirective);
     return;
   }
   const selfImprovementGoal = earlyBuildIntent ? null : extractSparkSelfImprovementGoal(text);
-  if (selfImprovementGoal) {
+  if (selfImprovementGoal && deterministicRouteAllowed('spark.self_improvement', text)) {
     await conversation.remember(user, text).catch(() => {});
     await safeSendChatAction(ctx, 'typing');
     try {
@@ -3474,14 +3629,23 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
-    if (isProjectImprovementRequest(text, latestShippedProject)) {
+    if (
+      isProjectImprovementRequest(text, latestShippedProject) &&
+      deterministicRouteAllowed('spawner.project_iteration', text)
+    ) {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
         await conversation.remember(user, text).catch(() => {});
+        await ctx.reply([
+          `Got it. I will improve ${latestShippedProject.projectName}.`,
+          '',
+          'I will keep the existing project intact and ship this as the next polish pass.',
+          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
+        ].filter(Boolean).join('\n'));
         await handleBuildIntent(
           ctx,
           improvementGoal,
-          `${latestShippedProject.projectName} polish pass`,
+          `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
           latestShippedProject.projectPath,
           'advanced_prd',
           'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
@@ -3520,7 +3684,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isLocalWorkspaceInspectionOnlyRequest(text)) {
+    if (isLocalWorkspaceInspectionOnlyRequest(text) && deterministicRouteAllowed('local_workspace.inspect', text)) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'operating_system')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
@@ -3545,18 +3709,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (await handlePendingDomainChipBuild(ctx, text)) {
+    if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
       await conversation.remember(user, text).catch(() => {});
       return;
     }
 
-    if (pendingClarification && !buildIntent) {
+    if (pendingClarification && !buildIntent && deterministicRouteAllowed('spawner.pending_clarification', text)) {
       await handleClarificationAnswers(ctx, text);
       return;
     }
 
     const defaultBuild = inferDefaultBuildFromRecentScoping(text, recentMessages);
-    if (defaultBuild) {
+    if (defaultBuild && deterministicRouteAllowed('spawner.default_build', text)) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(`I will choose the default and start it: ${defaultBuild.projectName}.`);
       await handleBuildIntent(
@@ -3571,7 +3735,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
-    if (missionUpdatePreference) {
+    if (missionUpdatePreference && deterministicRouteAllowed('mission_updates.preference', text)) {
       await conversation.remember(user, text).catch(() => {});
       const detailLines: string[] = [];
       if (missionUpdatePreference.verbosity) {
@@ -3589,7 +3753,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const localServiceContext = contextualTurns.join('\n');
 
     const naturalChipBrief = parseNaturalChipCreateIntent(text);
-    if (naturalChipBrief) {
+    if (naturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
       await conversation.remember(user, text).catch(() => {});
       const mode = domainChipBuildModeForBrief(naturalChipBrief);
       pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
@@ -3606,7 +3770,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const spawnerBoardIntent = parseSpawnerBoardNaturalIntent(text);
-    if (spawnerBoardIntent) {
+    if (spawnerBoardIntent && deterministicRouteAllowed('spawner.board', text)) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
@@ -3626,13 +3790,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isLocalSparkServiceRequest(text, localServiceContext)) {
+    if (isLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(buildLocalSparkServiceReply(await spawner.isAvailable()));
       return;
     }
 
-    if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext)) {
+    if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(buildLocalSparkServiceClarificationReply());
       return;
@@ -3646,7 +3810,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isDiagnosticFollowupTestQuestion(text)) {
+    if (isDiagnosticFollowupTestQuestion(text) && deterministicRouteAllowed('diagnostics.followup_test', text)) {
       const reply = buildDiagnosticFollowupTestReply(sessionContext);
       if (reply) {
         await conversation.remember(user, text).catch(() => {});
@@ -3655,7 +3819,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isDiagnosticsScanRequest(text)) {
+    if (isDiagnosticsScanRequest(text) && deterministicRouteAllowed('diagnostics.scan', text)) {
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
       try {
@@ -3684,7 +3848,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isExplicitContextualBuildRequest(text)) {
+    if (isExplicitContextualBuildRequest(text) && deterministicRouteAllowed('spawner.contextual_improvement', text)) {
       const improvementGoal = buildContextualImprovementGoal(text, contextualTurns);
       if (improvementGoal) {
         console.log(`[ConversationIntent] inferred contextual improvement mission user=${ctx.from?.id} textLen=${text.length}`);
@@ -3699,7 +3863,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isExternalResearchRequest(text)) {
+    if (isExternalResearchRequest(text) && deterministicRouteAllowed('spawner.external_research', text)) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'external_research')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'external_research'));
@@ -3714,7 +3878,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const inferredMission = inferMissionFromRecentContext(text, recentMessages);
-    if (inferredMission) {
+    if (inferredMission && deterministicRouteAllowed('spawner.contextual_mission', text)) {
       console.log(`[ConversationIntent] inferred mission from follow-up user=${ctx.from?.id} textLen=${text.length}`);
       await conversation.remember(user, text).catch(() => {});
       const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
@@ -3757,7 +3921,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     // Single-provider run intent: "minimax, draft...", "ask claude to...", "all models: ..."
     const intent = parseNaturalRunIntent(text);
-    if (intent) {
+    if (intent && deterministicRouteAllowed('natural_run', text)) {
       await handleRunCommand(ctx, intent.goal, intent.providers);
       return;
     }
@@ -3825,6 +3989,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         builderRoutingDecision: builderReply.routingDecision,
         builderBridgeMode: builderReply.bridgeMode,
         builderReply: builderReply.responseText,
+        requestId: builderReply.requestId,
+        traceRef: builderReply.traceRef,
         fallbackRoute: 'local_chat'
       });
       console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
