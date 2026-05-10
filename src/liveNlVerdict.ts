@@ -28,7 +28,8 @@ export interface LiveNlCopyPasteOptions {
 }
 
 export const LIVE_NL_SUITE_ALIASES: Record<string, string[]> = {
-  memory_architecture: ['memory', 'self_awareness', 'wiki', 'anti_drift']
+  memory_architecture: ['memory', 'self_awareness', 'wiki', 'anti_drift'],
+  routing_architecture: ['route_firewall', 'operator', 'access', 'diagnostics', 'spawner_flow', 'research']
 };
 
 function objectValue(value: unknown): Record<string, unknown> | null {

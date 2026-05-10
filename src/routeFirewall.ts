@@ -57,6 +57,20 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'domain_chip.pending'
 ]);
 
+const MISSION_OR_BUILD_ROUTES = new Set<DeterministicRouteId>([
+  'spawner.build',
+  'spawner.pending_clarification',
+  'spawner.default_build',
+  'spawner.contextual_mission',
+  'spawner.contextual_improvement',
+  'spawner.project_iteration',
+  'domain_chip.create',
+  'creator.mission',
+  'recursive.proposal',
+  'spark.self_improvement',
+  'domain_chip.pending'
+]);
+
 function normalize(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -116,6 +130,28 @@ function isExplicitMemoryWrite(normalized: string): boolean {
   return /^(?:memory\s+(?:update|note)|save\s+to\s+memory|please\s+)?(?:remember|save|store)\b/.test(normalized) || /^memory\s+(?:update|note)\s*[:,-]/.test(normalized);
 }
 
+function isBoundedOperatorProbe(normalized: string): boolean {
+  return (
+    /\blevel\s*5\b/.test(normalized) &&
+    /\bsmoke\s+test\b/.test(normalized) &&
+    /\bcreate\b.*\bwrite\b.*\bread\b.*\b(?:delete|remove)\b/.test(normalized) &&
+    /\bappdata\\local\\temp\\spark-telegram-level5-smoke\.txt\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+touch\s+anything\s+else\b/.test(normalized)
+  ) || (
+    /\bcheck\s+whether\b.*\bdesktop\b.*\bexists\b/.test(normalized) &&
+    /\blist\s+only\s+the\s+first\s+\d+\s+top[-\s]+level\s+folder\s+names\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+open\s+files\b/.test(normalized) &&
+    /\b(?:do\s+not|don't|dont)\s+read\s+file\s+contents\b/.test(normalized)
+  );
+}
+
+function isExplicitExternalResearch(normalized: string): boolean {
+  return (
+    /\b(?:look\s+(?:at|into)|research|inspect|compare|study|analy[sz]e|dig\s+(?:into|deep\s+into))\b/.test(normalized) &&
+    /\b(?:docs?|documentation|repos?|repositories|github|codebases?|source\s+code|openclaw|hermes)\b/.test(normalized)
+  );
+}
+
 function isProtectedPlainChat(normalized: string): boolean {
   if (!normalized) return false;
   if (isReadoutOrCriticRequest(normalized)) return true;
@@ -153,6 +189,16 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (route === 'memory.write' && isExplicitMemoryWrite(normalized)) {
     return { allow: true, reason: 'explicit_memory_write', confidence: 'explicit' };
+  }
+  if (route === 'spawner.external_research' && isExplicitExternalResearch(normalized)) {
+    return { allow: true, reason: 'explicit_external_research', confidence: 'explicit' };
+  }
+  if (route === 'operator.safe_action' && isBoundedOperatorProbe(normalized)) {
+    return { allow: true, reason: 'bounded_operator_probe', confidence: 'explicit' };
+  }
+
+  if (isBoundedOperatorProbe(normalized) && MISSION_OR_BUILD_ROUTES.has(route)) {
+    return { allow: false, reason: 'operator_probe_competing_route', confidence: 'blocked' };
   }
 
   if (isProtectedPlainChat(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
