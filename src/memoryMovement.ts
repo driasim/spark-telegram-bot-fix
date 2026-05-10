@@ -136,6 +136,6 @@ export function renderMemoryMovementSummary(summary: MemoryMovementSummary): str
     }
   }
 
-  lines.push('', 'Workspace', '• Full evidence: `spark os compile` memory movement index');
+  lines.push('', 'Workspace', '• Full evidence: `spark os memory --json`');
   return lines.join('\n');
 }

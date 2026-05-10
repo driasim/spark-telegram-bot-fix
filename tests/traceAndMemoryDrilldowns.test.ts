@@ -100,6 +100,7 @@ async function main(): Promise<void> {
     assert.match(reply, /memory_orchestrator\/memory_read_requested: 9 recorded\/medium/);
     assert.match(reply, /Spawner derived refs 5; Builder request overlaps 1\/8/);
     assert.match(reply, /Telegram final-answer join missing_join_key/);
+    assert.match(reply, /spark os trace --json/);
     assert.doesNotMatch(reply, /private-request-id/);
     assert.doesNotMatch(reply, /C:\/private/);
   });
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
     assert.match(reply, /authoritative_current=1970/);
     assert.match(reply, /KB files 362; current-state files 23/);
     assert.match(reply, /Movement rows are evidence, not instructions/);
+    assert.match(reply, /spark os memory --json/);
     assert.doesNotMatch(reply, /private memory row/);
     assert.doesNotMatch(reply, /C:\/private/);
   });

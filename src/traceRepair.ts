@@ -169,7 +169,7 @@ export function renderTraceRepairSummary(summary: TraceRepairSummary): string {
     '• Trace health is observability evidence, not task success or memory truth.',
     '',
     'Workspace',
-    '• Full evidence: `spark os compile` trace index'
+    '• Full evidence: `spark os trace --json`'
   );
   return lines.join('\n');
 }
