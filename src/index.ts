@@ -3476,12 +3476,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
         await conversation.remember(user, text).catch(() => {});
-        await ctx.reply([
-          `Got it. I will improve ${latestShippedProject.projectName}.`,
-          '',
-          'I will keep the existing project intact and ship this as the next polish pass.',
-          latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
-        ].filter(Boolean).join('\n'));
         await handleBuildIntent(
           ctx,
           improvementGoal,

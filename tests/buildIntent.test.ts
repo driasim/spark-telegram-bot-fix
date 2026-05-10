@@ -264,3 +264,20 @@ Behavior:
   assert.equal(intent.projectName, 'Terminal Chef Clock');
   assert.match(intent.prd, /Countdown updates every second/);
 });
+
+test('uses shipped project title before mission workspace folder slug', () => {
+  const previousRoot = process.env.SPARK_PROJECT_ROOT;
+  process.env.SPARK_PROJECT_ROOT = 'C:/Users/USER/.spark/workspaces';
+  const intent = parseBuildIntent(`Improve the existing shipped project "Mission Control Reliability Desk" at C:/Users/USER/.spark/workspaces/mission-1778354076476-mission-control-reliability-desk.
+
+This is an iteration on an already shipped app, not a new scaffold.
+
+User feedback:
+make one tiny polish pass while preserving the five-file contract`);
+  if (previousRoot === undefined) delete process.env.SPARK_PROJECT_ROOT;
+  else process.env.SPARK_PROJECT_ROOT = previousRoot;
+
+  assert.ok(intent);
+  assert.equal(intent.projectPath, 'C:\\Users\\USER\\.spark\\workspaces\\mission-1778354076476-mission-control-reliability-desk');
+  assert.equal(intent.projectName, 'Mission Control Reliability Desk');
+});

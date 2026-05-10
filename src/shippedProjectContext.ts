@@ -130,6 +130,7 @@ export function extractPreviewUrlFromMissionText(text: string): string | null {
 
 function titleFromFolder(projectPath: string): string {
   return path.basename(projectPath)
+    .replace(/^mission-\d+-/i, '')
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -139,9 +140,19 @@ function titleFromFolder(projectPath: string): string {
 function projectNameFromGoal(goal: string, projectPath: string): string {
   const heading = goal.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
   if (heading) return heading;
+  const shipped = goal.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i)?.[1]?.trim();
+  if (shipped) return shipped;
   const called = goal.match(/\bcalled\s+([A-Z][A-Za-z0-9 '&.-]{2,80})/i)?.[1]?.trim();
   if (called) return called.replace(/[.。]\s*$/, '');
   return titleFromFolder(projectPath);
+}
+
+function normalizeStoredProjectName(context: ShippedProjectContext): ShippedProjectContext {
+  if (!/^Mission\s+\d+\b/i.test(context.projectName)) return context;
+  return {
+    ...context,
+    projectName: titleFromFolder(context.projectPath)
+  };
 }
 
 function summaryFromResponse(response: string): string | undefined {
@@ -193,7 +204,8 @@ export async function getLatestShippedProjectContext(
   chatId: string | number
 ): Promise<ShippedProjectContext | null> {
   const state = await readState();
-  return state.byChatId[String(chatId)] || null;
+  const context = state.byChatId[String(chatId)] || null;
+  return context ? normalizeStoredProjectName(context) : null;
 }
 
 export async function clearShippedProjectContextForTests(): Promise<void> {
