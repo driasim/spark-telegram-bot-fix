@@ -3479,7 +3479,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         await handleBuildIntent(
           ctx,
           improvementGoal,
-          `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
+          `${latestShippedProject.projectName} polish pass`,
           latestShippedProject.projectPath,
           'advanced_prd',
           'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
