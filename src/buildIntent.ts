@@ -286,6 +286,36 @@ function isPreBuildShapingRequest(text: string): boolean {
   );
 }
 
+function isBuildRouteMetaDiscussion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (
+    /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
+    /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (/\bhijack(?:s|ed|ing)?\b/.test(normalized) && /\b(?:build|access|route|deterministic)\b/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:how\s+)?(?:can|could|should|would)\s+(?:we|you)\s+make\s+sure\b/.test(normalized)) {
+    return true;
+  }
+  if (/^keep\s+it\s+simple\b.*\bmake\s+sure\b/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:is|are)\s+this\s+the\s+(?:best|right|safe|secure)\s+way\s+to\s+(?:build|make|create|install|setup|set\s+up)\b/.test(normalized)) {
+    return true;
+  }
+  if (
+    /^(?:how\s+)?(?:should|would|could|can)\s+(?:we|you|the\s+agent|spark|[\w\s,]+)\b/.test(normalized) &&
+    /\b(?:aoc|agent\s+operating\s+context|design|access|sandbox(?:es|ed)?|workspace|docker|ssh|modal|route|hijack|deterministic)\b/.test(normalized) &&
+    /\b(?:fit\s+into|work|show|handle|cover|prevent|avoid|hijack|design)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function isExactReplyNoFileProbe(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
@@ -318,9 +348,13 @@ function isSparkCapabilityMakeRequest(description: string): boolean {
     /\b(?:make|making)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:able\s+to|capable\s+of)\b/i.test(normalized);
   const capabilityObject =
     /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?)\b/i.test(normalized);
+  const accessPolicyDiscussion =
+    /^(?:spark\s+)?access\s+level\s*[1-5]\b/i.test(normalized) &&
+    /\b(?:sandbox(?:es|ed)?|whole[-\s]*computer|operator|permission|access|capabilit(?:y|ies)|state\s+machine)\b/i.test(normalized);
   const directMemoryReportChange =
     /^(?:memory\s+reports?|memories\s+reports?|reports?\s+of\s+(?:my\s+)?memories?)\b/i.test(normalized) ||
     (/^daily\s+reports?\b/i.test(normalized) && /\bmemories?\b/i.test(normalized));
+  if (accessPolicyDiscussion) return true;
   if (directMemoryReportChange) return true;
   if (sparkRecipient && capabilitySurface) return true;
   return explicitSparkOwner && capabilitySurface && (!productArtifact || lowered.includes('so you can') || lowered.includes('so spark can'));
@@ -351,21 +385,16 @@ function isAmbiguousContextualBuildRequest(text: string, projectPath: string | n
   return true;
 }
 
-function isVoiceTuningMakeRequest(description: string): boolean {
-  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
-  if (!normalized) return false;
-  if (/\b(?:voice|speech|spoken|audio|tts|talking|narration)\b/.test(normalized)) return true;
-  return /\b(?:warmer|colder|clearer|faster|slower|geekier|friendlier|calmer|louder|quieter)\b/.test(normalized) &&
-    /\b(?:tone|style|persona|delivery)\b/.test(normalized);
-}
-
 function extractBuildDescription(text: string): string | null {
   const command = text.match(
     /^\s*(?:(?:i|we)\s+(?:want|need|would\s+like|would\s+love)\s+to\s+|can\s+(?:you|we)\s+|could\s+(?:you|we)\s+|let'?s\s+|let\s+us\s+|please\s+)?\/?(?:build|make|create|ship|scaffold|generate|develop)\b\s*(?:(?:right\s+now|now)\s+)?(?:me\s+|us\s+)?(?:(?:a|an|the|this)\s+|new\s+project\s+)?/i
   );
   if (command) {
     const description = text.slice(command[0].length);
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
+    if (/\bmake\b/i.test(command[0]) && /^\s*sure\b/i.test(description)) {
+      return null;
+    }
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && isConversationFramingMakeRequest(description))) {
       return null;
     }
     return description;
@@ -376,11 +405,17 @@ function extractBuildDescription(text: string): string | null {
   );
   if (inlineCommand?.index !== undefined) {
     const prefix = text.slice(0, inlineCommand.index).toLowerCase();
-    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) || isNegatedBuildCommandPrefix(prefix)) {
+    if (
+      /\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) ||
+      /\bhow\s+(?:should|would|could|can)\b/.test(prefix) ||
+      /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(prefix) ||
+      /\b(?:best|right|safe|secure)\s+way\s+to\b/.test(prefix) ||
+      isNegatedBuildCommandPrefix(prefix)
+    ) {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
+    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && isConversationFramingMakeRequest(description))) {
       return null;
     }
     return description;
@@ -404,6 +439,7 @@ export function parseBuildIntent(text: string): BuildIntent | null {
   if (isBuildIdeationRequest(trimmed)) return null;
   if (isBuildContextRecallProbe(trimmed)) return null;
   if (isPreBuildShapingRequest(trimmed)) return null;
+  if (isBuildRouteMetaDiscussion(trimmed)) return null;
 
   const stripped = extractBuildDescription(trimmed);
 

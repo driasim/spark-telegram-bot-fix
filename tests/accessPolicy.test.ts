@@ -50,6 +50,9 @@ async function main(): Promise<void> {
     assert.equal(normalizeSparkAccessProfile('access 3'), 'agent');
     assert.equal(normalizeSparkAccessProfile('level-4'), 'developer');
     assert.equal(normalizeSparkAccessProfile('access 4'), 'developer');
+    assert.equal(normalizeSparkAccessProfile('level 5'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('operator'), 'operator');
+    assert.equal(normalizeSparkAccessProfile('whole computer'), 'operator');
     assert.equal(normalizeSparkAccessProfile('chat'), 'chat');
     assert.equal(normalizeSparkAccessProfile('chat only'), 'chat');
     assert.equal(normalizeSparkAccessProfile('mission'), 'builder');
@@ -135,6 +138,7 @@ async function main(): Promise<void> {
     assert.match(renderSparkAccessOnboarding('agent'), /Choose how much access this Telegram chat has/);
     assert.match(renderSparkAccessOnboarding('agent'), /What each access level allows/);
     assert.match(renderSparkAccessOnboarding('agent'), /\/access 4  Local projects, files, debugging, deeper missions \(recommended for local builds\)/);
+    assert.match(renderSparkAccessOnboarding('agent'), /\/access 5  Whole-computer operator mode/);
     assert.match(renderSparkAccessOnboarding('agent'), /Default right now: Access level 3/);
     assert.match(renderSparkAccessOnboarding('developer'), /Default right now: Access level 4/);
     assert.match(renderSparkAccessOnboarding('agent'), /change this later anytime by sending \/access 1/);
@@ -150,7 +154,8 @@ async function main(): Promise<void> {
       ['chat', 'Done - I changed this chat to Access level 1.'],
       ['builder', 'Done - I changed this chat to Access level 2.'],
       ['agent', 'Done - I changed this chat to Access level 3.'],
-      ['developer', 'Done - I changed this chat to Access level 4.']
+      ['developer', 'Done - I changed this chat to Access level 4.'],
+      ['operator', 'Done - I changed this chat to Access level 5.']
     ] as const;
     for (const [profile, expected] of confirmations) {
       const changed = renderSparkAccessChangeConfirmation(profile);
@@ -163,15 +168,17 @@ async function main(): Promise<void> {
     const help = renderSparkAccessConversationHelp('builder');
     assert.match(help, /currently Access level 2/);
     assert.match(help, /Level 4: local projects/);
+    assert.match(help, /Level 5: whole-computer operator mode/);
     assert.doesNotMatch(help, /\/access 1/);
   });
 
-  await test('slash access setter uses compact confirmation instead of full help', async () => {
+  await test('slash access setter uses compact confirmation with capability status', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     const accessCommand = indexSource.match(/bot\.command\('access', async \(ctx\) => \{[\s\S]*?\n\}\);/);
     assert.ok(accessCommand, 'expected /access command handler to exist');
     assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
-    assert.match(accessCommand[0], /renderSparkAccessChangeConfirmation\(next\)/);
+    assert.match(accessCommand[0], /renderSparkAccessChangeReply\(next\)/);
+    assert.match(accessCommand[0], /renderSparkAccessCapabilityStatus\(current, runnerPreflight\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
   });
 

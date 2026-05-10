@@ -100,6 +100,18 @@ export interface BuilderConversationColdContextResult {
   error?: string;
 }
 
+export function formatMemoryInPlaySummary(result: BuilderConversationColdContextResult): string {
+  if (!result.used || !result.contextText.trim()) return '';
+  const sourceLine = result.sourceCount > 0
+    ? `Memory in play: ${result.sourceCount} source${result.sourceCount === 1 ? '' : 's'}.`
+    : 'Memory in play: available.';
+  const summary = result.contextText
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 420);
+  return [sourceLine, summary].filter(Boolean).join('\n');
+}
+
 export interface BuilderSelfAwarenessInput {
   userId: number | string;
   chatId: number | string;

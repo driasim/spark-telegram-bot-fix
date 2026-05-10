@@ -305,7 +305,7 @@ async function run(): Promise<void> {
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected mixed preference/build prompt to POST to /api/prd-bridge/write');
-		assert.match(writeCall!.body.content, /Target operating-system folder: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
+		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
 		assert.match(replies[0] || '', /Project: terminal chef clock/);
@@ -614,7 +614,7 @@ async function run(): Promise<void> {
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected detailed build brief to POST to /api/prd-bridge/write');
 		assert.equal(writeCall!.body.projectName, 'Founder Signal Room');
-		assert.match(writeCall!.body.content, /Target operating-system folder: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
+		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
 		assert.doesNotMatch(replies.join('\n'), /Tell me which number/);

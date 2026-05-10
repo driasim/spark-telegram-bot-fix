@@ -163,13 +163,16 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (!normalized || parseBuildIntent(normalized)) {
     return null;
   }
-  if (isMemoryDoctorRequest(normalized)) {
+  if (isAccessSandboxRouteDesignDiscussion(normalized)) {
     return null;
   }
   if (isVoiceOnboardingSetupQuestion(normalized)) {
     return null;
   }
   if (shouldPreferConversationalIdeation(normalized)) {
+    return null;
+  }
+  if (isMemoryDoctorRequest(normalized)) {
     return null;
   }
   if (
@@ -217,6 +220,23 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   }
 
   return null;
+}
+
+function isAccessSandboxRouteDesignDiscussion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+
+  const mentionsAccessOrSandbox =
+    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
+  if (!mentionsAccessOrSandbox) return false;
+
+  const asksToDiscussOrVerify =
+    /\b(?:how\s+(?:can|do|does|will|would|should)|what\s+(?:does|would|should|can)|can\s+we|could\s+we|should\s+we|is\s+this|are\s+you\s+sure|think\s+in\s+terms|dig\s+deeper|check\s+whether|make\s+sure)\b/.test(normalized);
+  if (!asksToDiscussOrVerify) return false;
+
+  const explicitImplementationRequest =
+    /\b(?:implement|patch|edit|commit|ship|wire|code\s+this|change\s+the\s+code|add\s+tests?|run\s+tests?|start\s+fixing|fix\s+this\s+now)\b/.test(normalized);
+  return !explicitImplementationRequest;
 }
 
 function isVoiceOnboardingSetupQuestion(text: string): boolean {
@@ -1070,6 +1090,9 @@ export function isDiagnosticFollowupTestQuestion(text: string): boolean {
   if (isPersistentMemoryQualityEvaluationRequest(normalized)) {
     return false;
   }
+  if (isAccessSandboxRouteDesignDiscussion(normalized)) {
+    return false;
+  }
   return (
     /\b(?:test|try|check|verify|integrated|integration|kick the tires)\b/.test(normalized) &&
     /\b(?:it|this|that|diagnostic|bug recognition|domain chip|agent)\b/.test(normalized)
@@ -1103,6 +1126,10 @@ export function isAccessStatusQuestion(text: string): boolean {
     return false;
   }
 
+  if (isAccessCapabilityMismatchQuestion(normalized)) {
+    return false;
+  }
+
   if (/\b(?:set|change|raise|lower|switch|update|make)\b.*\baccess\b/.test(normalized)) {
     return false;
   }
@@ -1127,25 +1154,25 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
 
   const hasExplicitAccessTarget = /\b(?:spark\s+)?access(?:\s+level|\s+profile|\s+status)?\b|\bpermissions?\b/i.test(normalized);
   const hasStrongChangeVerb = /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\b/i.test(normalized);
-  const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-4]|one|two|three|four|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|developer)\b/i.test(normalized);
+  const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer)\b/i.test(normalized);
   if (!(hasExplicitAccessTarget && hasStrongChangeVerb) && !startsAsDirectAccessChange) {
     return null;
   }
 
   const valuePatterns = [
-    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?([1-4])\b/i,
-    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?(one|two|three|four)\b/i,
-    /\b(?:to|as|into)\s+((?:chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|full|developer|agent|builder|chat))\b/i,
-    /\b(?:access\s+)?(?:level\s*)?([1-4])\b/i,
-    /\b(?:access\s+)?(?:level\s*)?(one|two|three|four)\b/i,
-    /\b(chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|full\s+access|full|developer|agent|builder)\b/i
+    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?([1-5])\b/i,
+    /\b(?:to|as|at|on|into)\s+(?:spark\s+)?(?:access\s+)?(?:level\s*)?(one|two|three|four|five)\b/i,
+    /\b(?:to|as|into)\s+((?:chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder|chat))\b/i,
+    /\b(?:access\s+)?(?:level\s*)?([1-5])\b/i,
+    /\b(?:access\s+)?(?:level\s*)?(one|two|three|four|five)\b/i,
+    /\b(chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder)\b/i
   ];
 
   for (const pattern of valuePatterns) {
     const match = normalized.match(pattern);
     const value = match?.[1]?.trim();
     if (value) {
-      const numberWords: Record<string, string> = { one: '1', two: '2', three: '3', four: '4' };
+      const numberWords: Record<string, string> = { one: '1', two: '2', three: '3', four: '4', five: '5' };
       return numberWords[value.toLowerCase()] || value;
     }
   }
@@ -1163,8 +1190,8 @@ export function inferRecentConversationFocus(recentMessages: string[]): RecentCo
       return (
         /\bspark access\b/.test(normalized) ||
         /\baccess\s+(?:level|levels|profile|profiles)\b/.test(normalized) ||
-        /\bchanged this chat to level [1-4]\b/.test(normalized) ||
-        /\byou are on level [1-4]\b/.test(normalized)
+        /\bchanged this chat to level [1-5]\b/.test(normalized) ||
+        /\byou are on level [1-5]\b/.test(normalized)
       );
     });
   return hasAccessFocus ? 'access' : null;
@@ -1187,13 +1214,55 @@ export function parseContextualAccessChangeIntent(text: string, recentMessages: 
 
   const contextualChange =
     /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade|make|put|move)\s+(?:it|that|this|me|us|the\s+chat)\b/i.test(normalized) ||
-    /^(?:actually\s+|instead\s+|no[, ]*)?(?:do|make|set|switch|use|go\s+to|go\s+with)\s+(?:it\s+)?(?:to\s+|as\s+|at\s+)?(?:level\s+)?(?:[1-4]|one|two|three|four)\b/i.test(normalized) ||
-    /^(?:actually\s+|instead\s+|no[, ]*)?(?:level\s+)?(?:[1-4]|one|two|three|four)\b/i.test(normalized);
+    /^(?:actually\s+|instead\s+|no[, ]*)?(?:do|make|set|switch|use|go\s+to|go\s+with)\s+(?:it\s+)?(?:to\s+|as\s+|at\s+)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized) ||
+    /^(?:actually\s+|instead\s+|no[, ]*)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized);
   if (!contextualChange) {
     return null;
   }
 
   return parseNaturalAccessChangeIntent(`change access ${normalized}`);
+}
+
+export function hasRecentAccessCapabilityMismatch(recentMessages: string[]): boolean {
+  const normalized = recentMessages.slice(-8).join('\n').toLowerCase();
+  const mentionsAccess =
+    /\b(?:access\s+level|level\s*[1-5]|level\s+(?:one|two|three|four|five)|full\s+access|permissions?)\b/.test(normalized);
+  const mentionsRuntimeCapability =
+    /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach))\b/.test(normalized);
+  return mentionsAccess && mentionsRuntimeCapability;
+}
+
+export function isAccessCapabilityMismatchQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+
+  const mentionsAccess =
+    /\b(?:access\s+level|level\s*[1-5]|level\s+(?:one|two|three|four|five)|full\s+access|permissions?)\b/.test(normalized);
+  const mentionsRuntimeCapability =
+    /\b(?:read[-\s]*only|writable|write\s+access|runner|current\s+runner|codex|mission\s+control|spawner|capabilit(?:y|ies)|can't\s+(?:do|write|edit|attach)|cannot\s+(?:do|write|edit|attach)|could\s+not\s+(?:do|write|edit|attach)|couldn'?t\s+(?:do|write|edit|attach)|confined)\b/.test(normalized);
+  const namesMismatch =
+    /\b(?:how|why|when|but|mismatch|different|gap|problem|issue|doesn'?t|dont\s+get|don't\s+get|stopped|blocked)\b/.test(normalized);
+
+  return mentionsAccess && mentionsRuntimeCapability && namesMismatch;
+}
+
+export function isContextualAccessCapabilityMismatchQuestion(text: string, recentMessages: string[]): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+  if (!hasRecentAccessCapabilityMismatch(recentMessages)) {
+    return false;
+  }
+
+  return (
+    isAccessCapabilityMismatchQuestion(normalized) ||
+    /\b(?:is|was)\s+(?:this\s+)?(?:(?:an?|the)\s+)?access\s+level\s+problem\b/.test(normalized) ||
+    /\bhow\s+is\s+this\s+read[-\s]*only\b/.test(normalized) ||
+    /\bread[-\s]*only\b.*\b(?:dont\s+get|don't\s+get|why|how)\b/.test(normalized)
+  );
 }
 
 export function isAccessHelpQuestion(text: string): boolean {
@@ -1202,8 +1271,23 @@ export function isAccessHelpQuestion(text: string): boolean {
     return false;
   }
 
+  if (isAccessCapabilityMismatchQuestion(normalized)) {
+    return false;
+  }
+
+  if (
+    /\bmake\s+sure\b/.test(normalized) ||
+    /\bmake\s+(?:spark\s+)?access\s+level\s*[1-5]\b/.test(normalized) ||
+    /\baccess\s+level\s*[1-5]\b.*\bbasically\b/.test(normalized) ||
+    /\b(?:really|actually)\s+(?:be|becomes?|gets?)\s+(?:access\s+)?level\s*[1-5]\b/.test(normalized) ||
+    /\bstate\s+machine\b/.test(normalized)
+  ) {
+    return false;
+  }
+
   const mentionsAccess =
     /\b(?:spark\s+)?access\s+(?:level|levels|profile|profiles|tier|tiers|system)\b/.test(normalized) ||
+    /\bwhat\s+can\s+(?:access\s+)?level\s*[1-5]\s+do\b/.test(normalized) ||
     /\bpermission\s+(?:level|levels|management|surface|system)\b/.test(normalized) ||
     /\bwhat\s+can\s+i\s+(?:unlock|do)\b.*\baccess\b/.test(normalized) ||
     /\baccess\b.*\b(?:unlock|allow|permission|permissions)\b/.test(normalized);
@@ -1528,9 +1612,18 @@ export function isLowInformationLlmReply(reply: string): boolean {
     normalized.includes("couldn't generate") ||
     normalized.includes('having trouble thinking') ||
     (
+      normalized.includes('spark could not reach the builder memory path right now') &&
+      normalized.includes('run /diagnose')
+    ) ||
+    normalized.includes('operator fix: spark fix telegram') ||
+    (
       normalized.includes("i caught 'chip'") &&
       normalized.includes('loop <chip-key>') &&
       normalized.includes('which chips are active')
+    ) ||
+    (
+      normalized.includes('you want the self-critic') &&
+      normalized.includes('loop domain-chip-spark-ops-critic')
     ) ||
     (
       normalized.includes('tap this to scaffold') &&
@@ -1553,11 +1646,52 @@ export function isMemoryAcknowledgementReply(reply: string): boolean {
   );
 }
 
-export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDecision: string = ''): boolean {
+export type BuilderReplySuppressionReason =
+  | 'diagnostic_wall'
+  | 'route_menu'
+  | 'memory_acknowledgement'
+  | 'low_information';
+
+export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
   if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
-    return false;
+    return null;
   }
-  return isLowInformationLlmReply(reply) || isMemoryAcknowledgementReply(reply);
+  const normalized = reply.trim().toLowerCase();
+  if (
+    normalized.includes('spark could not reach the builder memory path right now') ||
+    normalized.includes('operator fix: spark fix telegram')
+  ) {
+    return 'diagnostic_wall';
+  }
+  if (
+    (
+      normalized.includes("i caught 'mission'") &&
+      normalized.includes('show the mission board') &&
+      normalized.includes('start a new mission')
+    ) ||
+    (
+      normalized.includes("i caught 'chip'") &&
+      normalized.includes('loop <chip-key>') &&
+      normalized.includes('which chips are active')
+    ) ||
+    (
+      normalized.includes('you want the self-critic') &&
+      normalized.includes('loop domain-chip-spark-ops-critic')
+    )
+  ) {
+    return 'route_menu';
+  }
+  if (isMemoryAcknowledgementReply(reply)) {
+    return 'memory_acknowledgement';
+  }
+  if (isLowInformationLlmReply(reply)) {
+    return 'low_information';
+  }
+  return null;
+}
+
+export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDecision: string = ''): boolean {
+  return builderReplySuppressionReason(reply, routingDecision) !== null;
 }
 
 export function shouldUseBuilderReplyForMemoryDirective(reply: string, routingDecision: string = ''): boolean {
@@ -1814,12 +1948,12 @@ export function formatAgentDoctrinePreferenceStatus(preferences: string[]): stri
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
   if (action === 'remember') {
-    return 'I could not confirm that through Spark memory yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run /diagnose only if you want a health check, or spark verify --deep to inspect the memory path.';
   }
   if (action === 'recall') {
-    return 'I could not get a useful memory answer yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+    return 'I could not get a useful memory answer yet. Memory is degraded, so current chat should win until recall is healthy again.';
   }
-  return 'I could not inspect Spark memory yet. Please run /diagnose, or ask the operator to run `spark fix telegram` and `spark verify --deep`.';
+  return 'I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority.';
 }
 
 export function buildIdeationFallbackReply(text: string): string {
