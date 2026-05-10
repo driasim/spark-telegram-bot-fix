@@ -626,9 +626,10 @@ export function recursiveApiBaseCandidates(env: NodeJS.ProcessEnv = process.env)
     env.SPARK_RECURSIVE_API_URL,
     env.SPARK_RECURSIVE_URL
   ]
-    .map((value) => (value || '').trim().replace(/\/+$/, ''))
-    .filter(Boolean);
-  return Array.from(new Set([...configured, 'http://127.0.0.1:3344', 'http://127.0.0.1:3345']));
+    .map((value) => (value || '').trim())
+    .filter(Boolean)
+    .map(normalizedUrl);
+  return [...new Set([...configured, 'http://127.0.0.1:3344', 'http://127.0.0.1:3345'])];
 }
 
 export function parseRecursiveTelegramCommand(raw: string): Record<string, unknown> {
@@ -638,92 +639,117 @@ export function parseRecursiveTelegramCommand(raw: string): Record<string, unkno
   if (action === 'start' || action === 'run') {
     const chipKey = parts.shift();
     if (!chipKey || chipKey === '<chip>') return { action: 'help' };
-    const rounds = Math.min(parseRounds(parts), 10);
-    return { action: 'start', chipKey, rounds };
+    return { action: 'start', chipKey, rounds: parseRounds(parts) };
   }
   if (action === 'report' || action === 'session' || action === 'review') {
-    const sessionId = parts[0];
+    const sessionId = parts.shift();
     return sessionId ? { action, sessionId } : { action: 'help' };
   }
   return { action: 'help' };
+}
+
+function isFixtureRecursiveHealth(data: any): boolean {
+  const traceFiles = Array.isArray(data?.roots?.traceFiles) ? data.roots.traceFiles : [];
+  return traceFiles.some((entry: unknown) => /fixtures/i.test(String(entry || '')));
 }
 
 export async function fetchRecursiveSessions(): Promise<{ baseUrl: string; sessions: RecursiveSessionListItem[] }> {
   let lastError: unknown = null;
   for (const baseUrl of recursiveApiBaseCandidates()) {
     try {
-      const health = await axios.get(`${baseUrl}/api/recursive/health`);
-      const traceFiles = Array.isArray(health.data?.roots?.traceFiles) ? health.data.roots.traceFiles : [];
-      const fixtureOnly = traceFiles.some((entry: unknown) => String(entry).includes('tests/fixtures'));
-      if (fixtureOnly) continue;
-      const response = await axios.get(`${baseUrl}/api/recursive/sessions`);
+      const health = await axios.get(`${baseUrl}/api/recursive/health`, { timeout: 5000 });
+      if (isFixtureRecursiveHealth(health.data)) continue;
+      const sessions = await axios.get(`${baseUrl}/api/recursive/sessions`, { timeout: 10000 });
       return {
         baseUrl,
-        sessions: Array.isArray(response.data?.sessions) ? response.data.sessions : []
+        sessions: Array.isArray(sessions.data?.sessions) ? sessions.data.sessions : []
       };
     } catch (error) {
       lastError = error;
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('No recursive API candidate responded.');
+  throw lastError || new Error('Spark Recursive is not reachable yet.');
 }
 
-export function formatRecursiveSessionsForTelegram(input: { baseUrl: string; sessions: RecursiveSessionListItem[] }): string {
-  const lines = ['Spark Recursive Sessions', '', `Total: ${input.sessions.length}`];
-  for (const session of input.sessions.slice(0, 8)) {
-    const status = String(session.status || 'unknown').replace(/_/g, ' ');
-    const bucket = session.kanban_bucket ? ` | ${session.kanban_bucket}` : '';
+export function formatRecursiveSessionsForTelegram(result: {
+  baseUrl: string;
+  sessions: RecursiveSessionListItem[];
+}): string {
+  const lines = [
+    'Spark Recursive Sessions',
+    `Total: ${result.sessions.length}`
+  ];
+  for (const session of orderedRecursiveSessions(result.sessions).slice(0, 5)) {
     const review = session.review_required ? ' | review' : '';
-    lines.push('', `Session: ${session.session_id}`, `Status: ${status}${bucket}${review}`);
+    lines.push(
+      '',
+      `Session: ${session.session_id}`,
+      `Status: ${plainLabel(session.status)} | ${session.kanban_bucket}${review}`
+    );
   }
+  lines.push('', `Open: ${result.baseUrl}`);
   return lines.join('\n');
 }
 
-export function formatRecursiveSessionForTelegram(input: { baseUrl: string; status?: string }): string {
-  return input.status || 'Spark Recursive session status unavailable.';
+export function formatRecursiveSessionForTelegram(result: { baseUrl: string; status?: string | null }): string {
+  return result.status?.trim() || `Spark Recursive\n\nOpen: ${result.baseUrl}`;
 }
 
 export function formatRecursiveLoopStartAck(chipKey: string, rounds: number): string {
   return [
-    'Starting Spark Recursive loop',
-    `Chip: ${chipKey}`,
-    `Rounds: ${rounds}`,
-    'Promotion: blocked until review gates pass'
+    'Starting Spark Recursive loop.',
+    '',
+    `Target: ${chipKey}`,
+    `Rounds: ${Math.max(1, Math.min(10, rounds))}`,
+    'Promotion: blocked until review gates pass.'
   ].join('\n');
 }
 
 export function formatRecursiveLoopResultForTelegram(result: {
-  ok?: boolean;
+  ok: boolean;
   chipKey: string;
-  roundsCompleted?: number;
-  totalRounds?: number;
-  statusPath?: string;
-  history?: Array<{ round_index?: number; suggestions_count?: number; best_verdict?: string; best_metric?: number }>;
+  roundsCompleted: number;
+  totalRounds: number;
+  statusPath?: string | null;
+  history?: Array<{
+    round_index?: number | null;
+    suggestions_count?: number | null;
+    best_verdict?: string | null;
+    best_metric?: number | null;
+  }>;
 }): string {
   const lines = [
-    result.ok ? 'Spark Recursive loop complete' : 'Spark Recursive loop needs attention',
-    `Chip: ${result.chipKey}`,
-    `Rounds: ${result.roundsCompleted ?? 0}/${result.totalRounds ?? result.roundsCompleted ?? 0}`,
-    'Evidence tier: local Builder chip loop',
-    'Promotion: review required'
+    result.ok ? 'Spark Recursive loop complete.' : 'Spark Recursive loop stopped.',
+    '',
+    `Target: ${result.chipKey}`,
+    `Rounds: ${result.roundsCompleted}/${result.totalRounds}`,
+    'Evidence tier: local Builder chip loop.',
+    'Promotion: review required.'
   ];
-  for (const round of result.history || []) {
-    const metric = typeof round.best_metric === 'number' ? round.best_metric.toFixed(3) : 'n/a';
-    lines.push(`round ${round.round_index}: suggestions=${round.suggestions_count ?? 0} verdict=${round.best_verdict || 'unknown'} metric=${metric}`);
+  const history = result.history || [];
+  if (history.length > 0) {
+    lines.push('', 'Recent');
+    for (const round of history.slice(-3)) {
+      const index = round.round_index ?? history.indexOf(round) + 1;
+      const suggestions = round.suggestions_count ?? 0;
+      const verdict = round.best_verdict || 'unknown';
+      const metric = typeof round.best_metric === 'number' ? round.best_metric.toFixed(3) : 'unknown';
+      lines.push(`round ${index}: suggestions=${suggestions} verdict=${verdict} metric=${metric}`);
+    }
   }
-  if (result.statusPath) lines.push(`Status: ${result.statusPath}`);
-  lines.push('/recursive sessions');
+  if (result.statusPath) lines.push('', `Status: ${result.statusPath}`);
+  lines.push('', 'Next: /recursive sessions');
   return lines.join('\n');
 }
 
 export function formatRecursiveApiError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = redactText(error instanceof Error ? error.message : String(error || 'unknown error'));
   return [
     'Spark Recursive is not reachable yet.',
     '',
-    `Reason: ${redactText(message)}`,
+    `Error: ${message}`,
     '',
-    'Try /recursive sessions again after the local recursive service is running.'
+    'Try again with /recursive sessions after the local recursive service is running.'
   ].join('\n');
 }
 

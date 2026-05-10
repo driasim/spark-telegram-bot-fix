@@ -232,7 +232,7 @@ export function explainSparkError(error: unknown, context: SparkErrorContext = '
       userLine: 'Telegram says another Spark process is already polling this bot token.',
       detail,
       check: 'Check the intended Telegram profile logs and confirm no other local, hosted, WSL, Docker, or old laptop session is polling the same BotFather token.',
-      repair: 'Operator fix: stop duplicate bot processes or rotate the BotFather token, then run spark restart spark-telegram-bot for only the intended Spark Telegram profile.'
+      repair: 'Operator fix: stop duplicate bot processes or rotate the BotFather token, then run spark restart spark-telegram-bot for only the intended Telegram profile.'
     };
   }
 
@@ -267,6 +267,12 @@ export function renderSparkErrorReply(
   isAdmin: boolean = false
 ): string {
   const explanation = explainSparkError(error, context);
+  if (context === 'chat' && explanation.category === 'builder_or_memory') {
+    return [
+      'Memory/Builder is degraded right now, so I should stay with the visible chat instead of switching into diagnostics.',
+      'Ask me the same thing again and I will answer from the current thread. Run /diagnose only when you want a health check.'
+    ].join('\n\n');
+  }
   const lines = [
     explanation.userLine,
     `Reason: ${explanation.detail}`,

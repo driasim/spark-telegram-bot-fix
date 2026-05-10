@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { withHiddenWindows } from './hiddenProcess';
+import { spawnHidden, withHiddenWindows } from './hiddenProcess';
 import { redactText } from './redaction';
 
 const execFileAsync = promisify(execFile);
@@ -30,6 +30,12 @@ export type SparkCommandRunner = (
   args: string[],
   timeoutMs: number
 ) => Promise<{ stdout: string; stderr: string }>;
+
+export interface SparkAccessActionExecution {
+  reply: string;
+  payload: Record<string, unknown> | null;
+  needsSparkRestart: boolean;
+}
 
 export const SPARK_ACCESS_ACTIONS: Record<SparkAccessActionId, SparkAccessAction> = {
   workspace_setup: {
@@ -67,23 +73,129 @@ export const SPARK_ACCESS_ACTIONS: Record<SparkAccessActionId, SparkAccessAction
   },
 };
 
+const ACTION_COMMANDS: Record<SparkAccessActionId, string> = {
+  workspace_setup: '/access_setup',
+  docker_doctor: '/docker_doctor',
+  docker_smoke: '/docker_smoke',
+  level5_enable: '/level5_setup',
+  level5_disable: '/level5_disable',
+};
+
+const ACTION_LABELS: Record<SparkAccessActionId, string> = {
+  workspace_setup: 'Set up safe workspace',
+  docker_doctor: 'Check runner',
+  docker_smoke: 'Test sandbox',
+  level5_enable: 'Confirm Access Level 5',
+  level5_disable: 'Return to Level 4',
+};
+
 export function accessActionNeedsConfirmation(actionId: SparkAccessActionId): boolean {
   const policy = SPARK_ACCESS_ACTIONS[actionId].runPolicy;
   return policy === 'confirm_once' || policy === 'explicit_opt_in';
+}
+
+export function sparkAccessActionCommandText(actionId: SparkAccessActionId): string {
+  return ACTION_COMMANDS[actionId];
+}
+
+export function sparkAccessActionLabel(actionId: SparkAccessActionId): string {
+  return ACTION_LABELS[actionId];
+}
+
+export function formatSparkAccessActionConfirmationPrompt(actionId: SparkAccessActionId): string {
+  const command = sparkAccessActionCommandText(actionId);
+  const hint = actionId === 'docker_smoke'
+    ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
+    : actionId === 'level5_enable'
+      ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
+      : 'This changes Spark access guardrail state and requires confirmation.';
+  return [hint, '', `To continue, send ${command} confirm or tap Confirm.`].join('\n');
+}
+
+export function buildSparkAccessActionKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [
+    [
+      buttonForAction('workspace_setup'),
+      buttonForAction('docker_doctor'),
+    ],
+    [
+      buttonForAction('docker_smoke'),
+    ],
+  ];
+  return { reply_markup: { inline_keyboard: rows } };
+}
+
+export function buildSparkAccessChangeKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } | undefined {
+  if (profile === 'developer') {
+    return {
+      reply_markup: {
+        inline_keyboard: [[buttonForAction('workspace_setup')]],
+      },
+    };
+  }
+  return undefined;
+}
+
+export function buildSparkAccessLevel5ConfirmKeyboard(): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        {
+          text: 'Confirm Access Level 5',
+          callback_data: 'spark_access_level:operator:confirm',
+        },
+      ]],
+    },
+  };
+}
+
+export function buildSparkAccessConfirmationKeyboard(actionId: SparkAccessActionId): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        {
+          text: actionId === 'level5_enable' ? 'Confirm Access Level 5' : `Confirm: ${sparkAccessActionLabel(actionId)}`,
+          callback_data: `spark_access:${actionId}:confirm`,
+        },
+      ]],
+    },
+  };
+}
+
+function buttonForAction(actionId: SparkAccessActionId): { text: string; callback_data: string } {
+  return {
+    text: sparkAccessActionLabel(actionId),
+    callback_data: `spark_access:${actionId}`,
+  };
 }
 
 export async function runSparkAccessAction(
   actionId: SparkAccessActionId,
   runner: SparkCommandRunner = defaultSparkCommandRunner
 ): Promise<string> {
+  return (await runSparkAccessActionDetailed(actionId, runner)).reply;
+}
+
+export async function runSparkAccessActionDetailed(
+  actionId: SparkAccessActionId,
+  runner: SparkCommandRunner = defaultSparkCommandRunner
+): Promise<SparkAccessActionExecution> {
   const action = SPARK_ACCESS_ACTIONS[actionId];
   const result = await runner(action.command, action.timeoutMs);
   const payload = parseSparkJson(result.stdout);
   if (!payload) {
     const output = redactText([result.stdout, result.stderr].filter(Boolean).join('\n').trim());
-    return [`Spark action ran, but did not return JSON: ${action.id}`, output || 'No output.'].join('\n');
+    return {
+      reply: [`Spark action ran, but did not return JSON: ${action.id}`, output || 'No output.'].join('\n'),
+      payload: null,
+      needsSparkRestart: false,
+    };
   }
-  return formatSparkAccessActionReply(actionId, payload);
+  return {
+    reply: formatSparkAccessActionReply(actionId, payload),
+    payload,
+    needsSparkRestart: accessActionNeedsSparkRestart(actionId, payload),
+  };
 }
 
 async function defaultSparkCommandRunner(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
@@ -140,18 +252,55 @@ export function formatSparkAccessActionReply(actionId: SparkAccessActionId, payl
     return [
       ok ? 'Level 5 guardrails were configured.' : 'Level 5 setup did not complete.',
       activation ? `Activation state: ${activation}.` : '',
-      'Restart Spark, then send /access 5 again so Telegram and Spawner load whole-computer operator mode.',
+      'Spark needs to reload Telegram and Spawner before whole-computer operator mode becomes active.',
       nextLine(payload),
     ].filter(Boolean).join('\n');
   }
   if (actionId === 'level5_disable') {
     return [
       'Level 5 guardrails were disabled.',
-      'Restart Spark to return this runtime to workspace-sandbox mode.',
+      'Spark needs to reload Telegram and Spawner to return this runtime to workspace-sandbox mode.',
       nextLine(payload),
     ].filter(Boolean).join('\n');
   }
   return ok ? 'Spark access action finished.' : 'Spark access action failed.';
+}
+
+export function accessActionNeedsSparkRestart(actionId: SparkAccessActionId, payload: Record<string, unknown>): boolean {
+  if (actionId !== 'level5_enable' && actionId !== 'level5_disable') return false;
+  const level5 = objectValue(payload.level5);
+  const stateMachine = objectValue(payload.state_machine);
+  const activation = String(level5.activation_state || stateMachine.activation_state || '');
+  const next = String(payload.next || '').trim().toLowerCase();
+  return activation === 'restart_required' || stateMachine.requires_restart === true || next === 'spark restart';
+}
+
+export function formatSparkAccessAutomaticRestartNotice(actionId: SparkAccessActionId): string {
+  const verifyCommand = actionId === 'level5_disable' ? '/access 4' : '/access 5';
+  return [
+    'I will restart Spark automatically now so you do not need Terminal or PowerShell.',
+    'Telegram may go quiet for about 30-60 seconds.',
+    `When it comes back, send ${verifyCommand} to verify the new access state.`,
+  ].join('\n');
+}
+
+export function scheduleSparkRestartAfterAccessChange(delayMs = 2_000): void {
+  const script = [
+    "const { spawnSync } = require('node:child_process');",
+    "const delay = Number(process.argv[1] || 2000);",
+    "const spark = process.platform === 'win32' ? 'spark.cmd' : 'spark';",
+    "const run = (args) => spawnSync(spark, args, { stdio: 'ignore', shell: false, windowsHide: true });",
+    "setTimeout(() => {",
+    "  run(['restart', 'spawner-ui', '--allow-dirty-runtime']);",
+    "  run(['restart', 'spark-telegram-bot', '--allow-dirty-runtime']);",
+    "}, delay);",
+  ].join('\n');
+  const child = spawnHidden(process.execPath, ['-e', script, String(delayMs)], {
+    detached: true,
+    stdio: 'ignore',
+    env: process.env,
+  });
+  child.unref();
 }
 
 function accessSummary(payload: Record<string, unknown>): string {

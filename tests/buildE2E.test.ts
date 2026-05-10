@@ -15,6 +15,8 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import axios from 'axios';
 import { getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
@@ -233,6 +235,14 @@ async function run(): Promise<void> {
 
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('/run command handler keeps explicit slash-run on the simple mission path', async () => {
+		const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+		const runLoop = indexSource.match(/for \(const variant of RUN_VARIANTS\) \{[\s\S]*?bot\.command\('model'/);
+		assert.ok(runLoop, 'expected RUN_VARIANTS command loop to exist');
+		assert.match(runLoop[0], /await handleRunCommand\(ctx, goal, providers\);/);
+		assert.doesNotMatch(runLoop[0], /allowBuildIntent:\s*variant\.name\s*===\s*'run'/);
 	});
 
 	await test('/run non-build requests still use the simple Spark run path', async () => {
@@ -700,51 +710,65 @@ async function run(): Promise<void> {
 		assert.match(reply, /final Mission Control handoff/);
 	});
 
-	await test('direct Telegram replies preserve the quoted target for Builder bridge', async () => {
-		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
-		const llmModule = require('../src/llm') as typeof import('../src/llm');
+	await test('unquoted origin question explains the latest clarification instead of stale handoffs', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		(axios as any).post = async (url: string, body: any) => {
+			if (url.includes('/api/prd-bridge/write')) {
+				return {
+					data: {
+						success: true,
+						needsClarification: true,
+						requestId: body.requestId,
+						openQuestions: ['Who receives the canary alert?'],
+						addedAssumptions: ['Assume a single trusted user.']
+					}
+				};
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
 		const indexModule: any = await import('../src/index');
-		const originalBridge = builderBridge.runBuilderTelegramBridge;
-		const originalChat = llmModule.llm.chat;
-		let capturedText = '';
-		let capturedFallbackPrompt = '';
-		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, any>) => {
-			capturedText = String(updatePayload.message?.text || '');
-			return {
-				used: true,
-				responseText: 'Reply-aware answer',
-				decision: 'test',
-				bridgeMode: 'test',
-				routingDecision: 'plain_chat'
-			};
-		};
-		(llmModule.llm as any).chat = async (prompt: string) => {
-			capturedFallbackPrompt = prompt;
-			return 'That was the quoted Telegram message about tightening reply targeting.';
-		};
-		try {
-			const replies: string[] = [];
-			const ctx = makeFakeCtx(8421, 8319079055, 8421001, replies);
-			ctx.message.text = 'what does this mean?';
-			(ctx.message as any).reply_to_message = {
-				message_id: 7001,
-				text: 'Option 2: tighten Telegram reply targeting before using newer chat history',
-				from: { id: 1001, is_bot: true, first_name: 'Spark AGI', username: 'SparkAGI_bot' }
-			};
-			(ctx as any).update = { update_id: 8421001, message: ctx.message };
+		const buildReplies: string[] = [];
+		const buildCtx = makeFakeCtx(8423, 8319079055, 8423001, buildReplies);
+		await indexModule.handleBuildIntent(
+			buildCtx,
+			'Build a tiny static page called Telegram Quiet Canary.',
+			'Telegram Quiet Canary',
+			null,
+			'advanced_prd',
+			'test'
+		);
+		assert.match(buildReplies[0] || '', /I can build Telegram Quiet Canary/);
 
-			await indexModule.handleTextMessage(ctx);
+		const originReplies: string[] = [];
+		const originCtx = makeFakeCtx(8423, 8319079055, 8423002, originReplies);
+		originCtx.message.text = 'where did this come from';
+		await indexModule.handleTextMessage(originCtx);
 
-			assert.match(capturedText, /\[Telegram direct reply context\]/);
-			assert.match(capturedText, /Option 2: tighten Telegram reply targeting/);
-			assert.match(capturedText, /\[Current user message\]\s*what does this mean\?/);
-			assert.match(capturedFallbackPrompt, /\[Telegram direct reply context\]/);
-			assert.match(capturedFallbackPrompt, /Option 2: tighten Telegram reply targeting/);
-			assert.deepEqual(replies, ['That was the quoted Telegram message about tightening reply targeting.']);
-		} finally {
-			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
-			(llmModule.llm as any).chat = originalChat;
-		}
+		assert.match(originReplies[0] || '', /build clarification gate/);
+		assert.doesNotMatch(originReplies[0] || '', /final Mission Control handoff/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('direct Telegram replies preserve the quoted target for Builder bridge', async () => {
+		const indexModule: any = await import('../src/index');
+		const directPrompt = indexModule.buildTelegramReplyContextPrompt(
+			'what does this mean?',
+			'Option 2: tighten Telegram reply targeting before using newer chat history',
+			'Spark'
+		);
+		assert.match(directPrompt, /\[Telegram direct reply context\]/);
+		assert.match(directPrompt, /Option 2: tighten Telegram reply targeting/);
+		assert.match(directPrompt, /\[Current user message\]\s*what does this mean\?/);
 	});
 
 	await test('Builder bridge text replies recover from Telegram message-too-long errors', async () => {

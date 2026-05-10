@@ -264,7 +264,7 @@ export function decideNaturalRoute(
       requires_confirmation: true
     });
   }
-  if (buildIntent && !earlyCreatorMission) {
+  if (buildIntent && !earlyCreatorMission && !conversationalIdeation) {
     return decision({
       route: 'spawner.build',
       owner_system: 'spawner-ui',

@@ -86,7 +86,7 @@ const DEFAULT_POLICY: ContextBudgetPolicy = {
   compactTriggerFraction: 0.65
 };
 
-const NUMBER_WORDS: Record<string, string> = { one: '1', two: '2', three: '3', four: '4' };
+const NUMBER_WORDS: Record<string, string> = { one: '1', two: '2', three: '3', four: '4', five: '5' };
 const OPTION_NUMBER_WORDS: Record<string, number> = {
   one: 1,
   two: 2,
@@ -355,41 +355,44 @@ export function renderChoiceContextAcknowledgement(text: string): string | null 
 }
 
 export function extractPreferredNameFromRecentIdentityText(text: string): string | null {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (!normalized) return null;
-  const writtenNamePatterns = [
-    /\b(?:still\s+)?(?:my\s+)?name\s+is\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i,
-    /\bwrite\s+it\s+as\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i,
-    /\bspell\s+it\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i
-  ];
-  for (const pattern of writtenNamePatterns) {
-    const match = normalized.match(pattern);
-    if (!match?.[1]) continue;
-    if (/^pronounced?$/i.test(match[1])) continue;
-    const before = normalized.slice(0, match.index ?? 0).toLowerCase();
-    if (/\bpronounced?\s+(?:like|as)\s*$/i.test(before)) continue;
-    return match[1][0].toUpperCase() + match[1].slice(1);
-  }
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  const explicit = clean.match(/\b(?:my|still|actual|real|written)\s+name\s+is\s+([A-Z][A-Za-z'-]{1,40})\b/i);
+  if (explicit && !/\bname\s+is\s+pronounced\b/i.test(clean)) return normalizeNameToken(explicit[1]);
+  const writeAs = clean.match(/\b(?:write|spell|written)\s+(?:it|my\s+name)\s+as\s+([A-Z][A-Za-z'-]{1,40})\b/i);
+  if (writeAs) return normalizeNameToken(writeAs[1]);
   return null;
 }
 
-export function answerFromRecentIdentityCorrection(currentMessage: string, turns: ConversationTurn[]): string | null {
-  if (!/\b(?:just told you|not\s+[A-Z]?[a-z]+|my name|name is|called me)\b/i.test(currentMessage)) return null;
-  const recent = turns.slice(-8);
+export function answerFromRecentIdentityCorrection(
+  currentMessage: string,
+  turns: ConversationTurn[]
+): string | null {
+  if (!/\b(?:i\s+just\s+told\s+you|not\s+\w+|my\s+name|pronounced|called)\b/i.test(currentMessage)) {
+    return null;
+  }
+  const recent = turns.slice(-8).reverse();
   let preferredName: string | null = null;
   let pronunciation: string | null = null;
   for (const turn of recent) {
     if (turn.role !== 'user') continue;
-    preferredName = extractPreferredNameFromRecentIdentityText(turn.text) || preferredName;
-    const pronunciationMatch = turn.text.match(/\bpronounced?\s+(?:like|as)\s+([A-Z][A-Za-z][A-Za-z'-]*)\b/i);
-    if (pronunciationMatch?.[1]) {
-      pronunciation = pronunciationMatch[1][0].toUpperCase() + pronunciationMatch[1].slice(1);
-    }
+    preferredName ||= extractPreferredNameFromRecentIdentityText(turn.text);
+    pronunciation ||= extractPronunciationFromIdentityText(turn.text);
+    if (preferredName) break;
   }
   if (!preferredName) return null;
   return pronunciation && pronunciation.toLowerCase() !== preferredName.toLowerCase()
     ? `You're ${preferredName}, pronounced like ${pronunciation}.`
     : `You're ${preferredName}.`;
+}
+
+function extractPronunciationFromIdentityText(text: string): string | null {
+  const match = text.match(/\bpronounced\s+(?:like\s+)?([A-Z][A-Za-z'-]{1,40})\b/i);
+  return match ? normalizeNameToken(match[1]) : null;
+}
+
+function normalizeNameToken(value: string): string {
+  return value.replace(/[^A-Za-z'-]/g, '').trim();
 }
 
 function selectHotTurns(turns: ConversationTurn[], policy: ContextBudgetPolicy): {
@@ -430,7 +433,7 @@ function extractArtifacts(turns: ConversationTurn[]): ConversationArtifact[] {
     }
 
     const accessValue = extractAccessValue(turn.text);
-    if (accessValue && /\b(?:spark\s+)?access(?:\s+level)?\b|\blevel\s+[1-4]\b|\bfull\s+access\b/i.test(turn.text)) {
+    if (accessValue && hasAccessLexeme(turn.text)) {
       artifacts.push({
         kind: 'access_level',
         key: `access:${turn.turnId ?? sourceIndex}`,
@@ -449,9 +452,9 @@ function inferFocusStack(
   turns: ConversationTurn[],
   artifacts: ConversationArtifact[]
 ): ConversationFocus[] {
-  const recentText = [...turns.slice(-8).map((turn) => turn.text), currentMessage].join('\n');
   const focus: ConversationFocus[] = [];
-  if (/\b(?:spark\s+)?access(?:\s+level)?\b|\blevel\s+[1-4]\b|\bfull\s+access\b/i.test(recentText)) {
+  const latestAccess = latestArtifactOfKind(artifacts, 'access_level');
+  if (latestAccess || hasAccessLexeme(currentMessage)) {
     focus.push({ kind: 'access_level', label: 'Spark access level', confidence: 0.92, source: 'recent_turns' });
   }
   const latestList = [...artifacts].reverse().find((artifact) => artifact.kind === 'list');
@@ -503,10 +506,10 @@ function resolveReference(
   if (accessFocus) {
     const accessValue = extractAccessValue(currentMessage);
     const explicitAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|go\s+to)\b/i.test(currentMessage) &&
-      /\b(?:access|permission|level\s+[1-4]|level\s+(?:one|two|three|four)|full\s+access|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build)\b/i.test(currentMessage);
-    const contextualAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|make)\s+(?:it|that|this|me|us|this\s+chat|the\s+chat)?\s*(?:to|as|into|onto)?\s*(?:level\s*)?(?:[1-4]|one|two|three|four)\b/i.test(currentMessage);
+      hasAccessLexeme(currentMessage);
+    const contextualAccessChangeShape = /\b(?:change|set|switch|update|upgrade|downgrade|make)\s+(?:it|that|this|me|us|this\s+chat|the\s+chat)?\s*(?:to|as|into|onto)?\s*(?:level\s*)?(?:[1-5]|one|two|three|four|five)\b/i.test(currentMessage);
     const hasChangeShape = explicitAccessChangeShape || contextualAccessChangeShape;
-    const shortLevelOnly = /^\s*(?:level\s*)?(?:[1-4]|one|two|three|four)\s*[.!?]?\s*$/i.test(currentMessage);
+    const shortLevelOnly = /^\s*(?:level\s*)?(?:[1-5]|one|two|three|four|five)\s*[.!?]?\s*$/i.test(currentMessage);
     if (accessValue && (hasChangeShape || shortLevelOnly)) {
       return {
         kind: 'access_level',
@@ -665,10 +668,14 @@ function extractNumberedItems(text: string): string[] {
 
 function extractAccessValue(text: string): string | null {
   const lower = text.toLowerCase();
-  if (/\bfull\s+access\b/.test(lower)) return '4';
-  const match = text.match(/\b(?:level\s*)?([1-4]|one|two|three|four)\b/i);
+  if (/\b(?:full\s+access|whole[-\s]+computer|operator\s+mode)\b/.test(lower)) return '5';
+  const match = text.match(/\b(?:level\s*)?([1-5]|one|two|three|four|five)\b/i);
   if (!match) return null;
   return NUMBER_WORDS[match[1].toLowerCase()] || match[1];
+}
+
+function hasAccessLexeme(text: string): boolean {
+  return /\b(?:(?:spark\s+)?access(?:\s+level)?|permission|full\s+access|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?\s+local(?:\s+access)?|local\s+(?:workspace|project|repo)\s+access|whole[-\s]+computer|operator\s+mode)\b/i.test(text);
 }
 
 function artifactTitleFromText(text: string): string {

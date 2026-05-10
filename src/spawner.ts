@@ -386,6 +386,10 @@ function formatValidationResultLine(result: CreatorValidationCommandResult): str
   return `${status}: ${artifact}${suffix}`;
 }
 
+function formatArtifactLabel(value: string): string {
+  return value || 'unknown';
+}
+
 function creatorValidationIcon(status: string | undefined): string {
   const normalized = (status || '').toLowerCase();
   if (/\b(pass|success|validated|complete)\b/.test(normalized)) return '🟢';
@@ -411,7 +415,7 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const domain = String(intent.target_domain || 'creator path');
   const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
-    ? `Artifacts: ${trace.artifacts.slice(0, 6).join(', ')}`
+    ? trace.artifacts.slice(0, 6).map(formatArtifactLabel).join(', ')
     : 'artifact plan pending';
 
   const lines = [
@@ -486,22 +490,19 @@ export function formatCreatorMissionExecutionSummary(
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const headline = result.started
-    ? '🟢 Creator mission execution started.'
+    ? 'Creator mission execution started.'
     : result.skipped
-      ? '🟡 Creator mission was already handled.'
-      : '🟢 Creator mission accepted.';
+      ? 'Creator mission was already handled.'
+      : 'Creator mission accepted.';
 
   return [
     headline,
     '',
-    'Build',
     `Mission: ${missionId}`,
-    result.started ? 'running now' : result.skipped ? 'already handled' : 'queued',
     ...(result.providerId ? [`Provider: ${formatProviderLabel(result.providerId)}`] : []),
-    ...(result.reason ? [`Note: ${result.reason}`] : []),
     ...(result.projectPath ? [`Workspace: ${result.projectPath}`] : []),
+    ...(result.reason ? [`Note: ${result.reason}`] : []),
     '',
-    'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Mission board: ${kanbanUrl}`
   ].join('\n');

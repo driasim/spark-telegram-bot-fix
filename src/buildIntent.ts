@@ -331,9 +331,14 @@ function isConversationFramingMakeRequest(description: string): boolean {
 }
 
 function isVoiceTuningMakeRequest(description: string): boolean {
-  const normalized = description.replace(/\s+/g, ' ').trim();
-  return /^(?:my\s+|our\s+|the\s+)?voice\b/i.test(normalized) &&
-    /\b(?:clearer|warmer|colder|faster|slower|friendlier|geekier|nerdier|natural|casual|formal|concise|verbose|shorter|longer|tone|style)\b/i.test(normalized);
+  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  const productArtifact = /\b(?:app|application|dashboard|website|site|page|game|tool|player|recorder|studio|interface)\b/.test(normalized);
+  if (productArtifact) return false;
+  return (
+    /\b(?:voice|speech|audio|sound|tone|style|persona|reply|responses?)\b/.test(normalized) &&
+    /\b(?:clearer|clear|warmer|colder|faster|slower|louder|softer|better|geek(?:y|ier)|friendlier|crisper|natural|human|concise|verbose)\b/.test(normalized)
+  );
 }
 
 function isSparkCapabilityMakeRequest(description: string): boolean {
@@ -400,7 +405,10 @@ function extractBuildDescription(text: string): string | null {
     if (/\bmake\b/i.test(command[0]) && /^\s*sure\b/i.test(description)) {
       return null;
     }
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
       return null;
     }
     return description;
@@ -421,7 +429,10 @@ function extractBuildDescription(text: string): string | null {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))) {
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
       return null;
     }
     return description;

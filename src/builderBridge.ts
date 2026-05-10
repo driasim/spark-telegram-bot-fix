@@ -59,16 +59,15 @@ export interface BuilderBridgeVoiceMedia {
   voiceId?: string;
   spokenText?: string;
   synthesisMs?: number;
+  runtimeState?: Record<string, unknown>;
 }
 
 export interface BuilderVoiceDeliveryRuntimeStateInput {
-  telegramUserId: string | number;
+  telegramUserId: number | string;
   sendMethod: string;
   sendMs: number;
   telegramResult?: unknown;
-  voiceMedia: BuilderBridgeVoiceMedia & {
-    runtimeState?: Record<string, unknown>;
-  };
+  voiceMedia: BuilderBridgeVoiceMedia;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -97,19 +96,16 @@ export interface BuilderConversationColdContextResult {
   contextText: string;
   sourceCount: number;
   bridgeMode: string;
+  sources?: BuilderColdMemorySource[];
   error?: string;
 }
 
-export function formatMemoryInPlaySummary(result: BuilderConversationColdContextResult): string {
-  if (!result.used || !result.contextText.trim()) return '';
-  const sourceLine = result.sourceCount > 0
-    ? `Memory in play: ${result.sourceCount} source${result.sourceCount === 1 ? '' : 's'}.`
-    : 'Memory in play: available.';
-  const summary = result.contextText
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 420);
-  return [sourceLine, summary].filter(Boolean).join('\n');
+export interface BuilderColdMemorySource {
+  source: string;
+  sourceClass: string;
+  freshness: string;
+  timestamp: string | null;
+  preview: string;
 }
 
 export interface BuilderSelfAwarenessInput {
@@ -354,39 +350,39 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliveryRuntimeStateInput): Record<string, unknown> {
-  const base = objectValue(input.voiceMedia.runtimeState);
-  const telegramResult = objectValue(input.telegramResult);
-  const tts = {
-    ...objectValue(base.tts),
-    ...(input.voiceMedia.providerId ? { provider_id: input.voiceMedia.providerId } : {})
-  };
+  const runtimeState = objectValue(input.voiceMedia.runtimeState);
   const claimLevels = {
-    ...objectValue(base.claim_levels),
-    delivery_ready: true
+    ...objectValue(runtimeState.claim_levels),
+    delivery_ready: true,
   };
-  const sourceLedger = arrayValue(base.source_ledger)
-    .map((entry) => typeof entry === 'string' ? entry : JSON.stringify(entry))
-    .filter(Boolean);
-  sourceLedger.push(`telegram-runner-${input.sendMethod}-trace`);
+  const sourceLedger = [
+    ...arrayValue(runtimeState.source_ledger),
+    {
+      source: 'telegram-runner-sendVoice-trace',
+      telegram_user_id_present: Boolean(String(input.telegramUserId || '').trim()),
+    },
+  ];
 
   return {
-    ...base,
-    telegram_user_id: String(input.telegramUserId),
-    tts,
+    ...runtimeState,
+    tts: {
+      ...objectValue(runtimeState.tts),
+      provider_id: input.voiceMedia.providerId || stringValue(objectValue(runtimeState.tts).provider_id),
+    },
     claim_levels: claimLevels,
     telegram_delivery: {
       ready: true,
       last_send_voice_at: new Date().toISOString(),
       last_send_voice_status: 'success',
       last_failure_reason: '',
-      telegram_message_id_present: Boolean(telegramResult.message_id),
-      send_method: input.sendMethod
+      telegram_message_id_present: Boolean(objectValue(input.telegramResult).message_id),
+      send_method: input.sendMethod,
     },
     latency: {
-      ...objectValue(base.latency),
-      send_voice_ms: Number.isFinite(input.sendMs) ? input.sendMs : 0
+      ...objectValue(runtimeState.latency),
+      send_voice_ms: input.sendMs,
     },
-    source_ledger: sourceLedger.map((entry) => redactText(entry))
+    source_ledger: sourceLedger,
   };
 }
 
@@ -742,9 +738,39 @@ function shouldIncludeColdMemoryItem(item: Record<string, unknown>): boolean {
   return true;
 }
 
+function coldMemorySourceMeta(item: Record<string, unknown>): string {
+  const { sourceClass, freshness, timestamp } = coldMemorySourceParts(item);
+  return [
+    `class=${sourceClass}`,
+    `freshness=${freshness}`,
+    timestamp ? `time=${timestamp}` : ''
+  ].filter(Boolean).join('; ');
+}
+
+function coldMemorySourceParts(item: Record<string, unknown>): {
+  sourceClass: string;
+  freshness: string;
+  timestamp: string | null;
+} {
+  return {
+    sourceClass: stringValue(item.source_class) || 'unknown_source',
+    freshness:
+      stringValue(item.freshness) ||
+      stringValue(item.freshness_status) ||
+      stringValue(item.status) ||
+      'supporting',
+    timestamp:
+      stringValue(item.timestamp) ||
+      stringValue(item.created_at) ||
+      stringValue(item.updated_at) ||
+      null,
+  };
+}
+
 export function formatConversationColdMemoryContext(payload: unknown, maxChars = 3000): {
   contextText: string;
   sourceCount: number;
+  sources: BuilderColdMemorySource[];
 } {
   const root = objectValue(payload);
   const packet = objectValue(root.context_packet);
@@ -756,6 +782,7 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
   ];
   let usedChars = lines.join('\n').length;
   let sourceCount = 0;
+  const sources: BuilderColdMemorySource[] = [];
 
   for (const sectionValue of sections) {
     const section = objectValue(sectionValue);
@@ -773,12 +800,20 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
       const lane = stringValue(item.lane) || 'memory';
       const predicate = stringValue(item.predicate);
       const source = predicate ? `${lane}/${predicate}` : lane;
-      const line = `- ${source}: ${text}`;
+      const meta = coldMemorySourceParts(item);
+      const line = `- ${source} [${coldMemorySourceMeta(item)}]: ${text}`;
       if (usedChars + sectionLines.join('\n').length + line.length > maxChars) {
         break;
       }
       sectionLines.push(line);
       sourceCount += 1;
+      sources.push({
+        source,
+        sourceClass: meta.sourceClass,
+        freshness: meta.freshness,
+        timestamp: meta.timestamp,
+        preview: truncateForPrompt(text, 160),
+      });
     }
     if (sectionLines.length > 1) {
       lines.push(...sectionLines, '');
@@ -791,8 +826,40 @@ export function formatConversationColdMemoryContext(payload: unknown, maxChars =
 
   return {
     contextText: sourceCount > 0 ? lines.join('\n').trim() : '',
-    sourceCount
+    sourceCount,
+    sources,
   };
+}
+
+export function formatMemoryInPlaySummary(result: Pick<BuilderConversationColdContextResult, 'used' | 'sourceCount' | 'sources' | 'error'>): string {
+  if (result.error) {
+    return [
+      'Memory in play',
+      '',
+      'State: degraded',
+      `Reason: ${truncateForPrompt(result.error, 240)}`,
+      'Rule: answer from current visible chat until memory recovers.',
+    ].join('\n');
+  }
+  if (!result.used || !result.sourceCount) {
+    return [
+      'Memory in play',
+      '',
+      'State: none selected',
+      'Rule: current chat and live AOC are the active context.',
+    ].join('\n');
+  }
+  const lines = [
+    'Memory in play',
+    '',
+    `Retrieved: ${result.sourceCount} supporting source${result.sourceCount === 1 ? '' : 's'}`,
+    'Rule: current chat and live AOC override retrieved memory.',
+  ];
+  for (const source of (result.sources || []).slice(0, 4)) {
+    const time = source.timestamp ? ` time=${source.timestamp}` : '';
+    lines.push(`- ${source.source} [class=${source.sourceClass}; freshness=${source.freshness}${time}]`);
+  }
+  return lines.join('\n');
 }
 
 export function formatDiagnosticsScanReply(report: BuilderDiagnosticsScanJson): string {
@@ -1397,7 +1464,7 @@ export async function runBuilderAgentOperatingContext(
 
   const args = [
     'self',
-    'context',
+    'panel',
     '--home',
     config.builderHome,
     '--human-id',
@@ -1432,7 +1499,7 @@ export async function runBuilderAgentOperatingContext(
   );
   const trimmedStdout = stdout.trim();
   if (!trimmedStdout) {
-    throw new Error(`Builder agent operating context returned empty stdout. stderr=${redactText(stderr.trim())}`);
+    throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
 }
@@ -1883,6 +1950,7 @@ export async function runBuilderConversationColdContext(
       used: formatted.sourceCount > 0,
       contextText: formatted.contextText,
       sourceCount: formatted.sourceCount,
+      sources: formatted.sources,
       bridgeMode: config.mode,
     };
   } catch (error) {

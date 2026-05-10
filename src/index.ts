@@ -4,9 +4,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Telegraf } from 'telegraf';
-import { loadSparkTelegramProfileEnv } from './profileEnv';
 
-loadSparkTelegramProfileEnv(process.argv.slice(2));
 // Load .env.override LAST with override=true. Wins over anything spark-cli
 // rewrites in .env. Never committed (.gitignored).
 loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true });
@@ -35,7 +33,7 @@ import {
 } from './builderBridge';
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
-import { sanitizeAndSplitTelegramText, TELEGRAM_SAFE_MESSAGE_LIMIT } from './outboundSanitize';
+import { sanitizeAndSplitTelegramText } from './outboundSanitize';
 import { installConsoleRedaction, redactText } from './redaction';
 import {
   formatCreatorMissionExecutionSummary,
@@ -94,8 +92,10 @@ import {
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
   renderSparkAccessBriefStatus,
+  renderSparkAccessChangeSummary,
   renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
+  renderSparkAccessLevel5ConfirmationPrompt,
   renderSparkAccessConversationHelp,
   renderSparkAccessDenial,
   renderSparkAccessOnboarding,
@@ -111,7 +111,14 @@ import {
 } from './accessPolicy';
 import {
   accessActionNeedsConfirmation,
-  runSparkAccessAction,
+  buildSparkAccessActionKeyboard,
+  buildSparkAccessChangeKeyboard,
+  buildSparkAccessConfirmationKeyboard,
+  buildSparkAccessLevel5ConfirmKeyboard,
+  formatSparkAccessActionConfirmationPrompt,
+  formatSparkAccessAutomaticRestartNotice,
+  runSparkAccessActionDetailed,
+  scheduleSparkRestartAfterAccessChange,
   type SparkAccessActionId
 } from './accessActions';
 import {
@@ -382,67 +389,6 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
 // runs through the deterministic voice rules before delivery. Persona
 // forbids em dashes; production telemetry showed ~50% leak rate before
 // this shim. Mirrors spark_character.output_sanitizer (Python).
-type TelegramTextSend = (text: string, extra?: any) => Promise<any>;
-
-function telegramDeliveryErrorText(error: unknown): string {
-  const parts: string[] = [];
-  if (error instanceof Error && error.message) {
-    parts.push(error.message);
-  }
-  const record = error as any;
-  for (const value of [
-    record?.description,
-    record?.response?.description,
-    record?.response?.body?.description,
-    record?.payload?.description,
-  ]) {
-    if (typeof value === 'string' && value.trim()) {
-      parts.push(value);
-    }
-  }
-  return parts.join('\n');
-}
-
-export function isTelegramMessageTooLongError(error: unknown): boolean {
-  return /message(?: text)? is too long|message_too_long/i.test(telegramDeliveryErrorText(error));
-}
-
-async function sendSanitizedTelegramText(
-  text: string,
-  extra: any,
-  send: TelegramTextSend,
-  onDelivered?: (chunk: string) => void,
-  maxChars = TELEGRAM_SAFE_MESSAGE_LIMIT
-): Promise<any> {
-  const chunks = sanitizeAndSplitTelegramText(text, maxChars);
-  let lastDelivery: any = null;
-  for (let index = 0; index < chunks.length; index += 1) {
-    const chunk = chunks[index];
-    const chunkExtra = index === 0 ? extra : undefined;
-    try {
-      lastDelivery = await send(chunk, chunkExtra);
-      onDelivered?.(chunk);
-    } catch (error) {
-      if (isTelegramMessageTooLongError(error) && maxChars > 900) {
-        lastDelivery = await sendSanitizedTelegramText(
-          chunk,
-          chunkExtra,
-          send,
-          onDelivered,
-          Math.max(900, Math.floor(maxChars / 2))
-        );
-        continue;
-      }
-      throw error;
-    }
-  }
-  return lastDelivery;
-}
-
-async function replyWithSanitizedTelegramText(ctx: any, text: string, extra?: any): Promise<any> {
-  return sendSanitizedTelegramText(text, extra, (chunk, chunkExtra) => ctx.reply(chunk, chunkExtra));
-}
-
 const _origSendMessage = bot.telegram.sendMessage.bind(bot.telegram);
 bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
   if (typeof text !== 'string') {
@@ -451,12 +397,13 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
     return delivery;
   }
 
-  return sendSanitizedTelegramText(
-    text,
-    extra,
-    (chunk, chunkExtra) => _origSendMessage(chatId, chunk, chunkExtra),
-    (chunk) => recordNodeOutboundDelivery(chatId, chunk)
-  );
+  const chunks = sanitizeAndSplitTelegramText(text);
+  let lastDelivery: Awaited<ReturnType<typeof _origSendMessage>> | null = null;
+  for (const chunk of chunks) {
+    lastDelivery = await _origSendMessage(chatId, chunk, extra);
+    recordNodeOutboundDelivery(chatId, chunk);
+  }
+  return lastDelivery!;
 }) as typeof bot.telegram.sendMessage;
 
 bot.use(async (ctx, next) => {
@@ -466,7 +413,12 @@ bot.use(async (ctx, next) => {
       return originalReply(text, extra);
     }
 
-    return sendSanitizedTelegramText(text, extra, (chunk, chunkExtra) => originalReply(chunk, chunkExtra));
+    const chunks = sanitizeAndSplitTelegramText(text);
+    let lastReply: Awaited<ReturnType<typeof originalReply>> | null = null;
+    for (const chunk of chunks) {
+      lastReply = await originalReply(chunk, extra);
+    }
+    return lastReply!;
   }) as typeof ctx.reply;
   await next();
 });
@@ -573,6 +525,29 @@ async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<ty
   }
 }
 
+function isTelegramMessageTooLongError(error: unknown): boolean {
+  const err = error as { message?: unknown; response?: { description?: unknown } };
+  const text = `${typeof err?.message === 'string' ? err.message : ''} ${typeof err?.response?.description === 'string' ? err.response.description : ''}`;
+  return /message is too long|message_too_long/i.test(text);
+}
+
+async function replyWithSanitizedTelegramText(ctx: any, text: string, extra?: any): Promise<void> {
+  try {
+    for (const chunk of sanitizeAndSplitTelegramText(text)) {
+      await ctx.reply(chunk, extra);
+    }
+    return;
+  } catch (error) {
+    if (!isTelegramMessageTooLongError(error)) {
+      throw error;
+    }
+  }
+
+  for (const chunk of sanitizeAndSplitTelegramText(text, 900)) {
+    await ctx.reply(chunk, extra);
+  }
+}
+
 function voiceMediaCaption(
   voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>,
   fallbackText = ''
@@ -598,26 +573,11 @@ async function sendBuilderVoiceMedia(
   console.log(
     `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length} captionChars=${caption?.length || 0} spokenChars=${(voiceMedia.spokenText || '').length}`
   );
-  try {
-    if (voiceMedia.voiceCompatible) {
-      await ctx.replyWithVoice(inputFile, options);
-      return;
-    }
-    await ctx.replyWithAudio(inputFile, options);
-  } catch (error) {
-    if (!caption || !isTelegramMessageTooLongError(error)) {
-      throw error;
-    }
-    console.warn('[BridgeVoice] media caption too long; retrying media without caption and sending text separately');
-    if (voiceMedia.voiceCompatible) {
-      await ctx.replyWithVoice(inputFile);
-    } else {
-      await ctx.replyWithAudio(inputFile);
-    }
-    if (fallbackText) {
-      await replyWithSanitizedTelegramText(ctx, fallbackText);
-    }
+  if (voiceMedia.voiceCompatible) {
+    await ctx.replyWithVoice(inputFile, options);
+    return;
   }
+  await ctx.replyWithAudio(inputFile, options);
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
@@ -765,8 +725,7 @@ bot.start(async (ctx) => {
       '/access_setup - Set up the safe Level 4 workspace from Telegram',
       '/docker_doctor - Check Docker sandbox readiness without changing the computer',
       '/docker_smoke confirm - Run the no-secret Docker sandbox smoke',
-      '/level5_setup confirm - Prepare whole-computer operator guardrails, then restart',
-      '/level5_disable confirm - Return to workspace-sandbox mode, then restart',
+      '/access 5 - Approve Level 5 setup from Telegram',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
@@ -1283,12 +1242,24 @@ function startPrdCanvasReadyNotifier(args: {
     const readyTimeoutMs = localServiceTimeoutMs('SPARK_SPAWNER_PRD_READY_TIMEOUT_MS');
     const deadline = started + readyTimeoutMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
+    const heartbeatThresholds = [25_000, 75_000, 135_000];
+    let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
       if (shouldSuppressMissionHandoff(args.missionId)) {
         return;
       }
       try {
+        const elapsedMs = Date.now() - started;
+        if (heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
+          const elapsedSec = Math.round(elapsedMs / 1000);
+          await bot.telegram.sendMessage(
+            args.chatId,
+            `Still working on ${args.projectName}. Spark is shaping the PRD and preparing the canvas (${elapsedSec}s elapsed).`
+          ).catch(() => {});
+          heartbeatIndex += 1;
+        }
+
         const poll = await axios.get(resultUrl, spawnerAxiosOptions(3000));
         if (poll.data?.found && poll.data?.result?.success) {
           try {
@@ -2075,6 +2046,63 @@ function pendingClarificationForMessage(key: string, text: string): PendingClari
   return pending;
 }
 
+function quotedTelegramMessageText(message: any): string {
+  const quoted = message?.reply_to_message;
+  const text = typeof quoted?.text === 'string' ? quoted.text : typeof quoted?.caption === 'string' ? quoted.caption : '';
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function compactTelegramReplyQuote(text: string, maxChars = 360): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, Math.max(0, maxChars - 14)).trim()} [truncated]`;
+}
+
+function isMissionStatusOriginQuestion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return /^(?:where\s+did\s+this\s+come\s+from|what\s+is\s+this|what\s+was\s+this|why\s+did\s+you\s+send\s+this)\??$/.test(normalized);
+}
+
+export function buildTelegramReplyContextPrompt(currentText: string, quotedText: string, quotedSender = 'previous message'): string {
+  return [
+    '[Telegram direct reply context]',
+    `Quoted sender: ${quotedSender || 'previous message'}`,
+    `Quoted message: ${compactTelegramReplyQuote(quotedText)}`,
+    '',
+    '[Current user message]',
+    currentText.trim(),
+  ].join('\n');
+}
+
+export function buildQuotedMissionStatusOriginReply(currentText: string, quotedText: string): string | null {
+  if (!isMissionStatusOriginQuestion(currentText)) return null;
+  const quoted = compactTelegramReplyQuote(quotedText);
+  if (!quoted) return null;
+  if (/\bStill working on\b.+\bshaping the PRD\b|\bpreparing the canvas\b/i.test(quoted)) {
+    return [
+      'That came from the Mission Control PRD/canvas prep notifier for an older build request.',
+      '',
+      'It means Spark had accepted a build, was turning the request into a task canvas, and had not started execution yet.'
+    ].join('\n');
+  }
+  if (/\b(?:Spark has the build ready|Spark finished the build|Spark completed the mission|Open it here:|Mission:\s*(?:spark|mission)-)\b/i.test(quoted)) {
+    return 'That was the final Mission Control handoff for a build: the Codex result, preview link if there is one, and mission id.';
+  }
+  return null;
+}
+
+function buildLatestAssistantOriginReply(currentText: string, pending: PendingClarification | null): string | null {
+  if (!isMissionStatusOriginQuestion(currentText)) return null;
+  if (!pending) return null;
+  return [
+    `That was the build clarification gate for ${pending.projectName}.`,
+    '',
+    'Spark had enough to understand the project, but paused before enqueueing Mission Control because it wanted one steering answer or an explicit "go".'
+  ].join('\n');
+}
+
 export function formatCanvasReadySummary(args: {
   projectName: string;
   taskCount: unknown;
@@ -2345,7 +2373,7 @@ for (const variant of RUN_VARIANTS) {
       return ctx.reply(`Usage: ${variant.usage}`);
     }
     const providers = variant.name === 'run' ? [missionDefaultProvider()] : variant.providers;
-    await handleRunCommand(ctx, goal, providers, undefined, { allowBuildIntent: variant.name === 'run' });
+    await handleRunCommand(ctx, goal, providers);
   });
 }
 
@@ -2817,7 +2845,7 @@ bot.command('access', async (ctx) => {
       renderSparkAccessStatus(current),
       '',
       renderSparkAccessCapabilityStatus(current, runnerPreflight)
-    ].join('\n'));
+    ].join('\n'), buildSparkAccessActionKeyboard(current));
     return;
   }
 
@@ -2827,56 +2855,112 @@ bot.command('access', async (ctx) => {
     return;
   }
 
+  if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    const runtimeGate = validateSparkAccessProfileForRuntime(next);
+    if (runtimeGate.ok) {
+      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      return;
+    }
+  }
+
+  if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    await ctx.reply(renderSparkAccessLevel5ConfirmationPrompt(), buildSparkAccessLevel5ConfirmKeyboard());
+    return;
+  }
+
+  const reply = await renderSparkAccessChangeReply(next);
+  await applySparkAccessProfileChange(ctx, next, reply);
+});
+
+function accessLevelChangeConfirmed(raw: string): boolean {
+  return /\bconfirm\b/i.test(raw);
+}
+
+async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile, precomputedReply?: string): Promise<void> {
   const runtimeGate = validateSparkAccessProfileForRuntime(next);
   if (!runtimeGate.ok) {
+    if (next === 'operator') {
+      await prepareLevel5AndApplyAccess(ctx);
+      return;
+    }
     await ctx.reply(runtimeGate.message);
     return;
   }
 
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply);
+  const reply = precomputedReply || await renderSparkAccessChangeReply(next);
+  await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
-});
-
-async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
-  const confirmation = renderSparkAccessChangeConfirmation(profile);
-  if (profile !== 'developer' && profile !== 'operator') {
-    return confirmation;
-  }
-  const runnerPreflight = await probeTelegramRunnerWritability();
-  return [
-    confirmation,
-    '',
-    renderSparkAccessCapabilityStatus(profile, runnerPreflight)
-  ].join('\n');
 }
 
-async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const result = await runSparkAccessActionDetailed('level5_enable');
+    const ok = result.payload?.ok !== false;
+    if (!ok) {
+      await ctx.reply(result.reply);
+      return;
+    }
+
+    await setSparkAccessProfile(ctx.chat.id, 'operator');
+    await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is operator. ${describeSparkAccessProfile('operator')}`).catch(() => {});
+    const reply = [
+      'Access Level 5 is approved.',
+      '',
+      result.needsSparkRestart
+        ? ['I prepared the local guardrails.', '', formatSparkAccessAutomaticRestartNotice('level5_enable')].join('\n')
+        : await renderSparkAccessChangeReply('operator'),
+    ].join('\n');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    if (result.needsSparkRestart) {
+      scheduleSparkRestartAfterAccessChange();
+    }
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    await ctx.reply(`Access Level 5 setup failed: ${detail}`);
+  }
+}
+
+async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
+  if (profile !== 'developer' && profile !== 'operator') {
+    return renderSparkAccessChangeConfirmation(profile);
+  }
+  return renderSparkAccessChangeSummary(profile, await probeTelegramRunnerWritability());
+}
+
+async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, confirmed: boolean): Promise<void> {
   if (!requireAdmin(ctx)) return;
 
-  const raw = String(ctx.message?.text || '');
-  const confirmed = /\bconfirm\b/i.test(raw);
   if (accessActionNeedsConfirmation(actionId) && !confirmed) {
-    const hint = actionId === 'docker_smoke'
-      ? 'This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.'
-      : actionId === 'level5_enable'
-        ? 'Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.'
-        : 'This changes Spark access guardrail state and requires confirmation.';
-    await ctx.reply([hint, '', `To continue, send ${raw.split(/\s+/)[0]} confirm`].join('\n'));
+    await ctx.reply(formatSparkAccessActionConfirmationPrompt(actionId), buildSparkAccessConfirmationKeyboard(actionId));
     return;
   }
 
   await safeSendChatAction(ctx, 'typing');
   try {
-    const reply = await runSparkAccessAction(actionId);
+    const result = await runSparkAccessActionDetailed(actionId);
+    const reply = result.needsSparkRestart
+      ? [result.reply, '', formatSparkAccessAutomaticRestartNotice(actionId)].join('\n')
+      : result.reply;
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    if (result.needsSparkRestart) {
+      scheduleSparkRestartAfterAccessChange();
+    }
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     await ctx.reply(`Spark access action failed: ${detail}`);
   }
+}
+
+async function handleSparkAccessActionCommand(ctx: any, actionId: SparkAccessActionId): Promise<void> {
+  const raw = String(ctx.message?.text || '');
+  await handleSparkAccessAction(ctx, actionId, /\bconfirm\b/i.test(raw));
 }
 
 bot.command('access_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'workspace_setup'));
@@ -2884,6 +2968,19 @@ bot.command('docker_doctor', async (ctx) => handleSparkAccessActionCommand(ctx, 
 bot.command('docker_smoke', async (ctx) => handleSparkAccessActionCommand(ctx, 'docker_smoke'));
 bot.command('level5_setup', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_enable'));
 bot.command('level5_disable', async (ctx) => handleSparkAccessActionCommand(ctx, 'level5_disable'));
+
+bot.action(/^spark_access:(workspace_setup|docker_doctor|docker_smoke|level5_enable|level5_disable)(?::(confirm))?$/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const match = String((ctx.callbackQuery as any)?.data || '').match(/^spark_access:(workspace_setup|docker_doctor|docker_smoke|level5_enable|level5_disable)(?::(confirm))?$/);
+  if (!match) return;
+  await handleSparkAccessAction(ctx, match[1] as SparkAccessActionId, match[2] === 'confirm');
+});
+
+bot.action(/^spark_access_level:operator:confirm$/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  if (!requireAdmin(ctx)) return;
+  await applySparkAccessProfileChange(ctx, 'operator');
+});
 
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
@@ -2894,17 +2991,23 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
     return true;
   }
 
-  const runtimeGate = validateSparkAccessProfileForRuntime(next);
-  if (!runtimeGate.ok) {
-    await ctx.reply(runtimeGate.message);
+  const current = await getSparkAccessProfile(ctx.chat.id);
+  if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    const runtimeGate = validateSparkAccessProfileForRuntime(next);
+    if (runtimeGate.ok) {
+      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      return true;
+    }
+  }
+
+  if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    await ctx.reply(renderSparkAccessLevel5ConfirmationPrompt(), buildSparkAccessLevel5ConfirmKeyboard());
     return true;
   }
 
-  await setSparkAccessProfile(ctx.chat.id, next);
-  await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply);
-  await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  await applySparkAccessProfileChange(ctx, next);
   return true;
 }
 
@@ -3017,74 +3120,6 @@ bot.command('mission', async (ctx) => {
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
 });
 
-function quotedTelegramMessageText(ctx: any): string | null {
-  const quoted = ctx?.message?.reply_to_message;
-  if (!quoted) return null;
-  if (typeof quoted.text === 'string') return quoted.text;
-  if (typeof quoted.caption === 'string') return quoted.caption;
-  return null;
-}
-
-function compactTelegramReplyQuote(text: string, limit = 1200): string {
-  const compacted = text.replace(/\s+/g, ' ').trim();
-  if (compacted.length <= limit) return compacted;
-  return `${compacted.slice(0, Math.max(0, limit - 16)).trim()} [truncated]`;
-}
-
-function quotedTelegramMessageAuthor(ctx: any): string {
-  const quoted = ctx?.message?.reply_to_message;
-  const from = quoted?.from;
-  if (from?.is_bot) return 'Spark';
-  if (typeof from?.first_name === 'string' && from.first_name.trim()) return from.first_name.trim();
-  if (typeof from?.username === 'string' && from.username.trim()) return `@${from.username.trim()}`;
-  return 'an earlier Telegram message';
-}
-
-export function buildTelegramReplyContextPrompt(text: string, quotedText?: string | null, quotedAuthor = 'an earlier Telegram message'): string {
-  const quote = quotedText?.trim();
-  if (!quote) return text;
-  return [
-    '[Telegram direct reply context]',
-    `The user replied directly to this message from ${quotedAuthor}:`,
-    `"${compactTelegramReplyQuote(quote)}"`,
-    '',
-    'Treat the quoted message as the primary context for this turn. Use newer chat history only as supporting context.',
-    '',
-    '[Current user message]',
-    text
-  ].join('\n');
-}
-
-export function buildQuotedMissionStatusOriginReply(text: string, quotedText?: string | null): string | null {
-  if (!quotedText?.trim()) return null;
-  if (!/\b(where did this come from|where is this from|what is this|what sent this|why did (?:you|spark|it) send this)\b/i.test(text)) {
-    return null;
-  }
-
-  const quoted = quotedText.trim();
-  if (/^Still working on .+Spark is shaping the PRD and preparing the canvas/i.test(quoted)) {
-    return [
-      'That came from Spark\'s PRD/canvas prep notifier for an older build request.',
-      '',
-      'It was live build status, not memory. That noisy prep ping is now suppressed so active builds only send pickup, canvas-ready, and final handoff unless you choose verbose.'
-    ].join('\n');
-  }
-
-  if (/^Canvas is ready for /i.test(quoted)) {
-    return 'That was Mission Control saying the PRD canvas was ready and task execution was about to start.';
-  }
-
-  if (/^(Milestone complete|Step \d+\b)/i.test(quoted)) {
-    return 'That was a Mission Control progress update from an active build. It marks work completed inside the mission, not a new user request.';
-  }
-
-  if (/^.+Spark .*(finished|completed|shipped|has the build ready|has the result ready)/i.test(quoted) || /\bOpen it here:\s*https?:\/\//i.test(quoted)) {
-    return 'That was the final Mission Control handoff for a build, with the preview link and mission result.';
-  }
-
-  return null;
-}
-
 // Handle regular text messages
 export async function handleTextMessage(ctx: any): Promise<void> {
   const user = ctx.from;
@@ -3094,20 +3129,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  const quotedText = quotedTelegramMessageText(ctx);
-  const quotedAuthor = quotedTelegramMessageAuthor(ctx);
-  const replyContextPrompt = buildTelegramReplyContextPrompt(text, quotedText, quotedAuthor);
-  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedText);
-  if (quotedOriginReply) {
+  const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
+  const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);
+  const earlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
+  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx.message));
+  if (!earlyBuildIntent && quotedOriginReply) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(quotedOriginReply);
     await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
     return;
   }
-
-  const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
-  const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);
-  const earlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
+  const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
+    ? buildLatestAssistantOriginReply(text, pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`) || null)
+    : null;
+  if (latestOriginReply) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(latestOriginReply);
+    await conversation.rememberAssistantReply(user, latestOriginReply).catch(() => {});
+    return;
+  }
 
   if (globalAgentDoctrineRequest) {
     const reply = formatGlobalAgentDoctrineRequestReply(text);
@@ -3138,14 +3178,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   const conversationFrame = await conversation.getConversationFrame(user, text);
   let conversationFrameContext = renderConversationFrameContext(conversationFrame, 12_000);
-  if (quotedText) {
-    conversationFrameContext = [
-      conversationFrameContext,
-      '[Telegram direct reply target]',
-      `Author: ${quotedAuthor}`,
-      `Message: ${compactTelegramReplyQuote(quotedText)}`
-    ].filter(Boolean).join('\n\n');
-  }
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
@@ -3764,9 +3796,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
             ctx.update as unknown as Record<string, unknown>,
             buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
           )
-        : quotedText
-          ? buildUpdateWithText(ctx.update as unknown as Record<string, unknown>, replyContextPrompt)
-          : ctx.update as unknown as Record<string, unknown>;
+        : ctx.update as unknown as Record<string, unknown>;
       builderReply = await runBuilderTelegramBridge(bridgeUpdate);
     } catch (bridgeError) {
       bridgeFailed = true;
@@ -3808,7 +3838,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
 
-    const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || replyContextPrompt;
+    const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
 
     // Get LLM response with Spark context
     const response = await llm.chat(chatPrompt, renderSparkAccessRuntimeHint(accessProfile), memories);

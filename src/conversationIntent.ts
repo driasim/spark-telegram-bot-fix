@@ -51,7 +51,12 @@ export function shouldPreferConversationalIdeation(text: string): boolean {
     return false;
   }
   const mentionsDomainChipArtifact = /\bdomain[-\s]*chip[-\w]*\b/i.test(trimmed);
-  return hasLocalOptionReference(trimmed) || mentionsDomainChipArtifact || COLLABORATIVE_IDEA_PATTERNS.some((pattern) => pattern.test(trimmed));
+  return (
+    hasLocalOptionReference(trimmed) ||
+    mentionsDomainChipArtifact ||
+    isAccessSandboxRouteDesignDiscussion(trimmed) ||
+    COLLABORATIVE_IDEA_PATTERNS.some((pattern) => pattern.test(trimmed))
+  );
 }
 
 export function isSparkWikiStatusQuestion(text: string): boolean {
@@ -169,10 +174,10 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (isVoiceOnboardingSetupQuestion(normalized)) {
     return null;
   }
-  if (shouldPreferConversationalIdeation(normalized)) {
+  if (isMemoryDoctorRequest(normalized)) {
     return null;
   }
-  if (isMemoryDoctorRequest(normalized)) {
+  if (shouldPreferConversationalIdeation(normalized)) {
     return null;
   }
   if (
@@ -227,7 +232,7 @@ function isAccessSandboxRouteDesignDiscussion(text: string): boolean {
   if (!normalized) return false;
 
   const mentionsAccessOrSandbox =
-    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
+    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|setup|restart|command|commands|terminal|powershell|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
   if (!mentionsAccessOrSandbox) return false;
 
   const asksToDiscussOrVerify =
@@ -248,6 +253,17 @@ function isVoiceOnboardingSetupQuestion(text: string): boolean {
       /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(normalized) ||
       /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(simplified)
     )
+  );
+}
+
+function isLikelyVoiceOrPersonaTuningRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  const projectSurface = /\b(?:app|site|page|screen|dashboard|tool|design|layout|palette|colors?|colours?|spacing|button|components?|card|workflow|spawner-ui)\b/.test(normalized);
+  if (projectSurface) return false;
+  return (
+    /\b(?:voice|speech|audio|sound|tone|style|persona|personality|reply|responses?|speaking)\b/.test(normalized) ||
+    /\b(?:warmer|colder|geek(?:y|ier)|friendlier|clearer|crisper|natural|human|faster|slower|louder|softer)\b/.test(normalized)
   );
 }
 
@@ -429,11 +445,11 @@ export function isMemoryDoctorRequest(text: string): boolean {
     return true;
   }
 
-  const asksForMemoryDoctorImprovement =
-    /\b(?:what|how|where|which)\b.*\b(?:improve|fix|repair|tighten|change|better|strengthen)\b/.test(normalized) &&
-    /\b(?:memory|context|recall|pathing|diagnos|doctor|audit)\b/.test(normalized) &&
-    /\b(?:based\s+on\s+(?:that|this|the)\s+(?:diagnosis|diagnostic|audit|doctor\s+report)|that\s+diagnosis|this\s+diagnosis|memory\s+pathing|context\s+pathing|recall\s+pathing|context\s+movement|memory\s+movement)\b/.test(normalized);
-  return asksForMemoryDoctorImprovement;
+  return (
+    /\b(?:what|where|how)\b.*\b(?:should|would|could|can)?\s*(?:improve|fix|repair|change|tighten|better)\b/.test(normalized) &&
+    /\b(?:memory|context|recall)\b/.test(normalized) &&
+    /\b(?:pathing|routing|diagnosis|diagnostic|answer|audit)\b/.test(normalized)
+  );
 }
 
 export interface NaturalCreatorMissionIntent {
@@ -777,7 +793,7 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if (isLikelyVoiceOrPersonaTuningRequest(trimmed.toLowerCase())) return false;
+  if (isLikelyVoiceOrPersonaTuningRequest(trimmed)) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
@@ -1153,9 +1169,12 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
   }
 
   const hasExplicitAccessTarget = /\b(?:spark\s+)?access(?:\s+level|\s+profile|\s+status)?\b|\bpermissions?\b/i.test(normalized);
-  const hasStrongChangeVerb = /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\b/i.test(normalized);
+  const hasStrongAccessChangePhrase = (
+    /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\s+(?:my|our|me|us|this\s+chat'?s?|the\s+chat'?s?|spark)?\s*(?:spark\s+)?access\b/i.test(normalized) ||
+    /\b(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)\s+(?:to|as|into|onto)\s+(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer|agent|builder|chat)\b/i.test(normalized)
+  );
   const startsAsDirectAccessChange = /^(?:please\s+)?(?:change|set|switch|update|upgrade|downgrade)\s+(?:me|us|this\s+chat|the\s+chat|it|that)?\s*(?:to|as|into|onto)?\s*(?:access\s+)?(?:level\s*)?(?:[1-5]|one|two|three|four|five|chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|operator|developer)\b/i.test(normalized);
-  if (!(hasExplicitAccessTarget && hasStrongChangeVerb) && !startsAsDirectAccessChange) {
+  if (!(hasExplicitAccessTarget && hasStrongAccessChangePhrase) && !startsAsDirectAccessChange) {
     return null;
   }
 
@@ -1360,7 +1379,7 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
-  if (isLikelyVoiceOrPersonaTuningRequest(normalized)) return false;
+  if (isLikelyVoiceOrPersonaTuningRequest(text)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
   if (/^(?:where|what|which|show|send|give)\b.*\b(?:link|localhost|preview|url|board|canvas|kanban)\b/.test(normalized)) {
@@ -1375,15 +1394,6 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
 
   const pointsAtCurrentProject = /\b(?:this|that|it|app|site|page|screen|project|build|product|dashboard|tool|prototype|design|layout|colors?|colours?|palette|theme|spacing|copy|text|button|flow|workflow|mobile|responsive|spark)\b/.test(normalized);
   return pointsAtCurrentProject;
-}
-
-function isLikelyVoiceOrPersonaTuningRequest(normalized: string): boolean {
-  if (/\b(?:voice|speech|spoken|talk|tone|persona|personality|delivery|narration|tts)\b/.test(normalized)) return true;
-  const shortAmbiguousPronounTweak =
-    /^(?:make\s+(?:it|this|that)\b|a\s+little\b|little\b)/.test(normalized) &&
-    normalized.split(/\s+/).length <= 8;
-  if (!shortAmbiguousPronounTweak) return false;
-  return /\b(?:warmer|colder|clearer|softer|friendlier|geekier|geeky|faster|slower|louder|quieter|casual|formal|calmer)\b/.test(normalized);
 }
 
 export function buildProjectImprovementGoal(
@@ -1588,8 +1598,8 @@ export function isLowInformationLlmReply(reply: string): boolean {
     !normalized ||
     normalized === 'working memory' ||
     normalized === 'nothing active' ||
-    normalized === 'reply-aware answer' ||
     normalized === 'no concrete guidance' ||
+    normalized === 'reply-aware answer' ||
     normalized === 'spark researcher returned no concrete guidance for this message.' ||
     normalized === 'what would you like help with?' ||
     normalized === 'how can i help?' ||
@@ -1650,40 +1660,28 @@ export function isMemoryAcknowledgementReply(reply: string): boolean {
 export type BuilderReplySuppressionReason =
   | 'diagnostic_wall'
   | 'route_menu'
-  | 'memory_acknowledgement'
   | 'plain_chat_self_awareness_panel'
+  | 'memory_acknowledgement'
   | 'low_information';
 
-function isStructuredSelfAwarenessPanel(reply: string): boolean {
-  const normalized = reply.trim().toLowerCase();
-  if (!/^(spark|memory)\s+self-awareness\b/.test(normalized)) return false;
-  return (
-    normalized.includes('workspace:') ||
-    normalized.includes('what looks live') ||
-    normalized.includes('where i still lack') ||
-    normalized.includes('capability evidence') ||
-    normalized.includes('memory traces') ||
-    normalized.includes('memory movement')
-  );
-}
-
-function allowsStructuredSelfAwarenessRoute(routingDecision: string): boolean {
-  const normalized = routingDecision.trim().toLowerCase();
-  return (
-    /^memory(?:_|$)/i.test(normalized) ||
-    normalized.includes('self_awareness') ||
-    normalized.includes('diagnos') ||
-    normalized.includes('status') ||
-    normalized.includes('trace') ||
-    normalized.includes('capability')
-  );
-}
-
 export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
-  if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
+  const route = routingDecision.trim();
+  if (/^memory(?:_|$)/i.test(route)) {
     return null;
   }
   const normalized = reply.trim().toLowerCase();
+  if (
+    !/^self_awareness/i.test(route) &&
+    normalized.startsWith('spark self-awareness') &&
+    (
+      normalized.includes('workspace:') ||
+      normalized.includes('what looks live') ||
+      normalized.includes('where spark lacks') ||
+      normalized.includes('llm wiki')
+    )
+  ) {
+    return 'plain_chat_self_awareness_panel';
+  }
   if (
     normalized.includes('spark could not reach the builder memory path right now') ||
     normalized.includes('operator fix: spark fix telegram')
@@ -1710,9 +1708,6 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
   }
   if (isMemoryAcknowledgementReply(reply)) {
     return 'memory_acknowledgement';
-  }
-  if (isStructuredSelfAwarenessPanel(reply) && !allowsStructuredSelfAwarenessRoute(routingDecision)) {
-    return 'plain_chat_self_awareness_panel';
   }
   if (isLowInformationLlmReply(reply)) {
     return 'low_information';
@@ -1978,7 +1973,7 @@ export function formatAgentDoctrinePreferenceStatus(preferences: string[]): stri
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
   if (action === 'remember') {
-    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run /diagnose only if you want a health check, or spark verify --deep to inspect the memory path.';
+    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run `spark verify --deep` or /diagnose if you want a health check.';
   }
   if (action === 'recall') {
     return 'I could not get a useful memory answer yet. Memory is degraded, so current chat should win until recall is healthy again.';

@@ -99,11 +99,13 @@ interface MissionBoardEntry {
   taskName?: string | null;
 }
 
+const LEGACY_REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
 const completionDeliveryCache = new Set<string>();
 const completionDeliveryInFlight = new Set<string>();
+const verboseNarrationCounts = new Map<string, number>();
 const cancelledMissionCache = new Map<string, number>();
 const pausedMissionCache = new Map<string, number>();
 const heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -116,12 +118,17 @@ const RELAY_RATE_LIMIT_WINDOW_MS = 60_000;
 const RELAY_RATE_LIMIT_MAX_REQUESTS = 240;
 const relayRateLimits = new Map<string, { startedAt: number; count: number }>();
 const DEFAULT_HEARTBEAT_STALE_MS = 35 * 60_000;
-const VERBOSE_NARRATION_LIMIT = 3;
-const verboseNarrationCounts = new Map<string, number>();
 
-interface CompletionDeliveryCacheState {
-  missionIds?: string[];
-  updatedAt?: string;
+function stateFileSafeSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'default';
+}
+
+function registryPathForCurrentRelay(): string {
+  return resolveStatePath(`.spark-spawner-missions-${stateFileSafeSegment(getRelayProfile())}-${getRelayPort()}.json`);
+}
+
+function completionDeliveryPathForCurrentRelay(): string {
+  return resolveStatePath(`.spark-mission-completions-${stateFileSafeSegment(getRelayProfile())}-${getRelayPort()}.json`);
 }
 
 function getRelayPort(): number {
@@ -139,29 +146,6 @@ function getRelayProfile(): string {
 function getRelayHost(): string {
   const raw = process.env.TELEGRAM_RELAY_HOST || process.env.SPARK_TELEGRAM_RELAY_HOST;
   return typeof raw === 'string' && raw.trim() ? raw.trim() : '127.0.0.1';
-}
-
-function relayStateSuffix(): string {
-  return `${getRelayProfile().replace(/[^a-zA-Z0-9_-]+/g, '-')}-${getRelayPort()}`;
-}
-
-function registryPath(): string {
-  return resolveStatePath(`.spark-spawner-missions-${relayStateSuffix()}.json`);
-}
-
-function legacyRegistryPath(): string {
-  return resolveStatePath('.spark-spawner-missions.json');
-}
-
-function completionDeliveryCachePath(): string {
-  return resolveStatePath(`.spark-telegram-completion-delivery-cache-${relayStateSuffix()}.json`);
-}
-
-function legacyCompletionDeliveryCachePaths(): string[] {
-  return [
-    resolveStatePath('.spark-telegram-completion-delivery-cache.json'),
-    resolveStatePath(`.spark-telegram-completions-${relayStateSuffix()}.json`)
-  ];
 }
 
 export function getTelegramRelayIdentity(): { port: number; profile: string; url?: string } {
@@ -283,7 +267,7 @@ export function describeTelegramRelayVerbosity(verbosity: TelegramRelayVerbosity
     case 'minimal':
       return 'Minimal sends start, completion, and failures only.';
     case 'verbose':
-      return 'Verbose sends smart milestones, meaningful progress, final handoff, and failures.';
+      return 'Verbose sends pickup, canvas-ready, final handoff, failures, and a few meaningful milestone updates.';
     case 'normal':
     default:
       return 'Normal sends pickup, canvas-ready, final handoff, and failures.';
@@ -308,24 +292,22 @@ async function loadRegistry(): Promise<void> {
   if (registryLoaded) return;
   registryLoaded = true;
 
-  for (const path of [registryPath(), legacyRegistryPath()]) {
-    if (!existsSync(path)) continue;
-    try {
-      const entries = await readJsonFile<MissionSubscription[]>(path);
-      if (!entries) {
-        continue;
-      }
-      for (const entry of entries) {
-        if (entry?.missionId && entry.chatId) {
-          if (!subscriptionBelongsToThisRelay(entry)) {
-            continue;
-          }
-          registry.set(entry.missionId, entry);
+  try {
+    const scopedEntries = (await readJsonFile<MissionSubscription[]>(registryPathForCurrentRelay())) || [];
+    const legacyEntries = existsSync(LEGACY_REGISTRY_PATH)
+      ? (await readJsonFile<MissionSubscription[]>(LEGACY_REGISTRY_PATH)) || []
+      : [];
+    const entries = [...scopedEntries, ...legacyEntries];
+    for (const entry of entries) {
+      if (entry?.missionId && entry.chatId) {
+        if (!subscriptionBelongsToThisRelay(entry)) {
+          continue;
         }
+        registry.set(entry.missionId, entry);
       }
-    } catch (error) {
-      console.warn(`[MissionRelay] Failed to load registry ${path}:`, error);
     }
+  } catch (error) {
+    console.warn('[MissionRelay] Failed to load registry:', error);
   }
 }
 
@@ -337,7 +319,7 @@ async function refreshRegistry(): Promise<void> {
 
 async function persistRegistry(): Promise<void> {
   try {
-    await writeJsonAtomic(registryPath(), Array.from(registry.values()));
+    await writeJsonAtomic(registryPathForCurrentRelay(), Array.from(registry.values()));
   } catch (error) {
     console.warn('[MissionRelay] Failed to persist registry:', error);
   }
@@ -596,8 +578,6 @@ interface MissionCompletionSummary {
   response: string;
   openLink?: string | null;
   previewPending?: boolean;
-  projectPath?: string | null;
-  previewUrl?: string | null;
 }
 
 interface MissionLessonApproval {
@@ -634,13 +614,6 @@ function firstString(record: Record<string, unknown> | null, keys: string[]): st
   return null;
 }
 
-function isWeakCompletionResponse(response: string): boolean {
-  const normalized = response.trim().toLowerCase();
-  return normalized === 'completed without a text response' ||
-    normalized === 'completed without text response' ||
-    normalized === 'done';
-}
-
 async function fetchMissionCompletionSummary(
   missionId: string,
   options: MissionCompletionFetchOptions = {}
@@ -668,16 +641,13 @@ async function fetchMissionCompletionSummary(
         const resultSummary = completedProvider && typeof completedProvider.summary === 'string'
           ? completedProvider.summary.trim()
           : '';
-        const responseText = isWeakCompletionResponse(providerSummary) && resultSummary
-          ? resultSummary
-          : providerSummary || resultSummary;
+        const responseText = providerSummary || resultSummary;
         if (phase !== 'completed' || !responseText) continue;
-        if (isWeakCompletionResponse(responseText) && !resultSummary) continue;
 
         const projectLineage = asRecord(payload.projectLineage);
         const projectPath = firstString(projectLineage, ['projectPath', 'project_path']);
         const previewUrl = firstString(projectLineage, ['previewUrl', 'preview_url']);
-        const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
+        const openLink = await readyProjectOpenLink(previewUrl, projectPath);
         const providerLabel = completedProvider && typeof completedProvider.providerId === 'string'
           ? completedProvider.providerId
           : 'provider';
@@ -685,9 +655,7 @@ async function fetchMissionCompletionSummary(
           providerLabel,
           response: responseText,
           openLink,
-          previewPending: Boolean(projectPath && !openLink),
-          projectPath,
-          previewUrl
+          previewPending: false
         };
       } finally {
         clearTimeout(timeout);
@@ -736,17 +704,8 @@ async function sendFetchedCompletionSummary(
       await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
     }
     completionDeliveryCache.add(event.missionId);
-    await persistCompletionDeliveryCache();
-    await handleMissionCompletionMemory(
-      bot,
-      chatId,
-      subscription,
-      event,
-      completion.providerLabel,
-      completion.response,
-      completion.projectPath,
-      completion.previewUrl
-    );
+    await saveCompletionDeliveryCache();
+    await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
     return chunks.length;
   } finally {
     completionDeliveryInFlight.delete(event.missionId);
@@ -837,9 +796,9 @@ const VOICE_LINES = {
   ],
   completed: [
     '✨ Spark shipped it.',
-    '✨ Spark has the build ready.',
-    '✨ Spark finished the build.',
-    '✨ Spark shipped something you can open.'
+    '✨ Spark finished the run.',
+    '✨ Spark has the result ready.',
+    '✨ Spark wrapped this one.'
   ],
   failed: [
     'This run needs attention.',
@@ -888,16 +847,13 @@ function looksLikeInternalProgress(message: string): boolean {
   return (
     /\bskill_loaded\b/.test(normalized) ||
     /\bloaded skills?\b/.test(normalized) ||
+    /\bno handoff yet\b/.test(normalized) ||
+    /\bpreparing the canvas\b/.test(normalized) ||
     /\bnode-\d+-task\b/.test(normalized) ||
     /\btask-task-\d+\b/.test(normalized) ||
     /\bis working through\b/.test(normalized) && /\btask pack\b/.test(normalized) ||
-    /\bno new checkpoint\b|\bno handoff yet\b|\bstill working\b/.test(normalized) ||
     /\bestimate adjusting\b|\b\d+(?:m \d+s|m|s) elapsed\b/i.test(message)
   );
-}
-
-function looksLikeMeaningfulProgress(message: string): boolean {
-  return /\b(?:added|built|created|implemented|wired|rendered|reviewed|reviewing|verified|validated|passed|fixed|resolved|updated|wrote|writing|polished|tightened|preserved|completed|finished|shipped|ready|blocked|failed|found|missing|error)\b/i.test(message);
 }
 
 function usefulProgressSummary(message: string, taskLabel: string): string | null {
@@ -915,9 +871,6 @@ function usefulProgressSummary(message: string, taskLabel: string): string | nul
     return null;
   }
   if (normalized.includes(normalizedTask) && /\b(?:is\s+)?(?:running|in progress|working)\b/.test(normalized)) {
-    return null;
-  }
-  if (!looksLikeMeaningfulProgress(withoutProvider)) {
     return null;
   }
 
@@ -1002,6 +955,15 @@ function projectOpenLink(projectPath: string | null): string | null {
   return projectPreviewLink(projectPath) || localIndexLink(projectPath);
 }
 
+async function readyProjectOpenLink(previewUrl: string | null, projectPath: string | null): Promise<string | null> {
+  const openLink = normalizePreviewLink(previewUrl, projectPath) || projectOpenLink(projectPath);
+  if (!openLink) return null;
+  if (/^https?:\/\//i.test(openLink)) {
+    return await httpPreviewIsReachable(openLink) ? openLink : null;
+  }
+  return openLink;
+}
+
 function relayStringField(data: Record<string, unknown> | undefined, field: string): string | null {
   if (!data || typeof data[field] !== 'string') return null;
   const value = data[field].trim();
@@ -1036,12 +998,7 @@ async function httpPreviewIsReachable(url: string): Promise<boolean> {
 
 async function readyProjectOpenLinkFromEvent(event: DeliverableRelayEvent): Promise<string | null> {
   const projectPath = projectPathFromEvent(event);
-  const openLink = normalizePreviewLink(previewLinkFromEvent(event), projectPath) || projectOpenLink(projectPath);
-  if (!openLink) return null;
-  if (/^https?:\/\//i.test(openLink)) {
-    return await httpPreviewIsReachable(openLink) ? openLink : null;
-  }
-  return openLink;
+  return readyProjectOpenLink(previewLinkFromEvent(event), projectPath);
 }
 
 function openProjectLines(openLink: string | null): string[] {
@@ -1144,25 +1101,7 @@ function cleanTaskLabel(label: string): string {
 }
 
 function formatTaskStartedMessage(event: DeliverableRelayEvent): string {
-  const number = taskNumberFromEvent(event);
-  const taskLabel = cleanTaskLabel(event.taskName || event.taskId || 'Next build step');
-  const seed = `${event.missionId}:${event.taskId || event.taskName || taskLabel}`;
-  const assignedTaskCount = typeof event.data?.assignedTaskCount === 'number'
-    ? event.data.assignedTaskCount
-    : Array.isArray(event.data?.assignedTaskIds)
-      ? event.data.assignedTaskIds.length
-      : 0;
-  if (assignedTaskCount > 1) {
-    return compactTelegramBlocks(
-      number ? voiceLine('taskStarted', seed, { n: number }) : 'Step started',
-      taskLabel,
-      `Spark is working through ${assignedTaskCount} build steps. I will send the next note when a step finishes or the focus changes.`
-    );
-  }
-  return [
-    number ? voiceLine('taskStarted', seed, { n: number }) : 'Step started',
-    taskLabel
-  ].join('\n');
+  return '';
 }
 
 function formatTaskCompletedMessage(event: DeliverableRelayEvent): string {
@@ -1307,31 +1246,6 @@ function relayEventHasPlannedTasks(event: DeliverableRelayEvent): boolean {
   return Array.isArray(event.data?.plannedTasks) && event.data.plannedTasks.length > 0;
 }
 
-function verboseNarrationKey(event: DeliverableRelayEvent, chatId: number): string {
-  return `${chatId}:${event.missionId}`;
-}
-
-function isVerboseNarrationEvent(event: DeliverableRelayEvent): boolean {
-  return event.type === 'task_progress' || event.type === 'progress' || event.type === 'task_completed';
-}
-
-function claimVerboseNarrationSlot(event: DeliverableRelayEvent, chatId: number, verbosity: TelegramRelayVerbosity): boolean {
-  if (verbosity !== 'verbose' || !isVerboseNarrationEvent(event)) return true;
-  const key = verboseNarrationKey(event, chatId);
-  const count = verboseNarrationCounts.get(key) || 0;
-  if (count >= VERBOSE_NARRATION_LIMIT) return false;
-  verboseNarrationCounts.set(key, count + 1);
-  return true;
-}
-
-export function claimVerboseNarrationSlotForTests(
-  event: DeliverableRelayEvent,
-  chatId: number,
-  verbosity: TelegramRelayVerbosity
-): boolean {
-  return claimVerboseNarrationSlot(event, chatId, verbosity);
-}
-
 function shouldDeliverProgressEvent(event: DeliverableRelayEvent, verbosity: TelegramRelayVerbosity): boolean {
   if (event.type === 'mission_failed' || event.type === 'task_failed' || event.type === 'task_cancelled') {
     return true;
@@ -1349,12 +1263,14 @@ function shouldDeliverProgressEvent(event: DeliverableRelayEvent, verbosity: Tel
     return event.type === 'mission_started' || event.type === 'mission_completed';
   }
   if (verbosity === 'normal') {
-    return event.type === 'mission_started' || event.type === 'mission_completed';
+    return ['mission_started', 'mission_completed'].includes(event.type);
   }
   return [
     'mission_started',
     'task_progress',
     'progress',
+    'provider_feedback',
+    'log',
     'task_completed',
     'mission_completed'
   ].includes(event.type);
@@ -1483,17 +1399,27 @@ export function resetMissionRelayDeliveryStateForTests(): void {
   verboseNarrationCounts.clear();
 }
 
-export function resetMissionRelayRegistryForTests(): void {
-  registry.clear();
-  registryLoaded = false;
-}
-
 export function isCompletionDeliveryCachedForTests(missionId: string): boolean {
   return completionDeliveryCache.has(missionId);
 }
 
+async function saveCompletionDeliveryCache(): Promise<void> {
+  await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.values()));
+}
+
+export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
+  const entries = (await readJsonFile<string[]>(completionDeliveryPathForCurrentRelay())) || [];
+  for (const missionId of entries) {
+    if (typeof missionId === 'string' && missionId.trim()) {
+      completionDeliveryCache.add(missionId.trim());
+    }
+  }
+}
+
 export function claimCompletionDeliveryForTests(missionId: string): boolean {
-  if (completionDeliveryCache.has(missionId) || completionDeliveryInFlight.has(missionId)) return false;
+  if (completionDeliveryCache.has(missionId) || completionDeliveryInFlight.has(missionId)) {
+    return false;
+  }
   completionDeliveryInFlight.add(missionId);
   return true;
 }
@@ -1502,8 +1428,26 @@ export function releaseCompletionDeliveryClaimForTests(missionId: string): void 
   completionDeliveryInFlight.delete(missionId);
 }
 
-export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
-  await loadCompletionDeliveryCache();
+export function resetMissionRelayRegistryForTests(): void {
+  registry.clear();
+  registryLoaded = false;
+}
+
+export function claimVerboseNarrationSlotForTests(
+  event: DeliverableRelayEvent,
+  chatId: string | number,
+  verbosity: TelegramRelayVerbosity
+): boolean {
+  if (verbosity !== 'verbose') {
+    return true;
+  }
+  const key = `${event.missionId}:${chatId}`;
+  const count = verboseNarrationCounts.get(key) || 0;
+  if (count >= 3) {
+    return false;
+  }
+  verboseNarrationCounts.set(key, count + 1);
+  return true;
 }
 
 export async function sendFetchedCompletionSummaryForTests(
@@ -1517,6 +1461,13 @@ export async function sendFetchedCompletionSummaryForTests(
   return sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
 }
 
+export function resolveReadyProjectOpenLinkForTests(
+  previewUrl: string | null,
+  projectPath: string | null
+): Promise<string | null> {
+  return readyProjectOpenLink(previewUrl, projectPath);
+}
+
 function heartbeatKey(event: DeliverableRelayEvent): string {
   return event.missionId;
 }
@@ -1528,34 +1479,6 @@ function heartbeatIntervalMs(verbosity: TelegramRelayVerbosity): number {
 
 export function heartbeatIntervalMsForTests(verbosity: TelegramRelayVerbosity): number {
   return heartbeatIntervalMs(verbosity);
-}
-
-export function relayIdentityMismatchPayload(): Record<string, string> {
-  return {
-    error: 'relay_identity_mismatch',
-    message: 'Spawner and Telegram disagree on relay identity.',
-    repair: 'Run spark restart telegram-starter. If the mismatch keeps returning, run spark setup telegram-starter --resume.'
-  };
-}
-
-async function persistCompletionDeliveryCache(): Promise<void> {
-  await writeJsonAtomic(completionDeliveryCachePath(), {
-    missionIds: Array.from(completionDeliveryCache).slice(-1000),
-    updatedAt: new Date().toISOString()
-  } satisfies CompletionDeliveryCacheState);
-}
-
-async function loadCompletionDeliveryCache(): Promise<void> {
-  for (const path of [completionDeliveryCachePath(), ...legacyCompletionDeliveryCachePaths()]) {
-    const state = await readJsonFile<string[] | CompletionDeliveryCacheState>(path);
-    const values = Array.isArray(state) ? state : state?.missionIds;
-    if (!Array.isArray(values)) continue;
-    for (const missionId of values) {
-      if (typeof missionId === 'string' && missionId.trim()) {
-        completionDeliveryCache.add(missionId);
-      }
-    }
-  }
 }
 
 function heartbeatStaleMs(): number {
@@ -1594,7 +1517,7 @@ export function formatMissionHeartbeatForTelegram(input: {
   if (summary) {
     lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', 'New signal:', summary);
   } else {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`));
+    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`), '', 'No new checkpoint yet.');
   }
 
   lines.push('', 'Focus:', taskLabel);
@@ -1710,9 +1633,7 @@ async function handleMissionCompletionMemory(
   subscription: MissionSubscription,
   event: DeliverableRelayEvent,
   providerLabel: string,
-  response: string,
-  projectPath?: string | null,
-  previewUrl?: string | null
+  response: string
 ): Promise<void> {
   await stageMissionLessonCandidate(subscription, event, providerLabel, response)
     .then((approval) => {
@@ -1730,9 +1651,7 @@ async function handleMissionCompletionMemory(
     requestId: subscription.requestId,
     goal: subscription.goal,
     providerLabel,
-    response,
-    projectPath,
-    previewUrl
+    response
   }).catch((error) => {
     console.warn('[MissionRelay] Failed to record shipped project context:', error);
   });
@@ -1958,6 +1877,15 @@ export function relayEventMatchesSubscription(
   return identity.chatId === subscription.chatId && identity.userId === subscription.userId;
 }
 
+export function relayIdentityMismatchPayload(): Record<string, unknown> {
+  return {
+    ok: false,
+    error: 'relay_identity_mismatch',
+    message: 'Spawner and Telegram disagree on relay identity for this mission event.',
+    repair: 'Run spark restart telegram-starter, or run spark setup telegram-starter --resume if the relay profile/port changed.'
+  };
+}
+
 export function setMissionRelayRuntimeStatus(status: MissionRelayRuntimeStatus): void {
   relayRuntimeStatus = { ...status };
 }
@@ -1976,7 +1904,6 @@ export function missionRelayHealthPayload(): MissionRelayHealthPayload {
 
 export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }> {
   await loadRegistry();
-  await loadCompletionDeliveryCache();
 
   if (relayServer) {
     return { port: getRelayPort() };
@@ -2035,7 +1962,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
     }
 
     if (!relayEventMatchesSubscription(event, subscription)) {
-      writeJson(res, 403, { ok: false, error: 'relay_identity_mismatch' });
+      writeJson(res, 403, relayIdentityMismatchPayload());
       return;
     }
 
@@ -2178,10 +2105,6 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       const progressMessage = formatProgressMessageForTelegram(event, subscription, verbosity, linkPreference, payload.summary);
       if (!progressMessage) {
         writeJson(res, 202, { ok: true, ignored: 'event_type_not_delivered' });
-        return;
-      }
-      if (!claimVerboseNarrationSlot(event, chatId, verbosity)) {
-        writeJson(res, 202, { ok: true, ignored: 'verbose_narration_limit' });
         return;
       }
 
