@@ -151,9 +151,13 @@ function inferQuotedHeadingProjectName(prd: string): string | null {
 function inferProjectName(prd: string, projectPath: string | null): string {
   const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s-]{2,60}?)(?=[.,:;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
   if (nameMatch) return nameMatch[1].trim();
+  const shippedProjectMatch = prd.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i);
+  if (shippedProjectMatch) return shippedProjectMatch[1].trim();
+  const quotedProjectMatch = prd.match(/\b(?:project|app|site|dashboard|tool)\s+["']([^"']{3,80})["']/i);
+  if (quotedProjectMatch) return quotedProjectMatch[1].trim();
   if (projectPath) {
     const pathName = projectPath.split(/[\\/]/).filter(Boolean).pop();
-    if (pathName) return pathName.replace(/[-_]/g, ' ').trim();
+    if (pathName) return projectNameFromPathSegment(pathName);
   }
   const atMatch = prd.match(/(?:at|in)\s+(?:[A-Z]:[\\/]|\/)[\w\\/:\-. ]+[\\/]([\w.-]+)/);
   if (atMatch) return atMatch[1].replace(/[-_]/g, ' ').trim();
@@ -165,6 +169,13 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');
   return firstWords.slice(0, 60) || 'Untitled Project';
+}
+
+function projectNameFromPathSegment(pathName: string): string {
+  const clean = pathName.replace(/[-_]/g, ' ').trim();
+  const missionMatch = clean.match(/^mission\s+\d+\s+(.+)$/i);
+  if (!missionMatch) return clean;
+  return missionMatch[1].replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function extractPath(text: string): string | null {
@@ -374,6 +385,17 @@ function isConversationFramingMakeRequest(description: string): boolean {
   );
 }
 
+function isVoiceTuningMakeRequest(description: string): boolean {
+  const normalized = description.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  const productArtifact = /\b(?:app|application|dashboard|website|site|page|game|tool|player|recorder|studio|interface)\b/.test(normalized);
+  if (productArtifact) return false;
+  return (
+    /\b(?:voice|speech|audio|sound|tone|style|persona|reply|responses?)\b/.test(normalized) &&
+    /\b(?:clearer|clear|warmer|colder|faster|slower|louder|softer|better|geek(?:y|ier)|friendlier|crisper|natural|human|concise|verbose)\b/.test(normalized)
+  );
+}
+
 function isSparkCapabilityMakeRequest(description: string): boolean {
   const normalized = description.replace(/\s+/g, ' ').trim();
   const lowered = normalized.toLowerCase();
@@ -438,7 +460,10 @@ function extractBuildDescription(text: string): string | null {
     if (/\bmake\b/i.test(command[0]) && /^\s*sure\b/i.test(description)) {
       return null;
     }
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && isConversationFramingMakeRequest(description))) {
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(command[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
       return null;
     }
     return description;
@@ -459,7 +484,10 @@ function extractBuildDescription(text: string): string | null {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
-    if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(inlineCommand[0]) && isConversationFramingMakeRequest(description))) {
+    if (
+      isSparkCapabilityMakeRequest(description) ||
+      (/\bmake\b/i.test(inlineCommand[0]) && (isConversationFramingMakeRequest(description) || isVoiceTuningMakeRequest(description)))
+    ) {
       return null;
     }
     return description;

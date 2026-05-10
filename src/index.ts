@@ -549,7 +549,30 @@ async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<ty
     return;
   }
   if (builderReply.responseText) {
-    await ctx.reply(builderReply.responseText);
+    await replyWithSanitizedTelegramText(ctx, builderReply.responseText);
+  }
+}
+
+function isTelegramMessageTooLongError(error: unknown): boolean {
+  const err = error as { message?: unknown; response?: { description?: unknown } };
+  const text = `${typeof err?.message === 'string' ? err.message : ''} ${typeof err?.response?.description === 'string' ? err.response.description : ''}`;
+  return /message is too long|message_too_long/i.test(text);
+}
+
+async function replyWithSanitizedTelegramText(ctx: any, text: string, extra?: any): Promise<void> {
+  try {
+    for (const chunk of sanitizeAndSplitTelegramText(text)) {
+      await ctx.reply(chunk, extra);
+    }
+    return;
+  } catch (error) {
+    if (!isTelegramMessageTooLongError(error)) {
+      throw error;
+    }
+  }
+
+  for (const chunk of sanitizeAndSplitTelegramText(text, 900)) {
+    await ctx.reply(chunk, extra);
   }
 }
 
@@ -1331,9 +1354,11 @@ function startPrdCanvasReadyNotifier(args: {
   void (async () => {
     const started = Date.now();
     const readyTimeoutMs = localServiceTimeoutMs('SPARK_SPAWNER_PRD_READY_TIMEOUT_MS');
-    const deadline = started + readyTimeoutMs;
+    const backendFallbackGraceMs = Math.min(60_000, Math.max(15_000, Math.round(readyTimeoutMs * 0.25)));
+    const deadline = started + readyTimeoutMs + backendFallbackGraceMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
-    const heartbeatThresholds = [25_000, 75_000, 135_000];
+    const verbosity = await getTelegramRelayVerbosity(args.chatId).catch(() => 'normal' as const);
+    const heartbeatThresholds = verbosity === 'verbose' ? [120_000] : [];
     let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
@@ -2141,6 +2166,63 @@ function pendingClarificationForMessage(key: string, text: string): PendingClari
   return pending;
 }
 
+function quotedTelegramMessageText(message: any): string {
+  const quoted = message?.reply_to_message;
+  const text = typeof quoted?.text === 'string' ? quoted.text : typeof quoted?.caption === 'string' ? quoted.caption : '';
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function compactTelegramReplyQuote(text: string, maxChars = 360): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, Math.max(0, maxChars - 14)).trim()} [truncated]`;
+}
+
+function isMissionStatusOriginQuestion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return /^(?:where\s+did\s+this\s+come\s+from|what\s+is\s+this|what\s+was\s+this|why\s+did\s+you\s+send\s+this)\??$/.test(normalized);
+}
+
+export function buildTelegramReplyContextPrompt(currentText: string, quotedText: string, quotedSender = 'previous message'): string {
+  return [
+    '[Telegram direct reply context]',
+    `Quoted sender: ${quotedSender || 'previous message'}`,
+    `Quoted message: ${compactTelegramReplyQuote(quotedText)}`,
+    '',
+    '[Current user message]',
+    currentText.trim(),
+  ].join('\n');
+}
+
+export function buildQuotedMissionStatusOriginReply(currentText: string, quotedText: string): string | null {
+  if (!isMissionStatusOriginQuestion(currentText)) return null;
+  const quoted = compactTelegramReplyQuote(quotedText);
+  if (!quoted) return null;
+  if (/\bStill working on\b.+\bshaping the PRD\b|\bpreparing the canvas\b/i.test(quoted)) {
+    return [
+      'That came from the Mission Control PRD/canvas prep notifier for an older build request.',
+      '',
+      'It means Spark had accepted a build, was turning the request into a task canvas, and had not started execution yet.'
+    ].join('\n');
+  }
+  if (/\b(?:Spark has the build ready|Spark finished the build|Spark completed the mission|Open it here:|Mission:\s*(?:spark|mission)-)\b/i.test(quoted)) {
+    return 'That was the final Mission Control handoff for a build: the Codex result, preview link if there is one, and mission id.';
+  }
+  return null;
+}
+
+function buildLatestAssistantOriginReply(currentText: string, pending: PendingClarification | null): string | null {
+  if (!isMissionStatusOriginQuestion(currentText)) return null;
+  if (!pending) return null;
+  return [
+    `That was the build clarification gate for ${pending.projectName}.`,
+    '',
+    'Spark had enough to understand the project, but paused before enqueueing Mission Control because it wanted one steering answer or an explicit "go".'
+  ].join('\n');
+}
+
 export function formatCanvasReadySummary(args: {
   projectName: string;
   taskCount: unknown;
@@ -2156,16 +2238,16 @@ export function formatCanvasReadySummary(args: {
     .slice(0, 3);
   const lines = [
     `Canvas is ready for ${args.projectName}.`,
-    `${args.taskCount ?? tasks.length} build steps queued in ${args.elapsed}s.`,
+    `${args.taskCount ?? tasks.length} build steps queued.`,
   ];
   if (taskTitles.length > 0) {
-    lines.push('', 'Plan:');
-    taskTitles.forEach((title: string, index: number) => lines.push(`${index + 1}. ${title}`));
+    lines.push('', 'First up:');
+    taskTitles.forEach((title: string) => lines.push(`• ${title}`));
     if (tasks.length > taskTitles.length) {
       lines.push(`+${tasks.length - taskTitles.length} more`);
     }
   }
-  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', "I'll post progress here when a step starts or finishes.");
+  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'I will send the final handoff when it is built.');
   return lines.join('\n');
 }
 
@@ -3174,6 +3256,22 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const earlyBuildIntent = parsedEarlyBuildIntent && deterministicRouteAllowed('spawner.build', text)
     ? parsedEarlyBuildIntent
     : null;
+  const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx.message));
+  if (!earlyBuildIntent && quotedOriginReply) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(quotedOriginReply);
+    await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
+    return;
+  }
+  const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
+    ? buildLatestAssistantOriginReply(text, pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`) || null)
+    : null;
+  if (latestOriginReply) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(latestOriginReply);
+    await conversation.rememberAssistantReply(user, latestOriginReply).catch(() => {});
+    return;
+  }
 
   if (globalAgentDoctrineRequest) {
     const reply = formatGlobalAgentDoctrineRequestReply(text);

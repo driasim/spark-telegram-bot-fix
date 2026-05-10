@@ -404,7 +404,7 @@ test('verbose mission start does not paste the whole build brief', () => {
   assert.doesNotMatch(message || '', /Target operating-system folder/);
 });
 
-test('normal verbosity announces task starts but suppresses noisy progress', () => {
+test('normal verbosity suppresses task starts and noisy progress', () => {
   const subscription = {
     missionId: 'spark-123',
     chatId: '8319079055',
@@ -438,12 +438,11 @@ test('normal verbosity announces task starts but suppresses noisy progress', () 
     'board'
   );
 
-  assert.match(started || '', /(?:Step(?: \d+)? (?:started|is moving|is underway)|Now working on step)/);
-  assert.match(started || '', /Create static shell/);
+  assert.equal(started, null);
   assert.equal(noisyProgress, null);
 });
 
-test('task pack starts explain the batch without announcing every future step', () => {
+test('task pack starts stay quiet instead of announcing every future step', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
@@ -469,9 +468,7 @@ test('task pack starts explain the batch without announcing every future step', 
     'board'
   );
 
-  assert.match(message || '', /Create the project shell/);
-  assert.match(message || '', /working through 4 build steps/);
-  assert.doesNotMatch(message || '', /task-2-scene/);
+  assert.equal(message, null);
 });
 
 test('suppresses same-provider task start bursts until a task finishes', () => {
@@ -530,7 +527,7 @@ test('allows different providers to start different tasks in parallel', () => {
   }), false);
 });
 
-test('task start labels are human-readable instead of node slugs', () => {
+test('task start labels stay suppressed instead of exposing node slugs', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
@@ -551,12 +548,10 @@ test('task start labels are human-readable instead of node slugs', () => {
     'board'
   );
 
-  assert.match(message || '', /(?:Step 2 started|Step 2 is moving|Now working on step 2|Step 2 is underway)/);
-  assert.match(message || '', /Three\.js sprite forge core/);
-  assert.doesNotMatch(message || '', /node-2/);
+  assert.equal(message, null);
 });
 
-test('task completion messages stay compact and human readable', () => {
+test('verbose task completion messages stay compact and human readable', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_completed',
@@ -573,11 +568,11 @@ test('task completion messages stay compact and human readable', () => {
       goal: 'Build a sprite creator.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'normal',
+    'verbose',
     'board'
   );
 
-  assert.match(message || '', /(?:Step 3 done|Step 3 landed|Step 3 is complete|Finished step 3)/);
+  assert.match(message || '', /Milestone complete/);
   assert.match(message || '', /localStorage and saved sprites/);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
@@ -605,8 +600,8 @@ test('verbose progress turns useful relay summaries into readable Telegram updat
     'board'
   );
 
-  assert.match(message || '', /(?:Checkpoint|Small update|Progress note|Good signal)/);
-  assert.match(message || '', /Wire launch sequence/);
+  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)/);
+  assert.match(message || '', /Focus: Wire launch sequence/);
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /MissionControl/);
   assert.doesNotMatch(message || '', /spark-123/);
@@ -708,8 +703,8 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|No handoff yet)\./);
-  assert.match(message, /Checkpoint:/);
+  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
+  assert.match(message, /New signal:/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /Focus:\nReview relay updates/);
   assert.match(message, /new signal/);

@@ -67,7 +67,9 @@ interface CapturedCall {
 }
 
 async function readMissionRelayRegistry(): Promise<any[]> {
-	return (await readJsonFile<any[]>(resolveStatePath('.spark-spawner-missions.json'))) || [];
+	const profile = (process.env.SPARK_TELEGRAM_PROFILE || 'primary').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'default';
+	const port = Number(process.env.TELEGRAM_RELAY_PORT || 8788);
+	return (await readJsonFile<any[]>(resolveStatePath(`.spark-spawner-missions-${profile}-${port}.json`))) || [];
 }
 
 function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[]) {
@@ -849,12 +851,14 @@ async function run(): Promise<void> {
 		});
 
 		assert.match(reply, /Canvas is ready for domain-chip-posters/);
-		assert.match(reply, /2 build steps queued in 195s/);
-		assert.match(reply, /Plan:/);
-		assert.match(reply, /1\. Scaffold chip manifest and hooks/);
+		assert.match(reply, /2 build steps queued\./);
+		assert.match(reply, /First up:/);
+		assert.match(reply, /Scaffold chip manifest and hooks/);
+		assert.doesNotMatch(reply, /195s/);
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
 		assert.match(reply, /Canvas: http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+		assert.match(reply, /I will send the final handoff when it is built/);
 	});
 
 	await test('clarification replies are natural and project-specific', async () => {
