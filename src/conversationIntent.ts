@@ -1631,6 +1631,14 @@ export function isLowInformationLlmReply(reply: string): boolean {
       normalized.includes('tap this to scaffold') &&
       normalized.includes('/chip create') &&
       normalized.includes('slash command')
+    ) ||
+    (
+      (
+        normalized.includes('from the build project memory') ||
+        normalized.includes('from the end project memory') ||
+        normalized.includes('source: project event ledger rollup')
+      ) &&
+      normalized.includes('raw_turn:')
     )
   );
 }
@@ -1651,6 +1659,7 @@ export function isMemoryAcknowledgementReply(reply: string): boolean {
 export type BuilderReplySuppressionReason =
   | 'diagnostic_wall'
   | 'route_menu'
+  | 'project_event_residue'
   | 'memory_acknowledgement'
   | 'low_information';
 
@@ -1682,6 +1691,16 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
     )
   ) {
     return 'route_menu';
+  }
+  if (
+    (
+      normalized.includes('from the build project memory') ||
+      normalized.includes('from the end project memory') ||
+      normalized.includes('source: project event ledger rollup')
+    ) &&
+    normalized.includes('raw_turn:')
+  ) {
+    return 'project_event_residue';
   }
   if (isMemoryAcknowledgementReply(reply)) {
     return 'memory_acknowledgement';

@@ -289,6 +289,24 @@ function isPreBuildShapingRequest(text: string): boolean {
 function isBuildRouteMetaDiscussion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (
+    /\b(?:what|which|anything|something|thing|else|other|first\s+major\s+focus)\b.*\b(?:healthy|useful|good|better|worth|nice)?\s*(?:to\s+)?build(?:ing)?\b/.test(normalized) &&
+    /\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:is|are)\s+there\b.*\b(?:thing|anything|something|else|other)\b.*\b(?:build|building)\b/.test(normalized) &&
+    /\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:what|which|how|why|is|are|do|does|can|could|should|would)\b.*\b(?:build|building)\b.*\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized) &&
+    !/\b(?:build|create|make|ship|scaffold|generate|develop)\s+(?:a|an|the|new|this)\s+[^?.!]{0,80}\b(?:app|dashboard|tool|site|website|page|game|system|tracker|planner|timer|clock)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
     /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
     /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
   ) {

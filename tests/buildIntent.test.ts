@@ -193,6 +193,15 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(parseBuildIntent('we were gonna build something do you remember what it was'), null);
   assert.equal(parseBuildIntent('what were we going to build?'), null);
   assert.equal(
+    parseBuildIntent(
+      'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
+  assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
+  assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
+  assert.equal(
     parseBuildIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
     null
   );

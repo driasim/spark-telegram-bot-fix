@@ -207,6 +207,22 @@ test('keeps collaborative build shaping conversational', () => {
   assert.equal(route.requires_confirmation, false);
 });
 
+test('keeps update-upgrade strategy questions out of build missions', () => {
+  const prompts = [
+    'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here',
+    'what else would be healthy to build for updates/upgrades besides the ledger',
+    "what would you wanna be building now that's missing",
+    'besides these anything else before we start building these'
+  ];
+
+  for (const prompt of prompts) {
+    const route = decideNaturalRoute(prompt);
+    assert.notEqual(route.route, 'spawner.build', prompt);
+    assert.notEqual(route.route, 'spawner.contextual_mission', prompt);
+    assert.notEqual(route.route, 'spawner.pending_clarification', prompt);
+  }
+});
+
 test('keeps route/access/sandbox design talk out of deterministic build and access actions', () => {
   const prompts = [
     'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that',

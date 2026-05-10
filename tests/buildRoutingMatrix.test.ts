@@ -160,6 +160,15 @@ test('non-build utility requests still route away from builder', () => {
     parseBuildIntent('And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'),
     null
   );
+  assert.equal(
+    parseBuildIntent(
+      'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
+  assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
+  assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
   assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
   assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
   assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));

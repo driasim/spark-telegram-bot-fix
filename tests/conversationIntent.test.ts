@@ -1007,6 +1007,9 @@ test('detects empty or generic LLM failures', () => {
   assert.equal(isLowInformationLlmReply(
     "Got it - a chip for:\ncreates us cool images out of ASCII patterns\n\nTap this to scaffold it (takes 30-60s):\n/chip create creates us cool images out of ASCII patterns\n\nI hand off to the slash command so you see the scaffolder's output live and can cancel if the brief needs tweaking."
   ), true);
+  assert.equal(isLowInformationLlmReply(
+    'From the build project memory:\n\nWhat changed\n- raw_turn: yeah i like that a lot too actually, what would you wanna be building now that\'s missing\n- raw_turn: besides these anything else before we start building these\n\nSource: project event ledger rollup for build.'
+  ), true);
   assert.equal(isLowInformationLlmReply('Here is a real idea.'), false);
 });
 
@@ -1056,6 +1059,20 @@ test('suppresses memory acknowledgements for normal chat replies', () => {
       'plain_chat'
     ),
     'route_menu'
+  );
+  assert.equal(
+    builderReplySuppressionReason(
+      'From the build project memory:\n\nWhat changed\n- raw_turn: yeah i like that a lot too actually, what would you wanna be building now that\'s missing\n- raw_turn: besides these anything else before we start building these\n\nSource: project event ledger rollup for build.',
+      'plain_chat'
+    ),
+    'project_event_residue'
+  );
+  assert.equal(
+    shouldSuppressBuilderReplyForPlainChat(
+      'From the end project memory:\n\nWhat changed\n- raw_turn: so cant you activate elevenlabs now and find how to do everything\n\nSource: project event ledger rollup for end.',
+      'plain_chat'
+    ),
+    true
   );
   assert.equal(
     builderReplySuppressionReason('Noted: "yes i was wondering how is the chat with you"', 'plain_chat'),
