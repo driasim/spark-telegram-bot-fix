@@ -24,7 +24,7 @@ test('defaults to shadow mode outside test mode and off during bot tests', () =>
   assert.equal(routeArbiterMode({} as NodeJS.ProcessEnv), 'shadow');
   assert.equal(routeArbiterMode({ SPARK_BOT_TEST_MODE: '1' } as NodeJS.ProcessEnv), 'off');
   assert.equal(routeArbiterMode({ SPARK_ROUTE_ARBITER_MODE: 'off' } as NodeJS.ProcessEnv), 'off');
-  assert.equal(routeArbiterMode({ SPARK_ROUTE_ARBITER_MODE: 'enforce' } as NodeJS.ProcessEnv), 'enforce');
+  assert.equal(routeArbiterMode({ SPARK_ROUTE_ARBITER_MODE: 'enforce' } as NodeJS.ProcessEnv), 'shadow');
 });
 
 test('only ambiguous interruptive candidates go to the LLM arbiter', () => {

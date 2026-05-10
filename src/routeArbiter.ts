@@ -9,7 +9,7 @@ import {
   type RouteFirewallVerdict
 } from './routeFirewall';
 
-export type RouteArbiterMode = 'off' | 'shadow' | 'enforce';
+export type RouteArbiterMode = 'off' | 'shadow';
 export type RouteArbiterIntent = 'execute' | 'discuss' | 'design' | 'inspect' | 'status' | 'save_memory' | 'unclear';
 export type RouteArbiterConfidence = 'high' | 'medium' | 'low';
 
@@ -55,7 +55,7 @@ function safeScalar(value: string | number | boolean | null | undefined, fallbac
 
 export function routeArbiterMode(env: NodeJS.ProcessEnv = process.env): RouteArbiterMode {
   const raw = env.SPARK_ROUTE_ARBITER_MODE?.trim().toLowerCase();
-  if (raw === 'off' || raw === 'shadow' || raw === 'enforce') return raw;
+  if (raw === 'off' || raw === 'shadow') return raw;
   if (env.SPARK_BOT_TEST_MODE === '1') return 'off';
   return 'shadow';
 }
