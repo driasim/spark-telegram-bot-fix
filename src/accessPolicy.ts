@@ -395,6 +395,15 @@ export function renderSparkAccessChangeSummary(profile: SparkAccessProfile, runn
   return confirmation;
 }
 
+export function renderSparkAccessLevel5ConfirmationPrompt(): string {
+  return [
+    'Access level 5 lets Spark use this trusted local machine for operator work.',
+    '',
+    'I will still ask before deleting important files, exposing secrets, publishing, or deploying.',
+    'Tap Confirm only if you want whole-computer operator mode for this chat.',
+  ].join('\n');
+}
+
 export function renderSparkAccessChangeConfirmation(profile: SparkAccessProfile): string {
   return `Done - I changed this chat to ${sparkAccessLabel(profile)}.`;
 }

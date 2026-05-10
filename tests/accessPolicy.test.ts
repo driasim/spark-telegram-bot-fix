@@ -13,6 +13,7 @@ import {
   renderSparkAccessChangeConfirmation,
   renderSparkAccessConversationHelp,
   renderSparkAccessDenial,
+  renderSparkAccessLevel5ConfirmationPrompt,
   renderSparkAccessLevelGuide,
   renderSparkAccessOnboarding,
   renderSparkAccessRuntimeHint,
@@ -221,6 +222,11 @@ async function main(): Promise<void> {
     assert.match(help, /Level 5: whole-computer operator mode/);
     assert.match(help, /runner is read-only/);
     assert.doesNotMatch(help, /\/access 1/);
+
+    const level5Prompt = renderSparkAccessLevel5ConfirmationPrompt();
+    assert.match(level5Prompt, /trusted local machine/);
+    assert.match(level5Prompt, /Tap Confirm/);
+    assert.doesNotMatch(level5Prompt, /Restart Spark/);
   });
 
   await test('slash access setter uses compact confirmation instead of full help', async () => {
@@ -228,15 +234,19 @@ async function main(): Promise<void> {
     const accessCommand = indexSource.match(/bot\.command\('access', async \(ctx\) => \{[\s\S]*?\n\}\);/);
     assert.ok(accessCommand, 'expected /access command handler to exist');
     assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
-    assert.match(accessCommand[0], /renderSparkAccessChangeReply\(next\)/);
+    assert.match(accessCommand[0], /applySparkAccessProfileChange\(ctx, next\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
     assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
     assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
+    assert.match(indexSource, /renderSparkAccessLevel5ConfirmationPrompt\(\), buildSparkAccessLevel5ConfirmKeyboard\(\)/);
+    assert.match(indexSource, /bot\.action\(\/\^spark_access_level:operator:confirm/);
     assert.match(indexSource, /bot\.command\('access_setup'/);
     assert.match(indexSource, /bot\.command\('docker_doctor'/);
     assert.match(indexSource, /bot\.command\('docker_smoke'/);
     assert.match(indexSource, /bot\.command\('level5_setup'/);
     assert.match(indexSource, /bot\.command\('level5_disable'/);
+    assert.match(indexSource, /\/access 5 - Approve Level 5 setup from Telegram/);
+    assert.doesNotMatch(indexSource, /\/level5_setup confirm - Prepare/);
     assert.match(indexSource, /bot\.action\(\/\^spark_access:/);
   });
 

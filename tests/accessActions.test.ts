@@ -4,6 +4,7 @@ import {
   buildSparkAccessActionKeyboard,
   buildSparkAccessChangeKeyboard,
   buildSparkAccessConfirmationKeyboard,
+  buildSparkAccessLevel5ConfirmKeyboard,
   accessActionNeedsSparkRestart,
   formatSparkAccessAutomaticRestartNotice,
   formatSparkAccessActionConfirmationPrompt,
@@ -101,7 +102,7 @@ void (async () => {
     assert.match(reply, /Docker socket/);
   });
 
-  await test('renders access action buttons without exposing Level 5 to Level 4 users', () => {
+  await test('renders access action buttons without noisy Level 5 internals', () => {
     const developerKeyboard = buildSparkAccessActionKeyboard('developer').reply_markup.inline_keyboard;
     const developerCallbacks = developerKeyboard.flat().map((button) => button.callback_data);
 
@@ -114,17 +115,24 @@ void (async () => {
     const operatorKeyboard = buildSparkAccessActionKeyboard('operator').reply_markup.inline_keyboard;
     const operatorCallbacks = operatorKeyboard.flat().map((button) => button.callback_data);
 
-    assert.ok(operatorCallbacks.includes('spark_access:level5_enable'));
-    assert.ok(operatorCallbacks.includes('spark_access:level5_disable'));
+    assert.deepEqual(operatorCallbacks, developerCallbacks);
+    assert.ok(!operatorCallbacks.includes('spark_access:level5_enable'));
+    assert.ok(!operatorCallbacks.includes('spark_access:level5_disable'));
   });
 
   await test('renders compact access-change buttons after choosing a level', () => {
     const developerKeyboard = buildSparkAccessChangeKeyboard('developer')?.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
-    const operatorKeyboard = buildSparkAccessChangeKeyboard('operator')?.reply_markup.inline_keyboard.flat().map((button) => button.callback_data);
 
     assert.deepEqual(developerKeyboard, ['spark_access:workspace_setup']);
-    assert.deepEqual(operatorKeyboard, ['spark_access:level5_disable']);
+    assert.equal(buildSparkAccessChangeKeyboard('operator'), undefined);
     assert.equal(buildSparkAccessChangeKeyboard('agent'), undefined);
+  });
+
+  await test('renders one-tap confirmation for access level 5', () => {
+    const keyboard = buildSparkAccessLevel5ConfirmKeyboard().reply_markup.inline_keyboard;
+
+    assert.equal(keyboard[0][0].text, 'Confirm Access Level 5');
+    assert.equal(keyboard[0][0].callback_data, 'spark_access_level:operator:confirm');
   });
 
   await test('renders confirm button for guarded access actions', () => {

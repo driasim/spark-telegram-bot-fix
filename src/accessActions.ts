@@ -122,23 +122,10 @@ export function buildSparkAccessActionKeyboard(profile: string): { reply_markup:
       buttonForAction('docker_smoke'),
     ],
   ];
-  if (profile === 'operator') {
-    rows.push([
-      buttonForAction('level5_enable'),
-      buttonForAction('level5_disable'),
-    ]);
-  }
   return { reply_markup: { inline_keyboard: rows } };
 }
 
 export function buildSparkAccessChangeKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } | undefined {
-  if (profile === 'operator') {
-    return {
-      reply_markup: {
-        inline_keyboard: [[buttonForAction('level5_disable')]],
-      },
-    };
-  }
   if (profile === 'developer') {
     return {
       reply_markup: {
@@ -147,6 +134,19 @@ export function buildSparkAccessChangeKeyboard(profile: string): { reply_markup:
     };
   }
   return undefined;
+}
+
+export function buildSparkAccessLevel5ConfirmKeyboard(): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  return {
+    reply_markup: {
+      inline_keyboard: [[
+        {
+          text: 'Confirm Access Level 5',
+          callback_data: 'spark_access_level:operator:confirm',
+        },
+      ]],
+    },
+  };
 }
 
 export function buildSparkAccessConfirmationKeyboard(actionId: SparkAccessActionId): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {

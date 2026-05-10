@@ -95,6 +95,7 @@ import {
   renderSparkAccessChangeSummary,
   renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
+  renderSparkAccessLevel5ConfirmationPrompt,
   renderSparkAccessConversationHelp,
   renderSparkAccessDenial,
   renderSparkAccessOnboarding,
@@ -113,6 +114,7 @@ import {
   buildSparkAccessActionKeyboard,
   buildSparkAccessChangeKeyboard,
   buildSparkAccessConfirmationKeyboard,
+  buildSparkAccessLevel5ConfirmKeyboard,
   formatSparkAccessActionConfirmationPrompt,
   formatSparkAccessAutomaticRestartNotice,
   runSparkAccessActionDetailed,
@@ -700,8 +702,7 @@ bot.start(async (ctx) => {
       '/access_setup - Set up the safe Level 4 workspace from Telegram',
       '/docker_doctor - Check Docker sandbox readiness without changing the computer',
       '/docker_smoke confirm - Run the no-secret Docker sandbox smoke',
-      '/level5_setup confirm - Prepare whole-computer operator guardrails, then restart',
-      '/level5_disable confirm - Return to workspace-sandbox mode, then restart',
+      '/access 5 - Approve Level 5 setup from Telegram',
       '/mission <status|pause|resume|kill> <missionId> - Control a mission'
     );
   }
@@ -2774,8 +2775,25 @@ bot.command('access', async (ctx) => {
     return;
   }
 
+  if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    await ctx.reply(renderSparkAccessLevel5ConfirmationPrompt(), buildSparkAccessLevel5ConfirmKeyboard());
+    return;
+  }
+
+  await applySparkAccessProfileChange(ctx, next);
+});
+
+function accessLevelChangeConfirmed(raw: string): boolean {
+  return /\bconfirm\b/i.test(raw);
+}
+
+async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile): Promise<void> {
   const runtimeGate = validateSparkAccessProfileForRuntime(next);
   if (!runtimeGate.ok) {
+    if (next === 'operator') {
+      await prepareLevel5AndApplyAccess(ctx);
+      return;
+    }
     await ctx.reply(runtimeGate.message);
     return;
   }
@@ -2785,7 +2803,39 @@ bot.command('access', async (ctx) => {
   const reply = await renderSparkAccessChangeReply(next);
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
-});
+}
+
+async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
+  await safeSendChatAction(ctx, 'typing');
+  try {
+    const result = await runSparkAccessActionDetailed('level5_enable');
+    const ok = result.payload?.ok !== false;
+    if (!ok) {
+      await ctx.reply(result.reply);
+      return;
+    }
+
+    await setSparkAccessProfile(ctx.chat.id, 'operator');
+    await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is operator. ${describeSparkAccessProfile('operator')}`).catch(() => {});
+    const reply = [
+      'Access Level 5 is approved.',
+      '',
+      result.reply,
+      '',
+      result.needsSparkRestart
+        ? formatSparkAccessAutomaticRestartNotice('level5_enable')
+        : await renderSparkAccessChangeReply('operator'),
+    ].join('\n');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    if (result.needsSparkRestart) {
+      scheduleSparkRestartAfterAccessChange();
+    }
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    await ctx.reply(`Access Level 5 setup failed: ${detail}`);
+  }
+}
 
 async function renderSparkAccessChangeReply(profile: SparkAccessProfile): Promise<string> {
   if (profile !== 'developer' && profile !== 'operator') {
@@ -2837,6 +2887,12 @@ bot.action(/^spark_access:(workspace_setup|docker_doctor|docker_smoke|level5_ena
   await handleSparkAccessAction(ctx, match[1] as SparkAccessActionId, match[2] === 'confirm');
 });
 
+bot.action(/^spark_access_level:operator:confirm$/, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  if (!requireAdmin(ctx)) return;
+  await applySparkAccessProfileChange(ctx, 'operator');
+});
+
 async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
 
@@ -2846,17 +2902,12 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
     return true;
   }
 
-  const runtimeGate = validateSparkAccessProfileForRuntime(next);
-  if (!runtimeGate.ok) {
-    await ctx.reply(runtimeGate.message);
+  if (next === 'operator' && !accessLevelChangeConfirmed(raw)) {
+    await ctx.reply(renderSparkAccessLevel5ConfirmationPrompt(), buildSparkAccessLevel5ConfirmKeyboard());
     return true;
   }
 
-  await setSparkAccessProfile(ctx.chat.id, next);
-  await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = await renderSparkAccessChangeReply(next);
-  await ctx.reply(reply, buildSparkAccessActionKeyboard(next));
-  await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  await applySparkAccessProfileChange(ctx, next);
   return true;
 }
 
