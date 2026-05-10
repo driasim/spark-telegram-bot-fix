@@ -156,12 +156,14 @@ export function validateSparkAccessProfileForRuntime(
     return {
       ok: false,
       message: [
-        'Access level 5 is whole-computer operator mode, and it is not enabled for this runtime.',
+        'Access level 5 is whole-computer operator mode, but this runtime is not running with Level 5 guardrails yet.',
         '',
-        'Use /access 4 for sandboxed local work inside the Spark workspace.',
-        'Only enable Level 5 on a trusted local install after high-agency worker guardrails are ready.',
+        'Safe path:',
+        '1. Run `spark access setup --level 5 --enable-high-agency` on this trusted local install.',
+        '2. Run `spark restart` so Telegram and Spawner load the new guardrails.',
+        '3. Send `/access 5` again.',
         '',
-        'Operator override: set SPARK_ALLOW_HIGH_AGENCY_WORKERS=1 and restart Spark.'
+        'Until then, use `/access 4` for sandboxed local work inside the Spark workspace.'
       ].join('\n')
     };
   }
