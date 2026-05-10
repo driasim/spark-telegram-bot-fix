@@ -46,6 +46,8 @@ export interface BuilderBridgeReply {
   decision: string;
   bridgeMode: string;
   routingDecision: string;
+  requestId?: string;
+  traceRef?: string;
   voiceMedia?: BuilderBridgeVoiceMedia;
   voiceTiming?: Record<string, unknown>;
 }
@@ -1983,6 +1985,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         response_text?: unknown;
         bridge_mode?: unknown;
         routing_decision?: unknown;
+        request_id?: unknown;
+        trace_ref?: unknown;
         voice_media?: unknown;
         voice_timing?: unknown;
       };
@@ -1991,6 +1995,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
     const detail = parsed.detail || {};
     const bridgeMode = String(detail.bridge_mode || '').trim();
     const routingDecision = String(detail.routing_decision || '').trim();
+    const requestId = String(detail.request_id || '').trim();
+    const traceRef = String(detail.trace_ref || '').trim();
     let responseText = String(detail.response_text || '').trim();
     const messageContext = telegramBridgeMessageContext(updatePayload);
     if (bridgeMode === 'self_awareness_direct' && messageContext.userId && messageContext.chatId) {
@@ -2025,6 +2031,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       decision: String(parsed.decision || '').trim(),
       bridgeMode,
       routingDecision,
+      requestId: requestId || undefined,
+      traceRef: traceRef || undefined,
       voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
       voiceTiming: objectValue(detail.voice_timing),
     };

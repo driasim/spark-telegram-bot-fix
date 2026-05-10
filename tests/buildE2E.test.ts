@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
@@ -44,6 +44,7 @@ const originalEnv = {
 	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
+	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
@@ -80,6 +81,20 @@ function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies:
 			replies.push(text);
 		}
 	};
+}
+
+async function waitForFileText(filePath: string, timeoutMs = 1000): Promise<string> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		try {
+			const text = readFileSync(filePath, 'utf-8');
+			if (text.trim()) return text;
+		} catch {
+			// The audit write is fire-and-forget; poll briefly until it lands.
+		}
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	return readFileSync(filePath, 'utf-8');
 }
 
 async function callHandleBuildIntent(opts: {
@@ -573,6 +588,57 @@ async function run(): Promise<void> {
 			assert.doesNotMatch(blankReplies.join('\n'), /Builder should not handle/);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('final-answer gate audit preserves Builder trace ids for suppressed replies', async () => {
+		restoreAxios();
+		const testUserId = 8319079570;
+		const auditDir = mkdtempSync(path.join(os.tmpdir(), 'spark-final-answer-gate-'));
+		const auditPath = path.join(auditDir, 'final-answer-gate-audit.jsonl');
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH = auditPath;
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const llmModule = require('../src/llm') as typeof import('../src/llm');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const originalChat = llmModule.llm.chat;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: 'Noted: saved.',
+			decision: 'test',
+			bridgeMode: 'test',
+			routingDecision: 'plain_chat',
+			requestId: 'req-final-gate',
+			traceRef: 'trace:req-final-gate'
+		});
+		(llmModule.llm as any).chat = async () => 'Local fallback response.';
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5653, replies);
+			ctx.message.text = 'what is route confidence in one sentence';
+			(ctx as any).update = { update_id: 5653, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			const auditText = await waitForFileText(auditPath);
+			const record = JSON.parse(auditText.trim().split(/\r?\n/).at(-1) || '{}');
+			assert.equal(record.outcome, 'suppressed_builder_reply');
+			assert.equal(record.request_id, 'req-final-gate');
+			assert.equal(record.trace_ref, 'trace:req-final-gate');
+			assert.equal(record.builder_reply_preview, 'Noted: saved.');
+			assert.deepEqual(replies, ['Local fallback response.']);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			(llmModule.llm as any).chat = originalChat;
+			rmSync(auditDir, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
 		}

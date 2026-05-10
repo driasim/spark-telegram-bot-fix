@@ -358,11 +358,15 @@ type FinalAnswerGateSuppressionInput = {
   builderRoutingDecision: string;
   builderBridgeMode: string;
   builderReply: string;
+  requestId?: string;
+  traceRef?: string;
   fallbackRoute: 'local_chat';
 };
 
 function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput): void {
   const auditPath = finalAnswerGateAuditPath();
+  const requestId = String(input.requestId || '').trim();
+  const traceRef = String(input.traceRef || '').trim();
   const record = {
     ts: new Date().toISOString(),
     event: 'final_answer_checked',
@@ -374,6 +378,8 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     builder_bridge_mode: input.builderBridgeMode || '',
     builder_reply_length: input.builderReply.length,
     builder_reply_preview: previewAuditText(input.builderReply, 180),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(traceRef ? { trace_ref: traceRef } : {}),
     fallback_route: input.fallbackRoute,
     latest_intent_preserved: true
   };
@@ -3732,6 +3738,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         builderRoutingDecision: builderReply.routingDecision,
         builderBridgeMode: builderReply.bridgeMode,
         builderReply: builderReply.responseText,
+        requestId: builderReply.requestId,
+        traceRef: builderReply.traceRef,
         fallbackRoute: 'local_chat'
       });
       console.warn(`[Bridge] ignored non-chat Builder reply routing=${builderReply.routingDecision}`);
