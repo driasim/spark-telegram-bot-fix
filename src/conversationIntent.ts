@@ -1259,6 +1259,16 @@ export function isAccessHelpQuestion(text: string): boolean {
     return false;
   }
 
+  if (
+    /\bmake\s+sure\b/.test(normalized) ||
+    /\bmake\s+(?:spark\s+)?access\s+level\s*[1-5]\b/.test(normalized) ||
+    /\baccess\s+level\s*[1-5]\b.*\bbasically\b/.test(normalized) ||
+    /\b(?:really|actually)\s+(?:be|becomes?|gets?)\s+(?:access\s+)?level\s*[1-5]\b/.test(normalized) ||
+    /\bstate\s+machine\b/.test(normalized)
+  ) {
+    return false;
+  }
+
   const mentionsAccess =
     /\b(?:spark\s+)?access\s+(?:level|levels|profile|profiles|tier|tiers|system)\b/.test(normalized) ||
     /\bwhat\s+can\s+(?:access\s+)?level\s*[1-5]\s+do\b/.test(normalized) ||

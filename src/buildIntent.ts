@@ -286,6 +286,29 @@ function isPreBuildShapingRequest(text: string): boolean {
   );
 }
 
+function isBuildRouteMetaDiscussion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (
+    /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
+    /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (/\bhijack(?:s|ed|ing)?\b/.test(normalized) && /\b(?:build|access|route|deterministic)\b/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:how\s+)?(?:can|could|should|would)\s+(?:we|you)\s+make\s+sure\b/.test(normalized)) {
+    return true;
+  }
+  if (/^keep\s+it\s+simple\b.*\bmake\s+sure\b/.test(normalized)) {
+    return true;
+  }
+  if (/^(?:is|are)\s+this\s+the\s+(?:best|right|safe|secure)\s+way\s+to\s+(?:build|make|create|install|setup|set\s+up)\b/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 function isExactReplyNoFileProbe(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
@@ -318,9 +341,13 @@ function isSparkCapabilityMakeRequest(description: string): boolean {
     /\b(?:make|making)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:able\s+to|capable\s+of)\b/i.test(normalized);
   const capabilityObject =
     /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?)\b/i.test(normalized);
+  const accessPolicyDiscussion =
+    /^(?:spark\s+)?access\s+level\s*[1-5]\b/i.test(normalized) &&
+    /\b(?:sandbox(?:es|ed)?|whole[-\s]*computer|operator|permission|access|capabilit(?:y|ies)|state\s+machine)\b/i.test(normalized);
   const directMemoryReportChange =
     /^(?:memory\s+reports?|memories\s+reports?|reports?\s+of\s+(?:my\s+)?memories?)\b/i.test(normalized) ||
     (/^daily\s+reports?\b/i.test(normalized) && /\bmemories?\b/i.test(normalized));
+  if (accessPolicyDiscussion) return true;
   if (directMemoryReportChange) return true;
   if (sparkRecipient && capabilitySurface) return true;
   return explicitSparkOwner && capabilitySurface && (!productArtifact || lowered.includes('so you can') || lowered.includes('so spark can'));
@@ -357,6 +384,9 @@ function extractBuildDescription(text: string): string | null {
   );
   if (command) {
     const description = text.slice(command[0].length);
+    if (/\bmake\b/i.test(command[0]) && /^\s*sure\b/i.test(description)) {
+      return null;
+    }
     if (isSparkCapabilityMakeRequest(description) || (/\bmake\b/i.test(command[0]) && isConversationFramingMakeRequest(description))) {
       return null;
     }
@@ -368,7 +398,12 @@ function extractBuildDescription(text: string): string | null {
   );
   if (inlineCommand?.index !== undefined) {
     const prefix = text.slice(0, inlineCommand.index).toLowerCase();
-    if (/\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) || isNegatedBuildCommandPrefix(prefix)) {
+    if (
+      /\b(?:whether|should\s+we|think\s+through|help\s+me\s+think|before\s+we)\b/.test(prefix) ||
+      /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(prefix) ||
+      /\b(?:best|right|safe|secure)\s+way\s+to\b/.test(prefix) ||
+      isNegatedBuildCommandPrefix(prefix)
+    ) {
       return null;
     }
     const description = text.slice(inlineCommand.index + inlineCommand[0].length);
@@ -396,6 +431,7 @@ export function parseBuildIntent(text: string): BuildIntent | null {
   if (isBuildIdeationRequest(trimmed)) return null;
   if (isBuildContextRecallProbe(trimmed)) return null;
   if (isPreBuildShapingRequest(trimmed)) return null;
+  if (isBuildRouteMetaDiscussion(trimmed)) return null;
 
   const stripped = extractBuildDescription(trimmed);
 
