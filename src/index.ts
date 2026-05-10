@@ -1240,7 +1240,8 @@ function startPrdCanvasReadyNotifier(args: {
   void (async () => {
     const started = Date.now();
     const readyTimeoutMs = localServiceTimeoutMs('SPARK_SPAWNER_PRD_READY_TIMEOUT_MS');
-    const deadline = started + readyTimeoutMs;
+    const backendFallbackGraceMs = Math.min(60_000, Math.max(15_000, Math.round(readyTimeoutMs * 0.25)));
+    const deadline = started + readyTimeoutMs + backendFallbackGraceMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
     const heartbeatThresholds = [25_000, 75_000, 135_000];
     let heartbeatIndex = 0;
@@ -1304,7 +1305,7 @@ function startPrdCanvasReadyNotifier(args: {
     }
     await bot.telegram.sendMessage(
       args.chatId,
-      `Analysis is still running after ${Math.round(readyTimeoutMs / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
+      `Analysis is still running after ${Math.round((Date.now() - started) / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
     );
   })();
 }
