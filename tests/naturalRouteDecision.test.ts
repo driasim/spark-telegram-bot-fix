@@ -225,6 +225,24 @@ test('keeps route/access/sandbox design talk out of deterministic build and acce
   }
 });
 
+test('keeps route/access/sandbox design talk out of Spark self-improvement actions', () => {
+  const prompts = [
+    'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that',
+    'how can we make sure that access level 4 does create the right setup for access level to be really 4',
+    'keep it simple can we make sure that access level 4 gets the access level 4',
+    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'
+  ];
+
+  for (const prompt of prompts) {
+    const route = decideNaturalRoute(prompt);
+    assert.equal(route.route, 'plain_chat', prompt);
+    assert.notEqual(route.route, 'spark.self_improvement', prompt);
+    assert.notEqual(route.route, 'diagnostics.followup_test', prompt);
+    assert.notEqual(route.action, 'spark.self_improvement', prompt);
+    assert.notEqual(route.action, 'diagnostics.followup_test', prompt);
+  }
+});
+
 test('does not force unrelated personal chat into a Spark system', () => {
   const route = decideNaturalRoute("what's a nice lunch idea?");
 

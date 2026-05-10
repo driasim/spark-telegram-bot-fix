@@ -163,7 +163,7 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (!normalized || parseBuildIntent(normalized)) {
     return null;
   }
-  if (isVoiceAnswerRequest(normalized)) {
+  if (isVoiceAnswerRequest(normalized) || isAccessSandboxRouteDesignDiscussion(normalized)) {
     return null;
   }
   if (isVoiceOnboardingSetupQuestion(normalized)) {
@@ -233,6 +233,23 @@ export function isVoiceAnswerRequest(text: string): boolean {
     /^(?:send|reply)\s+(?:me\s+)?(?:a\s+)?(?:voice|audio|spoken)\s+(?:message|reply|note)\s+(?:about|on|for)\s+.+$/i,
     /^(?:answer|respond\s+to)\s+.+?\s+(?:by|with|in)\s+(?:voice|audio|speech)$/i,
   ].some((pattern) => pattern.test(lowered));
+}
+
+function isAccessSandboxRouteDesignDiscussion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+
+  const mentionsAccessOrSandbox =
+    /\b(?:access\s+level|level\s*[45]|level\s+(?:four|five)|full\s+access|read[-\s]*only|writable|runner|state\s+machine|workspace|sandbox(?:es|ed)?|docker|ssh|modal|route(?:s|d|ing)?|hijack(?:s|ed|ing)?|deterministic)\b/.test(normalized);
+  if (!mentionsAccessOrSandbox) return false;
+
+  const asksToDiscussOrVerify =
+    /\b(?:how\s+(?:can|do|does|will|would|should)|what\s+(?:does|would|should|can)|can\s+we|could\s+we|should\s+we|is\s+this|are\s+you\s+sure|think\s+in\s+terms|dig\s+deeper|check\s+whether|make\s+sure)\b/.test(normalized);
+  if (!asksToDiscussOrVerify) return false;
+
+  const explicitImplementationRequest =
+    /\b(?:implement|patch|edit|commit|ship|wire|code\s+this|change\s+the\s+code|add\s+tests?|run\s+tests?|start\s+fixing|fix\s+this\s+now)\b/.test(normalized);
+  return !explicitImplementationRequest;
 }
 
 function isVoiceOnboardingSetupQuestion(text: string): boolean {
@@ -1075,6 +1092,9 @@ export function isDiagnosticFollowupTestQuestion(text: string): boolean {
     return false;
   }
   if (isPersistentMemoryQualityEvaluationRequest(normalized)) {
+    return false;
+  }
+  if (isAccessSandboxRouteDesignDiscussion(normalized)) {
     return false;
   }
   return (

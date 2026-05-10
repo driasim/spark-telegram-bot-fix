@@ -338,6 +338,15 @@ test('does not treat persistent memory quality plans as diagnostic follow-up tes
   );
 });
 
+test('does not treat route hijack audit wording as diagnostic follow-up tests', () => {
+  assert.equal(
+    isDiagnosticFollowupTestQuestion(
+      'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that'
+    ),
+    false
+  );
+});
+
 test('turns explicit contextual improvement requests into diagnostic integration missions', () => {
   const text = 'build these integration points as another mission via codex';
   assert.equal(isExplicitContextualBuildRequest(text), true);
@@ -1133,6 +1142,14 @@ test('extracts natural Spark self-improvement goals without stealing builds or w
     extractSparkSelfImprovementGoal('do not build yet, help me think through a domain chip for route confidence'),
     null
   );
+  for (const prompt of [
+    'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that',
+    'how can we make sure that access level 4 does create the right setup for access level to be really 4',
+    'keep it simple can we make sure that access level 4 gets the access level 4',
+    'And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'
+  ]) {
+    assert.equal(extractSparkSelfImprovementGoal(prompt), null, prompt);
+  }
   assert.match(
     extractSparkSelfImprovementGoal('Can you add a capability for Spark to read my emails?') || '',
     /Improve Spark capability safely/
