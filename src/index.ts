@@ -1839,16 +1839,16 @@ export function formatCanvasReadySummary(args: {
     .slice(0, 3);
   const lines = [
     `Canvas is ready for ${args.projectName}.`,
-    `${args.taskCount ?? tasks.length} build steps queued in ${args.elapsed}s.`,
+    `${args.taskCount ?? tasks.length} build steps queued.`,
   ];
   if (taskTitles.length > 0) {
-    lines.push('', 'Plan:');
-    taskTitles.forEach((title: string, index: number) => lines.push(`${index + 1}. ${title}`));
+    lines.push('', 'First up:');
+    taskTitles.forEach((title: string) => lines.push(`• ${title}`));
     if (tasks.length > taskTitles.length) {
       lines.push(`+${tasks.length - taskTitles.length} more`);
     }
   }
-  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'Next update: I will message when the build is ready.');
+  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'I will send the final handoff when it is built.');
   return lines.join('\n');
 }
 

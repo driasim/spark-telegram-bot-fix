@@ -824,16 +824,16 @@ const VOICE_LINES = {
     'Finished step {n}'
   ],
   progress: [
-    'Checkpoint',
-    'Small update',
-    'Progress note',
-    'Good signal'
+    'Spark has a real update.',
+    'The build has new signal.',
+    'A concrete change landed.',
+    'The run moved forward.'
   ],
   heartbeat: [
     'Still working.',
     'Still with it.',
     'The run is still active.',
-    'No handoff yet.'
+    'Spark is still on this.'
   ],
   completed: [
     '✨ Spark shipped it.',
@@ -1405,7 +1405,7 @@ export function formatProgressMessageForTelegram(
       if (!useful) return null;
       return compactTelegramBlocks(
         voiceLine('progress', `${event.missionId}:${event.taskId || taskLabel}:${useful}`),
-        cleanTaskLabel(taskLabel),
+        `Focus: ${cleanTaskLabel(taskLabel)}`,
         useful
       );
     case 'mission_completed':
@@ -1592,9 +1592,9 @@ export function formatMissionHeartbeatForTelegram(input: {
 
   const lines: string[] = [];
   if (summary) {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', 'Checkpoint:', summary);
+    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', 'New signal:', summary);
   } else {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`), '', 'No new checkpoint yet.');
+    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`));
   }
 
   lines.push('', 'Focus:', taskLabel);

@@ -650,8 +650,8 @@ test('verbose progress only narrates concrete movement', () => {
     'board'
   );
 
-  assert.match(message || '', /(?:Checkpoint|Small update|Progress note|Good signal)/);
-  assert.match(message || '', /Wire launch sequence/);
+  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)\./);
+  assert.match(message || '', /Focus: Wire launch sequence/);
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /\bStep\b/i);
   assert.equal(lowSignal, null);
@@ -748,8 +748,8 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|No handoff yet)\./);
-  assert.match(message, /Checkpoint:/);
+  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
+  assert.match(message, /New signal:/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /Focus:\nReview relay updates/);
   assert.match(message, /new signal/);
@@ -779,7 +779,7 @@ test('suppresses low-signal mission heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /No new checkpoint yet/);
+  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.match(message, /Mission: spark-123/);
   assert.doesNotMatch(message, /Z\.AI: Document launch path is running/);
@@ -801,7 +801,7 @@ test('suppresses provider stopwatch heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /No new checkpoint yet/);
+  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
   assert.doesNotMatch(message, /working through 4 task pack/);
   assert.doesNotMatch(message, /estimate adjusting/);
 });

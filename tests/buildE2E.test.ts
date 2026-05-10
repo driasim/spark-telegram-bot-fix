@@ -665,13 +665,14 @@ async function run(): Promise<void> {
 		});
 
 		assert.match(reply, /Canvas is ready for domain-chip-posters/);
-		assert.match(reply, /2 build steps queued in 195s/);
-		assert.match(reply, /Plan:/);
-		assert.match(reply, /1\. Scaffold chip manifest and hooks/);
+		assert.match(reply, /2 build steps queued\./);
+		assert.match(reply, /First up:/);
+		assert.match(reply, /• Scaffold chip manifest and hooks/);
+		assert.doesNotMatch(reply, /195s/);
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
 		assert.match(reply, /Canvas: http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
-		assert.match(reply, /Next update: I will message when the build is ready\./);
+		assert.match(reply, /I will send the final handoff when it is built\./);
 		assert.doesNotMatch(reply, /step starts or finishes/);
 	});
 
