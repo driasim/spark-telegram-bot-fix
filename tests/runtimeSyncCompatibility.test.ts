@@ -13,11 +13,13 @@ function test(name: string, fn: () => void): void {
 
 test('runtime sync includes capability upgrade/eval fixtures', () => {
   const script = readFileSync('scripts/sync-runtime.cjs', 'utf-8');
+  const testRunner = readFileSync('scripts/run-tests.cjs', 'utf-8');
 
   assert.match(script, /ops\/capability-natural-language-matrix\.json/);
   assert.match(script, /package-lock\.json/);
   assert.match(script, /tsconfig\.json/);
   assert.match(script, /spark\.toml/);
+  assert.match(testRunner, /tests\/telegramVoiceBridge\.test\.ts/);
   assert.match(script, /dir:\s*'src'/);
   assert.match(script, /dir:\s*'dist'/);
   assert.match(script, /dir:\s*'ops'/);

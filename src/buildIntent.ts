@@ -178,10 +178,25 @@ function projectNameFromPathSegment(pathName: string): string {
   return missionMatch[1].replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function cleanExtractedPath(value: string): string {
+  const sentenceBoundary = value.search(
+    /\.(?:\s+)(?=(?:Create|Include|Do|Only|Files?|Use|No|Make|Build|Then|Also)\b)/i
+  );
+  const bounded = sentenceBoundary >= 0 ? value.slice(0, sentenceBoundary) : value;
+  return normalizePathForPlatform(
+    bounded
+      .trim()
+      .replace(/^`|`$/g, '')
+      .replace(/[).,;:]+$/g, '')
+  );
+}
+
 function extractPath(text: string): string | null {
-  const atMatch = text.match(/(?:at|in|into)\s+((?:[A-Z]:[\\/]|\/)[^\n:]*?)(?:\s*[:,]|\.\s*(?:\n|$)|\s*$)/i);
+  const atMatch = text.match(
+    /(?:at|in|into)\s+((?:[A-Z]:[\\/]|\/).+?)(?=$|\r?\n|:\s|[,;]\s|\.\s+(?:Create|Include|Do|Only|Files?|Use|No|Make|Build|Then|Also)\b|\s+Files?\b)/i
+  );
   if (atMatch) {
-    const candidate = normalizePathForPlatform(atMatch[1]);
+    const candidate = cleanExtractedPath(atMatch[1]);
     if (isInsideWorkspace(candidate)) {
       return candidate;
     }

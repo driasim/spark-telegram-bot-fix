@@ -1068,6 +1068,65 @@ void (async () => {
     }
   });
 
+  await asyncTest('adds trace audit metadata to fetched completion handoffs', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-trace-extra-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-trace-extra',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-trace-extra',
+        traceRef: 'trace-ref-extra',
+        goal: 'Carry trace metadata to outbound audit.',
+        createdAt: '2026-05-11T00:00:00Z'
+      };
+      const event = {
+        type: 'mission_completed' as const,
+        missionId: subscription.missionId
+      };
+      const extras: Array<Record<string, unknown> | undefined> = [];
+      const bot = {
+        telegram: {
+          sendMessage: async (_chatId: number, _message: string, extra?: Record<string, unknown>) => {
+            extras.push(extra);
+          }
+        }
+      };
+
+      const chunks = await sendFetchedCompletionSummaryForTests(
+        bot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        {
+          providerLabel: 'codex',
+          response: JSON.stringify({
+            summary: 'Built the trace metadata handoff.',
+            status: 'completed'
+          })
+        }
+      );
+
+      assert.equal(chunks, 1);
+      assert.deepEqual(extras[0]?.__sparkTraceContext, {
+        route: 'mission_relay',
+        command: 'mission_relay',
+        replyKind: 'mission_completion',
+        requestId: subscription.requestId,
+        traceRef: subscription.traceRef,
+        missionId: subscription.missionId
+      });
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
   await asyncTest('suppresses concurrent fetched completion summary duplicates', async () => {
     const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
     try {
