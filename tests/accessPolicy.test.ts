@@ -272,6 +272,8 @@ async function main(): Promise<void> {
   await test('natural state-sensitive chat is grounded by fresh runtime truth', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     assert.match(indexSource, /function runtimeTruthSignals/);
+    assert.match(indexSource, /shouldAnswerAuthoritativeRuntimeStatus/);
+    assert.match(indexSource, /renderAuthoritativeSparkLiveStateAnswer/);
     assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
     assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
     assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
@@ -283,6 +285,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /if \(!hasFreshRuntimeTruth\) \{[\s\S]*?runBuilderTelegramBridge/);
     assert.match(indexSource, /Authoritative current-state context for this answer/);
     assert.match(indexSource, /highest-priority source for current state/);
+    assert.match(indexSource, /const reply = await renderAuthoritativeSparkLiveStateAnswer\(\);[\s\S]*?await ctx\.reply\(reply\);/);
     assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
     assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
   });
