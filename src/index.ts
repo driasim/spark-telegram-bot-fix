@@ -4269,6 +4269,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    const hasFreshRuntimeTruth = conversationFrameContext.includes('Fresh Spark runtime truth for this turn');
     let bridgeFailed = false;
     let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
@@ -4277,17 +4278,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       bridgeMode: '',
       routingDecision: ''
     };
-    try {
-      const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
-        ? buildUpdateWithText(
-            ctx.update as unknown as Record<string, unknown>,
-            buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
-          )
-        : ctx.update as unknown as Record<string, unknown>;
-      builderReply = await runBuilderTelegramBridge(bridgeUpdate);
-    } catch (bridgeError) {
-      bridgeFailed = true;
-      console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
+    if (!hasFreshRuntimeTruth) {
+      try {
+        const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
+          ? buildUpdateWithText(
+              ctx.update as unknown as Record<string, unknown>,
+              buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
+            )
+          : ctx.update as unknown as Record<string, unknown>;
+        builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+      } catch (bridgeError) {
+        bridgeFailed = true;
+        console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
+      }
     }
     console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
