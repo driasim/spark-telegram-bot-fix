@@ -1168,6 +1168,13 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
     return null;
   }
 
+  const directAccessLevel = normalized.match(/^(?:spark\s+)?access\s+(?:level\s*)?([1-5]|one|two|three|four|five)$/i);
+  if (directAccessLevel?.[1]) {
+    const numberWords: Record<string, string> = { one: '1', two: '2', three: '3', four: '4', five: '5' };
+    const value = directAccessLevel[1].toLowerCase();
+    return numberWords[value] || value;
+  }
+
   const hasExplicitAccessTarget = /\b(?:spark\s+)?access(?:\s+level|\s+profile|\s+status)?\b|\bpermissions?\b/i.test(normalized);
   const hasStrongAccessChangePhrase = (
     /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade)\s+(?:my|our|me|us|this\s+chat'?s?|the\s+chat'?s?|spark)?\s*(?:spark\s+)?access\b/i.test(normalized) ||

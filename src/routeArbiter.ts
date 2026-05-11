@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { resolveStatePath } from './jsonState';
 import { llm } from './llm';
 import {
   shouldUseRouteArbiter,
@@ -61,7 +61,10 @@ export function routeArbiterMode(env: NodeJS.ProcessEnv = process.env): RouteArb
 }
 
 export function routeArbiterLedgerPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.SPARK_ROUTE_ARBITER_LEDGER_PATH?.trim() || resolveStatePath('.spark-route-arbiter-shadow.jsonl');
+  const configured = env.SPARK_ROUTE_ARBITER_LEDGER_PATH?.trim();
+  if (configured) return configured;
+  const sparkHome = env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  return path.join(sparkHome, 'state', 'spark-telegram-bot', 'route-arbiter-shadow.jsonl');
 }
 
 export function routeArbiterTextHash(text: string): string {

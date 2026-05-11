@@ -1434,6 +1434,8 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('please switch Spark access to full access'), 'full access');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 4'), '4');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('access level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('Spark access five'), '5');
   assert.equal(parseNaturalAccessChangeIntent('switch my access to operator'), 'operator');
   assert.equal(parseNaturalAccessChangeIntent('lower my access to two'), '2');
   assert.equal(parseNaturalAccessChangeIntent('what is my access level?'), null);

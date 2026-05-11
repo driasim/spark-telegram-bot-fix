@@ -42,6 +42,8 @@ export const ROUTE_CRITICAL_RUNTIME_PATHS = [
   'tsconfig.json',
   'spark.toml',
   'src/index.ts',
+  'src/builderBridge.ts',
+  'src/builderRepoPath.ts',
   'src/conversationIntent.ts',
   'src/conversationFrame.ts',
   'src/buildIntent.ts',
@@ -61,7 +63,10 @@ export const ROUTE_CRITICAL_RUNTIME_PATHS = [
   'src/pathLoop.ts',
   'src/healthRuntime.ts',
   'src/telegramDraft.ts',
+  'src/telegramVoiceBridge.ts',
+  'src/voiceCaption.ts',
   'src/commandTelemetry.ts',
+  'src/spawnerUrl.ts',
   'ops/runtimeFreshnessCheck.ts',
   'ops/realtimeConversationSmoke.ts',
   'ops/realtime-conversation-smoke.json',
@@ -69,6 +74,8 @@ export const ROUTE_CRITICAL_RUNTIME_PATHS = [
   'ops/natural-language-live-commands.json',
   'ops/routeBoundaryHandlerHarness.ts',
   'dist/index.js',
+  'dist/builderBridge.js',
+  'dist/builderRepoPath.js',
   'dist/conversationIntent.js',
   'dist/conversationFrame.js',
   'dist/buildIntent.js',
@@ -88,7 +95,10 @@ export const ROUTE_CRITICAL_RUNTIME_PATHS = [
   'dist/pathLoop.js',
   'dist/healthRuntime.js',
   'dist/telegramDraft.js',
-  'dist/commandTelemetry.js'
+  'dist/telegramVoiceBridge.js',
+  'dist/voiceCaption.js',
+  'dist/commandTelemetry.js',
+  'dist/spawnerUrl.js'
 ];
 
 export function defaultRuntimeRoot(): string {

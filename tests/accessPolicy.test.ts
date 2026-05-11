@@ -235,11 +235,11 @@ async function main(): Promise<void> {
     assert.doesNotMatch(level5Prompt, /Restart Spark/);
   });
 
-  await test('slash access setter uses compact confirmation instead of full help', async () => {
+  await test('slash access setter uses authoritative status and compact confirmation', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     const accessCommand = indexSource.match(/bot\.command\('access', async \(ctx\) => \{[\s\S]*?\n\}\);/);
     assert.ok(accessCommand, 'expected /access command handler to exist');
-    assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
+    assert.match(accessCommand[0], /renderAuthoritativeSparkAccessStatus\(ctx\.chat\.id\)/);
     assert.match(accessCommand[0], /applySparkAccessProfileChange\(ctx, next\)/);
     assert.match(accessCommand[0], /current === 'operator'/);
     assert.match(indexSource, /renderSparkAccessBriefStatus\('operator', await probeTelegramRunnerWritability\(\)\)/);

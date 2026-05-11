@@ -1,8 +1,10 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
+import { execFile } from 'node:child_process';
 import { appendFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
 // Load .env.override LAST with override=true. Wins over anything spark-cli
@@ -80,6 +82,7 @@ import {
   syncRecursiveArtifactToWorkspace
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
+import { resolveSpawnerUiUrl } from './spawnerUrl';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
   renderLocalWorkspaceInspectionReply,
@@ -217,6 +220,7 @@ import { getTierForUser } from './userTier';
 import { acquireGatewayOwnership, releaseGatewayOwnership } from './gatewayOwnership';
 import { requireRelaySecret, resolveTelegramLaunchConfig } from './launchMode';
 import { renderSparkErrorReply } from './errorExplain';
+import { withHiddenWindows } from './hiddenProcess';
 import {
   normalizeModelProvider,
   normalizeModelRole,
@@ -244,6 +248,7 @@ import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
+const execFileAsync = promisify(execFile);
 
 installConsoleRedaction();
 
@@ -272,6 +277,135 @@ function renderTelegramError(prefix: string, error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error || 'unknown error');
   const detail = redactText(raw).trim() || 'unknown error';
   return `${prefix}: ${detail}`;
+}
+
+async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> {
+  const { stdout, stderr } = await execFileAsync(
+    'spark',
+    args,
+    withHiddenWindows({
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  return redactText([stdout, stderr].map((value) => String(value || '').trim()).filter(Boolean).join('\n'));
+}
+
+function isLiveSparkHealthQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\bspark live status\b/.test(normalized) ||
+    /\blive spark health\b/.test(normalized) ||
+    /\bsame source as spark live status\b/.test(normalized) ||
+    (/\bspawner\b/.test(normalized) && /\btelegram\b/.test(normalized) && /\b(?:supervised|running|stopped|health|live)\b/.test(normalized))
+  );
+}
+
+function isSpawnerGoldenPathRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bgolden[_\s-]*path\b/.test(normalized) ||
+    (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
+    (/\bgolden_path_ok\b/.test(normalized) && /\bspawner\b/.test(normalized))
+  );
+}
+
+function compactSparkLiveOutput(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Useful:/i.test(line) && !/^spark live /i.test(line))
+    .slice(0, 18)
+    .join('\n');
+}
+
+async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
+  try {
+    const [liveStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+    return [
+      'Spark Live Health',
+      '',
+      'Source: local Spark CLI from this Telegram runtime.',
+      'Commands: `spark live status`; supervision cross-check: `spark verify --deep`.',
+      '',
+      `Spawner: ${spawnerOk ? 'OK' : 'not OK in live status'}.`,
+      `Telegram: ${telegramOk ? 'OK' : 'not OK in live status'}.`,
+      supervised ? `Supervision: ${supervised.replace(/\.+$/, '')}.` : 'Supervision: not proven by verify output.',
+      '',
+      compactSparkLiveOutput(liveStatus)
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Spark Live Health',
+      '',
+      'I could not run the authoritative local Spark CLI health check from this Telegram runtime.',
+      `Error: ${detail}`,
+      '',
+      'This means this runner could not probe local Spark health. It does not prove Spawner or Telegram are offline.'
+    ].join('\n');
+  }
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function boolText(value: unknown): string {
+  return value === true ? 'yes' : value === false ? 'no' : 'unknown';
+}
+
+async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  const runnerSummary = renderSparkAccessCapabilityStatus(chatProfile, runnerPreflight);
+  const runnerLine = runnerSummary.split('\n').find((line) => /^Runner:/i.test(line)) || 'Runner: not checked yet.';
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    return [
+      'Spark Access Status',
+      '',
+      `Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+      `Requested by CLI: Level ${requested}.`,
+      `Effective by CLI: Level ${effective}.`,
+      `Level 5: ${serviceEnabled ? 'active' : 'blocked/off'} (activation_state: ${activation}, service_enabled: ${boolText(level5.service_enabled)}).`,
+      '',
+      runnerLine,
+      '',
+      serviceEnabled
+        ? 'Verdict: whole-computer operator mode is active, with destructive/secret/publish safety checks still on.'
+        : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Spark Access Status',
+      '',
+      `Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+      'CLI effective access: unavailable.',
+      `Error: ${detail}`,
+      '',
+      runnerLine,
+      '',
+      'Verdict: this runner could not read the authoritative access state, so I will not claim Level 5 is active.'
+    ].join('\n');
+  }
 }
 
 function activeTelegramProfile(): string {
@@ -803,10 +937,15 @@ bot.command('status', async (ctx) => {
 
   status += `Builder memory bridge: ${builderBridge.available ? 'ONLINE' : 'OFFLINE'} (${builderBridge.mode})\n`;
 
-  status += 'Spark launch core: ONLINE\n';
-  status += 'Dashboard/resonance: deferred\n';
-
-  if (isAdmin) status += '\nAdmin access';
+  if (isAdmin) {
+    status += '\n';
+    status += await renderAuthoritativeSparkLiveStatus();
+    status += '\n\n';
+    status += await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+  } else {
+    status += 'Spark launch core: ONLINE\n';
+    status += 'Dashboard/resonance: deferred\n';
+  }
 
   await ctx.reply(status);
 });
@@ -997,7 +1136,7 @@ const AOC_ROUTE_LABELS: Record<string, string> = {
   spark_memory: 'Memory',
   spark_researcher: 'Researcher',
   spark_swarm: 'Swarm',
-  spark_browser: 'Browser',
+  spark_browser: 'Browser Use',
   spark_local_work: 'Local Work',
 };
 
@@ -1249,7 +1388,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       .join('\n')}\n\nAnswers: ${answersRaw}`;
   }
 
-  const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
+  const spawnerUrl = resolveSpawnerUiUrl();
   const newRequestId = `${pending.requestId}-clarified-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(newRequestId);
   const traceRef = spawnerPrdTraceRef(missionId);
@@ -2351,7 +2490,7 @@ export async function handleBuildIntent(
     return;
   }
 
-  const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
+  const spawnerUrl = resolveSpawnerUiUrl();
   const chatId = Number(ctx.chat.id);
   const requestId = `tg-build-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(requestId);
@@ -2959,15 +3098,10 @@ bot.command('updates', async (ctx) => {
 bot.command('access', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
-  const raw = ctx.message.text.replace('/access', '').trim();
+  const raw = extractTelegramCommandArgs(ctx.message.text, 'access');
   const current = await getSparkAccessProfile(ctx.chat.id);
   if (!raw || raw.toLowerCase() === 'status') {
-    const runnerPreflight = await probeTelegramRunnerWritability();
-    await ctx.reply([
-      renderSparkAccessStatus(current),
-      '',
-      renderSparkAccessCapabilityStatus(current, runnerPreflight)
-    ].join('\n'), buildSparkAccessActionKeyboard(current));
+    await ctx.reply(await renderAuthoritativeSparkAccessStatus(ctx.chat.id), buildSparkAccessActionKeyboard(current));
     return;
   }
 
@@ -2997,6 +3131,15 @@ bot.command('access', async (ctx) => {
 
 function accessLevelChangeConfirmed(raw: string): boolean {
   return /\bconfirm\b/i.test(raw);
+}
+
+function extractTelegramCommandArgs(text: string, command: string): string {
+  const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`^\\s*/${escapedCommand}(?:@\\w+)?(?:\\s+([\\s\\S]*?))?\\s*$`, 'i'));
+  if (match) {
+    return (match[1] || '').trim();
+  }
+  return text.replace(new RegExp(`^\\s*/${escapedCommand}\\b`, 'i'), '').trim();
 }
 
 async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile): Promise<void> {
@@ -3331,11 +3474,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
   ) {
     await conversation.remember(user, text).catch(() => {});
-    const [accessProfile, runnerPreflight] = await Promise.all([
-      getSparkAccessProfile(ctx.chat.id),
-      probeTelegramRunnerWritability()
-    ]);
-    const reply = renderSparkAccessCapabilityStatus(accessProfile, runnerPreflight);
+    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
@@ -3343,13 +3482,33 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
     await conversation.remember(user, text).catch(() => {});
-    const [accessProfile, runnerPreflight] = await Promise.all([
-      getSparkAccessProfile(ctx.chat.id),
-      probeTelegramRunnerWritability()
-    ]);
-    const reply = renderSparkAccessBriefStatus(accessProfile, runnerPreflight);
+    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    const reply = await renderAuthoritativeSparkLiveStatus();
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const missionId = await handleRunCommand(
+      ctx,
+      'Reply with exactly: GOLDEN_PATH_OK. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.',
+      [missionDefaultProvider()],
+      'spawner_build',
+      { missionName: 'Telegram Golden Path Probe' }
+    );
+    if (missionId) {
+      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram.`).catch(() => {});
+    }
     return;
   }
 

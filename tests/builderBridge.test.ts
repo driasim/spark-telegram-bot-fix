@@ -14,7 +14,8 @@ import {
   formatWikiInventoryReply,
   formatWikiPromotionReply,
   formatWikiQueryReply,
-  formatWikiStatusReply
+  formatWikiStatusReply,
+  resolveBuilderRepoPath
 } from '../src/builderBridge';
 
 function test(name: string, fn: () => void): void {
@@ -310,7 +311,7 @@ test('formats self-awareness payload as actionable Telegram report', () => {
   assert.match(reply, /What I should improve next/);
   assert.match(reply, /Knowledge notes/);
   assert.doesNotMatch(reply, /Project knowledge first: yes/);
-  assert.match(reply, /test the browser route now/);
+  assert.match(reply, /test the browser-use route now/);
   assert.match(reply, /name missing evidence/);
   assert.equal(reply.length < 1800, true);
 });
@@ -461,6 +462,42 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
 
   assert.match(source, /'self',\s*'panel'/);
   assert.doesNotMatch(source, /'self',\s*'context'/);
+});
+
+test('builder repo resolver prefers release-installed Builder when Telegram runs from installed source', () => {
+  const homeDir = path.resolve('C:/Users/USER');
+  const installedBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder-release', 'source');
+  const resolved = resolveBuilderRepoPath({
+    cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
+    homeDir,
+    exists: (targetPath) => targetPath === path.join(installedBuilderRepo, 'src', 'spark_intelligence', 'cli.py')
+  });
+
+  assert.equal(resolved, installedBuilderRepo);
+});
+
+test('builder repo resolver keeps legacy installed Builder as fallback', () => {
+  const homeDir = path.resolve('C:/Users/USER');
+  const legacyBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source');
+  const resolved = resolveBuilderRepoPath({
+    cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
+    homeDir,
+    exists: (targetPath) => targetPath === path.join(legacyBuilderRepo, 'src', 'spark_intelligence', 'cli.py')
+  });
+
+  assert.equal(resolved, legacyBuilderRepo);
+});
+
+test('builder repo resolver preserves explicit operator override', () => {
+  const explicitRepo = path.resolve('D:/Spark/custom-builder');
+  const resolved = resolveBuilderRepoPath({
+    configuredRepo: explicitRepo,
+    cwd: path.resolve('C:/Users/USER/.spark/modules/spark-telegram-bot/source'),
+    homeDir: path.resolve('C:/Users/USER'),
+    exists: () => false
+  });
+
+  assert.equal(resolved, explicitRepo);
 });
 
 test('formats black-box payload as compact event evidence', () => {
