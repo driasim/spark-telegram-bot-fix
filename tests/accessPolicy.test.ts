@@ -266,6 +266,19 @@ async function main(): Promise<void> {
     assert.doesNotMatch(renderSparkAccessStatus('operator'), /\/level5_setup/);
   });
 
+  await test('natural state-sensitive chat is grounded by fresh runtime truth', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    assert.match(indexSource, /function runtimeTruthSignals/);
+    assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
+    assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
+    assert.match(indexSource, /runSparkCli\(\['providers', 'status'\]/);
+    assert.match(indexSource, /runSparkCli\(\['verify', '--deep'\]/);
+    assert.match(indexSource, /ephemeral, not memory/);
+    assert.match(indexSource, /higher priority than older memory, persona, or generic access doctrine/);
+    assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
+    assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
+  });
+
   await test('gates Spawner command side doors by access level', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
 
