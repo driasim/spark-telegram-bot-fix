@@ -186,6 +186,7 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.tier, 'pro', 'admin user should resolve to pro tier');
 		assert.equal(typeof writeCall!.body.requestId, 'string');
 		assert.match(writeCall!.body.requestId, /^tg-build-/);
+		assert.doesNotMatch(writeCall!.body.requestId, /8319079055/);
 		assert.equal(writeCall!.body.chatId, '8319079055');
 		assert.equal(writeCall!.body.userId, '8319079055');
 		assert.equal(writeCall!.body.buildMode, 'direct');
@@ -204,6 +205,7 @@ async function run(): Promise<void> {
 		assert.equal(subscription.chatId, '8319079055');
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, writeCall!.body.requestId);
+		assert.equal(subscription.traceRef, writeCall!.body.traceRef);
 
 		restoreAxios();
 		restoreEnv();
@@ -324,7 +326,11 @@ async function run(): Promise<void> {
 		);
 
 		assert.equal(missionId, 'spark-simple-run-test');
-		assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'expected non-build /run to POST to /api/spark/run');
+		const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
+		assert.ok(runCall, 'expected non-build /run to POST to /api/spark/run');
+		assert.match(runCall!.body.requestId, /^tg-run-/);
+		assert.doesNotMatch(runCall!.body.requestId, /8319079055/);
+		assert.equal(runCall!.body.traceRef, `trace:telegram-run:${runCall!.body.requestId}`);
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'non-build /run should not use the PRD bridge');
 
 		restoreAxios();

@@ -74,6 +74,7 @@ async function run(): Promise<void> {
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',
+      traceRef: 'trace:telegram-run:tg-req-1',
       providers: ['codex', 'claude'],
       promptMode: 'orchestrator'
     });
@@ -89,6 +90,7 @@ async function run(): Promise<void> {
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',
+      traceRef: 'trace:telegram-run:tg-req-1',
       telegramRelay: { port: 8799, profile: 'spark-agi' },
       providers: ['codex', 'claude'],
       promptMode: 'orchestrator'

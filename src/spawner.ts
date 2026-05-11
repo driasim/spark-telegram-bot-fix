@@ -19,6 +19,7 @@ interface RunGoalInput {
   chatId: string;
   userId: string;
   requestId: string;
+  traceRef?: string;
   tier?: SkillTier;
   providers?: string[];
   promptMode?: 'simple' | 'orchestrator';
@@ -645,6 +646,7 @@ export const spawner = {
           chatId: input.chatId,
           userId: input.userId,
           requestId: input.requestId,
+          ...(input.traceRef ? { traceRef: input.traceRef } : {}),
           telegramRelay: relay,
           ...(input.tier ? { tier: input.tier } : {}),
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { appendFile, mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { Telegraf } from 'telegraf';
@@ -1663,8 +1664,16 @@ function missionIdFromTelegramBuildRequest(requestId: string): string {
   return `mission-${stamp || requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
 
+function opaqueTelegramRequestId(prefix: 'tg-run' | 'tg-build'): string {
+  return `${prefix}-${randomUUID().replace(/-/g, '').slice(0, 12)}-${Date.now()}`;
+}
+
 function spawnerPrdTraceRef(missionId: string): string {
   return `trace:spawner-prd:${missionId}`;
+}
+
+function telegramRunTraceRef(requestId: string): string {
+  return `trace:telegram-run:${requestId}`;
 }
 
 function projectCanvasUrl(baseUrl: string, requestId: string, missionId: string): string {
@@ -2288,11 +2297,13 @@ export async function handleRunCommand(
     return null;
   }
 
-  const requestId = `tg-${ctx.chat.id}-${ctx.message.message_id}`;
+  const requestId = opaqueTelegramRequestId('tg-run');
+  const traceRef = telegramRunTraceRef(requestId);
   const result = await spawner.runGoal({
     goal,
     chatId: String(ctx.chat.id),
     requestId,
+    traceRef,
     userId: String(ctx.from.id),
     tier: getTierForUser(ctx.from.id),
     providers,
@@ -2312,6 +2323,7 @@ export async function handleRunCommand(
     chatId: String(ctx.chat.id),
     userId: String(ctx.from.id),
     requestId: result.requestId || requestId,
+    traceRef,
     goal,
     createdAt: new Date().toISOString(),
     updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
@@ -2354,7 +2366,7 @@ export async function handleBuildIntent(
 
   const spawnerUrl = resolveSpawnerUiUrl();
   const chatId = Number(ctx.chat.id);
-  const requestId = `tg-build-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
+  const requestId = opaqueTelegramRequestId('tg-build');
   const missionId = missionIdFromTelegramBuildRequest(requestId);
   const traceRef = spawnerPrdTraceRef(missionId);
 
@@ -2429,6 +2441,7 @@ export async function handleBuildIntent(
       chatId: String(ctx.chat.id),
       userId: String(ctx.from.id),
       requestId,
+      traceRef,
       goal: projectName || prd,
       createdAt: new Date().toISOString(),
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
