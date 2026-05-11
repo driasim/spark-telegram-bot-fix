@@ -35,6 +35,7 @@ export interface MissionSubscription {
   chatId: string;
   userId: string;
   requestId: string;
+  traceRef?: string;
   goal: string;
   createdAt: string;
   relayPort?: number;
@@ -1663,6 +1664,7 @@ async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise
     chatId: identity.chatId,
     userId: identity.userId,
     requestId: typeof data.requestId === 'string' && data.requestId.trim() ? data.requestId.trim() : event.missionId,
+    traceRef: traceRefFromEvent(event),
     goal: typeof data.goal === 'string' && data.goal.trim() ? data.goal.trim() : event.message || event.missionId,
     createdAt: new Date().toISOString(),
     relayPort: relayTargetFromEvent(event).port || undefined,
