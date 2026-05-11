@@ -249,6 +249,9 @@ async function main(): Promise<void> {
     assert.match(indexSource, /renderSparkAccessLevel5ConfirmationPrompt\(\), buildSparkAccessLevel5ConfirmKeyboard\(\)/);
     assert.match(indexSource, /bot\.action\(\/\^spark_access_level:operator:confirm/);
     assert.match(indexSource, /I prepared the local guardrails\./);
+    assert.match(indexSource, /isLevel5ServiceEnabled/);
+    assert.match(indexSource, /runSparkAccessActionDetailed\('level5_disable'\)/);
+    assert.match(indexSource, /I also disabled Level 5 service guardrails/);
     assert.match(indexSource, /bot\.command\('access_setup'/);
     assert.match(indexSource, /bot\.command\('docker_doctor'/);
     assert.match(indexSource, /bot\.command\('docker_smoke'/);
@@ -270,6 +273,7 @@ async function main(): Promise<void> {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     assert.match(indexSource, /function runtimeTruthSignals/);
     assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
+    assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
     assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
     assert.match(indexSource, /runSparkCli\(\['providers', 'status'\]/);
     assert.match(indexSource, /runSparkCli\(\['verify', '--deep'\]/);
