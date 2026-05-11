@@ -449,49 +449,131 @@ async function renderLevel5ActivationAnswer(chatId: string | number): Promise<st
   }
 }
 
-function shouldAttachSparkAccessTruthContext(text: string): boolean {
+type RuntimeTruthSignals = {
+  access: boolean;
+  live: boolean;
+  providers: boolean;
+  memory: boolean;
+};
+
+function runtimeTruthSignals(text: string): RuntimeTruthSignals {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!normalized) return false;
-  return (
-    /\blevel\s*5\b/.test(normalized) ||
+  if (!normalized) {
+    return { access: false, live: false, providers: false, memory: false };
+  }
+  const access = (
+    /\blevel\s*[1-5]\b/.test(normalized) ||
     /\bspark\s+access\b/.test(normalized) ||
     /\baccess\s+(?:level|profile|status)\b/.test(normalized) ||
     /\b(?:runner|read[-\s]*only|writable|operator\s+mode|whole[-\s]*computer|full\s+access)\b/.test(normalized)
   );
+  const live = (
+    /\bspark\s+live\b/.test(normalized) ||
+    /\blive\s+(?:spark\s+)?(?:health|status|system|stack)\b/.test(normalized) ||
+    /\b(?:spawner|mission\s+control|telegram|relay|supervised|supervision|running|stopped|offline|online|health|systems?)\b/.test(normalized) &&
+      /\b(?:spark|spawner|telegram|relay|live|supervised|system|stack|health|status|running|stopped|offline|online)\b/.test(normalized)
+  );
+  const providers = (
+    /\b(?:provider|providers|llm|model|models|codex|openai|anthropic|openrouter|ollama|chat\s+model|current\s+model)\b/.test(normalized) &&
+      /\b(?:spark|current|using|configured|healthy|working|status|test|which|what|who)\b/.test(normalized)
+  );
+  const memory = (
+    /\b(?:memory\s+bridge|builder\s+memory|domain[-\s]*chip[-\s]*memory|recall|remember|memory\s+health|memory\s+status)\b/.test(normalized) &&
+      /\b(?:spark|builder|memory|bridge|health|status|online|offline|working|current)\b/.test(normalized)
+  );
+  return { access, live, providers, memory };
 }
 
-async function buildConversationalSparkAccessTruthContext(chatId: string | number): Promise<string> {
+function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
+  const signals = runtimeTruthSignals(text);
+  return signals.access || signals.live || signals.providers || signals.memory;
+}
+
+function compactRuntimeOutput(output: string, maxLines = 18): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Useful:/i.test(line))
+    .slice(0, maxLines)
+    .join('\n');
+}
+
+async function buildFreshRuntimeTruthContext(text: string, chatId: string | number): Promise<string> {
+  const signals = runtimeTruthSignals(text);
   const [chatProfile, runnerPreflight] = await Promise.all([
     getSparkAccessProfile(chatId),
     probeTelegramRunnerWritability()
   ]);
   const lines = [
-    'Fresh Spark runtime truth for this turn:',
+    'Fresh Spark runtime truth for this turn (ephemeral, not memory):',
     `- Chat access setting: Access level ${sparkAccessLevel(chatProfile)}.`,
     `- Telegram runner writable: ${runnerPreflight.runnerWritable}.`,
     runnerPreflight.runnerLabel ? `- Runner preflight: ${runnerPreflight.runnerLabel}.` : '',
   ];
-  try {
-    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
-    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
-    const level5 = objectRecord(payload.level5);
-    const stateMachine = objectRecord(payload.state_machine);
-    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
-    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
-    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
-    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
-    lines.push(
-      `- Requested access from Spark CLI: Level ${requested}.`,
-      `- Effective access from Spark CLI: Level ${effective}.`,
-      `- Level 5 service guardrails active: ${serviceEnabled ? 'yes' : 'no'} (${activation}).`
-    );
-  } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
-    lines.push(`- Fresh Spark CLI access check failed: ${detail}.`);
+  if (signals.access) {
+    try {
+      const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+      const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+      const level5 = objectRecord(payload.level5);
+      const stateMachine = objectRecord(payload.state_machine);
+      const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+      const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+      const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+      const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+      lines.push(
+        `- Requested access from Spark CLI: Level ${requested}.`,
+        `- Effective access from Spark CLI: Level ${effective}.`,
+        `- Level 5 service guardrails active: ${serviceEnabled ? 'yes' : 'no'} (${activation}).`
+      );
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh Spark CLI access check failed: ${detail}.`);
+    }
+  }
+  if (signals.live) {
+    try {
+      const [liveStatus, deepVerify] = await Promise.all([
+        runSparkCli(['live', 'status'], 45_000),
+        runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+      ]);
+      const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+      lines.push(
+        '- Fresh live status:',
+        compactRuntimeOutput(liveStatus, 14),
+        supervised ? `- Supervision evidence: ${supervised.replace(/\.+$/, '')}.` : '- Supervision evidence: not proven by verify output.'
+      );
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh live status check failed: ${detail}.`);
+    }
+  }
+  if (signals.providers) {
+    try {
+      const providerStatus = await runSparkCli(['providers', 'status'], 45_000);
+      lines.push('- Fresh provider status:', compactRuntimeOutput(providerStatus, 14));
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh provider status check failed: ${detail}.`);
+    }
+  }
+  if (signals.memory) {
+    try {
+      const deepVerify = await runSparkCli(['verify', '--deep'], 90_000);
+      const memoryLines = deepVerify
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /memory|builder|domain-chip-memory|researcher/i.test(line))
+        .slice(0, 10)
+        .join('\n');
+      lines.push('- Fresh memory/Builder evidence:', memoryLines || compactRuntimeOutput(deepVerify, 10));
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh memory/Builder check failed: ${detail}.`);
+    }
   }
   lines.push(
     '',
-    'Conversation guidance: Use these fresh facts as higher priority than older memory or generic access doctrine. Answer naturally and briefly. Do not dump raw status fields unless the user explicitly asks for raw/debug output. Do not say this runner is read-only when this fresh preflight says it is writable.'
+    'Conversation guidance: Use these fresh facts as higher priority than older memory, persona, or generic access doctrine. Answer naturally and briefly. Do not dump raw status fields unless the user explicitly asks for raw/debug output. If fresh evidence is available, do not contradict it.'
   );
   return lines.filter(Boolean).join('\n');
 }
@@ -3563,24 +3645,24 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   ) {
     conversationFrameContext = [
       conversationFrameContext,
-      await buildConversationalSparkAccessTruthContext(ctx.chat.id)
+      await buildFreshRuntimeTruthContext(text, ctx.chat.id)
     ].filter(Boolean).join('\n\n');
   }
 
-  if (!earlyBuildIntent && shouldAttachSparkAccessTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn:')) {
+  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
     conversationFrameContext = [
       conversationFrameContext,
-      await buildConversationalSparkAccessTruthContext(ctx.chat.id)
+      await buildFreshRuntimeTruthContext(text, ctx.chat.id)
     ].filter(Boolean).join('\n\n');
   }
 
   if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    await safeSendChatAction(ctx, 'typing');
-    const reply = await renderAuthoritativeSparkLiveStatus();
-    await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
+    if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+      conversationFrameContext = [
+        conversationFrameContext,
+        await buildFreshRuntimeTruthContext(text, ctx.chat.id)
+      ].filter(Boolean).join('\n\n');
+    }
   }
 
   if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
