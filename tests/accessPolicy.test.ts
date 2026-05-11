@@ -279,8 +279,10 @@ async function main(): Promise<void> {
     assert.match(indexSource, /runSparkCli\(\['verify', '--deep'\]/);
     assert.match(indexSource, /ephemeral, not memory/);
     assert.match(indexSource, /higher priority than older memory, persona, or generic access doctrine/);
-    assert.match(indexSource, /const hasFreshRuntimeTruth = conversationFrameContext\.includes/);
+    assert.match(indexSource, /const hasFreshRuntimeTruth = Boolean\(freshRuntimeTruthContext\)/);
     assert.match(indexSource, /if \(!hasFreshRuntimeTruth\) \{[\s\S]*?runBuilderTelegramBridge/);
+    assert.match(indexSource, /Authoritative current-state context for this answer/);
+    assert.match(indexSource, /highest-priority source for current state/);
     assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
     assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
   });

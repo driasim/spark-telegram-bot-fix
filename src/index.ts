@@ -3850,6 +3850,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   const conversationFrame = await conversation.getConversationFrame(user, text);
   let conversationFrameContext = renderConversationFrameContext(conversationFrame, 12_000);
+  let freshRuntimeTruthContext = '';
+  const attachFreshRuntimeTruthContext = async (): Promise<void> => {
+    if (freshRuntimeTruthContext) return;
+    freshRuntimeTruthContext = await buildFreshRuntimeTruthContext(text, ctx.chat.id);
+    conversationFrameContext = [conversationFrameContext, freshRuntimeTruthContext].filter(Boolean).join('\n\n');
+  };
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
@@ -3873,25 +3879,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     !earlyBuildIntent &&
     (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
   ) {
-    conversationFrameContext = [
-      conversationFrameContext,
-      await buildFreshRuntimeTruthContext(text, ctx.chat.id)
-    ].filter(Boolean).join('\n\n');
+    await attachFreshRuntimeTruthContext();
   }
 
   if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
-    conversationFrameContext = [
-      conversationFrameContext,
-      await buildFreshRuntimeTruthContext(text, ctx.chat.id)
-    ].filter(Boolean).join('\n\n');
+    await attachFreshRuntimeTruthContext();
   }
 
   if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
     if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
-      conversationFrameContext = [
-        conversationFrameContext,
-        await buildFreshRuntimeTruthContext(text, ctx.chat.id)
-      ].filter(Boolean).join('\n\n');
+      await attachFreshRuntimeTruthContext();
     }
   }
 
@@ -4484,7 +4481,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const hasFreshRuntimeTruth = conversationFrameContext.includes('Fresh Spark runtime truth for this turn');
+    const hasFreshRuntimeTruth = Boolean(freshRuntimeTruthContext);
     let bridgeFailed = false;
     let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
@@ -4542,13 +4539,26 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     // Get context from previous memories
-    const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
+    const storedMemoryContext = await conversation.getContext(user, text);
+    const memories = freshRuntimeTruthContext
+      ? [freshRuntimeTruthContext, conversationFrameContext, storedMemoryContext].filter(Boolean).join('\n\n')
+      : [storedMemoryContext, conversationFrameContext].filter(Boolean).join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
 
     const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+    const systemContext = [
+      renderSparkAccessRuntimeHint(accessProfile),
+      freshRuntimeTruthContext
+        ? [
+            'Authoritative current-state context for this answer:',
+            freshRuntimeTruthContext,
+            'Use the authoritative current-state context above as the highest-priority source for current state. Do not contradict it with memory or older Builder capsules.'
+          ].join('\n')
+        : ''
+    ].filter(Boolean).join('\n\n');
 
     // Get LLM response with Spark context
-    const response = await llm.chat(chatPrompt, renderSparkAccessRuntimeHint(accessProfile), memories);
+    const response = await llm.chat(chatPrompt, systemContext, memories);
 
     if (isLowInformationLlmReply(response)) {
       await conversation.recordInterruptedTask(user, {
