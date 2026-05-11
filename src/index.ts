@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
+import { createHash } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +23,7 @@ import {
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
+  runBuilderRunPreflight,
   runBuilderRouteProbe,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
@@ -348,17 +350,123 @@ function previewAuditText(text: string, limit = 240): string {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
-function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown): void {
-  const text = typeof deliveredText === 'string' ? deliveredText : String(deliveredText ?? '');
-  const auditPath = nodeOutboundAuditPath();
-  const record = {
-    ts: new Date().toISOString(),
-    event: 'telegram_node_delivered',
-    chat_id: String(chatId ?? ''),
-    text_length: text.length,
-    text_preview: previewAuditText(text),
-    delivered_text: text,
+function auditRef(prefix: string, value: unknown): string | undefined {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return `${prefix}_${createHash('sha256').update(normalized).digest('hex').slice(0, 16)}`;
+}
+
+const OUTBOUND_TRACE_CONTEXT_KEY = '__sparkTraceContext';
+
+type OutboundTraceContext = {
+  requestId?: string;
+  traceRef?: string;
+  route?: string;
+  command?: string;
+  replyKind?: string;
+  missionId?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizeOutboundTraceContext(value: unknown): OutboundTraceContext | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const requestId = String(value.requestId || '').trim();
+  const traceRef = String(value.traceRef || '').trim();
+  const route = String(value.route || '').trim();
+  const command = String(value.command || '').trim();
+  const replyKind = String(value.replyKind || '').trim();
+  const missionId = String(value.missionId || '').trim();
+  if (!requestId && !traceRef && !route && !command && !replyKind && !missionId) {
+    return undefined;
+  }
+  return {
+    ...(requestId ? { requestId } : {}),
+    ...(traceRef ? { traceRef } : {}),
+    ...(route ? { route } : {}),
+    ...(command ? { command } : {}),
+    ...(replyKind ? { replyKind } : {}),
+    ...(missionId ? { missionId } : {})
   };
+}
+
+function splitOutboundTraceExtra(extra: unknown): { telegramExtra: unknown; traceContext?: OutboundTraceContext } {
+  if (!isRecord(extra) || !(OUTBOUND_TRACE_CONTEXT_KEY in extra)) {
+    return { telegramExtra: extra };
+  }
+  const traceContext = normalizeOutboundTraceContext(extra[OUTBOUND_TRACE_CONTEXT_KEY]);
+  const telegramExtra = { ...extra };
+  delete telegramExtra[OUTBOUND_TRACE_CONTEXT_KEY];
+  return {
+    telegramExtra: Object.keys(telegramExtra).length ? telegramExtra : undefined,
+    traceContext
+  };
+}
+
+function commandOutboundTraceContext(input: {
+  command: string;
+  replyKind: string;
+  requestId?: string;
+  traceRef?: string;
+  missionId?: string;
+}): OutboundTraceContext {
+  return {
+    route: 'telegram_command',
+    command: input.command,
+    replyKind: input.replyKind,
+    ...(input.requestId ? { requestId: input.requestId } : {}),
+    ...(input.traceRef ? { traceRef: input.traceRef } : {}),
+    ...(input.missionId ? { missionId: input.missionId } : {})
+  };
+}
+
+function tracedReplyExtra(context: OutboundTraceContext, extra?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...(extra || {}),
+    [OUTBOUND_TRACE_CONTEXT_KEY]: context
+  };
+}
+
+export function buildNodeOutboundAuditRecord(
+  chatId: unknown,
+  deliveredText: unknown,
+  now = new Date(),
+  traceContext?: OutboundTraceContext
+): Record<string, unknown> {
+  const text = typeof deliveredText === 'string' ? deliveredText : String(deliveredText ?? '');
+  const chatRef = auditRef('chat', chatId);
+  const requestId = String(traceContext?.requestId || '').trim();
+  const traceRef = String(traceContext?.traceRef || '').trim();
+  const route = String(traceContext?.route || '').trim();
+  const command = String(traceContext?.command || '').trim();
+  const replyKind = String(traceContext?.replyKind || '').trim();
+  const missionId = String(traceContext?.missionId || '').trim();
+  return {
+    ts: now.toISOString(),
+    event: 'telegram_node_delivered',
+    chat_id_present: Boolean(String(chatId ?? '').trim()),
+    ...(chatRef ? { chat_ref: chatRef } : {}),
+    text_length: text.length,
+    trace_context_present: Boolean(requestId || traceRef),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(traceRef ? { trace_ref: traceRef } : {}),
+    ...(route ? { route } : {}),
+    ...(command ? { command } : {}),
+    ...(replyKind ? { reply_kind: replyKind } : {}),
+    mission_id_present: Boolean(missionId),
+    privacy: 'metadata_only'
+  };
+}
+
+function recordNodeOutboundDelivery(chatId: unknown, deliveredText: unknown, traceContext?: OutboundTraceContext): void {
+  const auditPath = nodeOutboundAuditPath();
+  const record = buildNodeOutboundAuditRecord(chatId, deliveredText, new Date(), traceContext);
   mkdir(path.dirname(auditPath), { recursive: true })
     .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
     .catch((error) => {
@@ -412,6 +520,42 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     });
 }
 
+type FinalAnswerGateCommandInput = {
+  command: string;
+  outcome: 'command_reply_delivered';
+  replyKind: 'mission_ack' | 'build_ack';
+  replyText: string;
+  requestId?: string;
+  traceRef?: string;
+  missionId?: string;
+};
+
+function recordFinalAnswerGateCommandReply(input: FinalAnswerGateCommandInput): void {
+  if (process.env.SPARK_BOT_TEST_MODE === '1' && !process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH) {
+    return;
+  }
+  const auditPath = finalAnswerGateAuditPath();
+  const requestId = String(input.requestId || '').trim();
+  const traceRef = String(input.traceRef || '').trim();
+  const record = {
+    ts: new Date().toISOString(),
+    event: 'final_answer_checked',
+    outcome: input.outcome,
+    route: 'telegram_command',
+    command: input.command,
+    reply_kind: input.replyKind,
+    reply_length: input.replyText.length,
+    mission_id_present: Boolean(input.missionId && String(input.missionId).trim()),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(traceRef ? { trace_ref: traceRef } : {})
+  };
+  mkdir(path.dirname(auditPath), { recursive: true })
+    .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
+    .catch((error) => {
+      console.warn('[FinalAnswerGate] failed to write command audit:', error);
+    });
+}
+
 // Outbound sanitizer: wrap bot.telegram.sendMessage so every Telegram
 // reply (ctx.reply, ctx.telegram.sendMessage, bot.telegram.sendMessage)
 // runs through the deterministic voice rules before delivery. Persona
@@ -419,17 +563,18 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
 // this shim. Mirrors spark_character.output_sanitizer (Python).
 const _origSendMessage = bot.telegram.sendMessage.bind(bot.telegram);
 bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
+  const { telegramExtra, traceContext } = splitOutboundTraceExtra(extra);
   if (typeof text !== 'string') {
-    const delivery = await _origSendMessage(chatId, text, extra);
-    recordNodeOutboundDelivery(chatId, text);
+    const delivery = await _origSendMessage(chatId, text, telegramExtra as any);
+    recordNodeOutboundDelivery(chatId, text, traceContext);
     return delivery;
   }
 
   const chunks = sanitizeAndSplitTelegramText(text);
   let lastDelivery: Awaited<ReturnType<typeof _origSendMessage>> | null = null;
   for (const chunk of chunks) {
-    lastDelivery = await _origSendMessage(chatId, chunk, extra);
-    recordNodeOutboundDelivery(chatId, chunk);
+    lastDelivery = await _origSendMessage(chatId, chunk, telegramExtra as any);
+    recordNodeOutboundDelivery(chatId, chunk, traceContext);
   }
   return lastDelivery!;
 }) as typeof bot.telegram.sendMessage;
@@ -437,14 +582,18 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
 bot.use(async (ctx, next) => {
   const originalReply = ctx.reply.bind(ctx);
   ctx.reply = (async (text: any, extra?: any) => {
+    const { telegramExtra, traceContext } = splitOutboundTraceExtra(extra);
     if (typeof text !== 'string') {
-      return originalReply(text, extra);
+      const reply = await originalReply(text, telegramExtra as any);
+      recordNodeOutboundDelivery(ctx.chat?.id, text, traceContext);
+      return reply;
     }
 
     const chunks = sanitizeAndSplitTelegramText(text);
     let lastReply: Awaited<ReturnType<typeof originalReply>> | null = null;
     for (const chunk of chunks) {
-      lastReply = await originalReply(chunk, extra);
+      lastReply = await originalReply(chunk, telegramExtra as any);
+      recordNodeOutboundDelivery(ctx.chat?.id, chunk, traceContext);
     }
     return lastReply!;
   }) as typeof ctx.reply;
@@ -1308,6 +1457,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       chatId: String(ctx.chat.id),
       userId: String(ctx.from.id),
       requestId: newRequestId,
+      traceRef,
       goal: pending.projectName || pending.prd,
       createdAt: new Date().toISOString(),
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
@@ -1316,7 +1466,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     const publicSpawnerUrl = process.env.SPAWNER_UI_PUBLIC_URL || spawnerUrl;
     const canvasUrl = projectCanvasUrl(publicSpawnerUrl, newRequestId, missionId);
     const kanbanUrl = missionBoardUrl(publicSpawnerUrl);
-    await ctx.reply([
+    const ack = [
       runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
       '',
       `Project: ${pending.projectName}`,
@@ -1325,7 +1475,24 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       `Mission board: ${kanbanUrl}`,
       '',
       'I am shaping the plan now. I will send the project canvas link as soon as it is ready.'
-    ].join('\n'));
+    ].join('\n');
+    const ackTraceContext = commandOutboundTraceContext({
+      command: 'clarify',
+      replyKind: 'build_ack',
+      requestId: newRequestId,
+      traceRef,
+      missionId
+    });
+    await ctx.reply(ack, tracedReplyExtra(ackTraceContext));
+    recordFinalAnswerGateCommandReply({
+      command: 'clarify',
+      outcome: 'command_reply_delivered',
+      replyKind: 'build_ack',
+      replyText: ack,
+      requestId: newRequestId,
+      traceRef,
+      missionId
+    });
     startPrdCanvasReadyNotifier({
       chatId: Number(ctx.chat.id),
       projectName: pending.projectName,
@@ -2256,6 +2423,16 @@ interface RunCommandOptions {
   missionName?: string;
 }
 
+async function runTelegramBuilderPreflightOrReply(ctx: any, input: Parameters<typeof runBuilderRunPreflight>[0]): Promise<boolean> {
+  try {
+    await runBuilderRunPreflight(input);
+    return true;
+  } catch (err: any) {
+    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    return false;
+  }
+}
+
 export async function handleRunCommand(
   ctx: any,
   goal: string,
@@ -2288,10 +2465,29 @@ export async function handleRunCommand(
   }
 
   const requestId = `tg-${ctx.chat.id}-${ctx.message.message_id}`;
+  const traceRef = `trace:telegram-run:${requestId}`;
+  const preflightOk = await runTelegramBuilderPreflightOrReply(ctx, {
+    userId: String(ctx.from.id),
+    chatId: String(ctx.chat.id),
+    requestId,
+    traceRef,
+    commandKind: 'run',
+    accessRequirement,
+    sparkAccessLevel: sparkAccessLevel(accessProfile),
+    runnerWritable: 'unknown',
+    providerCount: providers.length,
+    hasTargetPath: accessRequirement === 'operating_system',
+    missionId: options.missionName
+  });
+  if (!preflightOk) {
+    return null;
+  }
+
   const result = await spawner.runGoal({
     goal,
     chatId: String(ctx.chat.id),
     requestId,
+    traceRef,
     userId: String(ctx.from.id),
     tier: getTierForUser(ctx.from.id),
     providers,
@@ -2304,13 +2500,31 @@ export async function handleRunCommand(
     return null;
   }
 
-  await ctx.reply(humanAck(result.providers || providers));
+  const ack = humanAck(result.providers || providers);
+  const ackTraceContext = commandOutboundTraceContext({
+    command: 'run',
+    replyKind: 'mission_ack',
+    requestId: result.requestId || requestId,
+    traceRef: result.traceRef || traceRef,
+    missionId: result.missionId
+  });
+  await ctx.reply(ack, tracedReplyExtra(ackTraceContext));
+  recordFinalAnswerGateCommandReply({
+    command: 'run',
+    outcome: 'command_reply_delivered',
+    replyKind: 'mission_ack',
+    replyText: ack,
+    requestId: result.requestId || requestId,
+    traceRef: result.traceRef || traceRef,
+    missionId: result.missionId
+  });
 
   await registerMissionRelay({
     missionId: result.missionId,
     chatId: String(ctx.chat.id),
     userId: String(ctx.from.id),
     requestId: result.requestId || requestId,
+    traceRef: result.traceRef || traceRef,
     goal,
     createdAt: new Date().toISOString(),
     updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
@@ -2363,6 +2577,25 @@ export async function handleBuildIntent(
 
   const tier = getTierForUser(ctx.from.id);
   try {
+    const preflightOk = await runTelegramBuilderPreflightOrReply(ctx, {
+      userId: String(ctx.from.id),
+      chatId: String(ctx.chat.id),
+      requestId,
+      traceRef,
+      commandKind: 'build',
+      accessRequirement,
+      sparkAccessLevel: sparkAccessLevel(accessProfile),
+      runnerWritable: runnerPreflight?.runnerWritable || 'unknown',
+      runnerLabel: runnerPreflight?.runnerLabel,
+      providerCount: 1,
+      hasTargetPath: Boolean(projectPath),
+      buildMode,
+      missionId
+    });
+    if (!preflightOk) {
+      return;
+    }
+
     const res = await postLocalServiceWithRetry(
       `${spawnerUrl}/api/prd-bridge/write`,
       {
@@ -2428,6 +2661,7 @@ export async function handleBuildIntent(
       chatId: String(ctx.chat.id),
       userId: String(ctx.from.id),
       requestId,
+      traceRef,
       goal: projectName || prd,
       createdAt: new Date().toISOString(),
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
@@ -2445,7 +2679,24 @@ export async function handleBuildIntent(
       '',
       'I am shaping the plan now. I will send the project canvas link as soon as it is ready.'
     ].filter(Boolean);
-    await ctx.reply(ackLines.join('\n'));
+    const ack = ackLines.join('\n');
+    const ackTraceContext = commandOutboundTraceContext({
+      command: 'run',
+      replyKind: 'build_ack',
+      requestId,
+      traceRef,
+      missionId
+    });
+    await ctx.reply(ack, tracedReplyExtra(ackTraceContext));
+    recordFinalAnswerGateCommandReply({
+      command: 'run',
+      outcome: 'command_reply_delivered',
+      replyKind: 'build_ack',
+      replyText: ack,
+      requestId,
+      traceRef,
+      missionId
+    });
 
     if (process.env.SPARK_BOT_TEST_MODE === '1') {
       return;

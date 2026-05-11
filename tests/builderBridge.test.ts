@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   compactColdMemoryQuery,
+  buildBuilderRunPreflightSources,
+  buildBuilderRunPreflightUserMessage,
+  formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
+  formatMemoryInPlaySummary,
+  formatRouteProbeReply,
   formatSelfImprovementPlanReply,
   formatSelfAwarenessReply,
   formatWikiAnswerReply,
@@ -10,7 +17,7 @@ import {
   formatWikiPromotionReply,
   formatWikiQueryReply,
   formatWikiStatusReply,
-  buildBuilderVoiceDeliveryRuntimeState
+  resolveBuilderRepoPath
 } from '../src/builderBridge';
 
 function test(name: string, fn: () => void): void {
@@ -60,51 +67,32 @@ test('formats diagnostics scan replies without emojis while preserving sections'
   assert.doesNotMatch(reply, /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
 });
 
-test('builds redacted Builder voice delivery proof from Telegram sendVoice result', () => {
-  const state = buildBuilderVoiceDeliveryRuntimeState({
-    telegramUserId: '111',
-    sendMethod: 'sendVoice',
-    sendMs: 42,
-    telegramResult: { message_id: 9191 },
-    voiceMedia: {
-      audioBase64: 'not-persisted',
-      filename: 'reply.ogg',
-      mimeType: 'audio/ogg',
-      voiceCompatible: true,
-      providerId: 'elevenlabs',
-      voiceId: 'voice-secret-ish',
-      spokenText: 'hello',
-      runtimeState: {
-        schema_version: 'spark.voice_runtime_state.v1',
-        stt: { provider_id: 'openai', ready: true },
-        tts: { provider_id: 'elevenlabs', ready: true },
-        claim_levels: { synthesis_ready: true },
-        source_ledger: ['voice.speak']
-      }
-    }
-  });
-
-  assert.deepEqual(state.telegram_delivery, {
-    ready: true,
-    last_send_voice_at: state.telegram_delivery && (state.telegram_delivery as Record<string, unknown>).last_send_voice_at,
-    last_send_voice_status: 'success',
-    last_failure_reason: '',
-    telegram_message_id_present: true,
-    send_method: 'sendVoice'
-  });
-  assert.equal((state.tts as Record<string, unknown>).provider_id, 'elevenlabs');
-  assert.equal((state.claim_levels as Record<string, unknown>).delivery_ready, true);
-  assert.equal((state.latency as Record<string, unknown>).send_voice_ms, 42);
-  assert.match(JSON.stringify(state.source_ledger), /telegram-runner-sendVoice-trace/);
-  assert.doesNotMatch(JSON.stringify(state), /not-persisted/);
-});
-
 test('compacts large cold memory queries before invoking Builder memory', () => {
   const query = compactColdMemoryQuery(`Build this project.\n\n${'feature '.repeat(500)}`, 120);
 
   assert.ok(query.length <= 120);
   assert.match(query, /\[truncated\]$/);
   assert.doesNotMatch(query, /\n/);
+});
+
+test('formats route probe replies with evidence boundary', () => {
+  const reply = formatRouteProbeReply({
+    event_id: 'evt-123',
+    capability_key: 'spark_memory',
+    status: 'success',
+    event_type: 'tool_result_received',
+    route_latency_ms: 3837,
+    eval_ref: 'self.route-probe.run',
+    probe_summary: 'memory smoke write=succeeded/1 read_records=1 cleanup=ok',
+  });
+
+  assert.match(reply, /Route probe/);
+  assert.match(reply, /Route: spark_memory/);
+  assert.match(reply, /Status: success/);
+  assert.match(reply, /Latency: 3837ms/);
+  assert.match(reply, /Evidence: memory smoke write=succeeded\/1 read_records=1 cleanup=ok/);
+  assert.match(reply, /Event: evt-123 \(tool result received\)/);
+  assert.match(reply, /Run \/aoc/);
 });
 
 test('formats authoritative cold memory context for prompt injection', () => {
@@ -118,6 +106,8 @@ test('formats authoritative cold memory context for prompt injection', () => {
               lane: 'recent_conversation',
               source_class: 'recent_conversation',
               predicate: 'conversation.focus',
+              freshness: 'recent',
+              timestamp: '2026-05-10T00:00:00Z',
               text: 'The user was choosing between access level 3 and level 4.'
             }
           ]
@@ -128,8 +118,38 @@ test('formats authoritative cold memory context for prompt injection', () => {
 
   assert.equal(result.sourceCount, 1);
   assert.match(result.contextText, /\[Spark Cold Memory Context\]/);
+  assert.match(result.contextText, /Newer conversation frame context wins/);
   assert.match(result.contextText, /recent_conversation\/conversation\.focus/);
+  assert.match(result.contextText, /\[class=recent_conversation; freshness=recent; time=2026-05-10T00:00:00Z\]/);
   assert.match(result.contextText, /access level 3 and level 4/);
+  assert.deepEqual(result.sources[0], {
+    source: 'recent_conversation/conversation.focus',
+    sourceClass: 'recent_conversation',
+    freshness: 'recent',
+    timestamp: '2026-05-10T00:00:00Z',
+    preview: 'The user was choosing between access level 3 and level 4.'
+  });
+});
+
+test('summarizes memory in play for AOC drilldown', () => {
+  const summary = formatMemoryInPlaySummary({
+    used: true,
+    sourceCount: 1,
+    sources: [
+      {
+        source: 'recent_conversation/conversation.focus',
+        sourceClass: 'recent_conversation',
+        freshness: 'recent',
+        timestamp: '2026-05-10T00:00:00Z',
+        preview: 'The user was choosing between access level 3 and level 4.'
+      }
+    ]
+  });
+
+  assert.match(summary, /Memory in play/);
+  assert.match(summary, /Retrieved: 1 supporting source/);
+  assert.match(summary, /current chat and live AOC override retrieved memory/i);
+  assert.match(summary, /recent_conversation\/conversation\.focus/);
 });
 
 test('filters wiki diagnostic packets from conversational cold memory', () => {
@@ -437,6 +457,126 @@ test('formats self-awareness improvement questions conversationally instead of a
   assert.doesNotMatch(reply, /Priority actions/);
   assert.doesNotMatch(reply, /Mode: plan_only_probe_first/);
   assert.equal(reply.length < 1000, true);
+});
+
+test('agent operating context bridge uses the shared AOC panel route', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+
+  assert.match(source, /'self',\s*'panel'/);
+  assert.match(source, /'self',\s*'turn-trace'/);
+  assert.match(source, /'--trace-ref'/);
+  assert.doesNotMatch(source, /'self',\s*'context'/);
+});
+
+test('builder repo resolver prefers release-installed Builder when Telegram runs from installed source', () => {
+  const homeDir = path.resolve('C:/Users/USER');
+  const installedBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder-release', 'source');
+  const resolved = resolveBuilderRepoPath({
+    cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
+    homeDir,
+    exists: (targetPath) => targetPath === path.join(installedBuilderRepo, 'src', 'spark_intelligence', 'cli.py')
+  });
+
+  assert.equal(resolved, installedBuilderRepo);
+});
+
+test('builder repo resolver keeps legacy installed Builder as fallback', () => {
+  const homeDir = path.resolve('C:/Users/USER');
+  const legacyBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source');
+  const resolved = resolveBuilderRepoPath({
+    cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
+    homeDir,
+    exists: (targetPath) => targetPath === path.join(legacyBuilderRepo, 'src', 'spark_intelligence', 'cli.py')
+  });
+
+  assert.equal(resolved, legacyBuilderRepo);
+});
+
+test('builder repo resolver preserves explicit operator override', () => {
+  const explicitRepo = path.resolve('D:/Spark/custom-builder');
+  const resolved = resolveBuilderRepoPath({
+    configuredRepo: explicitRepo,
+    cwd: path.resolve('C:/Users/USER/.spark/modules/spark-telegram-bot/source'),
+    homeDir: path.resolve('C:/Users/USER'),
+    exists: () => false
+  });
+
+  assert.equal(resolved, explicitRepo);
+});
+
+test('builder run preflight is metadata-only and trace-bearing', () => {
+  const message = buildBuilderRunPreflightUserMessage({
+    commandKind: 'build',
+    accessRequirement: 'operating_system',
+    providerCount: 1,
+    hasTargetPath: true,
+    buildMode: 'direct',
+    runnerWritable: 'yes'
+  });
+  const sources = buildBuilderRunPreflightSources({
+    requestId: 'tg-build-private-chat-id-123',
+    traceRef: 'trace:spawner-prd:mission-123',
+    commandKind: 'build'
+  });
+
+  assert.match(message, /Telegram \/run build request before Spawner dispatch/);
+  assert.match(message, /Prompt body redacted/);
+  assert.match(message, /target_path=present/);
+  assert.doesNotMatch(message, /C:\\Users\\USER\\Desktop/);
+  assert.doesNotMatch(message, /Build this at/);
+  assert.equal(sources.length, 3);
+  assert.equal(sources[0].source, 'telegram_command');
+  assert.equal(sources[0].source_ref, 'trace:spawner-prd:mission-123');
+  assert.equal(sources[1].source, 'builder_aoc');
+  assert.equal(sources[2].source, 'memory_preflight');
+  assert.ok(sources.every((source) => source.freshness === 'fresh'));
+  assert.ok(sources.every((source) => !/C:\\Users\\USER\\Desktop|Build this at|private chat/i.test(source.summary)));
+  assert.match(sources[2].summary, /Memory body export disabled/);
+});
+
+test('formats black-box payload as compact event evidence', () => {
+  const reply = formatAgentBlackBoxReply({
+    request_id: 'req-private-id',
+    counts: {
+      entries: 3,
+      blocker_events: 1,
+      memory_candidates: 1
+    },
+    entries: [
+      {
+        event_id: 'evt-secret',
+        event_type: 'route_selected',
+        perceived_intent: 'private user wording should stay out',
+        route_chosen: 'spark_memory',
+        blockers: []
+      },
+      {
+        event_id: 'evt-secret-2',
+        event_type: 'blocker_detected',
+        route_chosen: 'action_gate',
+        blockers: ['private blocker detail should stay out']
+      }
+    ]
+  });
+
+  assert.match(reply, /Agent black box needs review/);
+  assert.match(reply, /3 events; 1 blocker events; 1 memory candidates/);
+  assert.match(reply, /Request filter active/);
+  assert.match(reply, /route_selected: route spark_memory/);
+  assert.match(reply, /blocker_detected: route action_gate \(1 blockers\)/);
+  assert.match(reply, /Event evidence is not permission or memory truth/);
+  assert.match(reply, /spark-intelligence self black-box --json/);
+  assert.doesNotMatch(reply, /req-private-id/);
+  assert.doesNotMatch(reply, /evt-secret/);
+  assert.doesNotMatch(reply, /private user wording/);
+  assert.doesNotMatch(reply, /private blocker detail/);
+});
+
+test('black-box bridge invokes Builder self black-box json route', () => {
+  const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+
+  assert.match(source, /'self',\s*'black-box'/);
+  assert.match(source, /'--json'/);
 });
 
 test('formats self-improvement plan as probe-first actions', () => {

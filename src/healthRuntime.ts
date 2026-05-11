@@ -50,28 +50,6 @@ export async function validateRelayRuntime(
   }
 }
 
-export function describeRuntimeHealthError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error || 'unknown runtime error');
-  if (/TELEGRAM_RELAY_SECRET|BOT_TOKEN|secret|required/i.test(message)) {
-    return [
-      'Telegram runtime health could not confirm the Spark-generated runtime env.',
-      '',
-      'Check:',
-      '- spark status',
-      '- spark logs spark-telegram-bot --profile primary --lines 80',
-      '',
-      'Do not paste tokens into chat; use the Spark profile setup flow.'
-    ].join('\n');
-  }
-  return [
-    'Telegram runtime health check failed.',
-    '',
-    `Reason: ${message}`,
-    '',
-    'Check `spark status` and `spark logs spark-telegram-bot --profile primary --lines 80`.'
-  ].join('\n');
-}
-
 async function main(): Promise<void> {
   loadSparkTelegramProfileEnv(process.argv.slice(2));
   const missingProfileToken = process.env.SPARK_PROFILE_TOKEN_MISSING?.trim();

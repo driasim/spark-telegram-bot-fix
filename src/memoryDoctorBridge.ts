@@ -4,7 +4,7 @@ export interface MemoryDoctorEvidenceTurn {
 }
 
 const CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
-  /\b(?:previous|last|recent|current|turn|reply|answer|response|request|message|diagnosis|diagnostic|pathing|routing|what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
+  /\b(?:previous|last|recent|current|turn|reply|answer|response|request|message|what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
 
 function compactEvidenceText(value: string, limit = 700): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -26,51 +26,15 @@ function sameNormalizedText(a: string, b: string): boolean {
   return a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
 }
 
-export function isMemoryDoctorInvocationText(text: string): boolean {
-  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
-  return (
-    /\bmemory\s+doctor\b/.test(normalized) ||
-    /^(?:please\s+)?(?:audit|diagnose|debug|trace|inspect)\s+(?:the\s+)?(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/.test(normalized)
-  );
-}
-
 export function selectMemoryDoctorEvidenceTurns(
   userRequest: string,
   recentTurns: MemoryDoctorEvidenceTurn[],
   maxTurns = 2
 ): MemoryDoctorEvidenceTurn[] {
   const turns = [...recentTurns];
-  const asksAboutBlankness =
-    /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+happened)\b/i.test(userRequest);
-  while (turns.length > 0) {
-    const last = turns[turns.length - 1];
-    const lastRole = normalizeEvidenceRole(String(last.role || 'user'));
-    const lastText = String(last.text || '');
-    if (lastRole === 'user' && (sameNormalizedText(lastText, userRequest) || isMemoryDoctorInvocationText(lastText))) {
-      turns.pop();
-      continue;
-    }
-    const previous = turns[turns.length - 2];
-    if (
-      lastRole === 'assistant' &&
-      previous &&
-      normalizeEvidenceRole(String(previous.role || 'user')) === 'user' &&
-      !asksAboutBlankness &&
-      isMemoryDoctorInvocationText(String(previous.text || ''))
-    ) {
-      turns.splice(turns.length - 2, 2);
-      continue;
-    }
-    break;
-  }
-
-  for (let index = turns.length - 2; index >= 0; index -= 1) {
-    if (
-      normalizeEvidenceRole(String(turns[index].role || 'user')) === 'user' &&
-      normalizeEvidenceRole(String(turns[index + 1].role || 'user')) === 'assistant'
-    ) {
-      return turns.slice(index, index + 2);
-    }
+  const last = turns[turns.length - 1];
+  if (last && normalizeEvidenceRole(String(last.role || 'user')) === 'user' && sameNormalizedText(String(last.text || ''), userRequest)) {
+    turns.pop();
   }
   return turns.slice(-Math.max(1, maxTurns));
 }

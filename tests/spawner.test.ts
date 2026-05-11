@@ -248,15 +248,17 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator (?:mission planned|plan ready)/);
+    assert.match(message, /Creator plan ready/);
+    assert.doesNotMatch(message, /Scope/);
     assert.match(message, /Startup YC/);
-    assert.match(message, /(?:full path|full_path|Build)/);
-    assert.match(message, /(?:Privacy: github_pr|github_pr \/ high risk)/);
-    assert.match(message, /(?:Risk: high|github_pr \/ high risk)/);
-    assert.match(message, /(?:Artifacts: )?domain_chip, benchmark_pack, autoloop_policy/);
-    assert.match(message, /(?:Tasks: 2 queued|2 tasks queued)/);
+    assert.match(message, /github_pr \/ high risk/);
+    assert.match(message, /domain chip, benchmark pack, autoloop policy/);
+    assert.match(message, /2 tasks queued/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
-    assert.match(message, /(?:Mission board|Board): http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /say: run it/);
+    assert.doesNotMatch(message, /\/creator run mission-creator-1/);
+    assert.doesNotMatch(message, /- Canvas:/);
   });
 
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {
@@ -315,12 +317,14 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator mission execution started/);
-    assert.match(message, /Mission: mission-creator-1/);
-    assert.match(message, /Provider: Codex/);
-    assert.match(message, /Workspace: C:\\Users\\USER\\Desktop/);
+    assert.match(message, /Creator mission started/);
+    assert.match(message, /running now/);
+    assert.match(message, /Builder: Codex/);
+    assert.doesNotMatch(message, /mission: mission-creator-1/);
+    assert.doesNotMatch(message, /local workspace: C:\\Users\\USER\\Desktop/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
-    assert.match(message, /Mission board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.doesNotMatch(message, /- Board:/);
   });
 
   await test('creatorMissionStatus reads a creator mission trace from Spawner', async () => {
@@ -393,16 +397,15 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /(?:Creator mission status|Startup YC creator status)/);
-    assert.match(message, /(?:Mission: mission-creator-1|Startup YC)/);
-    assert.match(message, /(?:Domain: Startup YC|Startup YC creator status)/);
-    assert.match(message, /(?:Stage: validation failed \(failed\)|failed at validation failed)/);
-    assert.match(message, /(?:Publish readiness: workspace prepared|workspace prepared)/);
-    assert.match(message, /(?:Artifacts: 2|2 artifact plans)/);
-    assert.match(message, /(?:Manifest issues: 1|1 manifest issue)/);
-    assert.match(message, /(?:Latest validation: failed|checks: failed) \(1 passed, 1 failed, 1 skipped\)/);
-    assert.match(message, /(?:Blockers|blocker): One or more validation commands failed/);
-    assert.match(message, /(?:Mission board|Board): http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /Startup YC creator status/);
+    assert.doesNotMatch(message, /Mission: mission-creator-1/);
+    assert.match(message, /failed at validation failed/);
+    assert.match(message, /workspace prepared/);
+    assert.match(message, /checks: failed \(1 passed, 1 failed, 1 skipped\)/);
+    assert.match(message, /1 manifest issue/);
+    assert.match(message, /blocker: One or more validation commands failed/);
+    assert.match(message, /2 artifact plans/);
+    assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
 
   await test('creatorMissionValidate posts a creator validation request to Spawner', async () => {
@@ -477,15 +480,15 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator (?:mission validation|validation) failed/);
-    assert.match(message, /(?:Checks|Commands: 2)/);
-    assert.match(message, /(?:2 commands|Commands: 2)/);
-    assert.match(message, /(?:1 passed|Passed: 1)/);
-    assert.match(message, /(?:1 failed|Failed: 1)/);
-    assert.match(message, /(?:0 skipped|Skipped: 0)/);
+    assert.match(message, /Creator validation failed/);
+    assert.doesNotMatch(message, /Mission: mission-creator-1/);
+    assert.match(message, /2 commands/);
+    assert.match(message, /1 passed/);
+    assert.match(message, /1 failed/);
     assert.match(message, /Needs attention/);
-    assert.match(message, /(?:failed: startup-bench|startup-bench - python -m thestartupbench run-suite .*?) \(Validation command exited non-zero\)/);
-    assert.match(message, /(?:Mission board|Board): http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
+    assert.match(message, /failed: startup-bench \(Validation command exited non-zero\)/);
+    assert.doesNotMatch(message, /python -m thestartupbench/);
+    assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
 
   await test('missionCommand formats provider status for Telegram', async () => {

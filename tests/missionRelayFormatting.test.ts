@@ -1,25 +1,25 @@
 import assert from 'node:assert/strict';
-import { readJsonFile, resolveStatePath, writeJsonAtomic } from '../src/jsonState';
+import { mkdtemp } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
+  approvePendingMissionLesson,
+  buildMissionLessonCandidates,
   buildMissionSurfaceLinks,
-  claimCompletionDeliveryForTests,
-  claimVerboseNarrationSlotForTests,
   formatMissionHeartbeatForTelegram,
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
-  heartbeatIntervalMsForTests,
   formatProviderCompletionForTelegram,
   isCompletionDeliveryCachedForTests,
-  loadCompletionDeliveryCacheForTests,
+  isMissionRelayPaused,
   markMissionRelayCancelled,
+  markMissionRelayPaused,
+  markMissionRelayResumed,
   normalizeTelegramMissionLinkPreference,
   normalizeTelegramRelayVerbosity,
   relayEventMatchesSubscription,
-  relayIdentityMismatchPayload,
-  registerMissionRelay,
   resetMissionRelayDeliveryStateForTests,
-  resetMissionRelayRegistryForTests,
-  releaseCompletionDeliveryClaimForTests,
+  resolveReadyProjectOpenLinkForTests,
   sendFetchedCompletionSummaryForTests,
   shouldAcknowledgeRelayWithoutTelegramDelivery,
   shouldAcceptRelayEventForThisBot,
@@ -27,6 +27,7 @@ import {
   shouldSuppressMissionHandoff,
   shouldStopMissionHeartbeat
 } from '../src/missionRelay';
+import { resetJsonStateForTests } from '../src/jsonState';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -99,19 +100,6 @@ test('keeps minimal structured provider summaries compact', () => {
   assert.doesNotMatch(message, /Checks:/);
 });
 
-test('does not claim a no-file completion has something to open', () => {
-  const message = formatProviderCompletionForTelegram({
-    providerLabel: 'codex',
-    missionId: 'spark-no-file',
-    verbosity: 'normal',
-    response: 'MC_TELEGRAM_AFTER_UPDATE_OK'
-  });
-
-  assert.match(message, /Spark/);
-  assert.doesNotMatch(message, /something you can open/i);
-  assert.doesNotMatch(message, /Open it here:/);
-});
-
 test('keeps verbose completion summaries readable and non-console-like', () => {
   const message = formatProviderCompletionForTelegram({
     providerLabel: 'codex',
@@ -178,6 +166,21 @@ test('warns cleanly when structured provider output is malformed', () => {
   assert.match(message, /Claude finished, but returned a structured result I could not summarize cleanly\./);
   assert.match(message, /Mission: spark-bad-json/);
   assert.doesNotMatch(message, /"status"/);
+});
+
+test('uses neutral completion copy when there is no preview link', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-no-preview-link',
+    verbosity: 'normal',
+    openLink: null,
+    response: 'NO_PREVIEW_LINK_OK'
+  });
+
+  assert.match(message, /Spark/);
+  assert.match(message, /NO_PREVIEW_LINK_OK/);
+  assert.doesNotMatch(message, /Open it here:/);
+  assert.doesNotMatch(message, /something you can open|build ready|finished the build/i);
 });
 
 test('strips hidden reasoning and relay plumbing from freeform provider results', () => {
@@ -401,7 +404,7 @@ test('verbose mission start does not paste the whole build brief', () => {
   assert.doesNotMatch(message || '', /Target operating-system folder/);
 });
 
-test('normal verbosity suppresses task chatter and noisy progress', () => {
+test('normal verbosity suppresses task starts and noisy progress', () => {
   const subscription = {
     missionId: 'spark-123',
     chatId: '8319079055',
@@ -439,8 +442,8 @@ test('normal verbosity suppresses task chatter and noisy progress', () => {
   assert.equal(noisyProgress, null);
 });
 
-test('verbose suppresses task starts but still announces task completions', () => {
-  const started = formatProgressMessageForTelegram(
+test('task pack starts stay quiet instead of announcing every future step', () => {
+  const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
       missionId: 'spark-pack',
@@ -461,34 +464,11 @@ test('verbose suppresses task starts but still announces task completions', () =
       goal: 'Build a sprite creator.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'verbose',
-    'board'
-  );
-  const completed = formatProgressMessageForTelegram(
-    {
-      type: 'task_completed',
-      missionId: 'spark-pack',
-      taskId: 'task-1-shell',
-      taskName: 'Create the project shell',
-      source: 'codex',
-      data: { provider: 'codex' }
-    },
-    {
-      missionId: 'spark-pack',
-      chatId: '8319079055',
-      userId: '8319079055',
-      requestId: 'tg-build-pack',
-      goal: 'Build a sprite creator.',
-      createdAt: '2026-04-26T00:00:00Z'
-    },
-    'verbose',
+    'normal',
     'board'
   );
 
-  assert.equal(started, null);
-  assert.match(completed || '', /Milestone complete/);
-  assert.match(completed || '', /Create the project shell/);
-  assert.doesNotMatch(completed || '', /\bStep\b/i);
+  assert.equal(message, null);
 });
 
 test('suppresses same-provider task start bursts until a task finishes', () => {
@@ -527,16 +507,6 @@ test('suppresses same-provider task start bursts until a task finishes', () => {
   }), false);
 });
 
-test('completion handoff claim suppresses concurrent terminal events', () => {
-  resetMissionRelayDeliveryStateForTests();
-
-  assert.equal(claimCompletionDeliveryForTests('spark-race'), true);
-  assert.equal(claimCompletionDeliveryForTests('spark-race'), false);
-
-  releaseCompletionDeliveryClaimForTests('spark-race');
-  assert.equal(claimCompletionDeliveryForTests('spark-race'), true);
-});
-
 test('allows different providers to start different tasks in parallel', () => {
   resetMissionRelayDeliveryStateForTests();
 
@@ -557,7 +527,7 @@ test('allows different providers to start different tasks in parallel', () => {
   }), false);
 });
 
-test('task starts stay quiet in Telegram narration', () => {
+test('task start labels stay suppressed instead of exposing node slugs', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_started',
@@ -574,14 +544,14 @@ test('task starts stay quiet in Telegram narration', () => {
       goal: 'Build a tiny board.',
       createdAt: '2026-04-26T00:00:00Z'
     },
-    'verbose',
+    'normal',
     'board'
   );
 
   assert.equal(message, null);
 });
 
-test('task completion messages stay compact and avoid step language', () => {
+test('verbose task completion messages stay compact and human readable', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_completed',
@@ -604,12 +574,11 @@ test('task completion messages stay compact and avoid step language', () => {
 
   assert.match(message || '', /Milestone complete/);
   assert.match(message || '', /localStorage and saved sprites/);
-  assert.doesNotMatch(message || '', /\bStep\b/i);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
 });
 
-test('verbose progress only narrates concrete movement', () => {
+test('verbose progress turns useful relay summaries into readable Telegram updates', () => {
   const message = formatProgressMessageForTelegram(
     {
       type: 'task_progress',
@@ -630,48 +599,12 @@ test('verbose progress only narrates concrete movement', () => {
     'verbose',
     'board'
   );
-  const lowSignal = formatProgressMessageForTelegram(
-    {
-      type: 'progress',
-      missionId: 'spark-123',
-      taskName: 'Wire launch sequence',
-      message: 'Loaded skills for T02 css spacing and surface rhythm.',
-      data: {}
-    },
-    {
-      missionId: 'spark-123',
-      chatId: '8319079055',
-      userId: '8319079055',
-      requestId: 'tg-build-1',
-      goal: 'Build a tiny board.',
-      createdAt: '2026-04-26T00:00:00Z'
-    },
-    'verbose',
-    'board'
-  );
 
-  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)\./);
+  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)/);
   assert.match(message || '', /Focus: Wire launch sequence/);
   assert.match(message || '', /added persisted launch state/);
-  assert.doesNotMatch(message || '', /\bStep\b/i);
-  assert.equal(lowSignal, null);
-});
-
-test('verbose narration caps intermediate updates to three per mission', () => {
-  resetMissionRelayDeliveryStateForTests();
-  const event = {
-    type: 'task_progress' as const,
-    missionId: 'spark-narration-cap',
-    taskName: 'Polish operator desk',
-    message: 'Added clearer status cards.',
-    data: {}
-  };
-
-  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
-  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
-  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), true);
-  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'verbose'), false);
-  assert.equal(claimVerboseNarrationSlotForTests(event, 8319079055, 'normal'), true);
+  assert.doesNotMatch(message || '', /MissionControl/);
+  assert.doesNotMatch(message || '', /spark-123/);
 });
 
 test('suppresses internal skill and dispatch chatter', () => {
@@ -732,6 +665,28 @@ test('normal mission completion waits for the handoff summary', () => {
   assert.equal(message, null);
 });
 
+test('builds reusable mission lesson candidates without saving completion logs', () => {
+  const candidates = buildMissionLessonCandidates({
+    goal: 'Build the mission-memory loop.',
+    providerLabel: 'codex',
+    response: JSON.stringify({
+      summary: 'Staged mission lessons for approval before memory writes.',
+      status: 'completed',
+      changed_files: ['src/missionRelay.ts', 'tests/missionRelayFormatting.test.ts'],
+      verification: ['Mission relay test passed.']
+    })
+  });
+
+  assert.equal(candidates.length, 3);
+  assert.match(candidates[0], /^Workflow lesson:/);
+  assert.match(candidates[0], /Build the mission-memory loop/);
+  assert.match(candidates[1], /^Verification lesson:/);
+  assert.match(candidates[1], /verification evidence/);
+  assert.match(candidates[2], /^Evidence lesson:/);
+  assert.match(candidates[2], /changed-file or preview evidence/);
+  assert.doesNotMatch(candidates.join('\n'), /Completed Spawner mission/);
+});
+
 test('formats mission heartbeat as useful work narration', () => {
   const message = formatMissionHeartbeatForTelegram({
     missionId: 'spark-123',
@@ -757,12 +712,6 @@ test('formats mission heartbeat as useful work narration', () => {
   assert.doesNotMatch(message, /Mission: spark-123/);
 });
 
-test('normal live mission heartbeat stays quiet while verbose keeps operator pings', () => {
-  assert.equal(heartbeatIntervalMsForTests('normal'), 0);
-  assert.equal(heartbeatIntervalMsForTests('verbose'), 120_000);
-  assert.equal(heartbeatIntervalMsForTests('minimal'), 0);
-});
-
 test('suppresses low-signal mission heartbeat summaries', () => {
   const message = formatMissionHeartbeatForTelegram({
     missionId: 'spark-123',
@@ -779,7 +728,7 @@ test('suppresses low-signal mission heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
+  assert.match(message, /No new checkpoint yet/);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.match(message, /Mission: spark-123/);
   assert.doesNotMatch(message, /Z\.AI: Document launch path is running/);
@@ -801,7 +750,7 @@ test('suppresses provider stopwatch heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
+  assert.match(message, /No new checkpoint yet/);
   assert.doesNotMatch(message, /working through 4 task pack/);
   assert.doesNotMatch(message, /estimate adjusting/);
 });
@@ -834,6 +783,33 @@ test('cancelled missions suppress delayed build handoffs', () => {
 
   assert.equal(shouldSuppressMissionHandoff('mission-123'), true);
   assert.equal(shouldSuppressMissionHandoff('mission-456'), false);
+  resetMissionRelayDeliveryStateForTests();
+});
+
+test('paused missions suppress handoffs until resume', () => {
+  resetMissionRelayDeliveryStateForTests();
+  assert.equal(isMissionRelayPaused('mission-paused'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), false);
+
+  markMissionRelayPaused('mission-paused');
+
+  assert.equal(isMissionRelayPaused('mission-paused'), true);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), true);
+
+  markMissionRelayResumed('mission-paused');
+
+  assert.equal(isMissionRelayPaused('mission-paused'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-paused'), false);
+  resetMissionRelayDeliveryStateForTests();
+});
+
+test('cancelled missions clear paused handoff suppression state', () => {
+  resetMissionRelayDeliveryStateForTests();
+  markMissionRelayPaused('mission-cancelled-after-pause');
+  markMissionRelayCancelled('mission-cancelled-after-pause');
+
+  assert.equal(isMissionRelayPaused('mission-cancelled-after-pause'), false);
+  assert.equal(shouldSuppressMissionHandoff('mission-cancelled-after-pause'), true);
   resetMissionRelayDeliveryStateForTests();
 });
 
@@ -925,14 +901,6 @@ test('requires relay events to match registered Telegram identity', () => {
   }, subscription), false);
 });
 
-test('relay identity mismatch payload includes product-level repair text', () => {
-  const payload = relayIdentityMismatchPayload();
-  assert.equal(payload.error, 'relay_identity_mismatch');
-  assert.match(String(payload.message), /Spawner and Telegram disagree on relay identity/);
-  assert.match(String(payload.repair), /spark restart telegram-starter/);
-  assert.match(String(payload.repair), /spark setup telegram-starter --resume/);
-});
-
 test('suppresses hosted preview generation progress in Telegram', () => {
   const message = formatProgressMessageForTelegram(
     {
@@ -1005,232 +973,405 @@ test('reports this relay identity from env', () => {
   }
 });
 
-void (async () => {
-  const scopedRegistryName = 'stores mission relay subscriptions in profile scoped registries';
+async function asyncTest(name: string, fn: () => Promise<void>): Promise<void> {
   try {
-    const originalPort = process.env.TELEGRAM_RELAY_PORT;
-    const originalProfile = process.env.SPARK_TELEGRAM_PROFILE;
-    const suffix = `${process.pid}-${Date.now()}`;
-    const sparkMissionId = `spark-scoped-registry-spark-${suffix}`;
-    const testerMissionId = `spark-scoped-registry-tester-${suffix}`;
-    const sparkRegistryPath = resolveStatePath('.spark-spawner-missions-spark-agi-8789.json');
-    const testerRegistryPath = resolveStatePath('.spark-spawner-missions-testerthebester-8788.json');
-
-    try {
-      process.env.TELEGRAM_RELAY_PORT = '8789';
-      process.env.SPARK_TELEGRAM_PROFILE = 'spark-agi';
-      resetMissionRelayRegistryForTests();
-      await registerMissionRelay({
-        missionId: sparkMissionId,
-        chatId: '8319079055',
-        userId: '8319079055',
-        requestId: `req-${sparkMissionId}`,
-        goal: 'Keep Spark AGI isolated.',
-        createdAt: '2026-05-09T00:00:00Z'
-      });
-
-      process.env.TELEGRAM_RELAY_PORT = '8788';
-      process.env.SPARK_TELEGRAM_PROFILE = 'testerthebester';
-      resetMissionRelayRegistryForTests();
-      await registerMissionRelay({
-        missionId: testerMissionId,
-        chatId: '8319079055',
-        userId: '8319079055',
-        requestId: `req-${testerMissionId}`,
-        goal: 'Keep Tester isolated.',
-        createdAt: '2026-05-09T00:00:00Z'
-      });
-
-      const sparkRegistry = (await readJsonFile<any[]>(sparkRegistryPath)) || [];
-      const testerRegistry = (await readJsonFile<any[]>(testerRegistryPath)) || [];
-
-      assert.ok(sparkRegistry.some((entry) => entry.missionId === sparkMissionId));
-      assert.ok(!sparkRegistry.some((entry) => entry.missionId === testerMissionId));
-      assert.ok(testerRegistry.some((entry) => entry.missionId === testerMissionId));
-      assert.ok(!testerRegistry.some((entry) => entry.missionId === sparkMissionId));
-      console.log(`ok - ${scopedRegistryName}`);
-    } finally {
-      const sparkRegistry = (await readJsonFile<any[]>(sparkRegistryPath)) || [];
-      const testerRegistry = (await readJsonFile<any[]>(testerRegistryPath)) || [];
-      await writeJsonAtomic(
-        sparkRegistryPath,
-        sparkRegistry.filter((entry) => entry.missionId !== sparkMissionId && entry.missionId !== testerMissionId)
-      );
-      await writeJsonAtomic(
-        testerRegistryPath,
-        testerRegistry.filter((entry) => entry.missionId !== sparkMissionId && entry.missionId !== testerMissionId)
-      );
-      resetMissionRelayRegistryForTests();
-      if (originalPort === undefined) delete process.env.TELEGRAM_RELAY_PORT;
-      else process.env.TELEGRAM_RELAY_PORT = originalPort;
-      if (originalProfile === undefined) delete process.env.SPARK_TELEGRAM_PROFILE;
-      else process.env.SPARK_TELEGRAM_PROFILE = originalProfile;
-    }
+    await fn();
+    console.log(`ok - ${name}`);
   } catch (error) {
-    console.error(`not ok - ${scopedRegistryName}`);
+    console.error(`not ok - ${name}`);
     throw error;
   }
+}
 
-  const name = 'does not cache fetched completion summaries until Telegram delivery succeeds';
-  try {
+void (async () => {
+  await asyncTest('rejects unreachable preview links before Telegram completion handoff', async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => new Response('missing', { status: 404 })) as typeof fetch;
+
+      const link = await resolveReadyProjectOpenLinkForTests(
+        'http://127.0.0.1:3333/preview/default/index.html',
+        'C:\\Users\\USER\\.spark\\workspaces\\default'
+      );
+
+      assert.equal(link, null);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await asyncTest('does not cache fetched completion summaries until Telegram delivery succeeds', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-delivery-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-delivery-retry',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-delivery-retry',
+        goal: 'Build a retryable completion.',
+        createdAt: '2026-05-05T00:00:00Z'
+      };
+      const event = {
+        type: 'mission_completed' as const,
+        missionId: subscription.missionId
+      };
+      const completion = {
+        providerLabel: 'codex',
+        response: JSON.stringify({
+          summary: 'Built the retryable completion handoff.',
+          status: 'completed'
+        })
+      };
+      const failingBot = {
+        telegram: {
+          sendMessage: async () => {
+            throw new Error('telegram unavailable');
+          }
+        }
+      };
+
+      await assert.rejects(
+        sendFetchedCompletionSummaryForTests(failingBot as any, 12345, subscription, event, 'normal', completion),
+        /telegram unavailable/
+      );
+      assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+
+      const sent: string[] = [];
+      const workingBot = {
+        telegram: {
+          sendMessage: async (_chatId: number, message: string) => {
+            sent.push(message);
+          }
+        }
+      };
+      const chunks = await sendFetchedCompletionSummaryForTests(
+        workingBot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        completion
+      );
+
+      assert.equal(chunks, 1);
+      assert.equal(sent.length, 1);
+      assert.doesNotMatch(sent.join('\n'), /Mission lesson candidate/);
+      assert.doesNotMatch(sent.join('\n'), /I will not save the completion log as memory automatically/);
+      assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
+  await asyncTest('adds trace audit metadata to fetched completion handoffs', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-trace-extra-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-trace-extra',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-trace-extra',
+        traceRef: 'trace-ref-extra',
+        goal: 'Carry trace metadata to outbound audit.',
+        createdAt: '2026-05-11T00:00:00Z'
+      };
+      const event = {
+        type: 'mission_completed' as const,
+        missionId: subscription.missionId
+      };
+      const extras: Array<Record<string, unknown> | undefined> = [];
+      const bot = {
+        telegram: {
+          sendMessage: async (_chatId: number, _message: string, extra?: Record<string, unknown>) => {
+            extras.push(extra);
+          }
+        }
+      };
+
+      const chunks = await sendFetchedCompletionSummaryForTests(
+        bot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        {
+          providerLabel: 'codex',
+          response: JSON.stringify({
+            summary: 'Built the trace metadata handoff.',
+            status: 'completed'
+          })
+        }
+      );
+
+      assert.equal(chunks, 1);
+      assert.deepEqual(extras[0]?.__sparkTraceContext, {
+        route: 'mission_relay',
+        command: 'mission_relay',
+        replyKind: 'mission_completion',
+        requestId: subscription.requestId,
+        traceRef: subscription.traceRef,
+        missionId: subscription.missionId
+      });
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
+  await asyncTest('suppresses concurrent fetched completion summary duplicates', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-dedupe-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-concurrent-completion',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-concurrent-completion',
+        goal: 'Reply exactly once.',
+        createdAt: '2026-05-05T00:00:00Z'
+      };
+      const event = {
+        type: 'mission_completed' as const,
+        missionId: subscription.missionId
+      };
+      const completion = {
+        providerLabel: 'codex',
+        response: JSON.stringify({
+          summary: 'CONCURRENT_COMPLETION_OK',
+          status: 'completed'
+        })
+      };
+      let releaseFirstSend!: () => void;
+      const firstSendStarted = new Promise<void>((resolve) => {
+        releaseFirstSend = resolve;
+      });
+      const sent: string[] = [];
+      const bot = {
+        telegram: {
+          sendMessage: async (_chatId: number, message: string) => {
+            sent.push(message);
+            await firstSendStarted;
+          }
+        }
+      };
+
+      const first = sendFetchedCompletionSummaryForTests(
+        bot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        completion
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const second = await sendFetchedCompletionSummaryForTests(
+        bot as any,
+        12345,
+        subscription,
+        event,
+        'normal',
+        completion
+      );
+      releaseFirstSend();
+      const firstChunks = await first;
+
+      assert.equal(firstChunks, 1);
+      assert.equal(second, 0);
+      assert.equal(sent.length, 1);
+      assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
+  await asyncTest('cancelled missions suppress fetched completion summaries', async () => {
     resetMissionRelayDeliveryStateForTests();
     const subscription = {
-      missionId: 'spark-delivery-retry',
+      missionId: 'spark-cancelled-completion',
       chatId: '12345',
       userId: '67890',
-      requestId: 'req-delivery-retry',
-      goal: 'Build a retryable completion.',
-      createdAt: '2026-05-05T00:00:00Z'
+      requestId: 'req-cancelled-completion',
+      goal: 'Build something then cancel it.',
+      createdAt: '2026-05-07T00:00:00Z'
     };
-    const event = {
-      type: 'mission_completed' as const,
-      missionId: subscription.missionId
-    };
-    const completion = {
-      providerLabel: 'codex',
-      response: JSON.stringify({
-        summary: 'Built the retryable completion handoff.',
-        status: 'completed'
-      })
-    };
-    const failingBot = {
-      telegram: {
-        sendMessage: async () => {
-          throw new Error('telegram unavailable');
-        }
-      }
-    };
-
-    await assert.rejects(
-      sendFetchedCompletionSummaryForTests(failingBot as any, 12345, subscription, event, 'normal', completion),
-      /telegram unavailable/
-    );
-    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
-
     const sent: string[] = [];
-    const workingBot = {
+    markMissionRelayCancelled(subscription.missionId);
+
+    const chunks = await sendFetchedCompletionSummaryForTests(
+      {
+        telegram: {
+          sendMessage: async (_chatId: number, message: string) => {
+            sent.push(message);
+          }
+        }
+      } as any,
+      12345,
+      subscription,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
+      'normal',
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This late handoff should stay suppressed.', status: 'completed' })
+      }
+    );
+
+    assert.equal(chunks, 0);
+    assert.equal(sent.length, 0);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+    resetMissionRelayDeliveryStateForTests();
+  });
+
+  await asyncTest('paused missions suppress fetched completion summaries until resumed', async () => {
+    resetMissionRelayDeliveryStateForTests();
+    const subscription = {
+      missionId: 'spark-paused-completion',
+      chatId: '12345',
+      userId: '67890',
+      requestId: 'req-paused-completion',
+      goal: 'Pause before completion.',
+      createdAt: '2026-05-07T00:00:00Z'
+    };
+    const sent: string[] = [];
+    const bot = {
       telegram: {
         sendMessage: async (_chatId: number, message: string) => {
           sent.push(message);
         }
       }
     };
-    const chunks = await sendFetchedCompletionSummaryForTests(
-      workingBot as any,
+
+    markMissionRelayPaused(subscription.missionId);
+    const suppressedChunks = await sendFetchedCompletionSummaryForTests(
+      bot as any,
       12345,
       subscription,
-      event,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
       'normal',
-      completion
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This paused handoff should wait.', status: 'completed' })
+      }
     );
 
-    assert.equal(chunks, 1);
+    assert.equal(suppressedChunks, 0);
+    assert.equal(sent.length, 0);
+    assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), false);
+
+    markMissionRelayResumed(subscription.missionId);
+    const deliveredChunks = await sendFetchedCompletionSummaryForTests(
+      bot as any,
+      12345,
+      subscription,
+      { type: 'mission_completed' as const, missionId: subscription.missionId },
+      'normal',
+      {
+        providerLabel: 'codex',
+        response: JSON.stringify({ summary: 'This resumed handoff can send.', status: 'completed' })
+      }
+    );
+
+    assert.equal(deliveredChunks, 1);
     assert.equal(sent.length, 1);
     assert.equal(isCompletionDeliveryCachedForTests(subscription.missionId), true);
-    console.log(`ok - ${name}`);
-  } catch (error) {
-    console.error(`not ok - ${name}`);
-    throw error;
-  }
+    resetMissionRelayDeliveryStateForTests();
+  });
 
-  const traceExtraName = 'adds trace audit metadata to fetched completion handoffs';
-  const originalTracePromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
-  try {
-    delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+  await asyncTest('mission lesson prompt can be enabled explicitly for experiments', async () => {
+    const originalPromptEnv = process.env.SPARK_MISSION_LESSON_PROMPTS;
+    try {
+      process.env.SPARK_MISSION_LESSON_PROMPTS = '1';
+      resetJsonStateForTests();
+      process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-lesson-prompt-test-'));
+      resetMissionRelayDeliveryStateForTests();
+      const subscription = {
+        missionId: 'spark-lesson-prompt',
+        chatId: '12345',
+        userId: '67890',
+        requestId: 'req-lesson-prompt',
+        goal: 'Build mission-memory approval prompt.',
+        createdAt: '2026-05-05T00:00:00Z'
+      };
+      const sent: string[] = [];
+      await sendFetchedCompletionSummaryForTests(
+        {
+          telegram: {
+            sendMessage: async (_chatId: number, message: string) => {
+              sent.push(message);
+            }
+          }
+        } as any,
+        12345,
+        subscription,
+        { type: 'mission_completed' as const, missionId: subscription.missionId },
+        'normal',
+        {
+          providerLabel: 'codex',
+          response: JSON.stringify({ summary: 'Built prompt-gated mission lessons.', status: 'completed' })
+        }
+      );
+
+      assert.equal(sent.length, 2);
+      assert.match(sent[1], /Mission lesson candidate/);
+      assert.match(sent[1], /\/remember 1/);
+    } finally {
+      if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
+      else process.env.SPARK_MISSION_LESSON_PROMPTS = originalPromptEnv;
+    }
+  });
+
+  await asyncTest('mission lesson approval writes only the approved lesson', async () => {
+    resetJsonStateForTests();
+    process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-lesson-test-'));
     resetMissionRelayDeliveryStateForTests();
     const subscription = {
-      missionId: 'spark-trace-extra',
+      missionId: 'spark-lesson-approval',
       chatId: '12345',
       userId: '67890',
-      requestId: 'req-trace-extra',
-      traceRef: 'trace-ref-extra',
-      goal: 'Carry trace metadata to outbound audit.',
-      createdAt: '2026-05-11T00:00:00Z'
+      requestId: 'req-lesson-approval',
+      goal: 'Build mission-memory approval.',
+      createdAt: '2026-05-05T00:00:00Z'
     };
     const event = {
       type: 'mission_completed' as const,
       missionId: subscription.missionId
     };
-    const extras: Array<Record<string, unknown> | undefined> = [];
+    const sent: string[] = [];
     const bot = {
       telegram: {
-        sendMessage: async (_chatId: number, _message: string, extra?: Record<string, unknown>) => {
-          extras.push(extra);
+        sendMessage: async (_chatId: number, message: string) => {
+          sent.push(message);
         }
       }
     };
 
-    const chunks = await sendFetchedCompletionSummaryForTests(
-      bot as any,
-      12345,
-      subscription,
-      event,
-      'normal',
-      {
-        providerLabel: 'codex',
-        response: JSON.stringify({
-          summary: 'Built the trace metadata handoff.',
-          status: 'completed'
-        })
-      }
-    );
-
-    assert.equal(chunks, 1);
-    assert.deepEqual(extras[0]?.__sparkTraceContext, {
-      route: 'mission_relay',
-      command: 'mission_relay',
-      replyKind: 'mission_completion',
-      requestId: subscription.requestId,
-      traceRef: subscription.traceRef,
-      missionId: subscription.missionId
-    });
-    console.log(`ok - ${traceExtraName}`);
-  } catch (error) {
-    console.error(`not ok - ${traceExtraName}`);
-    throw error;
-  } finally {
-    if (originalTracePromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
-    else process.env.SPARK_MISSION_LESSON_PROMPTS = originalTracePromptEnv;
-  }
-
-  const persistentName = 'persists completed mission handoff dedupe across relay restarts';
-  try {
-    resetMissionRelayDeliveryStateForTests();
-    const missionId = `spark-persisted-completion-${process.pid}-${Date.now()}`;
-    const subscription = {
-      missionId,
-      chatId: '12345',
-      userId: '67890',
-      requestId: 'req-persisted-completion',
-      goal: 'Build a restart-safe completion.',
-      createdAt: '2026-05-09T00:00:00Z'
-    };
-    const event = {
-      type: 'mission_completed' as const,
-      missionId
-    };
-    const completion = {
+    await sendFetchedCompletionSummaryForTests(bot as any, 12345, subscription, event, 'normal', {
       providerLabel: 'codex',
-      response: 'Built the restart-safe completion handoff.'
-    };
-    const bot = {
-      telegram: {
-        sendMessage: async () => {}
-      }
-    };
+      response: JSON.stringify({
+        summary: 'Built approval-gated mission lessons.',
+        status: 'completed',
+        verification: ['Approval test passed.']
+      })
+    });
+    const reply = await approvePendingMissionLesson(subscription.userId, '2');
 
-    await sendFetchedCompletionSummaryForTests(bot as any, 12345, subscription, event, 'normal', completion);
-    assert.equal(isCompletionDeliveryCachedForTests(missionId), true);
-
-    resetMissionRelayDeliveryStateForTests();
-    assert.equal(isCompletionDeliveryCachedForTests(missionId), false);
-
-    await loadCompletionDeliveryCacheForTests();
-    assert.equal(isCompletionDeliveryCachedForTests(missionId), true);
-    assert.equal(claimCompletionDeliveryForTests(missionId), false);
-    console.log(`ok - ${persistentName}`);
-  } catch (error) {
-    console.error(`not ok - ${persistentName}`);
-    throw error;
-  }
+    assert.ok(reply);
+    assert.match(reply || '', /Saved mission lesson/);
+    assert.match(reply || '', /Source: mission spark-lesson-approval/);
+    assert.doesNotMatch(reply || '', /Completed Spawner mission/);
+    const secondReply = await approvePendingMissionLesson(subscription.userId, '1');
+    assert.equal(secondReply, null);
+  });
 })();

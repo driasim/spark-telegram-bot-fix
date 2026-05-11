@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
+import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { resolveBuilderRepoPath } from './builderRepoPath';
 import { resolvePythonCommand } from './pythonCommand';
 import { redactText } from './redaction';
 import {
@@ -15,6 +17,8 @@ import {
 import { withHiddenWindows } from './hiddenProcess';
 
 const execFileAsync = promisify(execFile);
+
+export { resolveBuilderRepoPath };
 
 function processOutputText(value: unknown): string {
   if (Buffer.isBuffer(value)) {
@@ -46,6 +50,8 @@ export interface BuilderBridgeReply {
   decision: string;
   bridgeMode: string;
   routingDecision: string;
+  requestId?: string;
+  traceRef?: string;
   voiceMedia?: BuilderBridgeVoiceMedia;
   voiceTiming?: Record<string, unknown>;
 }
@@ -59,15 +65,6 @@ export interface BuilderBridgeVoiceMedia {
   voiceId?: string;
   spokenText?: string;
   synthesisMs?: number;
-  runtimeState?: Record<string, unknown>;
-}
-
-export interface BuilderVoiceDeliveryRuntimeStateInput {
-  telegramUserId: number | string;
-  sendMethod: string;
-  sendMs: number;
-  telegramResult?: unknown;
-  voiceMedia: BuilderBridgeVoiceMedia;
 }
 
 export interface BuilderDiagnosticsScanJson {
@@ -135,6 +132,38 @@ export interface BuilderAgentOperatingContextResult {
   replyText: string;
 }
 
+export interface BuilderRunPreflightInput extends BuilderAgentOperatingContextInput {
+  requestId: string;
+  traceRef: string;
+  commandKind: 'run' | 'build';
+  accessRequirement?: string;
+  providerCount?: number;
+  hasTargetPath?: boolean;
+  buildMode?: string;
+  missionId?: string;
+}
+
+export interface BuilderRunPreflightResult {
+  used: boolean;
+  bridgeMode: BuilderBridgeMode;
+  requestId?: string;
+  traceRef?: string;
+  aocRead: boolean;
+  turnTraceRecorded: boolean;
+  eventCount: number;
+  error?: string;
+}
+
+export interface BuilderAgentBlackBoxInput extends BuilderSelfAwarenessInput {
+  requestId?: string;
+  limit?: number;
+}
+
+export interface BuilderAgentBlackBoxResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderRouteProbeResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -173,41 +202,6 @@ function parseBridgeMode(): BuilderBridgeMode {
   throw new Error('SPARK_BUILDER_BRIDGE_MODE must be one of: auto, off, required');
 }
 
-export function resolveBuilderRepoPath(options: {
-  configuredRepo?: string;
-  cwd?: string;
-  homeDir?: string;
-  exists?: (targetPath: string) => boolean;
-} = {}): string {
-  const configuredRepo = options.configuredRepo?.trim();
-  if (configuredRepo) {
-    return path.resolve(configuredRepo);
-  }
-  const cwd = options.cwd || process.cwd();
-  const homeDir = options.homeDir || os.homedir();
-  const exists = options.exists || existsSync;
-  const candidates = [
-    path.join(cwd, '..', 'spark-intelligence-builder'),
-    path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source'),
-    path.join(homeDir, 'Desktop', 'spark-intelligence-builder'),
-  ];
-  const seen = new Set<string>();
-  const resolvedCandidates = candidates
-    .map((candidate) => path.resolve(candidate))
-    .filter((candidate) => {
-      const key = candidate.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  for (const candidate of resolvedCandidates) {
-    if (exists(path.join(candidate, 'src', 'spark_intelligence', 'cli.py'))) {
-      return candidate;
-    }
-  }
-  return resolvedCandidates[0];
-}
-
 function resolveBridgeConfig(): BuilderBridgeConfig {
   const builderRepo = resolveBuilderRepoPath({ configuredRepo: process.env.SPARK_BUILDER_REPO });
 
@@ -243,6 +237,7 @@ function candidateDiagnosticsRepos(config: BuilderBridgeConfig): string[] {
   return [
     process.env.SPARK_DIAGNOSTICS_BUILDER_REPO || '',
     config.builderRepo,
+    path.join(os.homedir(), '.spark', 'modules', 'spark-intelligence-builder-release', 'source'),
     path.join(os.homedir(), '.spark', 'modules', 'spark-intelligence-builder', 'source'),
     path.join(os.homedir(), 'Desktop', 'spark-intelligence-builder'),
   ].filter(Boolean);
@@ -374,49 +369,20 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function stableTelegramRef(kind: 'chat' | 'user', value: unknown): string {
+  const hash = createHash('sha256')
+    .update(`${kind}:${String(value || '').trim()}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `${kind}_${hash}`;
+}
+
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-export function buildBuilderVoiceDeliveryRuntimeState(input: BuilderVoiceDeliveryRuntimeStateInput): Record<string, unknown> {
-  const runtimeState = objectValue(input.voiceMedia.runtimeState);
-  const claimLevels = {
-    ...objectValue(runtimeState.claim_levels),
-    delivery_ready: true,
-  };
-  const sourceLedger = [
-    ...arrayValue(runtimeState.source_ledger),
-    {
-      source: 'telegram-runner-sendVoice-trace',
-      telegram_user_id_present: Boolean(String(input.telegramUserId || '').trim()),
-    },
-  ];
-
-  return {
-    ...runtimeState,
-    tts: {
-      ...objectValue(runtimeState.tts),
-      provider_id: input.voiceMedia.providerId || stringValue(objectValue(runtimeState.tts).provider_id),
-    },
-    claim_levels: claimLevels,
-    telegram_delivery: {
-      ready: true,
-      last_send_voice_at: new Date().toISOString(),
-      last_send_voice_status: 'success',
-      last_failure_reason: '',
-      telegram_message_id_present: Boolean(objectValue(input.telegramResult).message_id),
-      send_method: input.sendMethod,
-    },
-    latency: {
-      ...objectValue(runtimeState.latency),
-      send_voice_ms: input.sendMs,
-    },
-    source_ledger: sourceLedger,
-  };
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1537,6 +1503,301 @@ export async function runBuilderAgentOperatingContext(
   return { replyText: trimmedStdout };
 }
 
+function builderPreflightRequired(config: BuilderBridgeConfig): boolean {
+  return config.mode === 'required' || ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.SPARK_BUILDER_AOC_PREFLIGHT_REQUIRED || '').trim().toLowerCase()
+  );
+}
+
+export function buildBuilderRunPreflightUserMessage(input: Pick<
+  BuilderRunPreflightInput,
+  'commandKind' | 'accessRequirement' | 'providerCount' | 'hasTargetPath' | 'buildMode' | 'runnerWritable'
+>): string {
+  const commandLabel = input.commandKind === 'build' ? '/run build' : '/run';
+  const parts = [
+    `Telegram ${commandLabel} request before Spawner dispatch; user explicitly requested build it and run mission.`,
+    'Prompt body redacted.',
+    `target_path=${input.hasTargetPath ? 'present' : 'absent'}.`,
+    `access_requirement=${stringValue(input.accessRequirement) || 'unknown'}.`,
+    `runner_writable=${stringValue(input.runnerWritable) || 'unknown'}.`,
+  ];
+  const buildMode = stringValue(input.buildMode);
+  if (buildMode) {
+    parts.push(`build_mode=${buildMode}.`);
+  }
+  const providerCount = Number(input.providerCount || 0);
+  if (providerCount > 0) {
+    parts.push(`provider_count=${providerCount}.`);
+  }
+  return parts.join(' ');
+}
+
+export function buildBuilderRunPreflightSources(input: Pick<
+  BuilderRunPreflightInput,
+  'requestId' | 'traceRef' | 'commandKind'
+>): Record<string, string>[] {
+  const requestId = stringValue(input.requestId);
+  const traceRef = stringValue(input.traceRef);
+  const commandLabel = input.commandKind === 'build' ? '/run build' : '/run';
+  return [
+    {
+      source: 'telegram_command',
+      role: 'request_origin',
+      freshness: 'fresh',
+      source_ref: traceRef,
+      summary: `Telegram ${commandLabel} metadata observed before Spawner dispatch; prompt body redacted.`
+    },
+    {
+      source: 'builder_aoc',
+      role: 'aoc_preflight',
+      freshness: 'fresh',
+      source_ref: requestId,
+      summary: 'Builder AOC preflight read route, access, and memory surfaces before Spawner dispatch.'
+    },
+    {
+      source: 'memory_preflight',
+      role: 'memory_boundary',
+      freshness: 'fresh',
+      source_ref: requestId,
+      summary: 'Memory body export disabled; no memory candidate written during Telegram /run preflight.'
+    }
+  ];
+}
+
+export async function runBuilderRunPreflight(input: BuilderRunPreflightInput): Promise<BuilderRunPreflightResult> {
+  const config = resolveBridgeConfig();
+  const required = builderPreflightRequired(config);
+  const requestId = stringValue(input.requestId);
+  const traceRef = stringValue(input.traceRef);
+  const emptyResult: BuilderRunPreflightResult = {
+    used: false,
+    bridgeMode: config.mode,
+    requestId: requestId || undefined,
+    traceRef: traceRef || undefined,
+    aocRead: false,
+    turnTraceRecorded: false,
+    eventCount: 0,
+  };
+  if (process.env.SPARK_BOT_TEST_MODE === '1' && !required) {
+    return emptyResult;
+  }
+  if (config.mode === 'off') {
+    return emptyResult;
+  }
+
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    const error = `Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`;
+    if (required) {
+      throw new Error(error);
+    }
+    return { ...emptyResult, error };
+  }
+
+  const userMessage = buildBuilderRunPreflightUserMessage(input);
+  const sessionId = `session:telegram:${stableTelegramRef('chat', input.chatId)}:${stableTelegramRef('user', input.userId)}`;
+  const humanId = `human:telegram:${stableTelegramRef('user', input.userId)}`;
+  const panelArgs = [
+    'self',
+    'panel',
+    '--home',
+    config.builderHome,
+    '--human-id',
+    humanId,
+    '--session-id',
+    sessionId,
+    '--channel-kind',
+    'telegram',
+    '--user-message',
+    userMessage,
+    '--runner-writable',
+    input.runnerWritable || 'unknown',
+    '--json',
+  ];
+  const accessLevel = stringValue(input.sparkAccessLevel);
+  if (accessLevel) {
+    panelArgs.push('--spark-access-level', accessLevel);
+  }
+  const runnerLabel = stringValue(input.runnerLabel);
+  if (runnerLabel) {
+    panelArgs.push('--runner-label', runnerLabel);
+  }
+
+  try {
+    const panelResult = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', panelArgs),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    if (!processOutputText(panelResult.stdout).trim()) {
+      throw new Error(`Builder AOC preflight returned empty stdout. stderr=${redactText(processOutputText(panelResult.stderr).trim())}`);
+    }
+
+    const turnTraceArgs = [
+      'self',
+      'turn-trace',
+      '--home',
+      config.builderHome,
+      '--human-id',
+      humanId,
+      '--session-id',
+      sessionId,
+      '--agent-id',
+      'telegram_run_preflight',
+      '--request-id',
+      requestId,
+      '--trace-ref',
+      traceRef,
+      '--user-message',
+      userMessage,
+      '--proposed-action',
+      'start_mission',
+      '--json',
+    ];
+    for (const source of buildBuilderRunPreflightSources(input)) {
+      turnTraceArgs.push('--source-json', JSON.stringify(source));
+    }
+
+    const traceResult = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', turnTraceArgs),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    const traceStdout = processOutputText(traceResult.stdout).trim();
+    if (!traceStdout) {
+      throw new Error(`Builder turn trace preflight returned empty stdout. stderr=${redactText(processOutputText(traceResult.stderr).trim())}`);
+    }
+    const payload = JSON.parse(traceStdout) as Record<string, unknown>;
+    const eventIds = Array.isArray(payload.event_ids) ? payload.event_ids : [];
+    return {
+      used: true,
+      bridgeMode: config.mode,
+      requestId,
+      traceRef,
+      aocRead: true,
+      turnTraceRecorded: true,
+      eventCount: eventIds.length,
+    };
+  } catch (error) {
+    if (required) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[BuilderBridge] Telegram /run AOC preflight unavailable:', redactText(message));
+    return {
+      ...emptyResult,
+      error: redactText(message),
+    };
+  }
+}
+
+export function formatAgentBlackBoxReply(payload: unknown): string {
+  const root = objectValue(payload);
+  const counts = objectValue(root.counts);
+  const entries = arrayValue(root.entries).map(objectValue);
+  const entryCount = numericValue(counts.entries);
+  const blockerEvents = numericValue(counts.blocker_events);
+  const memoryCandidates = numericValue(counts.memory_candidates);
+
+  if (!entries.length && entryCount === 0) {
+    return [
+      'Agent black box has no matching events.',
+      '',
+      'Review',
+      '• No event evidence is visible for this filter.',
+      '',
+      'Workspace',
+      '• Full evidence: `spark-intelligence self black-box --json`'
+    ].join('\n');
+  }
+
+  const headline = blockerEvents > 0 ? 'Agent black box needs review.' : 'Agent black box is visible.';
+  const lines = [
+    headline,
+    '',
+    'State',
+    `• ${entryCount || entries.length} events; ${blockerEvents} blocker events; ${memoryCandidates} memory candidates`
+  ];
+  if (stringValue(root.request_id)) {
+    lines.push('• Request filter active');
+  }
+
+  if (entries.length) {
+    lines.push('', 'Recent');
+    for (const entry of entries.slice(0, 4)) {
+      const eventType = stringValue(entry.event_type) || 'unknown_event';
+      const route = stringValue(entry.route_chosen) || 'unknown_route';
+      const blockers = arrayValue(entry.blockers).length;
+      lines.push(`• ${eventType}: route ${route}${blockers ? ` (${blockers} blockers)` : ''}`);
+    }
+  }
+
+  lines.push(
+    '',
+    'Review',
+    '• Event evidence is not permission or memory truth.',
+    '• Full details stay in Builder until a trace view is requested.',
+    '',
+    'Workspace',
+    '• Full evidence: `spark-intelligence self black-box --json`'
+  );
+  return lines.join('\n');
+}
+
+export async function runBuilderAgentBlackBox(
+  input: BuilderAgentBlackBoxInput
+): Promise<BuilderAgentBlackBoxResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'black-box',
+    '--home',
+    config.builderHome,
+    '--limit',
+    String(Math.max(1, Math.min(20, Number(input.limit || 12)))),
+    '--json',
+  ];
+  const requestId = String(input.requestId || '').trim();
+  if (requestId) {
+    args.push('--request-id', requestId);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder agent black box returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatAgentBlackBoxReply(payload),
+  };
+}
+
 export function formatRouteProbeReply(payload: Record<string, unknown>): string {
   const route = String(payload.capability_key || 'unknown').trim() || 'unknown';
   const status = String(payload.status || 'unknown').trim() || 'unknown';
@@ -2062,6 +2323,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
         response_text?: unknown;
         bridge_mode?: unknown;
         routing_decision?: unknown;
+        request_id?: unknown;
+        trace_ref?: unknown;
         voice_media?: unknown;
         voice_timing?: unknown;
       };
@@ -2070,6 +2333,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
     const detail = parsed.detail || {};
     const bridgeMode = String(detail.bridge_mode || '').trim();
     const routingDecision = String(detail.routing_decision || '').trim();
+    const requestId = String(detail.request_id || '').trim();
+    const traceRef = String(detail.trace_ref || '').trim();
     let responseText = String(detail.response_text || '').trim();
     const messageContext = telegramBridgeMessageContext(updatePayload);
     if (bridgeMode === 'self_awareness_direct' && messageContext.userId && messageContext.chatId) {
@@ -2104,6 +2369,8 @@ export async function runBuilderTelegramBridge(updatePayload: Record<string, unk
       decision: String(parsed.decision || '').trim(),
       bridgeMode,
       routingDecision,
+      requestId: requestId || undefined,
+      traceRef: traceRef || undefined,
       voiceMedia: parseBuilderBridgeVoiceMedia(detail.voice_media),
       voiceTiming: objectValue(detail.voice_timing),
     };

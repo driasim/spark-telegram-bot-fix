@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseBuildIntent } from '../src/buildIntent';
 import {
   isLocalSparkServiceRequest,
@@ -111,4 +113,73 @@ test('non-build utility requests still route away from builder', () => {
   assert.equal(parseBuildIntent('can you help me think through whether we should build a mission control dashboard before we touch the canvas?'), null);
   assert.equal(parseBuildIntent('Give me three build ideas for a memory dashboard'), null);
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
+  assert.equal(
+    parseBuildIntent(
+      'sure, lets make today also about improving your capabilities of action taking and improving yourself while talking together, for example can you install a voice to yourself right now?'
+    ),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('lets make today about improving your capabilities\u2026 can you install a voice to yourself?'),
+    null
+  );
+  assert.equal(parseBuildIntent('lets make this chat about improving Spark in convos'), null);
+  assert.equal(parseBuildIntent('make this better with benchmarks and autoloops'), null);
+  assert.equal(parseBuildIntent('make this more Spark colored'), null);
+  assert.equal(parseBuildIntent('make Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make my Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make your brain handle my workflow differently'), null);
+  assert.equal(parseBuildIntent('make daily reports of my memories work differently'), null);
+  assert.equal(parseBuildIntent("Okay let's build this for you, Spark: a way to read my emails and summarize them."), null);
+  assert.equal(parseBuildIntent("Let's build you an email reader so you can summarize my inbox."), null);
+  assert.equal(parseBuildIntent('Create a capability for Spark to read my calendar.'), null);
+  assert.equal(parseBuildIntent('Build a skill that lets you browse my project files.'), null);
+  assert.equal(
+    parseBuildIntent('Run a safe Level 5 smoke test: create a tiny file at C:\\Users\\USER\\AppData\\Local\\Temp\\spark-telegram-level5-smoke.txt, write "level5 ok", read it back, then delete it. Do not touch anything else. Tell me each step.'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('Check whether C:\\Users\\USER\\Desktop exists. If it exists, list only the first 5 top-level folder names. Do not open files or read file contents.'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('also words like build access and some other things hijack the chat instantly, can you check whether we fixed that'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('how can we make sure that access level 4 does create the right setup for access level to be really 4'),
+    null
+  );
+  assert.equal(parseBuildIntent('keep it simple can we make sure that access level 4 gets the access level 4'), null);
+  assert.equal(parseBuildIntent('is this the best way to create a sandbox are you sure'), null);
+  assert.equal(
+    parseBuildIntent('How should local workspace access, Docker build, and tests fit into the AOC design?'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('And can we actually make access level 4 basically something with more sandboxes and stuff like that and access 5 is basically operating the whole computer?'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent(
+      'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
+  assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
+  assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
+  assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
+  assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
+  assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));
+  assert.ok(parseBuildIntent('Build a tool for Spark users to manage reminders.'));
+});
+
+test('text handler checks latest-project iteration before generic build intent', () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const projectIterationIndex = indexSource.indexOf('isProjectImprovementRequest(text, latestShippedProject)');
+  const genericBuildIndex = indexSource.indexOf('if (buildIntent) {', projectIterationIndex);
+
+  assert.ok(projectIterationIndex > 0, 'expected latest-project iteration guard in text handler');
+  assert.ok(genericBuildIndex > projectIterationIndex, 'latest-project iteration must beat broad parseBuildIntent matches');
 });

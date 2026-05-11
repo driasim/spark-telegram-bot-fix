@@ -58,9 +58,11 @@ test('does not mislabel Builder command failures as Telegram config', () => {
   );
 
   assert.match(reply, /Builder memory path/);
+  assert.match(reply, /Builder bridge command did not finish cleanly/);
   assert.match(reply, /Spark builder failure: builder_or_memory/);
   assert.doesNotMatch(reply, /Telegram configuration problem/);
   assert.doesNotMatch(reply, /Spark telegram failure: telegram_config/);
+  assert.doesNotMatch(reply, /runpy|spark_intelligence\.cli|simulate-telegram-update|Command failed/);
 });
 
 test('explains command timeouts in chat as runtime timeouts', () => {
@@ -80,6 +82,19 @@ test('explains builder memory failures', () => {
   assert.match(reply, /spark verify --onboarding/);
 });
 
+test('keeps conversational builder memory failures out of diagnostic mode', () => {
+  const reply = renderSparkErrorReply(
+    new Error('Command failed: python -m spark_intelligence.cli gateway simulate-telegram-update'),
+    'chat',
+    true
+  );
+
+  assert.match(reply, /visible chat/);
+  assert.match(reply, /Run \/diagnose only when you want a health check/);
+  assert.doesNotMatch(reply, /Spark could not reach the Builder memory path/);
+  assert.doesNotMatch(reply, /spark fix telegram|spark doctor llm|upstream PR draft/);
+});
+
 test('directs provider rate limits to quota or provider switching', () => {
   const explanation = explainSparkError(new Error('HTTP 429: too many requests, quota exceeded'), 'chat');
 
@@ -96,8 +111,10 @@ test('directs duplicate Telegram polling to one live process', () => {
   );
 
   assert.match(reply, /already polling this bot token/);
-  assert.match(reply, /stop duplicate bot processes/);
-  assert.match(reply, /spark restart spark-telegram-bot/);
+  assert.match(reply, /same BotFather token/);
+  assert.match(reply, /stop the other poller or rotate the BotFather token/);
+  assert.doesNotMatch(reply, /Builder memory path/);
+  assert.doesNotMatch(reply, /provider authentication/);
 });
 
 test('redacts secrets from user-facing errors', () => {

@@ -354,47 +354,6 @@ export function renderChoiceContextAcknowledgement(text: string): string | null 
   ].join('\n');
 }
 
-export function extractPreferredNameFromRecentIdentityText(text: string): string | null {
-  const clean = text.replace(/\s+/g, ' ').trim();
-  if (!clean) return null;
-  const explicit = clean.match(/\b(?:my|still|actual|real|written)\s+name\s+is\s+([A-Z][A-Za-z'-]{1,40})\b/i);
-  if (explicit && !/\bname\s+is\s+pronounced\b/i.test(clean)) return normalizeNameToken(explicit[1]);
-  const writeAs = clean.match(/\b(?:write|spell|written)\s+(?:it|my\s+name)\s+as\s+([A-Z][A-Za-z'-]{1,40})\b/i);
-  if (writeAs) return normalizeNameToken(writeAs[1]);
-  return null;
-}
-
-export function answerFromRecentIdentityCorrection(
-  currentMessage: string,
-  turns: ConversationTurn[]
-): string | null {
-  if (!/\b(?:i\s+just\s+told\s+you|not\s+\w+|my\s+name|pronounced|called)\b/i.test(currentMessage)) {
-    return null;
-  }
-  const recent = turns.slice(-8).reverse();
-  let preferredName: string | null = null;
-  let pronunciation: string | null = null;
-  for (const turn of recent) {
-    if (turn.role !== 'user') continue;
-    preferredName ||= extractPreferredNameFromRecentIdentityText(turn.text);
-    pronunciation ||= extractPronunciationFromIdentityText(turn.text);
-    if (preferredName) break;
-  }
-  if (!preferredName) return null;
-  return pronunciation && pronunciation.toLowerCase() !== preferredName.toLowerCase()
-    ? `You're ${preferredName}, pronounced like ${pronunciation}.`
-    : `You're ${preferredName}.`;
-}
-
-function extractPronunciationFromIdentityText(text: string): string | null {
-  const match = text.match(/\bpronounced\s+(?:like\s+)?([A-Z][A-Za-z'-]{1,40})\b/i);
-  return match ? normalizeNameToken(match[1]) : null;
-}
-
-function normalizeNameToken(value: string): string {
-  return value.replace(/[^A-Za-z'-]/g, '').trim();
-}
-
 function selectHotTurns(turns: ConversationTurn[], policy: ContextBudgetPolicy): {
   hotTurns: ConversationTurn[];
   olderTurns: ConversationTurn[];

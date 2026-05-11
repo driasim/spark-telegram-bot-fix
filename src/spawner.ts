@@ -19,6 +19,7 @@ interface RunGoalInput {
   chatId: string;
   userId: string;
   requestId: string;
+  traceRef?: string;
   tier?: SkillTier;
   providers?: string[];
   promptMode?: 'simple' | 'orchestrator';
@@ -28,6 +29,7 @@ interface RunGoalResult {
   success: boolean;
   missionId?: string;
   requestId?: string;
+  traceRef?: string;
   providers?: string[];
   error?: string;
 }
@@ -387,7 +389,7 @@ function formatValidationResultLine(result: CreatorValidationCommandResult): str
 }
 
 function formatArtifactLabel(value: string): string {
-  return value || 'unknown';
+  return value.replace(/_/g, ' ');
 }
 
 function creatorValidationIcon(status: string | undefined): string {
@@ -490,21 +492,22 @@ export function formatCreatorMissionExecutionSummary(
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const headline = result.started
-    ? 'Creator mission execution started.'
+    ? '🟢 Creator mission started.'
     : result.skipped
-      ? 'Creator mission was already handled.'
-      : 'Creator mission accepted.';
+      ? '🟡 Creator mission was already handled.'
+      : '🟢 Creator mission accepted.';
 
   return [
     headline,
     '',
-    `Mission: ${missionId}`,
-    ...(result.providerId ? [`Provider: ${formatProviderLabel(result.providerId)}`] : []),
-    ...(result.projectPath ? [`Workspace: ${result.projectPath}`] : []),
+    'Build',
+    result.started ? 'running now' : result.skipped ? 'already handled' : 'queued',
+    ...(result.providerId ? [`Builder: ${formatProviderLabel(result.providerId)}`] : []),
     ...(result.reason ? [`Note: ${result.reason}`] : []),
     '',
+    'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
-    `Mission board: ${kanbanUrl}`
+    `Board: ${kanbanUrl}`
   ].join('\n');
 }
 
@@ -562,6 +565,7 @@ export const spawner = {
           chatId: input.chatId,
           userId: input.userId,
           requestId: input.requestId,
+          ...(input.traceRef ? { traceRef: input.traceRef } : {}),
           telegramRelay: relay,
           ...(input.tier ? { tier: input.tier } : {}),
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
@@ -575,6 +579,7 @@ export const spawner = {
         success: Boolean(res.data?.success),
         missionId: res.data?.missionId,
         requestId: res.data?.requestId,
+        traceRef: res.data?.traceRef,
         providers: Array.isArray(res.data?.providers) ? res.data.providers : []
       };
     } catch (err: any) {

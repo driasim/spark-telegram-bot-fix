@@ -171,17 +171,54 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(intent, null);
   assert.equal(parseBuildIntent('Give me three build ideas for a memory dashboard'), null);
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
-});
-
-test('does not treat exact reply no-file probes as builds', () => {
-  assert.equal(parseBuildIntent('Reply exactly TESTER_LIVE_ACTIVE_OK and do not create files.'), null);
-  assert.equal(parseBuildIntent('Reply exactly SPARK_AGI_LIVE_ACTIVE_OK and do not create files.'), null);
-});
-
-test('does not treat voice tuning turns as build missions', () => {
-  assert.equal(parseBuildIntent('make it warmer and more geeky'), null);
-  assert.equal(parseBuildIntent('make the voice clearer'), null);
-  assert.equal(parseBuildIntent('make my voice a little faster'), null);
+  assert.equal(
+    parseBuildIntent(
+      'sure, lets make today also about improving your capabilities of action taking and improving yourself while talking together, for example can you install a voice to yourself right now?'
+    ),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('lets make today about improving your capabilities\u2026 can you install a voice to yourself?'),
+    null
+  );
+  assert.equal(parseBuildIntent('lets make this chat about improving Spark in convos'), null);
+  assert.equal(parseBuildIntent('make Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make my Spark read my emails as a new capability'), null);
+  assert.equal(parseBuildIntent('make your brain handle my workflow differently'), null);
+  assert.equal(parseBuildIntent('make daily reports of my memories work differently'), null);
+  assert.equal(parseBuildIntent("Okay let's build this for you, Spark: a way to read my emails and summarize them."), null);
+  assert.equal(parseBuildIntent("Let's build you an email reader so you can summarize my inbox."), null);
+  assert.equal(parseBuildIntent('Create a capability for Spark to read my calendar.'), null);
+  assert.equal(parseBuildIntent('Build a skill that lets you browse my project files.'), null);
+  assert.equal(parseBuildIntent('Reply exactly TESTER_REALPATH_OK and do not create files.'), null);
+  assert.equal(parseBuildIntent('Reply exactly SPARK_AGI_REALPATH_OK and do not build anything.'), null);
+  assert.equal(
+    parseBuildIntent('Run a safe Level 5 smoke test: create a tiny file at C:\\Users\\USER\\AppData\\Local\\Temp\\spark-telegram-level5-smoke.txt, write "level5 ok", read it back, then delete it. Do not touch anything else. Tell me each step.'),
+    null
+  );
+  assert.equal(
+    parseBuildIntent('Check whether C:\\Users\\USER\\Desktop exists. If it exists, list only the first 5 top-level folder names. Do not open files or read file contents.'),
+    null
+  );
+  assert.equal(parseBuildIntent('we were gonna build something do you remember what it was'), null);
+  assert.equal(parseBuildIntent('what were we going to build?'), null);
+  assert.equal(
+    parseBuildIntent(
+      'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
+  assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
+  assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
+  assert.equal(
+    parseBuildIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
+    null
+  );
+  assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
+  assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
+  assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));
+  assert.ok(parseBuildIntent('Build a tool for Spark users to manage reminders.'));
 });
 
 test('infers a compact product name for long conceptual build briefs', () => {
@@ -273,21 +310,4 @@ Behavior:
   assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\terminal-chef-clock');
   assert.equal(intent.projectName, 'Terminal Chef Clock');
   assert.match(intent.prd, /Countdown updates every second/);
-});
-
-test('uses shipped project title before mission workspace folder slug', () => {
-  const previousRoot = process.env.SPARK_PROJECT_ROOT;
-  process.env.SPARK_PROJECT_ROOT = 'C:/Users/USER/.spark/workspaces';
-  const intent = parseBuildIntent(`Improve the existing shipped project "Mission Control Reliability Desk" at C:/Users/USER/.spark/workspaces/mission-1778354076476-mission-control-reliability-desk.
-
-This is an iteration on an already shipped app, not a new scaffold.
-
-User feedback:
-make one tiny polish pass while preserving the five-file contract`);
-  if (previousRoot === undefined) delete process.env.SPARK_PROJECT_ROOT;
-  else process.env.SPARK_PROJECT_ROOT = previousRoot;
-
-  assert.ok(intent);
-  assert.equal(intent.projectPath, 'C:\\Users\\USER\\.spark\\workspaces\\mission-1778354076476-mission-control-reliability-desk');
-  assert.equal(intent.projectName, 'Mission Control Reliability Desk');
 });

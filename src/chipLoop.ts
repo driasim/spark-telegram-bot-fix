@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { resolvePythonCommand } from './pythonCommand';
 import { withHiddenWindows } from './hiddenProcess';
+import { resolveBuilderRepoPath } from './builderRepoPath';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,9 +31,7 @@ interface LoopConfig {
 }
 
 function resolveConfig(): LoopConfig {
-  const builderRepo = path.resolve(
-    process.env.SPARK_BUILDER_REPO || path.join(process.cwd(), '..', 'spark-intelligence-builder')
-  );
+  const builderRepo = resolveBuilderRepoPath({ configuredRepo: process.env.SPARK_BUILDER_REPO });
   return {
     pythonCommand: resolvePythonCommand(process.env.SPARK_BUILDER_PYTHON),
     builderRepo,

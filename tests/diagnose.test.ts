@@ -8,6 +8,7 @@ import {
   describeSpawnerPublicLinkHealth,
   getRelayIdentityFromEnv,
   inferDiagnoseLikelyIssue,
+  readableLocalServiceUrl,
   resolveDiagnoseRouteProviders,
   selectPingProviderIds,
   type DiagnoseSubject,
@@ -176,6 +177,13 @@ test('describes HTTP failures as relay errors', () => {
   );
 });
 
+test('formats local service URLs as localhost links', () => {
+  assert.equal(readableLocalServiceUrl('http://127.0.0.1:3333'), 'http://localhost:3333');
+  assert.equal(readableLocalServiceUrl('http://0.0.0.0:3333/'), 'http://localhost:3333');
+  assert.equal(readableLocalServiceUrl('http://[::1]:3333/'), 'http://localhost:3333');
+  assert.equal(readableLocalServiceUrl('https://spawner.example.app/path/'), 'https://spawner.example.app/path');
+});
+
 test('warns when Railway Spawner links would point at private DNS', () => {
   assert.equal(
     describeSpawnerPublicLinkHealth({
@@ -197,6 +205,14 @@ test('warns when Railway Spawner links would point at private DNS', () => {
       SPAWNER_UI_URL: 'http://127.0.0.1:3333'
     } as NodeJS.ProcessEnv),
     null
+  );
+
+  assert.equal(
+    describeSpawnerPublicLinkHealth({
+      SPARK_SPAWNER_URL: 'http://spawner-ui.railway.internal:3000',
+      SPAWNER_UI_PUBLIC_URL: 'https://spawner-ui-production.up.railway.app'
+    } as NodeJS.ProcessEnv),
+    'Spawner public links: ✅ spawner-ui-production.up.railway.app'
   );
 });
 

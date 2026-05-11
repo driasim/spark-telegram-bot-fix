@@ -30,8 +30,6 @@ export interface ShippedProjectMissionInput {
   goal: string;
   providerLabel?: string;
   response: string;
-  projectPath?: string;
-  previewUrl?: string;
 }
 
 const STATE_PATH = resolveStatePath('.spark-shipped-project-context.json');
@@ -102,9 +100,6 @@ export function extractProjectPathFromMissionText(text: string): string | null {
     if (decoded) return decoded;
   }
 
-  const markdownFileLink = text.match(/\]\(([A-Za-z]:[\\/][^)]+[\\/](?:index\.html|styles\.css|app\.js|README\.md))\)/i);
-  if (markdownFileLink?.[1]) return normalizeLocalProjectPath(path.dirname(markdownFileLink[1]));
-
   const patterns = [
     /(?:built|verified|created)[\s\S]{0,240}?(?:in|at)\s+`([^`\r\n]+)`/i,
     /Project:\s*([A-Za-z]:\\[^\r\n]+)/i,
@@ -130,7 +125,6 @@ export function extractPreviewUrlFromMissionText(text: string): string | null {
 
 function titleFromFolder(projectPath: string): string {
   return path.basename(projectPath)
-    .replace(/^mission-\d+-/i, '')
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -140,19 +134,9 @@ function titleFromFolder(projectPath: string): string {
 function projectNameFromGoal(goal: string, projectPath: string): string {
   const heading = goal.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
   if (heading) return heading;
-  const shipped = goal.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i)?.[1]?.trim();
-  if (shipped) return shipped;
   const called = goal.match(/\bcalled\s+([A-Z][A-Za-z0-9 '&.-]{2,80})/i)?.[1]?.trim();
   if (called) return called.replace(/[.。]\s*$/, '');
   return titleFromFolder(projectPath);
-}
-
-function normalizeStoredProjectName(context: ShippedProjectContext): ShippedProjectContext {
-  if (!/^Mission\s+\d+\b/i.test(context.projectName)) return context;
-  return {
-    ...context,
-    projectName: titleFromFolder(context.projectPath)
-  };
 }
 
 function summaryFromResponse(response: string): string | undefined {
@@ -169,9 +153,7 @@ function summaryFromResponse(response: string): string | undefined {
 export async function recordShippedProjectFromMission(
   input: ShippedProjectMissionInput
 ): Promise<ShippedProjectContext | null> {
-  const projectPath = input.projectPath
-    ? normalizeLocalProjectPath(input.projectPath)
-    : extractProjectPathFromMissionText(input.response);
+  const projectPath = extractProjectPathFromMissionText(input.response);
   if (!projectPath) return null;
 
   const chatId = String(input.chatId);
@@ -185,7 +167,7 @@ export async function recordShippedProjectFromMission(
     userId: String(input.userId),
     projectName: projectNameFromGoal(input.goal, projectPath),
     projectPath,
-    previewUrl: input.previewUrl || extractPreviewUrlFromMissionText(input.response) || projectPreviewUrlForPath(projectPath),
+    previewUrl: extractPreviewUrlFromMissionText(input.response) || projectPreviewUrlForPath(projectPath),
     missionId: input.missionId,
     iteration: sameProject ? previous.iteration + 1 : 1,
     shippedAt: previous?.shippedAt && sameProject ? previous.shippedAt : now,
@@ -204,8 +186,7 @@ export async function getLatestShippedProjectContext(
   chatId: string | number
 ): Promise<ShippedProjectContext | null> {
   const state = await readState();
-  const context = state.byChatId[String(chatId)] || null;
-  return context ? normalizeStoredProjectName(context) : null;
+  return state.byChatId[String(chatId)] || null;
 }
 
 export async function clearShippedProjectContextForTests(): Promise<void> {

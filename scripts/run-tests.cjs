@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('node:child_process');
-const fs = require('node:fs');
 const path = require('node:path');
 
-const preferredTests = [
+const tests = [
   'tests/launchMode.test.ts',
   'tests/onboardingBridge.test.ts',
   'tests/buildIntent.test.ts',
@@ -12,6 +11,9 @@ const preferredTests = [
   'tests/buildE2E.test.ts',
   'tests/conversationIntent.test.ts',
   'tests/naturalRouteDecision.test.ts',
+  'tests/routeFirewall.test.ts',
+  'tests/routeArbiter.test.ts',
+  'tests/conversationSmoke.test.ts',
   'tests/naturalRouteTelemetry.test.ts',
   'tests/naturalRouteLedger.test.ts',
   'tests/naturalRouteReplay.test.ts',
@@ -22,6 +24,8 @@ const preferredTests = [
   'tests/conversationMemory.test.ts',
   'tests/commandTelemetry.test.ts',
   'tests/accessPolicy.test.ts',
+  'tests/authorityStatus.test.ts',
+  'tests/operatorActions.test.ts',
   'tests/providerRouting.test.ts',
   'tests/modelSwitch.test.ts',
   'tests/missionRelayFormatting.test.ts',
@@ -46,17 +50,6 @@ const preferredTests = [
   'tests/builderBridge.test.ts',
   'tests/pythonCommand.test.ts',
   'tests/hiddenProcess.test.ts'
-];
-
-const testsDir = path.join(__dirname, '..', 'tests');
-const discoveredTests = fs
-  .readdirSync(testsDir)
-  .filter((name) => name.endsWith('.test.ts'))
-  .map((name) => `tests/${name}`);
-const discoveredSet = new Set(discoveredTests.map((name) => name.replace(/\\/g, '/')));
-const tests = [
-  ...preferredTests.filter((name) => discoveredSet.has(name.replace(/\\/g, '/'))),
-  ...discoveredTests.filter((name) => !preferredTests.includes(name)),
 ];
 
 const requireRealToken = process.argv.includes('--require-real-token');

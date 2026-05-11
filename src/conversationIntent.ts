@@ -12,6 +12,7 @@ const COLLABORATIVE_IDEA_PATTERNS = [
   /\bmaybe\s+we\s+should\s+(?:build|make|create)\b/i,
   /\b(?:should|could)\s+we\s+(?:build|make|create)\b.*\b(?:first\s+version|mvp|v1)\b/i,
   /\bwhat\s+would\s+you\s+(?:build|make|create|suggest)\b/i,
+  /\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:\d+|one|two|three|four|five|a\s+few|some)\s+(?:build\s+)?ideas?\b/i,
   /\bwhat\s+would\s+(?:the\s+)?(?:first\s+version|mvp|v1)\s+be\b/i,
   /\bwhat\s+would\s+be\s+(?:the\s+)?(?:best\s+)?(?:first\s+version|mvp|v1)\b/i,
   /\b(?:first\s+version|mvp|v1)\b.*\b(?:be|look|feel|include|work)\b/i,
@@ -174,9 +175,6 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (isVoiceOnboardingSetupQuestion(normalized)) {
     return null;
   }
-  if (isMemoryDoctorRequest(normalized)) {
-    return null;
-  }
   if (shouldPreferConversationalIdeation(normalized)) {
     return null;
   }
@@ -248,22 +246,11 @@ function isVoiceOnboardingSetupQuestion(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
   const simplified = normalized.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   return (
-    /\bvoice\b/.test(simplified) &&
+    /\b(?:voice|elevenlabs|spark voice comms|spark voice|tts)\b/.test(simplified) &&
     (
-      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(normalized) ||
-      /\b(?:set up|setup|configure|onboard|onboarding)\b/.test(simplified)
+      /\b(?:set up|setup|configure|onboard|onboarding|prepare|path|env|key|clean file)\b/.test(normalized) ||
+      /\b(?:set up|setup|configure|onboard|onboarding|prepare|path|env|key|clean file)\b/.test(simplified)
     )
-  );
-}
-
-function isLikelyVoiceOrPersonaTuningRequest(text: string): boolean {
-  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
-  if (!normalized) return false;
-  const projectSurface = /\b(?:app|site|page|screen|dashboard|tool|design|layout|palette|colors?|colours?|spacing|button|components?|card|workflow|spawner-ui)\b/.test(normalized);
-  if (projectSurface) return false;
-  return (
-    /\b(?:voice|speech|audio|sound|tone|style|persona|personality|reply|responses?|speaking)\b/.test(normalized) ||
-    /\b(?:warmer|colder|geek(?:y|ier)|friendlier|clearer|crisper|natural|human|faster|slower|louder|softer)\b/.test(normalized)
   );
 }
 
@@ -441,15 +428,7 @@ export function isMemoryDoctorRequest(text: string): boolean {
     /\b(?:went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+did\s+i\s+just\s+tell\s+you)\b/.test(normalized);
   const asksForDiagnosis =
     /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/.test(normalized);
-  if (namesMemoryFailure && asksForDiagnosis) {
-    return true;
-  }
-
-  return (
-    /\b(?:what|where|how)\b.*\b(?:should|would|could|can)?\s*(?:improve|fix|repair|change|tighten|better)\b/.test(normalized) &&
-    /\b(?:memory|context|recall)\b/.test(normalized) &&
-    /\b(?:pathing|routing|diagnosis|diagnostic|answer|audit)\b/.test(normalized)
-  );
+  return namesMemoryFailure && asksForDiagnosis;
 }
 
 export interface NaturalCreatorMissionIntent {
@@ -793,7 +772,6 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  if (isLikelyVoiceOrPersonaTuningRequest(trimmed)) return false;
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
     /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
@@ -982,6 +960,9 @@ function hasKnownLocalSparkSurface(text: string): boolean {
 }
 
 function isProjectLocalhostRequest(normalized: string): boolean {
+  if (/\b(?:do\s+not|don't|dont)\s+open\s+files?\b/.test(normalized)) {
+    return false;
+  }
   return /\b(?:localhost|local\s*host|local\s+url|open|link)\b/.test(normalized) &&
     /\b(?:project|app|website|site|build|built|shipped|beauty|centre|center|thing|it)\b/.test(normalized) &&
     !/\b(?:spawner|mission board|mission control|kanban|canvas|diagnostic|diagnostics)\b/.test(normalized);
@@ -1131,7 +1112,10 @@ export function isDiagnosticsScanRequest(text: string): boolean {
     /\bspark-intelligence\s+diagnostics\s+scan\b/.test(normalized) ||
     (
       /\b(?:run|start|kick\s+off|execute|do)\b/.test(normalized) &&
-      /\b(?:fresh|new|another|the)?\s*diagnostics?\s+scan\b/.test(normalized)
+      (
+        /\b(?:fresh|new|another|the)?\s*diagnostics?\s+scan\b/.test(normalized) ||
+        /\bdiagnostics?\s+(?:now|please|again)\b/.test(normalized)
+      )
     )
   );
 }
@@ -1379,7 +1363,6 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
-  if (isLikelyVoiceOrPersonaTuningRequest(text)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
   if (/^(?:where|what|which|show|send|give)\b.*\b(?:link|localhost|preview|url|board|canvas|kanban)\b/.test(normalized)) {
@@ -1439,10 +1422,13 @@ export function isExternalResearchRequest(text: string): boolean {
   const hasExternalTarget =
     /https?:\/\/(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+/i.test(text) ||
     /\bgithub\.com\/[\w.-]+\/[\w.-]+\b/i.test(text) ||
-    /\b[\w.-]+\/[\w.-]+\b/.test(normalized) && /\b(?:github|repo|repository)\b/.test(normalized);
+    /\b[\w.-]+\/[\w.-]+\b/.test(normalized) && /\b(?:github|repo|repository)\b/.test(normalized) ||
+    /\b(?:openclaw|hermes)\b/.test(normalized) && /\b(?:docs?|documentation|repos?|repositories|github|codebase|source\s+code)\b/.test(normalized) ||
+    /\b(?:research|look\s+up|search|find)\b/.test(normalized) && /\b(?:today|latest|current|now|recent|people\s+are\s+saying|web|internet|online|public)\b/.test(normalized);
   if (!hasExternalTarget) return false;
+  if (shouldPreferConversationalIdeation(text)) return false;
 
-  return /\b(?:visit|open|check|check out|look at|look into|inspect|read|analyze|review|browse|pull up|can you)\b/i.test(text);
+  return /\b(?:visit|open|check|check out|look at|look into|inspect|read|analyze|review|browse|pull up|research|look\s+up|search|find|can you)\b/i.test(text);
 }
 
 export function buildExternalResearchGoal(currentText: string, recentMessages: string[]): string {
@@ -1513,6 +1499,13 @@ function hasMissionExecutionLanguage(normalized: string): boolean {
   );
 }
 
+function isMissionUpdatePreferenceCommand(normalized: string): boolean {
+  return (
+    /\bmission\s+updates?\b.*\b(?:verbose|detailed|minimal|quiet|normal|standard)\b/.test(normalized) ||
+    /\b(?:verbose|detailed|minimal|quiet|normal|standard)\b.*\bmission\s+updates?\b/.test(normalized)
+  );
+}
+
 export function parseMissionUpdatePreferenceIntent(
   text: string,
   options: { allowExecutionLanguage?: boolean } = {}
@@ -1522,7 +1515,7 @@ export function parseMissionUpdatePreferenceIntent(
   }
 
   const normalized = text.trim().toLowerCase();
-  if (!options.allowExecutionLanguage && hasMissionExecutionLanguage(normalized)) {
+  if (!options.allowExecutionLanguage && hasMissionExecutionLanguage(normalized) && !isMissionUpdatePreferenceCommand(normalized)) {
     return null;
   }
   if (!/\b(?:mission|missions|spawner|canvas|board|kanban|telegram|updates?|notify|notifications?|links?)\b/.test(normalized)) {
@@ -1599,7 +1592,6 @@ export function isLowInformationLlmReply(reply: string): boolean {
     normalized === 'working memory' ||
     normalized === 'nothing active' ||
     normalized === 'no concrete guidance' ||
-    normalized === 'reply-aware answer' ||
     normalized === 'spark researcher returned no concrete guidance for this message.' ||
     normalized === 'what would you like help with?' ||
     normalized === 'how can i help?' ||
@@ -1640,6 +1632,14 @@ export function isLowInformationLlmReply(reply: string): boolean {
       normalized.includes('tap this to scaffold') &&
       normalized.includes('/chip create') &&
       normalized.includes('slash command')
+    ) ||
+    (
+      (
+        normalized.includes('from the build project memory') ||
+        normalized.includes('from the end project memory') ||
+        normalized.includes('source: project event ledger rollup')
+      ) &&
+      normalized.includes('raw_turn:')
     )
   );
 }
@@ -1660,28 +1660,15 @@ export function isMemoryAcknowledgementReply(reply: string): boolean {
 export type BuilderReplySuppressionReason =
   | 'diagnostic_wall'
   | 'route_menu'
-  | 'plain_chat_self_awareness_panel'
+  | 'project_event_residue'
   | 'memory_acknowledgement'
   | 'low_information';
 
 export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
-  const route = routingDecision.trim();
-  if (/^memory(?:_|$)/i.test(route)) {
+  if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
     return null;
   }
   const normalized = reply.trim().toLowerCase();
-  if (
-    !/^self_awareness/i.test(route) &&
-    normalized.startsWith('spark self-awareness') &&
-    (
-      normalized.includes('workspace:') ||
-      normalized.includes('what looks live') ||
-      normalized.includes('where spark lacks') ||
-      normalized.includes('llm wiki')
-    )
-  ) {
-    return 'plain_chat_self_awareness_panel';
-  }
   if (
     normalized.includes('spark could not reach the builder memory path right now') ||
     normalized.includes('operator fix: spark fix telegram')
@@ -1705,6 +1692,16 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
     )
   ) {
     return 'route_menu';
+  }
+  if (
+    (
+      normalized.includes('from the build project memory') ||
+      normalized.includes('from the end project memory') ||
+      normalized.includes('source: project event ledger rollup')
+    ) &&
+    normalized.includes('raw_turn:')
+  ) {
+    return 'project_event_residue';
   }
   if (isMemoryAcknowledgementReply(reply)) {
     return 'memory_acknowledgement';
@@ -1833,6 +1830,7 @@ export function extractAgentDoctrinePreference(text: string): string | null {
   }
 
   const patterns = [
+    /\bi\s+prefer\s+when\s+you\s+(.+)$/i,
     /\b(?:from now on|going forward|for future replies|in future replies|for my agent|when you talk to me|with me)\s*,?\s*(.+)$/i,
     /\b(?:let'?s\s+)?keep\s+(?:things|replies|answers|our\s+chat|this\s+agent|my\s+agent|the\s+agent)\s+(?:always\s+)?(.+)$/i,
     /\b(?:remember|save|keep|store)\s+(?:this\s+)?(?:as\s+)?(?:my\s+)?(?:agent\s+)?(?:personality|style|tone|format|interaction|collaboration|working|reply|response|communication)\s+(?:preference|rule|doctrine|guidance)?\s*[:,-]?\s*(.+)$/i,
@@ -1973,7 +1971,7 @@ export function formatAgentDoctrinePreferenceStatus(preferences: string[]): stri
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
   if (action === 'remember') {
-    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run `spark verify --deep` or /diagnose if you want a health check.';
+    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run /diagnose only if you want a health check.';
   }
   if (action === 'recall') {
     return 'I could not get a useful memory answer yet. Memory is degraded, so current chat should win until recall is healthy again.';

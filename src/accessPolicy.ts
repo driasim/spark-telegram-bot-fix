@@ -39,10 +39,6 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
       'localprojectaccess',
       'localrepo',
       'localrepoaccess',
-      'full',
-      'fullaccess',
-      'operatingsystem',
-      'os',
       'sandbox',
       'sandboxed',
       'sandboxedlocal',
@@ -61,6 +57,9 @@ export function normalizeSparkAccessProfile(value: unknown): SparkAccessProfile 
       'root',
       'wholecomputer',
       'wholemachine',
+      'operatingsystem',
+      'os',
+      'fullaccess',
       'computeraccess'
     ].includes(normalized)
   ) return 'operator';
@@ -232,9 +231,9 @@ export function describeSparkAccessProfile(profile: SparkAccessProfile): string 
     case 'chat':
       return 'Chat, memory, recall, and diagnostics. No builds or missions.';
     case 'agent':
-      return 'Public web/docs/GitHub research plus requested builds. Public links and repos, not local folders.';
+      return 'Public web/docs/GitHub research plus requested builds. No local files.';
     case 'developer':
-      return 'Sandboxed local projects, files, debugging, and operating-system work inside approved Spark workspaces. Setup: `/access_setup`; must not reveal secrets.';
+      return 'Sandboxed local work inside approved Spark workspaces. Setup: `/access_setup`.';
     case 'operator':
       return 'Whole-computer operator work on a trusted local install. Setup: `/access 5` + Confirm.';
     case 'builder':
@@ -352,7 +351,7 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
       'Spark can work inside approved Spark workspaces, inspect repos, debug, research, and run requested missions.',
       'Workspace setup: `/access_setup`.',
       runnerSummary,
-      'Say "change my access level to 3" for no local files, or use `/access 5` for rare whole-computer work.'
+      'Use `/access 3` for no local files, or `/access 5` for rare whole-computer work.'
     ].filter(Boolean);
     return lines.join('\n\n');
   }
@@ -387,7 +386,7 @@ export function renderSparkAccessBriefStatus(profile: SparkAccessProfile, runner
   return [
     `You are on ${sparkAccessLabel(profile)}.`,
     'Chat, memory, recall, and diagnostics are allowed. Builds are off.',
-    'Use `/access 2` for requested builds, or say "change my access level to 3" for research.'
+    'Use `/access 2` for requested builds.'
   ].join('\n\n');
 }
 
@@ -434,18 +433,18 @@ export function renderSparkAccessChangeConfirmation(profile: SparkAccessProfile)
 
 export function renderSparkAccessConversationHelp(profile: SparkAccessProfile): string {
   return [
-    `This chat is currently ${sparkAccessLabel(profile)}.`,
+    `This chat is on ${sparkAccessLabel(profile)}.`,
     '',
     'Levels:',
     '1 - Chat, memory, recall, diagnostics',
     '2 - Requested builds and missions',
     '3 - Public research plus requested builds',
-    'Level 4: local projects, workspace files, and debugging',
-    'Level 5: whole-computer operator mode',
+    '4 - Workspace files and local debugging',
+    '5 - Whole-computer operator mode',
     '',
     'Local edits still need a writable runner. If this route is read-only, Spark should say so.',
     '',
-    'Say "change my access level to 3" or use the matching /access command.'
+    'Change it with `/access 1` through `/access 5`.'
   ].join('\n');
 }
 
@@ -455,7 +454,6 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
       `Current Spark access: ${sparkAccessLabel(profile)}.`,
       'For sandboxed local workspace, repo, debugging, or project-inspection requests, check runner writability before claiming the work is possible here.',
       'Access level 4 means authorized inside approved Spark sandboxes, not automatically writable in every runner.',
-      'When the runner is writable, do not say you cannot inspect local files; use the authorized Spawner/Codex local route.',
       'If the Level 4 workspace is missing, use `/access_setup` instead of dumping Docker, SSH, or filesystem commands into chat.',
       'If this runner is read-only, say "allowed, blocked here" and route through a writable Spawner/Codex mission or a writable chat runner.'
     ].join('\n');
@@ -494,15 +492,14 @@ export function renderSparkAccessRuntimeHint(profile: SparkAccessProfile): strin
 
 export function renderSparkAccessLevelGuide(): string {
   return [
-    'What each access level allows',
-    `/access 1  Talk with Spark, save memories, recall notes, diagnostics.`,
-    `/access 2  Requested builds and missions; start a Spawner build only after you clearly ask.`,
-    `/access 3  Agents can research public links, docs, and GitHub repos plus requested builds.`,
-    `/access 4  Local projects, files, debugging, deeper missions (recommended for local builds).`,
-    `${BULLET} Level 4 is recommended for local builders: local projects, debugging, files, and Mission Control work.`,
-    `/access 5  Whole-computer operator mode. Confirm once.`,
+    'Levels:',
+    `${BULLET} 1 - Chat, memory, recall, diagnostics. No builds.`,
+    `${BULLET} 2 - Requested builds and missions.`,
+    `${BULLET} 3 - Public research plus requested builds. No local files.`,
+    `${BULLET} 4 - Workspace files and local debugging (\`/access 4\`). Recommended; setup: \`/access_setup\`.`,
+    `${BULLET} 5 - Whole-computer operator mode (\`/access 5\`). Confirm once.`,
     '',
-    'Safety stays on: Spark must not reveal secrets or run destructive actions, and still asks before publishing or deploying.'
+    'Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.'
   ].join('\n');
 }
 
@@ -513,6 +510,6 @@ export function renderSparkAccessOnboarding(defaultProfile: SparkAccessProfile =
     renderSparkAccessLevelGuide(),
     '',
     `Default right now: ${sparkAccessLabel(defaultProfile)}.`,
-    'You can change this later anytime by sending /access 1 through /access 5.'
+    'Change it anytime with `/access 1` through `/access 5`.'
   ].join('\n');
 }
