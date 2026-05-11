@@ -376,18 +376,21 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
     const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
     const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
     const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const chatLevel = sparkAccessLevel(chatProfile);
     return [
       'Spark Access Status',
       '',
-      `Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+      `Chat setting: Access level ${chatLevel}.`,
       `Requested by CLI: Level ${requested}.`,
       `Effective by CLI: Level ${effective}.`,
       `Level 5: ${serviceEnabled ? 'active' : 'blocked/off'} (activation_state: ${activation}, service_enabled: ${boolText(level5.service_enabled)}).`,
       '',
       runnerLine,
       '',
-      serviceEnabled
+      serviceEnabled && chatProfile === 'operator'
         ? 'Verdict: whole-computer operator mode is active, with destructive/secret/publish safety checks still on.'
+        : serviceEnabled
+          ? `Verdict: Level 5 service guardrails are active, but this chat is set to Access level ${chatLevel}. Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.`
         : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
     ].join('\n');
   } catch (error) {
@@ -407,7 +410,10 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
 }
 
 async function renderLevel5ActivationAnswer(chatId: string | number): Promise<string> {
-  const runnerPreflight = await probeTelegramRunnerWritability();
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
   try {
     const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
     const payload = JSON.parse(rawStatus) as Record<string, unknown>;
@@ -420,6 +426,15 @@ async function renderLevel5ActivationAnswer(chatId: string | number): Promise<st
     const runner = runnerPreflight.runnerWritable === 'yes'
       ? 'This Telegram runner is writable.'
       : `This Telegram runner is not writable${runnerPreflight.failureReason ? ` (${runnerPreflight.failureReason})` : ''}.`;
+    if (serviceEnabled && chatProfile !== 'operator') {
+      return [
+        'Level 5 service guardrails are active, but this chat is not in Level 5 operator mode.',
+        '',
+        `This chat is set to Access level ${sparkAccessLevel(chatProfile)}. Requested level is ${requested}, effective service level is ${effective}.`,
+        runner,
+        'Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.'
+      ].join('\n');
+    }
     if (serviceEnabled) {
       return [
         'Level 5 is active.',
@@ -459,23 +474,31 @@ function runtimeTruthSignals(text: string): RuntimeTruthSignals {
   if (!normalized) {
     return { access: false, live: false, providers: false, memory: false };
   }
+  const sourceCheck = /\b(?:old\s+memory|fresh\s+state|fresh\s+runtime|current\s+truth|using\s+memory|using\s+fresh)\b/.test(normalized);
   const access = (
+    sourceCheck ||
     /\blevel\s*[1-5]\b/.test(normalized) ||
     /\bspark\s+access\b/.test(normalized) ||
     /\baccess\s+(?:level|profile|status)\b/.test(normalized) ||
     /\b(?:runner|read[-\s]*only|writable|operator\s+mode|whole[-\s]*computer|full\s+access)\b/.test(normalized)
   );
   const live = (
+    sourceCheck ||
+    /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
+    /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
+    /\blive\s+state\b/.test(normalized) ||
     /\bspark\s+live\b/.test(normalized) ||
-    /\blive\s+(?:spark\s+)?(?:health|status|system|stack)\b/.test(normalized) ||
-    /\b(?:spawner|mission\s+control|telegram|relay|supervised|supervision|running|stopped|offline|online|health|systems?)\b/.test(normalized) &&
-      /\b(?:spark|spawner|telegram|relay|live|supervised|system|stack|health|status|running|stopped|offline|online)\b/.test(normalized)
+    /\blive\s+(?:spark\s+)?(?:health|status|system|stack|state)\b/.test(normalized) ||
+    /\b(?:spawner|mission\s+control|telegram|relay|supervised|supervision|running|stopped|offline|online|health|systems?|state)\b/.test(normalized) &&
+      /\b(?:spark|spawner|telegram|relay|live|supervised|system|stack|health|status|state|running|stopped|offline|online)\b/.test(normalized)
   );
   const providers = (
+    sourceCheck ||
     /\b(?:provider|providers|llm|model|models|codex|openai|anthropic|openrouter|ollama|chat\s+model|current\s+model)\b/.test(normalized) &&
       /\b(?:spark|current|using|configured|healthy|working|status|test|which|what|who)\b/.test(normalized)
   );
   const memory = (
+    sourceCheck ||
     /\b(?:memory\s+bridge|builder\s+memory|domain[-\s]*chip[-\s]*memory|recall|remember|memory\s+health|memory\s+status)\b/.test(normalized) &&
       /\b(?:spark|builder|memory|bridge|health|status|online|offline|working|current)\b/.test(normalized)
   );
@@ -3477,6 +3500,27 @@ function accessLevelChangeConfirmed(raw: string): boolean {
   return /\bconfirm\b/i.test(raw);
 }
 
+function extractTelegramCommandArgs(text: string, command: string): string {
+  const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`^\\s*/${escapedCommand}(?:@\\w+)?(?:\\s+([\\s\\S]*?))?\\s*$`, 'i'));
+  if (match) {
+    return (match[1] || '').trim();
+  }
+  return text.replace(new RegExp(`^\\s*/${escapedCommand}\\b`, 'i'), '').trim();
+}
+
+async function isLevel5ServiceEnabled(): Promise<boolean> {
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    return level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+  } catch {
+    return false;
+  }
+}
+
 async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile): Promise<void> {
   const runtimeGate = validateSparkAccessProfileForRuntime(next);
   if (!runtimeGate.ok) {
@@ -3488,11 +3532,32 @@ async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile)
     return;
   }
 
+  const current = await getSparkAccessProfile(ctx.chat.id);
+  let level5DisableResult: Awaited<ReturnType<typeof runSparkAccessActionDetailed>> | null = null;
+  if (next !== 'operator' && (current === 'operator' || await isLevel5ServiceEnabled())) {
+    level5DisableResult = await runSparkAccessActionDetailed('level5_disable');
+    if (level5DisableResult.payload?.ok === false) {
+      await ctx.reply(level5DisableResult.reply);
+      return;
+    }
+  }
+
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = await renderSparkAccessChangeReply(next);
+  const baseReply = await renderSparkAccessChangeReply(next);
+  const reply = level5DisableResult
+    ? [
+        baseReply,
+        '',
+        'I also disabled Level 5 service guardrails so Spark returns to the workspace sandbox.',
+        level5DisableResult.needsSparkRestart ? formatSparkAccessAutomaticRestartNotice('level5_disable') : ''
+      ].filter(Boolean).join('\n')
+    : baseReply;
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  if (level5DisableResult?.needsSparkRestart) {
+    scheduleSparkRestartAfterAccessChange();
+  }
 }
 
 async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
