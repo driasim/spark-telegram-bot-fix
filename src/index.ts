@@ -82,6 +82,7 @@ import {
   syncRecursiveArtifactToWorkspace
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
+import { resolveSpawnerUiUrl } from './spawnerUrl';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
   renderLocalWorkspaceInspectionReply,
@@ -1146,7 +1147,7 @@ const AOC_ROUTE_LABELS: Record<string, string> = {
   spark_memory: 'Memory',
   spark_researcher: 'Researcher',
   spark_swarm: 'Swarm',
-  spark_browser: 'Browser',
+  spark_browser: 'Browser Use',
   spark_local_work: 'Local Work',
 };
 
@@ -1398,7 +1399,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       .join('\n')}\n\nAnswers: ${answersRaw}`;
   }
 
-  const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
+  const spawnerUrl = resolveSpawnerUiUrl();
   const newRequestId = `${pending.requestId}-clarified-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(newRequestId);
   const traceRef = spawnerPrdTraceRef(missionId);
@@ -2565,7 +2566,7 @@ export async function handleBuildIntent(
     return;
   }
 
-  const spawnerUrl = process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
+  const spawnerUrl = resolveSpawnerUiUrl();
   const chatId = Number(ctx.chat.id);
   const requestId = `tg-build-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
   const missionId = missionIdFromTelegramBuildRequest(requestId);
