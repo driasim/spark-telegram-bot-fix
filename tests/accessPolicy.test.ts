@@ -274,6 +274,10 @@ async function main(): Promise<void> {
     assert.match(indexSource, /function runtimeTruthSignals/);
     assert.match(indexSource, /shouldAnswerAuthoritativeRuntimeStatus/);
     assert.match(indexSource, /renderAuthoritativeSparkLiveStateAnswer/);
+    assert.match(indexSource, /shouldAnswerAuthoritativeAccessCapability/);
+    assert.match(indexSource, /renderAuthoritativeSparkEditCapabilityAnswer/);
+    assert.match(indexSource, /shouldAnswerRuntimeTruthPriority/);
+    assert.match(indexSource, /renderRuntimeTruthPriorityAnswer/);
     assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
     assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
     assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
@@ -286,6 +290,8 @@ async function main(): Promise<void> {
     assert.match(indexSource, /Authoritative current-state context for this answer/);
     assert.match(indexSource, /highest-priority source for current state/);
     assert.match(indexSource, /const reply = await renderAuthoritativeSparkLiveStateAnswer\(\);[\s\S]*?await ctx\.reply\(reply\);/);
+    assert.match(indexSource, /const reply = await renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\);[\s\S]*?await ctx\.reply\(reply\);/);
+    assert.match(indexSource, /fresh `spark live status` says Spawner is up/);
     assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
     assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
   });
