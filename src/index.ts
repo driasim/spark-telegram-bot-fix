@@ -309,12 +309,6 @@ function isSpawnerGoldenPathRequest(text: string): boolean {
   );
 }
 
-function isLevel5ActivationStatusQuestion(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!/\blevel\s*5\b/.test(normalized)) return false;
-  return /\b(?:active|activated|live|enabled|configured|blocked|requested|actually|really|just requested)\b/.test(normalized);
-}
-
 function compactSparkLiveOutput(output: string): string {
   return output
     .split(/\r?\n/)
@@ -451,6 +445,53 @@ async function renderLevel5ActivationAnswer(chatId: string | number): Promise<st
       'So I will treat Level 5 as not active rather than overclaiming.'
     ].join('\n');
   }
+}
+
+function shouldAttachSparkAccessTruthContext(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\blevel\s*5\b/.test(normalized) ||
+    /\bspark\s+access\b/.test(normalized) ||
+    /\baccess\s+(?:level|profile|status)\b/.test(normalized) ||
+    /\b(?:runner|read[-\s]*only|writable|operator\s+mode|whole[-\s]*computer|full\s+access)\b/.test(normalized)
+  );
+}
+
+async function buildConversationalSparkAccessTruthContext(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  const lines = [
+    'Fresh Spark runtime truth for this turn:',
+    `- Chat access setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+    `- Telegram runner writable: ${runnerPreflight.runnerWritable}.`,
+    runnerPreflight.runnerLabel ? `- Runner preflight: ${runnerPreflight.runnerLabel}.` : '',
+  ];
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    lines.push(
+      `- Requested access from Spark CLI: Level ${requested}.`,
+      `- Effective access from Spark CLI: Level ${effective}.`,
+      `- Level 5 service guardrails active: ${serviceEnabled ? 'yes' : 'no'} (${activation}).`
+    );
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    lines.push(`- Fresh Spark CLI access check failed: ${detail}.`);
+  }
+  lines.push(
+    '',
+    'Conversation guidance: Use these fresh facts as higher priority than older memory or generic access doctrine. Answer naturally and briefly. Do not dump raw status fields unless the user explicitly asks for raw/debug output. Do not say this runner is read-only when this fresh preflight says it is writable.'
+  );
+  return lines.filter(Boolean).join('\n');
 }
 
 function activeTelegramProfile(): string {
@@ -3685,31 +3726,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     !earlyBuildIntent &&
     (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
   ) {
-    await conversation.remember(user, text).catch(() => {});
-    const [accessProfile, runnerPreflight] = await Promise.all([
-      getSparkAccessProfile(ctx.chat.id),
-      probeTelegramRunnerWritability()
-    ]);
-    const reply = renderSparkAccessCapabilityStatus(accessProfile, runnerPreflight);
-    await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
+    conversationFrameContext = [
+      conversationFrameContext,
+      await buildConversationalSparkAccessTruthContext(ctx.chat.id)
+    ].filter(Boolean).join('\n\n');
   }
 
-  if (!earlyBuildIntent && isLevel5ActivationStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
-    await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
-  }
-
-  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
-    await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
+  if (!earlyBuildIntent && shouldAttachSparkAccessTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn:')) {
+    conversationFrameContext = [
+      conversationFrameContext,
+      await buildConversationalSparkAccessTruthContext(ctx.chat.id)
+    ].filter(Boolean).join('\n\n');
   }
 
   if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
