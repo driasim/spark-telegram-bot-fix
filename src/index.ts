@@ -354,6 +354,57 @@ async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
   }
 }
 
+function firstMatchingLine(output: string, pattern: RegExp): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => pattern.test(line)) || '';
+}
+
+async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
+  try {
+    const [liveStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerLine = firstMatchingLine(liveStatus, /\[OK\]\s+spawner-ui|spawner-ui:/i);
+    const telegramLine = firstMatchingLine(liveStatus, /\[OK\]\s+spark-telegram-bot|spark-telegram-bot:/i);
+    const profilesLine = firstMatchingLine(liveStatus, /Telegram profiles:/i);
+    const rolesLine = firstMatchingLine(liveStatus, /LLM roles:/i);
+    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(spawnerLine);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(telegramLine);
+    const headline = liveReady && spawnerOk && telegramOk
+      ? 'Current live state: healthy.'
+      : 'Current live state: attention needed.';
+    return [
+      headline,
+      '',
+      'Fresh `spark live status` evidence:',
+      spawnerLine ? `- Spawner UI: ${spawnerOk ? 'OK' : 'not OK'} - ${spawnerLine.replace(/^\[OK\]\s+spawner-ui:\s*/i, '')}` : '- Spawner UI: not reported by live status.',
+      telegramLine ? `- Telegram: ${telegramOk ? 'OK' : 'not OK'} - ${telegramLine.replace(/^\[OK\]\s+spark-telegram-bot:\s*/i, '')}` : '- Telegram: not reported by live status.',
+      profilesLine ? `- ${profilesLine}` : '',
+      rolesLine ? `- ${rolesLine}` : '',
+      supervised ? `- Supervision: ${supervised.replace(/\.+$/, '')}.` : '- Supervision: not proven by verify output.',
+      '',
+      liveReady && spawnerOk && telegramOk
+        ? 'Call: Spark Live, Spawner, and Telegram are up right now.'
+        : 'Call: at least one live operating surface is not proven healthy right now.'
+    ].filter(Boolean).join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Current live state: unknown.',
+      '',
+      'I could not run `spark live status` from this Telegram runtime.',
+      `Error: ${detail}`,
+      '',
+      'Call: this is a probe failure, not proof that Spawner or Telegram are down.'
+    ].join('\n');
+  }
+}
+
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -510,6 +561,19 @@ function runtimeTruthSignals(text: string): RuntimeTruthSignals {
 function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
   const signals = runtimeTruthSignals(text);
   return signals.access || signals.live || signals.providers || signals.memory;
+}
+
+function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!runtimeTruthSignals(text).live) return false;
+  return (
+    isLiveSparkHealthQuestion(text) ||
+    /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
+    /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
+    /\bwhat\s+is\s+(?:the\s+)?(?:current\s+)?live\s+state\b/.test(normalized) ||
+    /\b(?:is|are)\s+(?:spawner|telegram|spark|systems?|stack)\b.*\b(?:healthy|running|online|up|live|supervised)\b/.test(normalized) ||
+    /\b(?:spawner|telegram)\b.*\b(?:healthy|running|supervised|stopped|offline|online|up|down)\b/.test(normalized)
+  );
 }
 
 function compactRuntimeOutput(output: string, maxLines = 18): string {
@@ -3710,6 +3774,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
     await attachFreshRuntimeTruthContext();
+  }
+
+  if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkLiveStateAnswer();
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
   }
 
   if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
