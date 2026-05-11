@@ -242,7 +242,7 @@ async function main(): Promise<void> {
     assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
     assert.match(accessCommand[0], /applySparkAccessProfileChange\(ctx, next\)/);
     assert.match(accessCommand[0], /current === 'operator'/);
-    assert.match(indexSource, /renderSparkAccessBriefStatus\('operator', await probeTelegramRunnerWritability\(\)\)/);
+    assert.match(indexSource, /renderLevel5ActivationAnswer\(ctx\.chat\.id\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
     assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
     assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
