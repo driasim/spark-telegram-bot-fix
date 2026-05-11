@@ -305,8 +305,17 @@ function isSpawnerGoldenPathRequest(text: string): boolean {
   return (
     /\bgolden[_\s-]*path\b/.test(normalized) ||
     (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
-    (/\bgolden_path_ok\b/.test(normalized) && /\bspawner\b/.test(normalized))
+    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized))
   );
+}
+
+function extractNoEditMissionReplyPhrase(text: string): string {
+  const exactReply = text.match(/\bonly\s+repl(?:y|ies)\s*:?\s*[`"']?([A-Za-z0-9_ -]{2,80}?)[`"']?(?:[.!?\n]|$)/i)?.[1]?.trim();
+  if (exactReply) {
+    return exactReply.replace(/\s+/g, ' ').trim();
+  }
+  const bareToken = text.match(/\b([A-Z][A-Z0-9_]{5,80})\b/)?.[1]?.trim();
+  return bareToken || 'GOLDEN_PATH_OK';
 }
 
 function compactSparkLiveOutput(output: string): string {
@@ -403,6 +412,65 @@ async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
   }
 }
 
+async function renderAuthoritativeSparkRiskProfileAnswer(): Promise<string> {
+  try {
+    const [liveStatus, providerStatus] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000).catch((error) => `provider_check_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const providersOk = !/provider_check_failed/i.test(providerStatus) && !/\[(?:FAIL|ERROR|WARN)\]/i.test(providerStatus);
+    const risk = liveReady && spawnerOk && telegramOk && providersOk ? 'low' : 'attention';
+    return [
+      `Current Spark risk profile: ${risk}.`,
+      '',
+      'Fresh evidence:',
+      `- Live stack: ${liveReady ? 'ready' : 'not fully ready'}.`,
+      `- Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
+      `- Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      `- Providers: ${providersOk ? 'OK by provider status' : 'not fully proven by provider status'}.`,
+      '',
+      risk === 'low'
+        ? 'Call: the main risk right now is regression/drift from future changes, not a current outage. I did not start a mission or repair action.'
+        : 'Call: at least one surface needs attention before trusting execution. I did not start a mission or repair action.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Current Spark risk profile: unknown.',
+      '',
+      `Fresh risk check failed: ${detail}`,
+      'I did not start a mission or repair action.'
+    ].join('\n');
+  }
+}
+
+async function renderMemoryRuntimeSeparationAnswer(): Promise<string> {
+  try {
+    const liveStatus = await runSparkCli(['live', 'status'], 45_000);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    return [
+      'No. Remembering a phrase does not change live Spark health.',
+      '',
+      `Fresh live state after the memory write: ${liveReady && spawnerOk && telegramOk ? 'healthy' : 'attention needed'}.`,
+      `Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}. Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      '',
+      'Memory can change recall/history. Runtime health still has to come from live probes.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'No. Remembering a phrase should not change live Spark health.',
+      '',
+      `I could not refresh live health for this answer: ${detail}`
+    ].join('\n');
+  }
+}
+
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
@@ -491,6 +559,16 @@ function shouldAnswerAuthoritativeAccessCapability(text: string): boolean {
     /\boutside[-\s]*workspace\s+(?:edits?|writes?|access)\b/.test(normalized) ||
     /\beffective\s+access\s+level\b/.test(normalized) && /\b(?:writable|edit|write|runner|current|right\s+now)\b/.test(normalized)
   );
+}
+
+function shouldAnswerSparkRiskProfile(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\bspark\b/.test(normalized) && /\brisk\s+profile\b/.test(normalized);
+}
+
+function shouldAnswerMemoryRuntimeSeparation(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\bdid\b.*\bremember(?:ing)?\b.*\bchange\b.*\b(?:live\s+)?spark\s+health\b/.test(normalized);
 }
 
 async function renderAuthoritativeSparkEditCapabilityAnswer(chatId: string | number): Promise<string> {
@@ -603,6 +681,92 @@ function renderRuntimeTruthPriorityAnswer(): string {
     'Rule: `spark live status`, `spark access status`, provider checks, and direct smoke probes are authoritative for what is true right now. Memory is useful for history and continuity, but it must not override fresh runtime evidence.',
     '',
     'So if memory says Spawner is down and fresh `spark live status` says Spawner is up, Spawner is up right now. The memory becomes stale context, not current truth.'
+  ].join('\n');
+}
+
+function shouldAnswerRestartSurvivalQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bsurviv(?:e|ed)\b.*\brestart\b/.test(normalized) ||
+    /\brestart\b.*\bsurviv(?:e|ed)\b/.test(normalized)
+  );
+}
+
+async function renderRestartSurvivalAnswer(chatId: string | number): Promise<string> {
+  try {
+    const [accessState, liveStatus, providerStatus, deepVerify, chatProfile] = await Promise.all([
+      readSparkAccessState(),
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`),
+      getSparkAccessProfile(chatId)
+    ]);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const memoryOk = /\[OK\]\s+(?:domain-chip-memory|spark-researcher|spark-intelligence-builder)/i.test(liveStatus) || /memory|domain-chip-memory|researcher/i.test(deepVerify);
+    const roles = providerStatus
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^\[OK\]\s+(?:chat|builder|memory|mission)\b/i.test(line))
+      .slice(0, 4);
+    return [
+      'Fresh post-restart state:',
+      '',
+      `- Access chat setting: Level ${sparkAccessLevel(chatProfile)}.`,
+      `- Effective CLI access: Level ${accessState.effective}.`,
+      `- Level 5 guardrails: ${accessState.serviceEnabled ? 'active' : 'off/blocked'} (${accessState.activation}).`,
+      `- Spawner supervision/health: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
+      `- Telegram supervision/health: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      `- Memory/Builder evidence: ${memoryOk ? 'OK present' : 'not proven OK'}.`,
+      roles.length ? `- Provider roles: ${roles.map((line) => line.replace(/^\[OK\]\s+/, '')).join('; ')}.` : '- Provider roles: not proven by provider status.',
+      '',
+      'Call: durable config/memory can survive restart, but live capability is only trusted after these fresh checks pass.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not prove what survived the restart from fresh checks.',
+      '',
+      `Error: ${detail}`
+    ].join('\n');
+  }
+}
+
+function shouldAnswerMissionProvenanceQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\b(?:did|whether|can\s+you\s+tell)\b.*\bmission\b.*\b(?:spawner|chat)\b/.test(normalized) ||
+    /\b(?:ran|run|routed)\s+through\s+spawner\b/.test(normalized) ||
+    /\bjust\s+through\s+chat\b/.test(normalized)
+  );
+}
+
+async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<string> {
+  const latestProbe = lastNoEditProbeMissions.get(noEditProbeKey(ctx));
+  if (latestProbe) {
+    return [
+      'Yes. The latest no-edit probe was routed through Spawner, not just chat.',
+      '',
+      `Evidence: Telegram created Spawner mission \`${latestProbe.missionId}\` for the requested reply \`${latestProbe.requestedPhrase}\` at ${latestProbe.startedAt}.`,
+      'A plain chat answer would not have a Spawner mission id.'
+    ].join('\n');
+  }
+  const recentMessages = await conversation.getRecentMessages(user, 8).catch(() => []);
+  const recentText = recentMessages.join('\n');
+  const missionId = recentText.match(/\bMission:\s*((?:spark|mission)-[A-Za-z0-9_-]+)/i)?.[1] ||
+    recentText.match(/\b((?:spark|mission)-[0-9A-Za-z_-]{6,})\b/)?.[1];
+  if (missionId) {
+    return [
+      'Most likely Spawner, not plain chat.',
+      '',
+      `Evidence: the recent thread includes mission id \`${missionId}\`. A plain chat answer would not normally produce a Spawner mission id.`,
+      'I do not have the in-memory no-edit probe record for this mission, so this is provenance from recent thread evidence rather than the live probe map.'
+    ].join('\n');
+  }
+  return [
+    'I cannot prove whether the latest mission ran through Spawner from the current thread state.',
+    '',
+    'The proof I need is a fresh mission id or a Spawner result record. Without that, I should not claim it was Spawner.'
   ].join('\n');
 }
 
@@ -1031,6 +1195,18 @@ bot.use(async (ctx, next) => {
 // Rate limiting (simple in-memory)
 const userLastAction = new Map<number, number>();
 const RATE_LIMIT_MS = 1000; // 1 second between messages
+
+type NoEditProbeMission = {
+  missionId: string;
+  requestedPhrase: string;
+  startedAt: string;
+};
+
+const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
+
+function noEditProbeKey(ctx: any): string {
+  return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
+}
 
 // Pending clarification state — keyed by `${chatId}-${userId}`. In-memory
 // only for v1; doesn't survive bot restart. /clarify reads + clears.
@@ -4059,6 +4235,38 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && shouldAnswerSparkRiskProfile(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkRiskProfileAnswer();
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerMemoryRuntimeSeparation(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderMemoryRuntimeSeparationAnswer();
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerRestartSurvivalQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderRestartSurvivalAnswer(ctx.chat.id);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerMissionProvenanceQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderMissionProvenanceAnswer(ctx, user);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkLiveStateAnswer();
@@ -4071,6 +4279,27 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
       await attachFreshRuntimeTruthContext();
     }
+  }
+
+  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const replyPhrase = extractNoEditMissionReplyPhrase(text);
+    const missionId = await handleRunCommand(
+      ctx,
+      `Reply with exactly: ${replyPhrase}. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`,
+      [missionDefaultProvider()],
+      'spawner_build',
+      { missionName: 'Telegram Golden Path Probe' }
+    );
+    if (missionId) {
+      lastNoEditProbeMissions.set(noEditProbeKey(ctx), {
+        missionId,
+        requestedPhrase: replyPhrase,
+        startedAt: new Date().toISOString()
+      });
+      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
+    }
+    return;
   }
 
   if (!earlyBuildIntent && isAccessHelpQuestion(text) && deterministicRouteAllowed('access.help', text)) {

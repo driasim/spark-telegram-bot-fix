@@ -278,6 +278,14 @@ async function main(): Promise<void> {
     assert.match(indexSource, /renderAuthoritativeSparkEditCapabilityAnswer/);
     assert.match(indexSource, /shouldAnswerRuntimeTruthPriority/);
     assert.match(indexSource, /renderRuntimeTruthPriorityAnswer/);
+    assert.match(indexSource, /shouldAnswerSparkRiskProfile/);
+    assert.match(indexSource, /renderAuthoritativeSparkRiskProfileAnswer/);
+    assert.match(indexSource, /shouldAnswerRestartSurvivalQuestion/);
+    assert.match(indexSource, /renderRestartSurvivalAnswer/);
+    assert.match(indexSource, /shouldAnswerMissionProvenanceQuestion/);
+    assert.match(indexSource, /renderMissionProvenanceAnswer/);
+    assert.match(indexSource, /shouldAnswerMemoryRuntimeSeparation/);
+    assert.match(indexSource, /renderMemoryRuntimeSeparationAnswer/);
     assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
     assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
     assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
@@ -292,8 +300,20 @@ async function main(): Promise<void> {
     assert.match(indexSource, /const reply = await renderAuthoritativeSparkLiveStateAnswer\(\);[\s\S]*?await ctx\.reply\(reply\);/);
     assert.match(indexSource, /const reply = await renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\);[\s\S]*?await ctx\.reply\(reply\);/);
     assert.match(indexSource, /fresh `spark live status` says Spawner is up/);
+    assert.match(indexSource, /Current Spark risk profile:/);
+    assert.match(indexSource, /Memory can change recall\/history/);
+    assert.match(indexSource, /A plain chat answer would not have a Spawner mission id/);
     assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
     assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
+  });
+
+  await test('no-edit Spawner probes honor the requested exact reply', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    assert.match(indexSource, /function extractNoEditMissionReplyPhrase/);
+    assert.match(indexSource, /const replyPhrase = extractNoEditMissionReplyPhrase\(text\)/);
+    assert.match(indexSource, /Reply with exactly: \$\{replyPhrase\}/);
+    assert.doesNotMatch(indexSource, /Reply with exactly: GOLDEN_PATH_OK\. Do not edit files/);
+    assert.match(indexSource, /requested exact reply: \$\{replyPhrase\}/);
   });
 
   await test('gates Spawner command side doors by access level', async () => {
