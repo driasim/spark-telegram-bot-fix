@@ -82,6 +82,16 @@ test('parses advanced PRD mode preface before build command', () => {
   assert.match(intent.prd, /^a vanilla-JS single-page app called Spark Galaxy Garden\./);
 });
 
+test('stops target paths before sentence-level proof instructions', () => {
+  const intent = parseBuildIntent(
+    'Create a local-only static HTML proof page in C:\\Users\\USER\\Desktop\\spark-os-live-trace-proof-20260511-k. Create only index.html and README.md. Include the visible marker SPARK_OS_INSTALLED_BUILDER_PROOF_K_20260511. Include the sentence "Installed Builder runtime source proof".'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\spark-os-live-trace-proof-20260511-k');
+  assert.match(intent.prd, /SPARK_OS_INSTALLED_BUILDER_PROOF_K_20260511/);
+});
+
 test('ignores paths outside the configured workspace root', () => {
   const intent = parseBuildIntent('build this at D:\\tmp\\outside: a tiny HTML file called Outside Test.');
 
