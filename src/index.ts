@@ -311,6 +311,12 @@ function isSpawnerGoldenPathRequest(text: string): boolean {
   );
 }
 
+function isLevel5ActivationStatusQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!/\blevel\s*5\b/.test(normalized)) return false;
+  return /\b(?:active|activated|live|enabled|configured|blocked|requested|actually|really|just requested)\b/.test(normalized);
+}
+
 function compactSparkLiveOutput(output: string): string {
   return output
     .split(/\r?\n/)
@@ -404,6 +410,47 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
       runnerLine,
       '',
       'Verdict: this runner could not read the authoritative access state, so I will not claim Level 5 is active.'
+    ].join('\n');
+  }
+}
+
+async function renderLevel5ActivationAnswer(chatId: string | number): Promise<string> {
+  const runnerPreflight = await probeTelegramRunnerWritability();
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const runner = runnerPreflight.runnerWritable === 'yes'
+      ? 'This Telegram runner is writable.'
+      : `This Telegram runner is not writable${runnerPreflight.failureReason ? ` (${runnerPreflight.failureReason})` : ''}.`;
+    if (serviceEnabled) {
+      return [
+        'Level 5 is active.',
+        '',
+        `Requested level is ${requested}, effective level is ${effective}, and the service guardrails are enabled.`,
+        runner,
+        'I will still ask before destructive actions, secret exposure, publishing, or deploys.'
+      ].join('\n');
+    }
+    return [
+      'Level 5 is only requested right now, not active.',
+      '',
+      `Spark reports effective access Level ${effective}; Level 5 is ${activation}.`,
+      runner,
+      'So local workspace work is available, but whole-computer operator mode is not live.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I cannot prove Level 5 is active from the local Spark access state.',
+      '',
+      `Access check failed: ${detail}`,
+      'So I will treat Level 5 as not active rather than overclaiming.'
     ].join('\n');
   }
 }
@@ -3114,7 +3161,7 @@ bot.command('access', async (ctx) => {
   if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
     const runtimeGate = validateSparkAccessProfileForRuntime(next);
     if (runtimeGate.ok) {
-      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
       return;
@@ -3259,7 +3306,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
   if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
     const runtimeGate = validateSparkAccessProfileForRuntime(next);
     if (runtimeGate.ok) {
-      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
       return true;
@@ -3475,6 +3522,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   ) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isLevel5ActivationStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
