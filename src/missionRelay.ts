@@ -10,6 +10,7 @@ import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUi
 
 const MISSION_LESSON_APPROVAL_PATH = resolveStatePath('.spark-mission-lesson-approvals.json');
 let relayRuntimeStatus: MissionRelayRuntimeStatus = {};
+const OUTBOUND_TRACE_CONTEXT_KEY = '__sparkTraceContext';
 
 type RelayEventType =
   | 'mission_created'
@@ -671,6 +672,28 @@ function isProviderLevelCompletionEvent(event: DeliverableRelayEvent): boolean {
   return event.type === 'task_completed' && !event.taskId && !event.taskName;
 }
 
+function traceRefFromEvent(event: DeliverableRelayEvent): string | undefined {
+  const value = event.data?.traceRef ?? event.data?.trace_ref;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function missionRelayTraceExtra(
+  subscription: MissionSubscription,
+  event: DeliverableRelayEvent,
+  replyKind: string
+): Record<string, unknown> {
+  return {
+    [OUTBOUND_TRACE_CONTEXT_KEY]: {
+      route: 'mission_relay',
+      command: 'mission_relay',
+      replyKind,
+      requestId: subscription.requestId,
+      traceRef: subscription.traceRef || traceRefFromEvent(event),
+      missionId: event.missionId
+    }
+  };
+}
+
 async function sendFetchedCompletionSummary(
   bot: Telegraf,
   chatId: number,
@@ -701,7 +724,11 @@ async function sendFetchedCompletionSummary(
     const chunks = chunkForTelegram(message);
     for (let i = 0; i < chunks.length; i++) {
       const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
-      await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+      await bot.telegram.sendMessage(
+        chatId,
+        `${prefix}${chunks[i]}`,
+        missionRelayTraceExtra(subscription, event, 'mission_completion')
+      );
     }
     completionDeliveryCache.add(event.missionId);
     await saveCompletionDeliveryCache();
@@ -1572,9 +1599,11 @@ function scheduleHeartbeat(
         const message = status === 'completed'
           ? 'The board shows this run as complete. I will stop live pings and wait for the handoff.'
           : `The board shows this run as ${status}. I will stop live pings; the trace has the latest detail.`;
-        bot.telegram.sendMessage(chatId, message).catch((error) => {
-          console.warn('[MissionRelay] Failed to send terminal heartbeat notice:', error);
-        });
+        bot.telegram
+          .sendMessage(chatId, message, missionRelayTraceExtra(subscription, event, 'mission_heartbeat'))
+          .catch((error) => {
+            console.warn('[MissionRelay] Failed to send terminal heartbeat notice:', error);
+          });
       } else {
         bot.telegram.sendMessage(
           chatId,
@@ -1582,7 +1611,8 @@ function scheduleHeartbeat(
             'This run has gone quiet, so I am stopping repeated pings.',
             '',
             'Check the board or canvas trace. If it looks stranded, use /mission status or /mission kill.'
-          ].join('\n')
+          ].join('\n'),
+          missionRelayTraceExtra(subscription, event, 'mission_heartbeat')
         ).catch((error) => {
           console.warn('[MissionRelay] Failed to send stale heartbeat notice:', error);
         });
@@ -1602,9 +1632,11 @@ function scheduleHeartbeat(
     }
     heartbeatLastMessages.set(key, message);
 
-    bot.telegram.sendMessage(chatId, message).catch((error) => {
-      console.warn('[MissionRelay] Failed to send heartbeat:', error);
-    });
+    bot.telegram
+      .sendMessage(chatId, message, missionRelayTraceExtra(subscription, event, 'mission_heartbeat'))
+      .catch((error) => {
+        console.warn('[MissionRelay] Failed to send heartbeat:', error);
+      });
   }, interval);
 
   heartbeatTimers.set(key, timer);
@@ -2003,7 +2035,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
               '',
               `Mission: ${event.missionId}`,
               'I will suppress any late handoff messages for this run.'
-            ].join('\n')
+            ].join('\n'),
+            missionRelayTraceExtra(subscription, event, 'mission_cancelled')
           );
         }
         writeJson(res, 200, { ok: true, cancelled: true });
@@ -2021,7 +2054,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
               '',
               `Mission: ${event.missionId}`,
               'I will hold Telegram auto-handoffs until it resumes.'
-            ].join('\n')
+            ].join('\n'),
+            missionRelayTraceExtra(subscription, event, 'mission_paused')
           );
         }
         writeJson(res, 200, { ok: true, paused: true });
@@ -2039,7 +2073,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
               '',
               `Mission: ${event.missionId}`,
               'Telegram handoffs are enabled again.'
-            ].join('\n')
+            ].join('\n'),
+            missionRelayTraceExtra(subscription, event, 'mission_resumed')
           );
         }
         writeJson(res, 200, { ok: true, resumed: true });
@@ -2083,7 +2118,11 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
           const chunks = chunkForTelegram(message);
           for (let i = 0; i < chunks.length; i++) {
             const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
-            await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+            await bot.telegram.sendMessage(
+              chatId,
+              `${prefix}${chunks[i]}`,
+              missionRelayTraceExtra(subscription, event, 'mission_completion')
+            );
           }
           await handleMissionCompletionMemory(bot, chatId, subscription, event, extracted.providerLabel, extracted.response);
           writeJson(res, 200, { ok: true, chunks: chunks.length });
@@ -2101,7 +2140,8 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
             voiceLine('failed', `${event.missionId}:${label}:task-failed`),
             `${label} could not finish this step.`,
             clipText(stripMissionControlBoilerplate(failure.error), 500)
-          )
+          ),
+          missionRelayTraceExtra(subscription, event, 'mission_failed')
         );
         writeJson(res, 200, { ok: true });
         return;
@@ -2126,7 +2166,11 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
       const chunks = chunkForTelegram(progressMessage);
       for (let i = 0; i < chunks.length; i++) {
         const prefix = chunks.length > 1 ? `(part ${i + 1} of ${chunks.length})\n` : '';
-        await bot.telegram.sendMessage(chatId, `${prefix}${chunks[i]}`);
+        await bot.telegram.sendMessage(
+          chatId,
+          `${prefix}${chunks[i]}`,
+          missionRelayTraceExtra(subscription, event, 'mission_progress')
+        );
       }
       writeJson(res, 200, { ok: true, chunks: chunks.length });
     } catch (error) {
