@@ -462,6 +462,79 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
   }
 }
 
+async function readSparkAccessState(): Promise<{
+  effective: unknown;
+  requested: unknown;
+  activation: string;
+  serviceEnabled: boolean;
+  workspaceWritable: unknown;
+}> {
+  const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+  const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+  const level5 = objectRecord(payload.level5);
+  const stateMachine = objectRecord(payload.state_machine);
+  const workspacePreflight = objectRecord(payload.workspace_preflight);
+  return {
+    effective: payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown',
+    requested: stateMachine.requested_access_level ?? payload.access_level ?? 'unknown',
+    activation: String(level5.activation_state || stateMachine.activation_state || 'unknown'),
+    serviceEnabled: level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true,
+    workspaceWritable: workspacePreflight.writable
+  };
+}
+
+function shouldAnswerAuthoritativeAccessCapability(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\b(?:are|is)\s+(?:you|recursive|runner|telegram\s+runner|this\s+runner)\s+(?:writable|read[-\s]*only)\b/.test(normalized) ||
+    /\bcan\s+you\s+(?:edit|write|modify|touch)\b.*\b(?:files?|outside|workspace|computer|machine)\b/.test(normalized) ||
+    /\b(?:edit|write|modify|touch)\s+files?\s+outside\s+(?:the\s+)?spark\s+workspace\b/.test(normalized) ||
+    /\boutside[-\s]*workspace\s+(?:edits?|writes?|access)\b/.test(normalized) ||
+    /\beffective\s+access\s+level\b/.test(normalized) && /\b(?:writable|edit|write|runner|current|right\s+now)\b/.test(normalized)
+  );
+}
+
+async function renderAuthoritativeSparkEditCapabilityAnswer(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  try {
+    const accessState = await readSparkAccessState();
+    const chatLevel = sparkAccessLevel(chatProfile);
+    const runnerWritable = runnerPreflight.runnerWritable === 'yes';
+    const canOperateOutsideWorkspace = accessState.serviceEnabled && chatProfile === 'operator' && runnerWritable;
+    return [
+      canOperateOutsideWorkspace
+        ? 'Yes. This Telegram runner is writable and Level 5 operator mode is active.'
+        : 'No. Whole-computer file work is not fully available from this Telegram runner right now.',
+      '',
+      'Fresh access evidence:',
+      `- Chat setting: Access level ${chatLevel}.`,
+      `- Requested by CLI: Level ${accessState.requested}.`,
+      `- Effective by CLI: Level ${accessState.effective}.`,
+      `- Level 5 service guardrails: ${accessState.serviceEnabled ? 'active' : 'off/blocked'} (${accessState.activation}).`,
+      `- Runner writable: ${runnerPreflight.runnerWritable}.`,
+      `- Spark workspace writable: ${boolText(accessState.workspaceWritable)}.`,
+      '',
+      canOperateOutsideWorkspace
+        ? 'Boundary: routine outside-workspace operator work is allowed, but deleting important files, exposing secrets, publishing, or deploying still requires confirmation.'
+        : 'Boundary: Spark should stay in the workspace/sandbox path unless Level 5 service guardrails, chat access, and runner writability are all active.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I cannot prove whole-computer file access from current Spark access state.',
+      '',
+      `Access check failed: ${detail}`,
+      `Runner writable: ${runnerPreflight.runnerWritable}.`,
+      '',
+      'So I will treat outside-workspace edits as unavailable until the access check succeeds.'
+    ].join('\n');
+  }
+}
+
 async function renderLevel5ActivationAnswer(chatId: string | number): Promise<string> {
   const [chatProfile, runnerPreflight] = await Promise.all([
     getSparkAccessProfile(chatId),
@@ -513,6 +586,26 @@ async function renderLevel5ActivationAnswer(chatId: string | number): Promise<st
       'So I will treat Level 5 as not active rather than overclaiming.'
     ].join('\n');
   }
+}
+
+function shouldAnswerRuntimeTruthPriority(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\b(?:which|what)\s+source\s+wins\b/.test(normalized) ||
+    /\b(?:memory|old\s+memory|stale\s+memory)\b.*\b(?:spark\s+live\s+status|fresh\s+(?:state|runtime)|current\s+(?:state|truth))\b.*\b(?:wins?|trust|believe|use)\b/.test(normalized) ||
+    /\b(?:spark\s+live\s+status|fresh\s+(?:state|runtime)|current\s+(?:state|truth))\b.*\b(?:memory|old\s+memory|stale\s+memory)\b.*\b(?:wins?|trust|believe|use)\b/.test(normalized)
+  );
+}
+
+function renderRuntimeTruthPriorityAnswer(): string {
+  return [
+    'Fresh runtime state wins for current-state questions.',
+    '',
+    'Rule: `spark live status`, `spark access status`, provider checks, and direct smoke probes are authoritative for what is true right now. Memory is useful for history and continuity, but it must not override fresh runtime evidence.',
+    '',
+    'So if memory says Spawner is down and fresh `spark live status` says Spawner is up, Spawner is up right now. The memory becomes stale context, not current truth.'
+  ].join('\n');
 }
 
 type RuntimeTruthSignals = {
@@ -3774,6 +3867,22 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
     await attachFreshRuntimeTruthContext();
+  }
+
+  if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = renderRuntimeTruthPriorityAnswer();
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
   }
 
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
