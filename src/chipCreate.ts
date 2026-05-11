@@ -6,6 +6,7 @@ import { resolvePythonCommand } from './pythonCommand';
 import { withHiddenWindows } from './hiddenProcess';
 import { builderBridgeTimeoutMs, positiveIntegerEnv } from './timeoutConfig';
 import { buildChipCreateMissionContext, ChipCreateMissionReporter } from './missionControl';
+import { resolveBuilderRepoPath } from './builderRepoPath';
 
 const execFileAsync = promisify(execFile);
 
@@ -76,9 +77,7 @@ export function formatChipCreateProcessError(err: any): string {
 }
 
 function resolveConfig(): ChipCreateConfig {
-  const builderRepo = path.resolve(
-    process.env.SPARK_BUILDER_REPO || path.join(process.cwd(), '..', 'spark-intelligence-builder')
-  );
+  const builderRepo = resolveBuilderRepoPath({ configuredRepo: process.env.SPARK_BUILDER_REPO });
   return {
     pythonCommand: resolvePythonCommand(process.env.SPARK_BUILDER_PYTHON),
     builderRepo,

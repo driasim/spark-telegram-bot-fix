@@ -464,9 +464,9 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
   assert.doesNotMatch(source, /'self',\s*'context'/);
 });
 
-test('builder repo resolver finds installed Builder when Telegram runs from installed source', () => {
+test('builder repo resolver prefers release-installed Builder when Telegram runs from installed source', () => {
   const homeDir = path.resolve('C:/Users/USER');
-  const installedBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source');
+  const installedBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder-release', 'source');
   const resolved = resolveBuilderRepoPath({
     cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
     homeDir,
@@ -474,6 +474,18 @@ test('builder repo resolver finds installed Builder when Telegram runs from inst
   });
 
   assert.equal(resolved, installedBuilderRepo);
+});
+
+test('builder repo resolver keeps legacy installed Builder as fallback', () => {
+  const homeDir = path.resolve('C:/Users/USER');
+  const legacyBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source');
+  const resolved = resolveBuilderRepoPath({
+    cwd: path.join(homeDir, '.spark', 'modules', 'spark-telegram-bot', 'source'),
+    homeDir,
+    exists: (targetPath) => targetPath === path.join(legacyBuilderRepo, 'src', 'spark_intelligence', 'cli.py')
+  });
+
+  assert.equal(resolved, legacyBuilderRepo);
 });
 
 test('builder repo resolver preserves explicit operator override', () => {

@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs';
+import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { resolveBuilderRepoPath } from './builderRepoPath';
 import { resolvePythonCommand } from './pythonCommand';
 import { redactText } from './redaction';
 import {
@@ -15,6 +16,8 @@ import {
 import { withHiddenWindows } from './hiddenProcess';
 
 const execFileAsync = promisify(execFile);
+
+export { resolveBuilderRepoPath };
 
 function processOutputText(value: unknown): string {
   if (Buffer.isBuffer(value)) {
@@ -176,41 +179,6 @@ function parseBridgeMode(): BuilderBridgeMode {
   throw new Error('SPARK_BUILDER_BRIDGE_MODE must be one of: auto, off, required');
 }
 
-export function resolveBuilderRepoPath(options: {
-  configuredRepo?: string;
-  cwd?: string;
-  homeDir?: string;
-  exists?: (targetPath: string) => boolean;
-} = {}): string {
-  const configuredRepo = options.configuredRepo?.trim();
-  if (configuredRepo) {
-    return path.resolve(configuredRepo);
-  }
-  const cwd = options.cwd || process.cwd();
-  const homeDir = options.homeDir || os.homedir();
-  const exists = options.exists || existsSync;
-  const candidates = [
-    path.join(cwd, '..', 'spark-intelligence-builder'),
-    path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder', 'source'),
-    path.join(homeDir, 'Desktop', 'spark-intelligence-builder'),
-  ];
-  const seen = new Set<string>();
-  const resolvedCandidates = candidates
-    .map((candidate) => path.resolve(candidate))
-    .filter((candidate) => {
-      const key = candidate.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  for (const candidate of resolvedCandidates) {
-    if (exists(path.join(candidate, 'src', 'spark_intelligence', 'cli.py'))) {
-      return candidate;
-    }
-  }
-  return resolvedCandidates[0];
-}
-
 function resolveBridgeConfig(): BuilderBridgeConfig {
   const builderRepo = resolveBuilderRepoPath({ configuredRepo: process.env.SPARK_BUILDER_REPO });
 
@@ -246,6 +214,7 @@ function candidateDiagnosticsRepos(config: BuilderBridgeConfig): string[] {
   return [
     process.env.SPARK_DIAGNOSTICS_BUILDER_REPO || '',
     config.builderRepo,
+    path.join(os.homedir(), '.spark', 'modules', 'spark-intelligence-builder-release', 'source'),
     path.join(os.homedir(), '.spark', 'modules', 'spark-intelligence-builder', 'source'),
     path.join(os.homedir(), 'Desktop', 'spark-intelligence-builder'),
   ].filter(Boolean);
