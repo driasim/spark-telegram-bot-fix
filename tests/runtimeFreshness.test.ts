@@ -101,6 +101,8 @@ test('runtime freshness reports missing source as environment failure', () => {
 
 test('default runtime freshness paths cover conversational routing and sync guard files', () => {
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('spark.toml'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/builderBridge.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/builderRepoPath.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/routeFirewall.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/routeArbiter.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/conversationSmoke.ts'));
@@ -108,6 +110,9 @@ test('default runtime freshness paths cover conversational routing and sync guar
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/memoryDoctorBridge.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/recursive.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/pathLoop.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/telegramVoiceBridge.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/voiceCaption.ts'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('src/spawnerUrl.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/runtimeFreshnessCheck.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/realtimeConversationSmoke.ts'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('ops/realtime-conversation-smoke.json'));
@@ -118,4 +123,7 @@ test('default runtime freshness paths cover conversational routing and sync guar
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/memoryDoctorBridge.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/recursive.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/pathLoop.js'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/telegramVoiceBridge.js'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/voiceCaption.js'));
+  assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/spawnerUrl.js'));
 });

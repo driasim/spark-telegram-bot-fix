@@ -311,7 +311,7 @@ test('formats self-awareness payload as actionable Telegram report', () => {
   assert.match(reply, /What I should improve next/);
   assert.match(reply, /Knowledge notes/);
   assert.doesNotMatch(reply, /Project knowledge first: yes/);
-  assert.match(reply, /test the browser route now/);
+  assert.match(reply, /test the browser-use route now/);
   assert.match(reply, /name missing evidence/);
   assert.equal(reply.length < 1800, true);
 });

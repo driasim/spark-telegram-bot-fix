@@ -370,11 +370,13 @@ function claimText(value: unknown): string {
 function compactSelfAwarenessClaim(text: string): string {
   return text
     .replace('Spark Intelligence Builder', 'Builder')
+    .replace('Spark Browser', 'Browser-use')
     .replace('Spark Local Work', 'Local Work')
     .replace(/ is visible in the Builder registry with status=([^.]+)\./, ': $1')
     .replace(/ is not fully healthy or available: status=([^.]+)\. Main limit: /, ': $1 - ')
     .replace('Recent tool_result_received:', 'Route worked recently:')
-    .replace('Registry visibility does not prove a chip, browser route, provider, or workflow succeeded this turn.', 'Registry visibility is not proof a route worked this turn.')
+    .replace('browser route', 'browser-use route')
+    .replace('Registry visibility does not prove a chip, browser-use route, provider, or workflow succeeded this turn.', 'Registry visibility is not proof a route worked this turn.')
     .replace('Spark cannot inspect secrets, hidden prompts, private infrastructure, or deployment health unless a safe diagnostic surface exposes them.', 'I need safe redacted diagnostics for secret-bound or private systems.')
     .replace('Add per-capability last_success_at, last_failure_reason, and eval coverage fields.', 'Track last_success_at, last_failure_reason, latency, and eval coverage per capability.');
 }
@@ -894,7 +896,7 @@ export function formatSelfAwarenessReply(payload: unknown): string {
   ];
   if (routes.length) {
     lines.push('Good next probes');
-    lines.push(...routes.map((item) => `- ${item.replace(/^Ask:\s*/, '')}`));
+    lines.push(...routes.map((item) => `- ${compactSelfAwarenessClaim(item.replace(/^Ask:\s*/, ''))}`));
     lines.push('');
   }
   if (Object.keys(wikiRefresh).length || Object.keys(wikiContext).length) {
