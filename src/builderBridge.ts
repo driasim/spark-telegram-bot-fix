@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { constants as fsConstants, readFileSync } from 'node:fs';
 import os from 'node:os';
@@ -130,28 +129,6 @@ export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessI
 
 export interface BuilderAgentOperatingContextResult {
   replyText: string;
-}
-
-export interface BuilderRunPreflightInput extends BuilderAgentOperatingContextInput {
-  requestId: string;
-  traceRef: string;
-  commandKind: 'run' | 'build';
-  accessRequirement?: string;
-  providerCount?: number;
-  hasTargetPath?: boolean;
-  buildMode?: string;
-  missionId?: string;
-}
-
-export interface BuilderRunPreflightResult {
-  used: boolean;
-  bridgeMode: BuilderBridgeMode;
-  requestId?: string;
-  traceRef?: string;
-  aocRead: boolean;
-  turnTraceRecorded: boolean;
-  eventCount: number;
-  error?: string;
 }
 
 export interface BuilderAgentBlackBoxInput extends BuilderSelfAwarenessInput {
@@ -367,14 +344,6 @@ function formatServiceCheckCounts(value: unknown): string {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function stableTelegramRef(kind: 'chat' | 'user', value: unknown): string {
-  const hash = createHash('sha256')
-    .update(`${kind}:${String(value || '').trim()}`)
-    .digest('hex')
-    .slice(0, 16);
-  return `${kind}_${hash}`;
 }
 
 function arrayValue(value: unknown): unknown[] {
@@ -1503,204 +1472,6 @@ export async function runBuilderAgentOperatingContext(
     throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
-}
-
-function builderPreflightRequired(config: BuilderBridgeConfig): boolean {
-  return config.mode === 'required' || ['1', 'true', 'yes', 'on'].includes(
-    String(process.env.SPARK_BUILDER_AOC_PREFLIGHT_REQUIRED || '').trim().toLowerCase()
-  );
-}
-
-export function buildBuilderRunPreflightUserMessage(input: Pick<
-  BuilderRunPreflightInput,
-  'commandKind' | 'accessRequirement' | 'providerCount' | 'hasTargetPath' | 'buildMode' | 'runnerWritable'
->): string {
-  const commandLabel = input.commandKind === 'build' ? '/run build' : '/run';
-  const parts = [
-    `Telegram ${commandLabel} request before Spawner dispatch; user explicitly requested build it and run mission.`,
-    'Prompt body redacted.',
-    `target_path=${input.hasTargetPath ? 'present' : 'absent'}.`,
-    `access_requirement=${stringValue(input.accessRequirement) || 'unknown'}.`,
-    `runner_writable=${stringValue(input.runnerWritable) || 'unknown'}.`,
-  ];
-  const buildMode = stringValue(input.buildMode);
-  if (buildMode) {
-    parts.push(`build_mode=${buildMode}.`);
-  }
-  const providerCount = Number(input.providerCount || 0);
-  if (providerCount > 0) {
-    parts.push(`provider_count=${providerCount}.`);
-  }
-  return parts.join(' ');
-}
-
-export function buildBuilderRunPreflightSources(input: Pick<
-  BuilderRunPreflightInput,
-  'requestId' | 'traceRef' | 'commandKind'
->): Record<string, string>[] {
-  const requestId = stringValue(input.requestId);
-  const traceRef = stringValue(input.traceRef);
-  const commandLabel = input.commandKind === 'build' ? '/run build' : '/run';
-  return [
-    {
-      source: 'telegram_command',
-      role: 'request_origin',
-      freshness: 'fresh',
-      source_ref: traceRef,
-      summary: `Telegram ${commandLabel} metadata observed before Spawner dispatch; prompt body redacted.`
-    },
-    {
-      source: 'builder_aoc',
-      role: 'aoc_preflight',
-      freshness: 'fresh',
-      source_ref: requestId,
-      summary: 'Builder AOC preflight read route, access, and memory surfaces before Spawner dispatch.'
-    },
-    {
-      source: 'memory_preflight',
-      role: 'memory_boundary',
-      freshness: 'fresh',
-      source_ref: requestId,
-      summary: 'Memory body export disabled; no memory candidate written during Telegram /run preflight.'
-    }
-  ];
-}
-
-export async function runBuilderRunPreflight(input: BuilderRunPreflightInput): Promise<BuilderRunPreflightResult> {
-  const config = resolveBridgeConfig();
-  const required = builderPreflightRequired(config);
-  const requestId = stringValue(input.requestId);
-  const traceRef = stringValue(input.traceRef);
-  const emptyResult: BuilderRunPreflightResult = {
-    used: false,
-    bridgeMode: config.mode,
-    requestId: requestId || undefined,
-    traceRef: traceRef || undefined,
-    aocRead: false,
-    turnTraceRecorded: false,
-    eventCount: 0,
-  };
-  if (process.env.SPARK_BOT_TEST_MODE === '1' && !required) {
-    return emptyResult;
-  }
-  if (config.mode === 'off') {
-    return emptyResult;
-  }
-
-  const bridgeAvailable = await ensureBridgeAvailable(config);
-  if (!bridgeAvailable) {
-    const error = `Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`;
-    if (required) {
-      throw new Error(error);
-    }
-    return { ...emptyResult, error };
-  }
-
-  const userMessage = buildBuilderRunPreflightUserMessage(input);
-  const sessionId = `session:telegram:${stableTelegramRef('chat', input.chatId)}:${stableTelegramRef('user', input.userId)}`;
-  const humanId = `human:telegram:${stableTelegramRef('user', input.userId)}`;
-  const panelArgs = [
-    'self',
-    'panel',
-    '--home',
-    config.builderHome,
-    '--human-id',
-    humanId,
-    '--session-id',
-    sessionId,
-    '--channel-kind',
-    'telegram',
-    '--user-message',
-    userMessage,
-    '--runner-writable',
-    input.runnerWritable || 'unknown',
-    '--json',
-  ];
-  const accessLevel = stringValue(input.sparkAccessLevel);
-  if (accessLevel) {
-    panelArgs.push('--spark-access-level', accessLevel);
-  }
-  const runnerLabel = stringValue(input.runnerLabel);
-  if (runnerLabel) {
-    panelArgs.push('--runner-label', runnerLabel);
-  }
-
-  try {
-    const panelResult = await execFileAsync(
-      config.pythonCommand,
-      pythonModuleInvocation(config, 'spark_intelligence.cli', panelArgs),
-      withHiddenWindows({
-        cwd: config.builderRepo,
-        env: pythonSourceEnv(config),
-        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
-        maxBuffer: 1024 * 1024,
-      })
-    );
-    if (!processOutputText(panelResult.stdout).trim()) {
-      throw new Error(`Builder AOC preflight returned empty stdout. stderr=${redactText(processOutputText(panelResult.stderr).trim())}`);
-    }
-
-    const turnTraceArgs = [
-      'self',
-      'turn-trace',
-      '--home',
-      config.builderHome,
-      '--human-id',
-      humanId,
-      '--session-id',
-      sessionId,
-      '--agent-id',
-      'telegram_run_preflight',
-      '--request-id',
-      requestId,
-      '--trace-ref',
-      traceRef,
-      '--user-message',
-      userMessage,
-      '--proposed-action',
-      'start_mission',
-      '--json',
-    ];
-    for (const source of buildBuilderRunPreflightSources(input)) {
-      turnTraceArgs.push('--source-json', JSON.stringify(source));
-    }
-
-    const traceResult = await execFileAsync(
-      config.pythonCommand,
-      pythonModuleInvocation(config, 'spark_intelligence.cli', turnTraceArgs),
-      withHiddenWindows({
-        cwd: config.builderRepo,
-        env: pythonSourceEnv(config),
-        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
-        maxBuffer: 1024 * 1024,
-      })
-    );
-    const traceStdout = processOutputText(traceResult.stdout).trim();
-    if (!traceStdout) {
-      throw new Error(`Builder turn trace preflight returned empty stdout. stderr=${redactText(processOutputText(traceResult.stderr).trim())}`);
-    }
-    const payload = JSON.parse(traceStdout) as Record<string, unknown>;
-    const eventIds = Array.isArray(payload.event_ids) ? payload.event_ids : [];
-    return {
-      used: true,
-      bridgeMode: config.mode,
-      requestId,
-      traceRef,
-      aocRead: true,
-      turnTraceRecorded: true,
-      eventCount: eventIds.length,
-    };
-  } catch (error) {
-    if (required) {
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn('[BuilderBridge] Telegram /run AOC preflight unavailable:', redactText(message));
-    return {
-      ...emptyResult,
-      error: redactText(message),
-    };
-  }
 }
 
 export function formatAgentBlackBoxReply(payload: unknown): string {

@@ -1664,11 +1664,7 @@ async function registerFromEventIfPresent(event: DeliverableRelayEvent): Promise
     chatId: identity.chatId,
     userId: identity.userId,
     requestId: typeof data.requestId === 'string' && data.requestId.trim() ? data.requestId.trim() : event.missionId,
-    traceRef: typeof data.traceRef === 'string' && data.traceRef.trim()
-      ? data.traceRef.trim()
-      : typeof data.trace_ref === 'string' && data.trace_ref.trim()
-        ? data.trace_ref.trim()
-        : undefined,
+    traceRef: traceRefFromEvent(event),
     goal: typeof data.goal === 'string' && data.goal.trim() ? data.goal.trim() : event.message || event.missionId,
     createdAt: new Date().toISOString(),
     relayPort: relayTargetFromEvent(event).port || undefined,
@@ -1743,11 +1739,7 @@ async function stageMissionLessonCandidate(
     goal: subscription.goal,
     providerLabel,
     candidates,
-    sourceRefs: [
-      `mission:${event.missionId}`,
-      `request:${subscription.requestId}`,
-      ...(subscription.traceRef ? [`trace_ref:${subscription.traceRef}`] : [])
-    ],
+    sourceRefs: [`mission:${event.missionId}`, `request:${subscription.requestId}`],
     stagedAt: new Date().toISOString()
   };
   const state = await readMissionLessonApprovalState();
