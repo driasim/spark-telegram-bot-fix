@@ -1246,6 +1246,61 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('bare go after no-start does not wake stale clarification state', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/prd-bridge/write') && !body.forceDispatch) {
+				return {
+					data: {
+						success: true,
+						needsClarification: true,
+						requestId: body.requestId,
+						openQuestions: ['Which NFT structure should Spark use?'],
+						addedAssumptions: ['Assume a launch strategy structure.']
+					}
+				};
+			}
+			return { data: { success: true, requestId: body?.requestId, autoAnalysis: { provider: 'codex', started: true } } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const indexModule: any = await import('../src/index');
+		const noStartCtx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		noStartCtx.message.text = 'I am mentioning build and mission, but do not start anything.';
+		await indexModule.handleTextMessage(noStartCtx);
+
+		await callHandleBuildIntent({
+			ctx: makeFakeCtx(8319079055, 8319079055, 607, replies),
+			prd: 'create a nice structure for the NFT launch hype plan',
+			projectName: 'NFT structure pick',
+			buildMode: 'direct'
+		});
+
+		const dispatchesAfterStalePending = captured.filter((c) => c.body?.forceDispatch === true).length;
+		const goCtx = makeFakeCtx(8319079055, 8319079055, 608, replies);
+		goCtx.message.text = 'go';
+		await indexModule.handleTextMessage(goCtx);
+
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterStalePending,
+			'bare go after a no-start boundary must not dispatch stale clarification state'
+		);
+		assert.match(replies[replies.length - 1] || '', /staying in chat/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Which NFT structure/i);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('expired pending clarification does not steal a new voice request', async () => {
 		const indexModule: any = await import('../src/index');
 		const expiredPending = { timestamp: Date.now() - (31 * 60 * 1000) };

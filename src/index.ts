@@ -1577,6 +1577,7 @@ interface PendingClarification {
   timestamp: number;
 }
 const pendingClarifications = new Map<string, PendingClarification>();
+const noExecutionBoundaries = new Map<string, number>();
 interface PendingDomainChipBuild {
   brief: string;
   prd: string;
@@ -1588,6 +1589,7 @@ interface PendingDomainChipBuild {
 }
 const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
 const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const NO_EXECUTION_BOUNDARY_TTL_MS = 5 * 60 * 1000;
 const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
 const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
@@ -1597,6 +1599,23 @@ function clearPendingExecutionState(key: string): boolean {
   const hadDomainChip = pendingDomainChipBuilds.delete(key);
   const hadCreatorMission = pendingCreatorMissions.delete(key);
   return hadClarification || hadDomainChip || hadCreatorMission;
+}
+
+function rememberNoExecutionBoundary(key: string): void {
+  noExecutionBoundaries.set(key, Date.now());
+}
+
+function consumeRecentNoExecutionBoundaryForFollowup(key: string, text: string): boolean {
+  if (!isPendingClarificationFollowup(text)) return false;
+  const timestamp = noExecutionBoundaries.get(key);
+  if (!timestamp) return false;
+  if (Date.now() - timestamp > NO_EXECUTION_BOUNDARY_TTL_MS) {
+    noExecutionBoundaries.delete(key);
+    return false;
+  }
+  noExecutionBoundaries.delete(key);
+  clearPendingExecutionState(key);
+  return true;
 }
 
 function extractCommandName(text: string | undefined): string | null {
@@ -5133,8 +5152,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
     return;
   }
+  const adminPendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
+  if (conversation.isAdmin(ctx.from) && consumeRecentNoExecutionBoundaryForFollowup(adminPendingExecutionKey, text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply('Still staying in chat. I will not start or resume a build from that confirmation.');
+    return;
+  }
   const activePendingClarification = conversation.isAdmin(ctx.from)
-    ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
+    ? pendingClarificationForMessage(adminPendingExecutionKey, text)
     : null;
   if (
     activePendingClarification &&
@@ -5366,7 +5391,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
-    const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
+    const pendingExecutionKey = adminPendingExecutionKey;
     const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
@@ -5374,6 +5399,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     // detailed project brief from becoming a mission.
     if (isNoExecutionBoundary(text)) {
       const clearedPendingExecution = clearPendingExecutionState(pendingExecutionKey);
+      rememberNoExecutionBoundary(pendingExecutionKey);
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(clearedPendingExecution
         ? 'Got it, no build or mission started. I cleared the pending action, so we can keep talking here.'
