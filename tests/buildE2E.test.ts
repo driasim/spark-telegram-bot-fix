@@ -972,6 +972,52 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('pending clarification cancels on conversation-only boundary', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/prd-bridge/write') && !body.forceDispatch) {
+				return {
+					data: {
+						success: true,
+						needsClarification: true,
+						requestId: body.requestId,
+						openQuestions: ['What should this structure organize first?'],
+						addedAssumptions: ['Assume a clean reusable project structure.']
+					}
+				};
+			}
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'codex', started: true } } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 601, replies);
+		await callHandleBuildIntent({
+			ctx,
+			prd: 'create a nice structure for the NFT launch hype plan',
+			projectName: 'nice structure for it to get',
+			buildMode: 'direct'
+		});
+
+		const indexModule: any = await import('../src/index');
+		const noNeedCtx = makeFakeCtx(8319079055, 8319079055, 602, replies);
+		noNeedCtx.message.text = 'no need we can talk here';
+		await indexModule.handleClarificationAnswers(noNeedCtx, 'no need we can talk here');
+
+		assert.ok(!captured.some((c) => c.body?.forceDispatch === true), 'conversation-only boundary must not dispatch the pending build');
+		assert.match(replies.join('\n'), /no build started/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('expired pending clarification does not steal a new voice request', async () => {
 		const indexModule: any = await import('../src/index');
 		const expiredPending = { timestamp: Date.now() - (31 * 60 * 1000) };
