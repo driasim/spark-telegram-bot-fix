@@ -601,11 +601,24 @@ export function shouldAnswerSparkRepairRequest(text: string): boolean {
   return asksForRepair && sparkTarget && unhealthySignal;
 }
 
-function repairTargetFromLiveSummary(summary: SparkLiveSummary): { target: string; command: string } {
-  if (!summary.spawnerOk) return { target: 'spawner_ui', command: 'spark fix spawner' };
-  if (!summary.telegramOk) return { target: 'telegram_runtime', command: 'spark fix telegram' };
-  if (!summary.liveReady) return { target: 'spark_live', command: 'spark fix live' };
-  return { target: 'none_needed', command: '/diagnose' };
+function repairTargetFromLiveSummary(summary: SparkLiveSummary): { target: string; command: string; fixTarget: string } {
+  if (!summary.spawnerOk) return { target: 'spawner_ui', command: 'spark fix spawner', fixTarget: 'spawner' };
+  if (!summary.telegramOk) return { target: 'telegram_runtime', command: 'spark fix telegram', fixTarget: 'telegram' };
+  if (!summary.liveReady) return { target: 'spark_live', command: 'spark fix live', fixTarget: 'live' };
+  return { target: 'none_needed', command: '/diagnose', fixTarget: 'live' };
+}
+
+async function readSparkFixRouteContext(fixTarget: string): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await runSparkCli(['fix', fixTarget, '--json'], 90_000);
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    const context = payload && typeof payload.route_context === 'object' && payload.route_context !== null
+      ? payload.route_context as Record<string, unknown>
+      : null;
+    return context && context.schema_version === 'spark.repair_route_context.v1' ? context : null;
+  } catch {
+    return null;
+  }
 }
 
 export function formatSparkRepairRouteConfidenceReply(args: {
@@ -659,10 +672,11 @@ async function renderSparkRepairRouteConfidenceAnswer(
   const summary = parseSparkLiveSummary(liveStatus, deepVerify);
   const healthy = summary.liveReady && summary.spawnerOk && summary.telegramOk;
   const repair = repairTargetFromLiveSummary(summary);
+  const cliRouteContext = await readSparkFixRouteContext(repair.fixTarget);
   const gate = await gateRunner({
     intent: 'repair',
     candidateRoute: 'spark.repair',
-    routeContext: {
+    routeContext: cliRouteContext || {
       latest_instruction: 'allow_execution',
       intent_clarity: 'explicit',
       route_fit: healthy ? 'blocked' : 'exact',
