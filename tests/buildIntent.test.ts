@@ -215,10 +215,19 @@ test('does not turn exploratory conversation into an accidental build', () => {
     parseBuildIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
     null
   );
+  assert.equal(
+    parseBuildIntent(
+      'yeah buybacks not for now actually, maybe later, i think we can earn it back from NFTs, if we do sell the NFTs via token, and create a nice structure for it to get hype right after the launch.'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('create a clean structure for the launch hype'), null);
+  assert.equal(parseBuildIntent('make a better framework for the NFT sale conversation'), null);
   assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
   assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
   assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));
   assert.ok(parseBuildIntent('Build a tool for Spark users to manage reminders.'));
+  assert.ok(parseBuildIntent('Build an NFT launch planner app with sections for hype ideas and token sale timing.'));
 });
 
 test('infers a compact product name for long conceptual build briefs', () => {

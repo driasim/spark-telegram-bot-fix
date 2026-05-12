@@ -479,7 +479,7 @@ export function buildMissionSurfaceLinks(
     ? `pipeline=${encodeURIComponent(`prd-${requestId.trim()}`)}&${missionQuery}`
     : missionQuery;
   if (preference === 'board' || preference === 'both') {
-    links.push(`Mission ${missionId}: ${baseUrl}/kanban?${missionQuery}`);
+    links.push(`Mission board: ${baseUrl}/kanban?${missionQuery}`);
   }
   if (preference === 'canvas' || preference === 'both') {
     links.push(`Canvas: ${baseUrl}/canvas?${canvasQuery}`);
@@ -488,7 +488,8 @@ export function buildMissionSurfaceLinks(
 }
 
 function missionIdIsLinked(missionId: string, links: string[]): boolean {
-  return links.some((link) => link.startsWith(`Mission ${missionId}:`));
+  const encoded = encodeURIComponent(missionId);
+  return links.some((link) => link.includes(`mission=${encoded}`));
 }
 
 function missionReferenceLines(missionId: string, links: string[]): string[] {
@@ -1159,9 +1160,13 @@ export function formatProviderCompletionForTelegram(input: {
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
     if (looksStructured) {
       return [
-        `${provider} finished, but returned a structured result I could not summarize cleanly.`,
-        `Mission: ${input.missionId}`,
-        'Use the canvas or mission board for the full raw record.'
+        '⚠️ Spark finished, but the final payload needs review.',
+        '',
+        'Review',
+        `• ${provider} returned structured output I could not summarize cleanly.`,
+        '',
+        'Move',
+        '• Open the canvas or Mission board for the full raw record.'
       ].join('\n');
     }
     const projectPath = extractProjectPathFromText(input.response);
@@ -1179,11 +1184,11 @@ export function formatProviderCompletionForTelegram(input: {
       lines.push('', 'Preview is still preparing. Use the Mission board for now.');
     }
     if (shipped.length > 0) {
-      lines.push('', 'What shipped:', ...shipped.map((item) => `- ${item}`));
+      lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
     }
     if (checks.length > 0) {
       if (verbosity === 'verbose') {
-        lines.push('', 'Quality checks:', ...checks.map((item) => `- ${item}`));
+        lines.push('', 'Quality checks', ...checks.map((item) => `• ${item}`));
       } else {
         lines.push('', 'Quality checks passed.');
       }
@@ -1241,8 +1246,8 @@ export function formatProviderCompletionForTelegram(input: {
   }
 
   if (nextActions.length > 0) {
-    lines.push('', 'Next:');
-    lines.push(...nextActions.slice(0, 4).map((item) => `- ${clipText(item, 180)}`));
+    lines.push('', 'Next');
+    lines.push(...nextActions.slice(0, 4).map((item) => `• ${clipText(item, 180)}`));
   }
 
   if (openLink && (!status || !['failed', 'error', 'blocked'].includes(status.toLowerCase()))) {
@@ -1330,8 +1335,17 @@ export function formatProgressMessageForTelegram(
     case 'mission_started':
       return compactTelegramBlocks(
         voiceLine('missionStarted', `${event.missionId}:started`),
-        'Planning has started. The Mission board is live now.',
-        'I will send the canvas link once the PRD and canvas are ready.',
+        [
+          'Spawned work',
+          '• Mission board',
+          '• Canvas planner',
+          '• Telegram relay updates'
+        ].join('\n'),
+        [
+          'Paired surfaces',
+          '• Builder planning',
+          '• Spawner / Mission Control'
+        ].join('\n'),
         verbosity === 'normal' ? 'I will only ping when something useful changes.' : null,
         missionReferenceLines(event.missionId, links).join('\n')
       );
@@ -1559,7 +1573,7 @@ export function formatMissionHeartbeatForTelegram(input: {
     lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`), '', 'No new checkpoint yet.');
   }
 
-  lines.push('', 'Focus:', taskLabel);
+  lines.push('', 'Focus', `• ${taskLabel}`);
 
   if (input.verbosity === 'verbose') {
     if (status && !['running', 'created'].includes(status.toLowerCase())) {
@@ -1789,14 +1803,16 @@ function dedupeMissionLessons(candidates: string[]): string[] {
 
 function formatMissionLessonApprovalPrompt(approval: MissionLessonApproval): string {
   return compactTelegramBlocks(
-    'Mission lesson candidate',
+    '🟡 Mission memory needs your call.',
     'I will not save the completion log as memory automatically.',
     [
-      'What should I remember from this mission?',
-      ...approval.candidates.map((candidate, index) => `${index + 1}. ${candidate}`)
+      'Options',
+      ...approval.candidates.map((candidate, index) => `• ${index + 1}: ${candidate}`)
     ].join('\n'),
-    'Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.',
-    'Shipped-project context was recorded separately as operational state.'
+    [
+      'Move',
+      '• Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.'
+    ].join('\n')
   );
 }
 

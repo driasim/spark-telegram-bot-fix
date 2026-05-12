@@ -163,8 +163,9 @@ test('warns cleanly when structured provider output is malformed', () => {
     response: '{ "status": "completed", "summary": "half-written"'
   });
 
-  assert.match(message, /Claude finished, but returned a structured result I could not summarize cleanly\./);
-  assert.match(message, /Mission: spark-bad-json/);
+  assert.match(message, /⚠️ Spark finished, but the final payload needs review\./);
+  assert.match(message, /• Claude returned structured output I could not summarize cleanly\./);
+  assert.doesNotMatch(message, /Mission: spark-bad-json/);
   assert.doesNotMatch(message, /"status"/);
 });
 
@@ -227,7 +228,7 @@ test('summarizes freeform Codex build output without dumping file links', () => 
   });
 
   assert.match(message, /✨ Spark/);
-  assert.match(message, /What shipped:/);
+  assert.match(message, /Shipped/);
   assert.match(message, /Full-viewport Three\.js orbital forge/);
   assert.match(message, /Quality checks passed/);
   assert.doesNotMatch(message, /Headless Chrome desktop\/mobile/);
@@ -252,17 +253,17 @@ test('supports human verbosity aliases', () => {
 test('builds mission surface links from user preference', () => {
   assert.deepEqual(buildMissionSurfaceLinks('spark-123', 'none', 'http://127.0.0.1:3333'), []);
   assert.deepEqual(buildMissionSurfaceLinks('spark-123', 'board', 'http://127.0.0.1:3333'), [
-    'Mission spark-123: http://127.0.0.1:3333/kanban?mission=spark-123'
+    'Mission board: http://127.0.0.1:3333/kanban?mission=spark-123'
   ]);
   assert.deepEqual(buildMissionSurfaceLinks('spark-123', 'canvas', 'http://127.0.0.1:3333'), [
     'Canvas: http://127.0.0.1:3333/canvas?mission=spark-123'
   ]);
   assert.deepEqual(buildMissionSurfaceLinks('spark-123', 'both', 'http://127.0.0.1:3333'), [
-    'Mission spark-123: http://127.0.0.1:3333/kanban?mission=spark-123',
+    'Mission board: http://127.0.0.1:3333/kanban?mission=spark-123',
     'Canvas: http://127.0.0.1:3333/canvas?mission=spark-123'
   ]);
   assert.deepEqual(buildMissionSurfaceLinks('mission-1777', 'both', 'http://127.0.0.1:3333', 'tg-build-1'), [
-    'Mission mission-1777: http://127.0.0.1:3333/kanban?mission=mission-1777',
+    'Mission board: http://127.0.0.1:3333/kanban?mission=mission-1777',
     'Canvas: http://127.0.0.1:3333/canvas?pipeline=prd-tg-build-1&mission=mission-1777'
   ]);
 });
@@ -275,7 +276,7 @@ test('uses the public Spawner URL for mission surface links when configured', ()
 
   try {
     assert.deepEqual(buildMissionSurfaceLinks('spark-123', 'board'), [
-      'Mission spark-123: https://spark-spawner-test.up.railway.app/kanban?mission=spark-123'
+      'Mission board: https://spark-spawner-test.up.railway.app/kanban?mission=spark-123'
     ]);
   } finally {
     if (originalInternalUrl === undefined) delete process.env.SPAWNER_UI_URL;
@@ -339,10 +340,10 @@ test('mission start update links the mission once through kanban', () => {
   );
 
   assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
-  assert.match(message || '', /Planning has started/);
-  assert.match(message || '', /canvas link once the PRD and canvas are ready/);
+  assert.match(message || '', /Spawned work/);
+  assert.match(message || '', /Paired surfaces/);
   assert.match(message || '', /only ping when something useful changes/);
-  assert.match(message || '', /Mission spark-123: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
+  assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
   assert.doesNotMatch(message || '', /Canvas:/);
   assert.doesNotMatch(message || '', /\/missions/);
 });
@@ -396,8 +397,8 @@ test('verbose mission start does not paste the whole build brief', () => {
   );
 
   assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
-  assert.match(message || '', /Mission spark-123: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
-  assert.match(message || '', /canvas link once the PRD and canvas are ready/);
+  assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
+  assert.match(message || '', /Paired surfaces/);
   assert.doesNotMatch(message || '', /Canvas:/);
   assert.doesNotMatch(message || '', /prd-tg-build-1/);
   assert.doesNotMatch(message || '', /Build this at/);
@@ -706,7 +707,7 @@ test('formats mission heartbeat as useful work narration', () => {
   assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
   assert.match(message, /New signal:/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
-  assert.match(message, /Focus:\nReview relay updates/);
+  assert.match(message, /Focus\n• Review relay updates/);
   assert.match(message, /new signal/);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
@@ -1324,7 +1325,7 @@ void (async () => {
       );
 
       assert.equal(sent.length, 2);
-      assert.match(sent[1], /Mission lesson candidate/);
+      assert.match(sent[1], /Mission memory needs your call/);
       assert.match(sent[1], /\/remember 1/);
     } finally {
       if (originalPromptEnv === undefined) delete process.env.SPARK_MISSION_LESSON_PROMPTS;
