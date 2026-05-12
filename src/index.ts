@@ -2677,6 +2677,13 @@ function humanAck(providers: string[]): string {
   return `I will check that with ${who} in parallel now.`;
 }
 
+function telegramBlocks(...blocks: Array<string | null | undefined | false>): string {
+  return blocks
+    .filter((block): block is string => Boolean(block && block.trim()))
+    .map((block) => block.trim())
+    .join('\n\n');
+}
+
 function formatBuildMissionQueuedReply(input: {
   lead: string;
   projectName: string;
@@ -2685,17 +2692,25 @@ function formatBuildMissionQueuedReply(input: {
   missionId: string;
   kanbanUrl: string;
 }): string {
-  return [
+  const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
+  return telegramBlocks(
     input.lead,
-    '',
-    `Project: ${input.projectName}`,
-    `Mode: ${input.buildMode === 'advanced_prd' ? 'Advanced PRD build' : 'Direct build'}`,
-    input.projectPath ? `Target folder: ${input.projectPath}` : null,
-    `Mission: ${input.missionId}`,
-    `Mission board: ${input.kanbanUrl}`,
-    '',
+    [
+      'Spawned work',
+      `• ${input.projectName}`,
+      `• ${modeText}`,
+      '• Mission board'
+    ].join('\n'),
+    [
+      'Paired surfaces',
+      '• Builder planning',
+      '• Spawner / Mission Control',
+      '• Telegram relay updates'
+    ].join('\n'),
+    input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
+    ['Mission board', `• ${input.kanbanUrl}`].join('\n'),
     'I am shaping the task canvas now. I will share it when planning is ready.'
-  ].filter(Boolean).join('\n');
+  );
 }
 
 function missionIdFromTelegramBuildRequest(requestId: string): string {
