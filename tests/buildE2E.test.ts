@@ -150,6 +150,7 @@ async function run(): Promise<void> {
 
 	await test('node outbound audit record is metadata-only', async () => {
 		restoreEnv();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		const indexModule: any = await import('../src/index');
 		const record = indexModule.buildNodeOutboundAuditRecord(
