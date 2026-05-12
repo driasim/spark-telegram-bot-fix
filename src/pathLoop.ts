@@ -29,6 +29,14 @@ export interface PathLoopResult {
   sessionSummaryPath?: string | null;
   payloadPath?: string | null;
   latestCandidatePath?: string | null;
+  latestCandidateId?: string | null;
+  latestCandidateSummary?: string | null;
+  latestDecision?: string | null;
+  keptRounds?: number;
+  revertedRounds?: number;
+  currentScore?: number | null;
+  bestScore?: number | null;
+  noGainStreak?: number;
   workspaceSynced?: boolean;
   pathId?: string | null;
   outcomeId?: string | null;
@@ -233,6 +241,27 @@ function firstArrayItem(payload: Record<string, any> | null, key: string): any |
   return items[0] || null;
 }
 
+export function selectLatestPathLoopOutcome(payload: Record<string, any> | null): any | null {
+  const items = Array.isArray(payload?.outcomes) ? payload.outcomes : [];
+  const roundOutcomes = items.filter((item: any) => {
+    const id = String(item?.id || '');
+    const metricName = String(item?.metricName || '');
+    return id.includes(':round:') || (metricName && !metricName.includes(':baseline'));
+  });
+  return roundOutcomes[roundOutcomes.length - 1] || items[items.length - 1] || null;
+}
+
+function latestSessionRound(sessionSummary: Record<string, any> | null): any | null {
+  const rounds = Array.isArray(sessionSummary?.rounds) ? sessionSummary.rounds : [];
+  return rounds[rounds.length - 1] || null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function buildPathLoopResult(input: {
   ok: boolean;
   pathKey: string;
@@ -249,8 +278,9 @@ async function buildPathLoopResult(input: {
   const summaryPath = sessionSummaryPath(input.repoRoot, input.pathKey, sessionId);
   const sessionSummary = await readJsonObject(summaryPath);
   const collectivePayload = await readJsonObject(payloadPath);
-  const outcome = firstArrayItem(collectivePayload, 'outcomes');
+  const outcome = selectLatestPathLoopOutcome(collectivePayload);
   const evolutionPath = firstArrayItem(collectivePayload, 'evolutionPaths');
+  const latestRound = latestSessionRound(sessionSummary);
 
   return {
     ok: input.ok,
@@ -267,6 +297,14 @@ async function buildPathLoopResult(input: {
     sessionSummaryPath: summaryPath,
     payloadPath,
     latestCandidatePath,
+    latestCandidateId: typeof latestRound?.candidateId === 'string' ? latestRound.candidateId : null,
+    latestCandidateSummary: typeof latestRound?.candidateSummary === 'string' ? latestRound.candidateSummary : null,
+    latestDecision: typeof latestRound?.decision === 'string' ? latestRound.decision : null,
+    keptRounds: Number.isFinite(Number(sessionSummary?.keptRounds)) ? Number(sessionSummary?.keptRounds) : undefined,
+    revertedRounds: Number.isFinite(Number(sessionSummary?.revertedRounds)) ? Number(sessionSummary?.revertedRounds) : undefined,
+    currentScore: optionalNumber(sessionSummary?.currentScore),
+    bestScore: optionalNumber(sessionSummary?.bestScore),
+    noGainStreak: Number.isFinite(Number(sessionSummary?.noGainStreak)) ? Number(sessionSummary?.noGainStreak) : undefined,
     workspaceSynced: Boolean(input.workspaceSynced),
     pathId: typeof evolutionPath?.id === 'string' ? evolutionPath.id : typeof outcome?.targetId === 'string' ? outcome.targetId : null,
     outcomeId: typeof outcome?.id === 'string' ? outcome.id : null,

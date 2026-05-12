@@ -1492,6 +1492,22 @@ function compactLoopSignal(summary: string | null | undefined): string | null {
   return truncateAtWord(cleaned, 140);
 }
 
+function liveRoundSignal(result: PathLoopResult): string | null {
+  const candidateSummary = String(result.latestCandidateSummary || '').trim();
+  if (candidateSummary) return truncateAtWord(candidateSummary, 140);
+  return compactLoopSignal(result.summary);
+}
+
+function liveRoundHeadline(result: PathLoopResult, round: number, total: number): string {
+  const label = labelFromKey(result.pathKey || 'path');
+  const candidateId = String(result.latestCandidateId || '').toLowerCase();
+  const candidateSummary = String(result.latestCandidateSummary || '').toLowerCase();
+  if (candidateId.includes('no-new') || candidateSummary.includes('no new')) {
+    return `🟡 ${label} loop ${round}/${total} found no new candidate.`;
+  }
+  return `${outcomeStatusIcon(result.verdict || 'recorded')} ${label} loop ${round}/${total} ${friendlyOutcomeVerb(result.verdict || 'recorded')}.`;
+}
+
 export function renderSpecializationPathLiveRoundUpdate(input: {
   result: PathLoopResult;
   round: number;
@@ -1499,22 +1515,28 @@ export function renderSpecializationPathLiveRoundUpdate(input: {
   previousMetric?: number | null;
   bestMetric?: number | null;
 }): string {
-  const label = labelFromKey(input.result.pathKey || 'path');
-  const verdict = input.result.verdict || 'recorded';
-  const metricLine = input.result.metricName && typeof input.result.metricValue === 'number'
-    ? `${formatMetricLabel(input.result.metricName)} ${formatNumber(input.result.metricValue)}`
+  const metricValue = typeof input.result.metricValue === 'number'
+    ? input.result.metricValue
+    : typeof input.result.currentScore === 'number'
+      ? input.result.currentScore
+      : null;
+  const metricLine = input.result.metricName && typeof metricValue === 'number'
+    ? `${formatMetricLabel(input.result.metricName)} ${formatNumber(metricValue)}`
     : 'benchmark score not reported';
-  const comparison = typeof input.result.metricValue === 'number' && typeof input.previousMetric === 'number'
-    ? input.result.metricValue > input.previousMetric
+  const comparison = typeof metricValue === 'number' && typeof input.previousMetric === 'number'
+    ? metricValue > input.previousMetric
       ? `improved from ${formatNumber(input.previousMetric)}`
-      : input.result.metricValue < input.previousMetric
+      : metricValue < input.previousMetric
         ? `changed from ${formatNumber(input.previousMetric)}`
         : 'unchanged from previous loop'
     : null;
-  const best = typeof input.bestMetric === 'number' ? `best so far ${formatNumber(input.bestMetric)}` : null;
-  const signal = compactLoopSignal(input.result.summary);
+  const bestValue = typeof input.result.bestScore === 'number' ? input.result.bestScore : input.bestMetric;
+  const best = typeof bestValue === 'number' && typeof metricValue === 'number' && bestValue !== metricValue
+    ? `best so far ${formatNumber(bestValue)}`
+    : null;
+  const signal = liveRoundSignal(input.result);
   const lines = [
-    `${outcomeStatusIcon(verdict)} ${label} loop ${input.round}/${input.total} ${friendlyOutcomeVerb(verdict)}.`,
+    liveRoundHeadline(input.result, input.round, input.total),
     '',
     'Score',
     `• ${metricLine}`,

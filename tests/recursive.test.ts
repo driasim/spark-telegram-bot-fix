@@ -36,7 +36,8 @@ import {
 import {
   buildSpecializationPathAutoloopBridgeArgs,
   classifyBuilderAttachmentTargetFromSnapshot,
-  resolveLocalSpecializationPathTarget
+  resolveLocalSpecializationPathTarget,
+  selectLatestPathLoopOutcome
 } from '../src/pathLoop';
 
 function test(name: string, fn: () => void): void {
@@ -705,7 +706,8 @@ test('renders specialization path live loop checkpoints', () => {
   });
 
   assert.match(update, /Spark QA Operator loop 2\/20 improved/);
-  assert.match(update, /Score\n• current run 0.9218\n• improved from 0.9018\n• best so far 0.9218/);
+  assert.match(update, /Score\n• current run 0.9218\n• improved from 0.9018/);
+  assert.doesNotMatch(update, /best so far 0.9218/);
   assert.match(update, /Signal\n• Spark QA Operator kept a benchmark-backed mutation/);
 
   const summary = renderSpecializationPathLiveRunSummary({
@@ -721,6 +723,52 @@ test('renders specialization path live loop checkpoints', () => {
   assert.match(summary, /Spark QA Operator live benchmark run finished/);
   assert.match(summary, /Result\n• 20\/20 loops checked\n• best score 0.9218\n• 3 improved, 17 held steady, 0 regressed/);
   assert.match(summary, /Workspace\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
+});
+
+test('selects latest non-baseline path loop outcome', () => {
+  const outcome = selectLatestPathLoopOutcome({
+    outcomes: [
+      {
+        id: 'outcome:spark-qa-operator:baseline',
+        verdict: 'flat',
+        metricName: 'overall_score:baseline',
+        metricValue: 0.6877,
+        summary: 'baseline established'
+      },
+      {
+        id: 'outcome:spark-qa-operator:round:20260512T171138696906Z',
+        verdict: 'flat',
+        metricName: 'overall_score',
+        metricValue: 0.6877,
+        summary: 'latest round held flat'
+      }
+    ]
+  });
+  assert.equal(outcome?.id, 'outcome:spark-qa-operator:round:20260512T171138696906Z');
+  assert.equal(outcome?.summary, 'latest round held flat');
+});
+
+test('renders no-new-candidate live loop checkpoints without baseline replay', () => {
+  const update = renderSpecializationPathLiveRoundUpdate({
+    round: 1,
+    total: 5,
+    bestMetric: 0.9418,
+    result: {
+      ok: true,
+      pathKey: 'spark-qa-operator',
+      verdict: 'flat',
+      metricName: 'overall_score',
+      metricValue: 0.6877,
+      bestScore: 0.9418,
+      latestCandidateId: 'spark-qa-operator-no-new-growth-target',
+      latestCandidateSummary: 'No new QA lesson or growth target is available; expand the benchmark catalog before another loop.'
+    }
+  });
+
+  assert.match(update, /🟡 Spark QA Operator loop 1\/5 found no new candidate/);
+  assert.match(update, /Score\n• current run 0.6877\n• best so far 0.9418/);
+  assert.match(update, /Signal\n• No new QA lesson or growth target is available/);
+  assert.doesNotMatch(update, /baseline established/);
 });
 
 test('describes held-steady Workspace reports as unchanged from previous run', () => {

@@ -4370,8 +4370,17 @@ async function runSpecializationPathAutoloopWithLiveUpdates(input: {
     else if (verdict.includes('improv')) improved += 1;
     else flat += 1;
 
-    if (typeof result.metricValue === 'number') {
-      bestMetric = bestMetric === null ? result.metricValue : Math.max(bestMetric, result.metricValue);
+    const resultMetric = typeof result.metricValue === 'number'
+      ? result.metricValue
+      : typeof result.currentScore === 'number'
+        ? result.currentScore
+        : null;
+    if (typeof resultMetric === 'number') {
+      bestMetric = typeof result.bestScore === 'number'
+        ? Math.max(bestMetric ?? result.bestScore, result.bestScore, resultMetric)
+        : bestMetric === null
+          ? resultMetric
+          : Math.max(bestMetric, resultMetric);
     }
 
     await input.ctx.telegram.sendMessage(input.chatId, renderSpecializationPathLiveRoundUpdate({
@@ -4382,9 +4391,8 @@ async function runSpecializationPathAutoloopWithLiveUpdates(input: {
       bestMetric
     }));
 
-    if (typeof result.metricValue === 'number') previousMetric = result.metricValue;
-    const summary = `${result.summary || ''} ${result.stopReason || ''}`.toLowerCase();
-    if (/\b(?:no new candidate|no candidate|exhausted|nothing to keep|no mutation)\b/.test(summary)) {
+    if (typeof resultMetric === 'number') previousMetric = resultMetric;
+    if (isUnproductiveSpecializationRound(result)) {
       stoppedEarly = 'create a stronger benchmark case or mutation source before continuing';
       break;
     }
@@ -4401,6 +4409,24 @@ async function runSpecializationPathAutoloopWithLiveUpdates(input: {
     workspaceSynced,
     stoppedEarly
   }));
+}
+
+function isUnproductiveSpecializationRound(result: any): boolean {
+  const text = [
+    result?.summary,
+    result?.stopReason,
+    result?.latestCandidateId,
+    result?.latestCandidateSummary,
+    result?.latestDecision,
+    result?.noGainStreak,
+  ].filter((item) => item !== null && item !== undefined).join(' ').toLowerCase();
+  if (/\b(?:no new candidate|no candidate|no new qa lesson|no new growth target|exhausted|nothing to keep|no mutation)\b/.test(text)) {
+    return true;
+  }
+  if (String(result?.latestCandidateId || '').toLowerCase().includes('no-new-growth-target')) {
+    return true;
+  }
+  return String(result?.latestDecision || '').toLowerCase() === 'reverted' && Number(result?.noGainStreak || 0) >= 3;
 }
 
 bot.command('recursive', async (ctx) => handleRecursiveCommand(ctx));
