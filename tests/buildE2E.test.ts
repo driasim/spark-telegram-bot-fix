@@ -74,15 +74,16 @@ async function readMissionRelayRegistry(): Promise<any[]> {
 	return (await readJsonFile<any[]>(resolveStatePath(`.spark-spawner-missions-${profile}-${port}.json`))) || [];
 }
 
-function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[]) {
+function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[], replyExtras: any[] = []) {
 	return {
 		chat: { id: chatId },
 		from: { id: fromId, username: 'cem' },
 		message: { message_id: messageId, text: 'build me a saas with auth and billing' },
 		update: { update_id: messageId },
 		sendChatAction: async (_action: string) => {},
-		reply: async (text: string) => {
+		reply: async (text: string, extra?: any) => {
 			replies.push(text);
+			replyExtras.push(extra);
 		}
 	};
 }
@@ -337,7 +338,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
 		try {
@@ -364,6 +366,15 @@ async function run(): Promise<void> {
 			assert.equal(record.trace_ref, writeCall!.body.traceRef);
 			assert.equal(record.delivered_text, undefined);
 			assert.equal(record.chat_id, undefined);
+			const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
+			assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+				route: 'spawner',
+				command: 'run',
+				replyKind: 'build_ack',
+				requestId: writeCall!.body.requestId,
+				traceRef: writeCall!.body.traceRef,
+				missionId: buildMissionId
+			});
 		} finally {
 			rmSync(auditDir, { recursive: true, force: true });
 			restoreAxios();
@@ -394,7 +405,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
 		try {
@@ -422,6 +434,14 @@ async function run(): Promise<void> {
 			assert.equal(record.trace_ref, runCall!.body.traceRef);
 			assert.equal(record.delivered_text, undefined);
 			assert.equal(record.chat_id, undefined);
+			assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+				route: 'spawner',
+				command: 'run',
+				replyKind: 'mission_ack',
+				requestId: runCall!.body.requestId,
+				traceRef: runCall!.body.traceRef,
+				missionId: 'spark-simple-run-test'
+			});
 		} finally {
 			rmSync(auditDir, { recursive: true, force: true });
 			restoreAxios();
