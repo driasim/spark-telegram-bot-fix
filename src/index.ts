@@ -529,14 +529,19 @@ bot.telegram.sendMessage = (async (chatId: any, text: any, extra?: any) => {
 bot.use(async (ctx, next) => {
   const originalReply = ctx.reply.bind(ctx);
   ctx.reply = (async (text: any, extra?: any) => {
+    const traceContext = extractOutboundTraceContext(extra);
+    const cleanExtra = stripOutboundTraceContext(extra);
     if (typeof text !== 'string') {
-      return originalReply(text, extra);
+      const delivery = await originalReply(text, cleanExtra);
+      recordNodeOutboundDelivery(ctx.chat?.id, text, traceContext);
+      return delivery;
     }
 
     const chunks = sanitizeAndSplitTelegramText(text);
     let lastReply: Awaited<ReturnType<typeof originalReply>> | null = null;
     for (const chunk of chunks) {
-      lastReply = await originalReply(chunk, extra);
+      lastReply = await originalReply(chunk, cleanExtra);
+      recordNodeOutboundDelivery(ctx.chat?.id, chunk, traceContext);
     }
     return lastReply!;
   }) as typeof ctx.reply;
