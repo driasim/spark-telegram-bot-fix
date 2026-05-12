@@ -466,6 +466,24 @@ function isAmbiguousContextualBuildRequest(text: string, projectPath: string | n
   return true;
 }
 
+function isConversationalStrategyStructureRequest(text: string, prd: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizedPrd = prd.toLowerCase().replace(/\s+/g, ' ').trim();
+  const strategyDomain = /\b(?:nfts?|token|tokens|buybacks?|launch|hype|sales?|sell|selling|community|holders?|mint)\b/.test(normalized);
+  const speculative = /\b(?:maybe|later|i think|if we|if we do|we can|we could|we should|not for now|for now|talk|discuss)\b/.test(normalized);
+  const abstractStructure = /\b(?:nice|good|clear|better|clean)?\s*structure\b/.test(normalizedPrd);
+  const concreteArtifact = /\b(?:app|application|dashboard|website|site|landing page|page|tool|game|system|tracker|planner|timer|clock|kanban|canvas)\b/.test(normalizedPrd);
+  return strategyDomain && speculative && abstractStructure && !concreteArtifact;
+}
+
+function isAbstractPlanningStructureRequest(prd: string): boolean {
+  const normalizedPrd = prd.toLowerCase().replace(/\s+/g, ' ').trim();
+  const startsAbstract =
+    /^(?:a\s+|an\s+|the\s+)?(?:nice|good|clear|better|clean|reusable|simple|solid|strong)?\s*(?:structure|plan|strategy|framework)\b/.test(normalizedPrd);
+  const concreteArtifact = /\b(?:app|application|dashboard|website|site|landing page|page|tool|game|system|tracker|planner|timer|clock|kanban|canvas|file|files|folder|folders|repo|repository|component|components)\b/.test(normalizedPrd);
+  return startsAbstract && !concreteArtifact;
+}
+
 function extractBuildDescription(text: string): string | null {
   const command = text.match(
     /^\s*(?:(?:i|we)\s+(?:want|need|would\s+like|would\s+love)\s+to\s+|can\s+(?:you|we)\s+|could\s+(?:you|we)\s+|let'?s\s+|let\s+us\s+|please\s+)?\/?(?:build|make|create|ship|scaffold|generate|develop)\b\s*(?:(?:right\s+now|now)\s+)?(?:me\s+|us\s+)?(?:(?:a|an|the|this)\s+|new\s+project\s+)?/i
@@ -539,6 +557,8 @@ export function parseBuildIntent(text: string): BuildIntent | null {
 
   const projectPath = extractPath(original);
   const prd = removeLeadingPathPrefix(stripped.trim());
+  if (isAbstractPlanningStructureRequest(prd)) return null;
+  if (isConversationalStrategyStructureRequest(trimmed, prd)) return null;
   if (isAmbiguousContextualBuildRequest(trimmed, projectPath, prd)) return null;
   const projectName = inferProjectName(prd, projectPath);
   const buildMode = inferBuildMode(original, prd, projectPath);

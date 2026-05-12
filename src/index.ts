@@ -1283,6 +1283,13 @@ const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
 const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
 
+function clearPendingExecutionState(key: string): boolean {
+  const hadClarification = pendingClarifications.delete(key);
+  const hadDomainChip = pendingDomainChipBuilds.delete(key);
+  const hadCreatorMission = pendingCreatorMissions.delete(key);
+  return hadClarification || hadDomainChip || hadCreatorMission;
+}
+
 function extractCommandName(text: string | undefined): string | null {
   if (!text?.startsWith('/')) {
     return null;
@@ -4584,11 +4591,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
-    const pendingClarification = pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text);
+    const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
+    const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
+    if (isNoExecutionBoundary(text) && clearPendingExecutionState(pendingExecutionKey)) {
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply('Got it, no build or mission started. We can keep talking here.');
+      return;
+    }
+
     if (pendingClarification && isPendingClarificationFollowup(text)) {
       await handleClarificationAnswers(ctx, text);
       return;

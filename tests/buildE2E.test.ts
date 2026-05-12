@@ -972,6 +972,35 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('NFT strategy structure conversation does not start build preview', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 598, replies);
+		ctx.message.text = 'yeah buybacks not for now actually, maybe later, i think we can earn it back from NFTs, if we do sell the NFTs via token, and create a nice structure for it to get hype right after the launch.';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'strategy conversation must not enter PRD bridge');
+		assert.doesNotMatch(replies.join('\n'), /Say "go" and I will start/i);
+		assert.doesNotMatch(replies.join('\n'), /Mission:/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('pending clarification cancels on conversation-only boundary', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -1008,11 +1037,21 @@ async function run(): Promise<void> {
 		const indexModule: any = await import('../src/index');
 		const noNeedCtx = makeFakeCtx(8319079055, 8319079055, 602, replies);
 		noNeedCtx.message.text = 'no need we can talk here';
-		await indexModule.handleClarificationAnswers(noNeedCtx, 'no need we can talk here');
+		await indexModule.handleTextMessage(noNeedCtx);
 
 		assert.ok(!captured.some((c) => c.body?.forceDispatch === true), 'conversation-only boundary must not dispatch the pending build');
-		assert.match(replies.join('\n'), /no build started/i);
+		assert.match(replies.join('\n'), /no build.*started/i);
 		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
+
+		const dispatchesAfterCancel = captured.filter((c) => c.body?.forceDispatch === true).length;
+		const goCtx = makeFakeCtx(8319079055, 8319079055, 603, replies);
+		goCtx.message.text = 'go';
+		await indexModule.handleTextMessage(goCtx);
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterCancel,
+			'cancel must clear pending execution state so a later go does not wake the build'
+		);
 
 		restoreAxios();
 		restoreEnv();
