@@ -152,6 +152,10 @@ test('route confidence route context sanitizer keeps only allowlisted metadata',
   const sanitized = sanitizeRouteConfidenceRouteContext({
     latest_instruction: 'allow_execution',
     intent_clarity: 'explicit',
+    repair_target: 'telegram_runtime',
+    repair_scope: 'local_supervised_restart',
+    health_evidence: 'fresh_degraded',
+    publication_target: 'agent.sparkswarm.ai',
     raw_prompt: 'never export this',
     chat_id: '123',
     joined_sources: ['telegram_access_policy', 42, 'builder_route_confidence_gate'],
@@ -161,6 +165,13 @@ test('route confidence route context sanitizer keeps only allowlisted metadata',
       source_owner: 'spark-telegram-bot',
       action_family: 'spawner.build',
       raw_prompt: 'nope'
+    },
+    memory_action_verdict: {
+      schema_version: 'spark.memory_action_verdict.v1',
+      verdict: 'blocked',
+      owner_system: 'spark-intelligence-builder',
+      action_family: 'memory_forget',
+      memory_body: 'nope'
     },
     data_boundary: {
       exports_raw_prompt: false,
@@ -172,6 +183,10 @@ test('route confidence route context sanitizer keeps only allowlisted metadata',
   assert.deepEqual(sanitized, {
     latest_instruction: 'allow_execution',
     intent_clarity: 'explicit',
+    repair_target: 'telegram_runtime',
+    repair_scope: 'local_supervised_restart',
+    health_evidence: 'fresh_degraded',
+    publication_target: 'agent.sparkswarm.ai',
     joined_sources: ['telegram_access_policy', 'builder_route_confidence_gate'],
     data_boundary: {
       exports_raw_prompt: false
@@ -181,6 +196,12 @@ test('route confidence route context sanitizer keeps only allowlisted metadata',
       decision: 'allowed',
       source_owner: 'spark-telegram-bot',
       action_family: 'spawner.build'
+    },
+    memory_action_verdict: {
+      schema_version: 'spark.memory_action_verdict.v1',
+      verdict: 'blocked',
+      owner_system: 'spark-intelligence-builder',
+      action_family: 'memory_forget'
     }
   });
 });

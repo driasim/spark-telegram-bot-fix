@@ -421,6 +421,11 @@ const ROUTE_CONTEXT_STRING_KEYS = new Set([
   'reversibility',
   'source_status',
   'freshness',
+  'repair_target',
+  'repair_scope',
+  'health_evidence',
+  'fresh_health_status',
+  'publication_target',
   'request_id',
   'trace_ref',
   'verification_command'
@@ -452,6 +457,20 @@ const ROUTE_CONTEXT_AUTHORITY_KEYS = new Set([
   'permission_required',
   'confirmation_state'
 ]);
+const ROUTE_CONTEXT_MEMORY_ACTION_KEYS = new Set([
+  'schema_version',
+  'verdict',
+  'decision',
+  'status',
+  'owner_system',
+  'source_owner',
+  'source_owner_system',
+  'action_family',
+  'action',
+  'route',
+  'scope',
+  'reason_code'
+]);
 
 export function sanitizeRouteConfidenceRouteContext(input: unknown): Record<string, unknown> {
   const source = objectValue(input);
@@ -481,6 +500,14 @@ export function sanitizeRouteConfidenceRouteContext(input: unknown): Record<stri
     if (value) safeAuthority[key] = value;
   }
   if (Object.keys(safeAuthority).length > 0) out.authority_verdict = safeAuthority;
+
+  const memoryActionVerdict = objectValue(source.memory_action_verdict);
+  const safeMemoryActionVerdict: Record<string, string> = {};
+  for (const key of ROUTE_CONTEXT_MEMORY_ACTION_KEYS) {
+    const value = stringValue(memoryActionVerdict[key]);
+    if (value) safeMemoryActionVerdict[key] = value;
+  }
+  if (Object.keys(safeMemoryActionVerdict).length > 0) out.memory_action_verdict = safeMemoryActionVerdict;
 
   return out;
 }
