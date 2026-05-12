@@ -47,6 +47,7 @@ import {
   isMissionExecutionConfirmation,
   isMemoryAcknowledgementReply,
   isMemoryDoctorRequest,
+  isNoExecutionBoundary,
   isLowInformationLlmReply,
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
@@ -112,6 +113,14 @@ test('detects execution confirmation without treating every reply as a mission',
   assert.equal(isMissionExecutionConfirmation('sure'), false);
   assert.equal(isMissionExecutionConfirmation('sounds good'), false);
   assert.equal(isMissionExecutionConfirmation('what do you think about this?'), false);
+});
+
+test('detects no-execution boundaries before pending builds can launch', () => {
+  assert.equal(isNoExecutionBoundary('no need we can talk here'), true);
+  assert.equal(isNoExecutionBoundary('do not start a mission; just explain the failure class'), true);
+  assert.equal(isNoExecutionBoundary('not now, maybe later'), true);
+  assert.equal(isNoExecutionBoundary('we can discuss here for now'), true);
+  assert.equal(isNoExecutionBoundary('go ahead and build it'), false);
 });
 
 test('infers Spark bug-recognition mission from recent planning context', () => {

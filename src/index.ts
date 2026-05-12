@@ -188,6 +188,7 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
+  isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
@@ -2145,6 +2146,11 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   }
 
   const answersRaw = answersRawInput.trim();
+  if (isNoExecutionBoundary(answersRaw)) {
+    pendingClarifications.delete(key);
+    await ctx.reply('Got it, no build started. We can keep talking here.');
+    return;
+  }
   const runWithDefaults = /^(?:go|run|start|ship|yes|yep|yeah|do it|let'?s go|default|defaults|skip)$/i.test(answersRaw);
   pendingClarifications.delete(key);
 
@@ -2942,7 +2948,7 @@ function isDomainChipPendingStart(text: string): boolean {
 }
 
 function isDomainChipPendingCancel(text: string): boolean {
-  return /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
+  return isNoExecutionBoundary(text) || /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
 }
 
 function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: string): string {
