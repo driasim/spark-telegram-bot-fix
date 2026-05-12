@@ -409,6 +409,82 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+const ROUTE_CONTEXT_STRING_KEYS = new Set([
+  'latest_instruction',
+  'intent_clarity',
+  'route_fit',
+  'consequence_risk',
+  'permission_required',
+  'capability_state',
+  'runner_state',
+  'confirmation_state',
+  'reversibility',
+  'source_status',
+  'freshness',
+  'request_id',
+  'trace_ref',
+  'verification_command'
+]);
+
+const ROUTE_CONTEXT_ARRAY_KEYS = new Set(['joined_sources', 'missing_evidence', 'source_refs_redacted']);
+const ROUTE_CONTEXT_BOOLEAN_KEYS = new Set(['explicit_no_execution']);
+const ROUTE_CONTEXT_BOUNDARY_KEYS = new Set([
+  'exports_raw_prompt',
+  'exports_chat_id',
+  'exports_provider_output',
+  'exports_memory_body',
+  'exports_transcript_body',
+  'exports_audio',
+  'exports_env_value',
+  'exports_secret'
+]);
+const ROUTE_CONTEXT_AUTHORITY_KEYS = new Set([
+  'schema_version',
+  'decision',
+  'status',
+  'verdict',
+  'source_owner',
+  'source_owner_system',
+  'owner_system',
+  'action_family',
+  'action',
+  'route',
+  'permission_required',
+  'confirmation_state'
+]);
+
+export function sanitizeRouteConfidenceRouteContext(input: unknown): Record<string, unknown> {
+  const source = objectValue(input);
+  const out: Record<string, unknown> = {};
+  for (const key of ROUTE_CONTEXT_STRING_KEYS) {
+    const value = stringValue(source[key]);
+    if (value) out[key] = value;
+  }
+  for (const key of ROUTE_CONTEXT_BOOLEAN_KEYS) {
+    if (typeof source[key] === 'boolean') out[key] = source[key];
+  }
+  for (const key of ROUTE_CONTEXT_ARRAY_KEYS) {
+    const values = arrayValue(source[key]).map(stringValue).filter(Boolean).slice(0, 12);
+    if (values.length > 0) out[key] = values;
+  }
+  const boundary = objectValue(source.data_boundary);
+  const safeBoundary: Record<string, boolean> = {};
+  for (const key of ROUTE_CONTEXT_BOUNDARY_KEYS) {
+    if (typeof boundary[key] === 'boolean') safeBoundary[key] = boundary[key] as boolean;
+  }
+  if (Object.keys(safeBoundary).length > 0) out.data_boundary = safeBoundary;
+
+  const authority = objectValue(source.authority_verdict);
+  const safeAuthority: Record<string, string> = {};
+  for (const key of ROUTE_CONTEXT_AUTHORITY_KEYS) {
+    const value = stringValue(authority[key]);
+    if (value) safeAuthority[key] = value;
+  }
+  if (Object.keys(safeAuthority).length > 0) out.authority_verdict = safeAuthority;
+
+  return out;
+}
+
 function truncateForPrompt(text: string, maxChars: number): string {
   const trimmed = text.replace(/\s+/g, ' ').trim();
   if (trimmed.length <= maxChars) {
@@ -1804,7 +1880,7 @@ export async function runBuilderRouteConfidenceGate(
     args.push('--latest-spawner-job-json', JSON.stringify(input.latestSpawnerJob));
   }
   if (input.routeContext && Object.keys(input.routeContext).length > 0) {
-    args.push('--route-context-json', JSON.stringify(input.routeContext));
+    args.push('--route-context-json', JSON.stringify(sanitizeRouteConfidenceRouteContext(input.routeContext)));
   }
 
   const { stdout, stderr } = await execFileAsync(

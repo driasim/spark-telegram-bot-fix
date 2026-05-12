@@ -17,7 +17,8 @@ import {
   formatWikiPromotionReply,
   formatWikiQueryReply,
   formatWikiStatusReply,
-  resolveBuilderRepoPath
+  resolveBuilderRepoPath,
+  sanitizeRouteConfidenceRouteContext
 } from '../src/builderBridge';
 
 function test(name: string, fn: () => void): void {
@@ -145,6 +146,43 @@ test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action prefligh
   assert.match(indexSource, /exports_chat_id: false/);
   assert.match(indexSource, /exports_memory_body: false/);
   assert.doesNotMatch(gateBlock, /currentMessage|user_message|raw_provider_output|raw_memory_body/);
+});
+
+test('route confidence route context sanitizer keeps only allowlisted metadata', () => {
+  const sanitized = sanitizeRouteConfidenceRouteContext({
+    latest_instruction: 'allow_execution',
+    intent_clarity: 'explicit',
+    raw_prompt: 'never export this',
+    chat_id: '123',
+    joined_sources: ['telegram_access_policy', 42, 'builder_route_confidence_gate'],
+    authority_verdict: {
+      schema_version: 'spark.authority_verdict.v1',
+      decision: 'allowed',
+      source_owner: 'spark-telegram-bot',
+      action_family: 'spawner.build',
+      raw_prompt: 'nope'
+    },
+    data_boundary: {
+      exports_raw_prompt: false,
+      exports_secret: 'true',
+      token: 'nope'
+    }
+  });
+
+  assert.deepEqual(sanitized, {
+    latest_instruction: 'allow_execution',
+    intent_clarity: 'explicit',
+    joined_sources: ['telegram_access_policy', 'builder_route_confidence_gate'],
+    data_boundary: {
+      exports_raw_prompt: false
+    },
+    authority_verdict: {
+      schema_version: 'spark.authority_verdict.v1',
+      decision: 'allowed',
+      source_owner: 'spark-telegram-bot',
+      action_family: 'spawner.build'
+    }
+  });
 });
 
 test('formats authoritative cold memory context for prompt injection', () => {
