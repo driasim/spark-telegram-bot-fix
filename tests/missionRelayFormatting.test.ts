@@ -1375,4 +1375,66 @@ void (async () => {
     const secondReply = await approvePendingMissionLesson(subscription.userId, '1');
     assert.equal(secondReply, null);
   });
+
+  test('creator benchmark completion uses trace evidence instead of provider prose', () => {
+    const message = formatProviderCompletionForTelegram({
+      providerLabel: 'codex',
+      missionId: 'mission-creator-qa-benchmark',
+      goal: 'create a benchmark pack for Spark QA Operator with adversarial and no-op regression cases',
+      response: [
+        'Built and validated the local-only Spark QA Operator benchmark pack.',
+        'Added benchmark pack artifacts and tests.',
+        'specialized score 0.7422; held-out verdict fail.'
+      ].join(' '),
+      creatorEvidence: {
+        targetLabel: 'Spark QA Operator',
+        creatorMode: 'benchmark',
+        publishReadiness: 'workspace_validated',
+        validationStatus: 'passed',
+        benchmarkSummary: {
+          baselineScore: 0.121,
+          candidateScore: 0.89,
+          delta: 0.769,
+          heldOutPass: true
+        },
+        kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-creator-qa-benchmark',
+        privacyMode: 'local_only'
+      }
+    });
+
+    assert.match(message, /Spark QA Operator benchmark pack updated/);
+    assert.match(message, /Benchmark\n• score 0.89\n• improved from baseline 0.121\n• held-out passed\n• validation passed/);
+    assert.match(message, /Sharing\n• local\/private for now/);
+    assert.match(message, /Workspace\n• http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-creator-qa-benchmark/);
+    assert.doesNotMatch(message, /Codex/);
+    assert.doesNotMatch(message, /Added benchmark pack artifacts and tests/);
+  });
+
+  test('creator benchmark completion generalizes beyond QA Operator', () => {
+    const message = formatProviderCompletionForTelegram({
+      providerLabel: 'codex',
+      missionId: 'mission-creator-startup-yc-benchmark',
+      goal: 'create a benchmark pack for Startup YC',
+      response: 'Built and validated the Startup YC benchmark pack.',
+      creatorEvidence: {
+        targetLabel: 'Startup YC',
+        creatorMode: 'benchmark',
+        validationStatus: 'passed',
+        benchmarkSummary: {
+          baselineScore: 0.42,
+          candidateScore: 0.57,
+          delta: 0.15,
+          heldOutPass: false
+        },
+        kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-creator-startup-yc-benchmark',
+        privacyMode: 'local_only'
+      }
+    });
+
+    assert.match(message, /🟡 Startup YC benchmark pack updated/);
+    assert.match(message, /• score 0.57/);
+    assert.match(message, /• improved from baseline 0.42/);
+    assert.match(message, /• held-out still failing/);
+    assert.doesNotMatch(message, /Spark QA Operator/);
+  });
 })();

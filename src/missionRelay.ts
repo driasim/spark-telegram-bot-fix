@@ -581,6 +581,24 @@ interface MissionCompletionSummary {
   response: string;
   openLink?: string | null;
   previewPending?: boolean;
+  creatorEvidence?: CreatorCompletionEvidence | null;
+}
+
+interface CreatorBenchmarkSummary {
+  baselineScore?: number | null;
+  candidateScore?: number | null;
+  delta?: number | null;
+  heldOutPass?: boolean | null;
+}
+
+interface CreatorCompletionEvidence {
+  targetLabel?: string | null;
+  creatorMode?: string | null;
+  publishReadiness?: string | null;
+  validationStatus?: string | null;
+  benchmarkSummary?: CreatorBenchmarkSummary | null;
+  kanbanUrl?: string | null;
+  privacyMode?: string | null;
 }
 
 interface MissionLessonApproval {
@@ -615,6 +633,79 @@ function firstString(record: Record<string, unknown> | null, keys: string[]): st
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return null;
+}
+
+function numberField(record: Record<string, unknown> | null, key: string): number | null {
+  const value = record?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function booleanField(record: Record<string, unknown> | null, key: string): boolean | null {
+  const value = record?.[key];
+  return typeof value === 'boolean' ? value : null;
+}
+
+function formatCreatorTargetLabel(value: string | null | undefined): string {
+  const cleaned = (value || 'creator mission')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\bqa\b/gi, 'QA')
+    .replace(/\byc\b/gi, 'YC')
+    .replace(/\bapi\b/gi, 'API')
+    .replace(/\bui\b/gi, 'UI')
+    .replace(/\bllm\b/gi, 'LLM')
+    .trim();
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatScore(value: number): string {
+  return value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function creatorModeLabel(value: string | null | undefined): string {
+  const normalized = (value || '').replace(/[_-]+/g, ' ').trim();
+  if (!normalized) return 'creator packet';
+  if (normalized === 'benchmark') return 'benchmark pack';
+  return normalized;
+}
+
+async function fetchCreatorCompletionEvidence(missionId: string): Promise<CreatorCompletionEvidence | null> {
+  if (!missionId.startsWith('mission-creator-')) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch(`${spawnerUiUrl()}/api/creator/mission?missionId=${encodeURIComponent(missionId)}`, {
+        signal: controller.signal
+      });
+      if (!response.ok) return null;
+      const payload = asRecord(await response.json());
+      const trace = asRecord(payload?.trace);
+      if (!trace) return null;
+      const intent = asRecord(trace.intent_packet);
+      const benchmark = asRecord(trace.benchmark_summary);
+      const runs = Array.isArray(trace.validation_runs) ? trace.validation_runs.map(asRecord).filter(Boolean) : [];
+      const latestRun = runs[runs.length - 1] || null;
+      const links = asRecord(trace.links);
+      return {
+        targetLabel: formatCreatorTargetLabel(firstString(intent, ['target_domain']) || firstString(trace, ['intent_id'])),
+        creatorMode: firstString(trace, ['creator_mode']),
+        publishReadiness: firstString(trace, ['publish_readiness']),
+        validationStatus: firstString(latestRun, ['status']) || firstString(trace, ['stage_status']),
+        benchmarkSummary: benchmark ? {
+          baselineScore: numberField(benchmark, 'baseline_score'),
+          candidateScore: numberField(benchmark, 'candidate_score'),
+          delta: numberField(benchmark, 'delta'),
+          heldOutPass: booleanField(benchmark, 'held_out_pass')
+        } : null,
+        kanbanUrl: firstString(links, ['kanban']),
+        privacyMode: firstString(intent, ['privacy_mode'])
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch {
+    return null;
+  }
 }
 
 async function fetchMissionCompletionSummary(
@@ -654,11 +745,13 @@ async function fetchMissionCompletionSummary(
         const providerLabel = completedProvider && typeof completedProvider.providerId === 'string'
           ? completedProvider.providerId
           : 'provider';
+        const creatorEvidence = await fetchCreatorCompletionEvidence(missionId);
         return {
           providerLabel,
           response: responseText,
           openLink,
-          previewPending: false
+          previewPending: false,
+          creatorEvidence
         };
       } finally {
         clearTimeout(timeout);
@@ -721,7 +814,8 @@ async function sendFetchedCompletionSummary(
       goal: subscription.goal,
       verbosity,
       openLink: completion.openLink,
-      previewPending: completion.previewPending
+      previewPending: completion.previewPending,
+      creatorEvidence: completion.creatorEvidence
     });
     const chunks = chunkForTelegram(message);
     for (let i = 0; i < chunks.length; i++) {
@@ -1141,6 +1235,75 @@ function formatTaskCompletedMessage(event: DeliverableRelayEvent): string {
   ].join('\n');
 }
 
+function looksLikeBenchmarkPackCreatorCompletion(input: {
+  response: string;
+  missionId: string;
+  goal?: string;
+  creatorEvidence?: CreatorCompletionEvidence | null;
+}): boolean {
+  const text = `${input.goal || ''}\n${input.response}`.toLowerCase();
+  return input.creatorEvidence?.creatorMode === 'benchmark' || (input.missionId.startsWith('mission-creator-') && /\bbenchmark pack\b/.test(text));
+}
+
+function benchmarkPackCompletionScore(text: string): string | null {
+  const patterns = [
+    /\bspecialized\b[^0-9]{0,80}(\d+\.\d{3,4})/i,
+    /\bscore\b[^0-9]{0,40}(\d+\.\d{3,4})/i,
+    /\btotal\b[^0-9]{0,40}(\d+\.\d{3,4})/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function formatBenchmarkPackCreatorCompletion(input: {
+  response: string;
+  missionId: string;
+  goal?: string;
+  creatorEvidence?: CreatorCompletionEvidence | null;
+}): string {
+  const combined = `${input.goal || ''}\n${input.response}`;
+  const evidence = input.creatorEvidence || null;
+  const benchmark = evidence?.benchmarkSummary || null;
+  const score = benchmark?.candidateScore !== null && benchmark?.candidateScore !== undefined
+    ? formatScore(benchmark.candidateScore)
+    : benchmarkPackCompletionScore(combined);
+  const baseline = benchmark?.baselineScore !== null && benchmark?.baselineScore !== undefined
+    ? formatScore(benchmark.baselineScore)
+    : null;
+  const lower = combined.toLowerCase();
+  const heldOut = benchmark?.heldOutPass !== null && benchmark?.heldOutPass !== undefined
+    ? (benchmark.heldOutPass ? 'held-out passed' : 'held-out still failing')
+    : /\bheld[- ]out\b/.test(lower)
+    ? (/held[- ]out[^.\n]*(?:fail|failing)/.test(lower) ? 'held-out still failing' : 'held-out included')
+    : null;
+  const validated = evidence?.validationStatus === 'passed' || /\b(?:validated|validation passed|tests? passed|checks? passed)\b/.test(lower);
+  const target = evidence?.targetLabel || 'Creator';
+  const artifact = creatorModeLabel(evidence?.creatorMode);
+  const workspaceLink = evidence?.kanbanUrl || `${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(input.missionId)}`;
+  const icon = heldOut === 'held-out still failing' || !validated ? '🟡' : '🟢';
+
+  return [
+    `${icon} ${target} ${artifact} updated.`,
+    '',
+    'Benchmark',
+    ...(score ? [`• score ${score}`] : [`• ${artifact} generated`]),
+    ...(baseline && score ? [`• improved from baseline ${baseline}`] : []),
+    ...(heldOut ? [`• ${heldOut}`] : []),
+    ...(validated ? ['• validation passed'] : []),
+    ...(evidence?.privacyMode === 'local_only' || evidence?.publishReadiness === 'workspace_validated' ? [
+      '',
+      'Sharing',
+      '• local/private for now'
+    ] : []),
+    '',
+    'Workspace',
+    `• ${workspaceLink}`
+  ].join('\n');
+}
+
 export function formatProviderCompletionForTelegram(input: {
   providerLabel: string;
   response: string;
@@ -1150,10 +1313,15 @@ export function formatProviderCompletionForTelegram(input: {
   verbosity?: TelegramRelayVerbosity;
   openLink?: string | null;
   previewPending?: boolean;
+  creatorEvidence?: CreatorCompletionEvidence | null;
 }): string {
   const provider = humanizeProviderLabel(input.providerLabel);
   const verbosity = input.verbosity || 'normal';
   const parsed = parseJsonObject(input.response);
+
+  if (looksLikeBenchmarkPackCreatorCompletion(input)) {
+    return formatBenchmarkPackCreatorCompletion(input);
+  }
 
   if (!parsed) {
     const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
