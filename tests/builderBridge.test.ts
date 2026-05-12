@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  buildBuilderAocPreflightCommands,
   compactColdMemoryQuery,
   formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
@@ -543,6 +544,34 @@ test('black-box bridge invokes Builder self black-box json route', () => {
 
   assert.match(source, /'self',\s*'black-box'/);
   assert.match(source, /'--json'/);
+});
+
+test('AOC preflight commands carry trace metadata without raw prompt or chat ids', () => {
+  const commands = buildBuilderAocPreflightCommands(
+    {
+      userId: '8319079055',
+      chatId: '123456789',
+      currentMessage: 'Create a secret private project prompt that must not be persisted.',
+      requestId: 'tg-build-safe',
+      traceRef: 'trace:spawner-prd:mission-safe',
+      selectedRoute: 'spawner_prd_bridge',
+      userIntent: 'telegram_run_direct_build',
+    },
+    'C:\\Users\\USER\\.spark\\state\\spark-intelligence'
+  );
+  const flat = commands.flat();
+
+  assert.equal(commands.length, 3);
+  assert.ok(commands.some((args) => args.includes('route-selection')));
+  assert.ok(commands.some((args) => args.includes('source-used') && args.includes('memory_preflight')));
+  assert.ok(flat.includes('--request-id'));
+  assert.ok(flat.includes('tg-build-safe'));
+  assert.ok(flat.includes('--trace-ref'));
+  assert.ok(flat.includes('trace:spawner-prd:mission-safe'));
+  assert.ok(flat.includes('session:telegram:redacted'));
+  assert.ok(flat.includes('human:telegram:redacted'));
+  assert.doesNotMatch(flat.join('\n'), /secret private project prompt/);
+  assert.doesNotMatch(flat.join('\n'), /8319079055|123456789/);
 });
 
 test('formats self-improvement plan as probe-first actions', () => {

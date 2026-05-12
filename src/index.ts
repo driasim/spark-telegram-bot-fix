@@ -18,6 +18,7 @@ import {
 import { renderChoiceContextAcknowledgement, renderConversationFrameContext, type ConversationFrame } from './conversationFrame';
 import {
   getBuilderBridgeStatus,
+  runBuilderAocPreflight,
   formatMemoryInPlaySummary,
   runBuilderAgentBlackBox,
   runBuilderAgentOperatingContext,
@@ -2356,6 +2357,33 @@ export function formatCanvasReadySummary(args: {
   return lines.join('\n');
 }
 
+async function recordBuilderAocPreflightForRun(input: {
+  ctx: any;
+  requestId: string;
+  traceRef: string;
+  selectedRoute: string;
+  userIntent: string;
+  reason: string;
+}): Promise<void> {
+  if (process.env.SPARK_BOT_TEST_MODE === '1' || process.env.SPARK_TELEGRAM_AOC_PREFLIGHT === '0') {
+    return;
+  }
+  try {
+    await runBuilderAocPreflight({
+      userId: String(input.ctx.from?.id ?? ''),
+      chatId: String(input.ctx.chat?.id ?? ''),
+      requestId: input.requestId,
+      traceRef: input.traceRef,
+      selectedRoute: input.selectedRoute,
+      userIntent: input.userIntent,
+      confidence: 'high',
+      reason: input.reason
+    });
+  } catch (error) {
+    console.warn('[BuilderAOC] preflight recording failed:', redactText(error instanceof Error ? error.message : String(error)));
+  }
+}
+
 interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
@@ -2394,6 +2422,14 @@ export async function handleRunCommand(
 
   const requestId = opaqueTelegramRequestId('tg-run');
   const traceRef = telegramRunTraceRef(requestId);
+  await recordBuilderAocPreflightForRun({
+    ctx,
+    requestId,
+    traceRef,
+    selectedRoute: 'spawner_run',
+    userIntent: 'telegram_run_mission',
+    reason: 'Telegram access gate passed for non-build /run; dispatching to Spawner with shared trace.'
+  });
   const result = await spawner.runGoal({
     goal,
     chatId: String(ctx.chat.id),
@@ -2477,6 +2513,14 @@ export async function handleBuildIntent(
   const requestId = opaqueTelegramRequestId('tg-build');
   const missionId = missionIdFromTelegramBuildRequest(requestId);
   const traceRef = spawnerPrdTraceRef(missionId);
+  await recordBuilderAocPreflightForRun({
+    ctx,
+    requestId,
+    traceRef,
+    selectedRoute: 'spawner_prd_bridge',
+    userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
+    reason: 'Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with shared trace.'
+  });
 
   const prdContent = projectPath
     ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`

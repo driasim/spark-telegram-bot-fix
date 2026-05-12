@@ -146,6 +146,20 @@ export interface BuilderRouteProbeResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderAocPreflightInput extends BuilderSelfAwarenessInput {
+  requestId: string;
+  traceRef: string;
+  selectedRoute: string;
+  userIntent: string;
+  confidence?: string;
+  reason?: string;
+}
+
+export interface BuilderAocPreflightResult {
+  recorded: boolean;
+  payloads: Record<string, unknown>[];
+}
+
 export interface BuilderWikiStatusResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -1655,6 +1669,120 @@ export async function runBuilderRouteProbe(capabilityKey: string): Promise<Build
     payload,
     replyText: formatRouteProbeReply(payload),
   };
+}
+
+function sanitizedPreflightLabel(value: unknown, fallback: string): string {
+  const text = String(value || '').trim().toLowerCase().replace(/[^a-z0-9:_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return text || fallback;
+}
+
+export function buildBuilderAocPreflightCommands(
+  input: BuilderAocPreflightInput,
+  builderHome: string
+): string[][] {
+  const selectedRoute = sanitizedPreflightLabel(input.selectedRoute, 'spawner_prd_bridge');
+  const userIntent = sanitizedPreflightLabel(input.userIntent, 'telegram_run_request');
+  const requestId = String(input.requestId || '').trim();
+  const traceRef = String(input.traceRef || '').trim();
+  const confidence = sanitizedPreflightLabel(input.confidence || 'high', 'high');
+  const reason = String(input.reason || 'Telegram access preflight passed; dispatching to Spawner with shared trace.').trim();
+  const common = [
+    '--home',
+    builderHome,
+    '--request-id',
+    requestId,
+    '--trace-ref',
+    traceRef,
+    '--session-id',
+    'session:telegram:redacted',
+    '--human-id',
+    'human:telegram:redacted',
+    '--actor-id',
+    'telegram_aoc_preflight',
+    '--json',
+  ];
+  return [
+    [
+      'self',
+      'route-selection',
+      selectedRoute,
+      '--user-intent',
+      userIntent,
+      '--confidence',
+      confidence,
+      '--reason',
+      reason,
+      ...common,
+    ],
+    [
+      'self',
+      'source-used',
+      'telegram_authority_preflight',
+      '--role',
+      'dispatch_gate',
+      '--freshness',
+      'live_probed',
+      '--source-ref',
+      `telegram:/run:${requestId}`,
+      '--summary',
+      'Telegram access gate passed before Spawner dispatch; chat and user ids are redacted.',
+      '--user-intent',
+      userIntent,
+      '--selected-route',
+      selectedRoute,
+      '--confidence',
+      confidence,
+      ...common,
+    ],
+    [
+      'self',
+      'source-used',
+      'memory_preflight',
+      '--role',
+      'memory_boundary',
+      '--freshness',
+      'live_probed',
+      '--source-ref',
+      `builder:aoc-preflight:${requestId}`,
+      '--summary',
+      'Memory preflight recorded as metadata only; memory bodies stay inside Builder.',
+      '--user-intent',
+      userIntent,
+      '--selected-route',
+      selectedRoute,
+      '--confidence',
+      confidence,
+      ...common,
+    ],
+  ];
+}
+
+export async function runBuilderAocPreflight(input: BuilderAocPreflightInput): Promise<BuilderAocPreflightResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const payloads: Record<string, unknown>[] = [];
+  for (const args of buildBuilderAocPreflightCommands(input, config.builderHome)) {
+    const { stdout, stderr } = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    const trimmedStdout = stdout.trim();
+    if (!trimmedStdout) {
+      throw new Error(`Builder AOC preflight returned empty stdout. stderr=${redactText(stderr.trim())}`);
+    }
+    payloads.push(JSON.parse(trimmedStdout) as Record<string, unknown>);
+  }
+  return { recorded: payloads.length > 0, payloads };
 }
 
 export async function runBuilderWikiStatus(input: { refresh?: boolean } = {}): Promise<BuilderWikiStatusResult> {
