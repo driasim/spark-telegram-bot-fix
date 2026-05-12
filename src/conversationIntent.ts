@@ -21,7 +21,8 @@ const COLLABORATIVE_IDEA_PATTERNS = [
   /\b(?:not\s+just|more\s+than)\s+tasks\b/i,
   /\b(?:converse|talk|think)\s+(?:with\s+me\s+)?(?:about|through)\b/i,
   /\btogether\b.*\b(?:idea|shape|plan|concept|build)\b/i,
-  /\b(?:idea|concept)\s+together\b/i
+  /\b(?:idea|concept)\s+together\b/i,
+  /\b(?:nfts?|token|tokens|buybacks?|launch|hype)\b.*\b(?:structure|strategy|plan)\b/i
 ];
 
 const HARD_EXECUTION_PATTERNS = [
