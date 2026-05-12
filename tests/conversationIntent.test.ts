@@ -47,6 +47,7 @@ import {
   isMissionExecutionConfirmation,
   isMemoryAcknowledgementReply,
   isMemoryDoctorRequest,
+  isNoExecutionBoundary,
   isLowInformationLlmReply,
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
@@ -112,6 +113,14 @@ test('detects execution confirmation without treating every reply as a mission',
   assert.equal(isMissionExecutionConfirmation('sure'), false);
   assert.equal(isMissionExecutionConfirmation('sounds good'), false);
   assert.equal(isMissionExecutionConfirmation('what do you think about this?'), false);
+});
+
+test('detects no-execution boundaries before pending builds can launch', () => {
+  assert.equal(isNoExecutionBoundary('no need we can talk here'), true);
+  assert.equal(isNoExecutionBoundary('do not start a mission; just explain the failure class'), true);
+  assert.equal(isNoExecutionBoundary('not now, maybe later'), true);
+  assert.equal(isNoExecutionBoundary('we can discuss here for now'), true);
+  assert.equal(isNoExecutionBoundary('go ahead and build it'), false);
 });
 
 test('infers Spark bug-recognition mission from recent planning context', () => {
@@ -1434,6 +1443,8 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('please switch Spark access to full access'), 'full access');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 4'), '4');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('access level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('Spark access five'), '5');
   assert.equal(parseNaturalAccessChangeIntent('switch my access to operator'), 'operator');
   assert.equal(parseNaturalAccessChangeIntent('lower my access to two'), '2');
   assert.equal(parseNaturalAccessChangeIntent('what is my access level?'), null);

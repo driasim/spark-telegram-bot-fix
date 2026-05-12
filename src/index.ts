@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
+import { execFile } from 'node:child_process';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
 // Load .env.override LAST with override=true. Wins over anything spark-cli
@@ -25,6 +27,7 @@ import {
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
   runBuilderRouteProbe,
+  runBuilderSourceUsed,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
   runBuilderTelegramBridge,
@@ -83,6 +86,7 @@ import {
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveSpawnerUiUrl } from './spawnerUrl';
+import { readNoEditProbeMission, storeNoEditProbeMission, type NoEditProbeMission } from './noEditProbeStore';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
   renderLocalWorkspaceInspectionReply,
@@ -186,6 +190,7 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
+  isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
@@ -220,6 +225,7 @@ import { getTierForUser } from './userTier';
 import { acquireGatewayOwnership, releaseGatewayOwnership } from './gatewayOwnership';
 import { requireRelaySecret, resolveTelegramLaunchConfig } from './launchMode';
 import { renderSparkErrorReply } from './errorExplain';
+import { withHiddenWindows } from './hiddenProcess';
 import {
   normalizeModelProvider,
   normalizeModelRole,
@@ -247,6 +253,7 @@ import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
+const execFileAsync = promisify(execFile);
 
 installConsoleRedaction();
 
@@ -275,6 +282,790 @@ function renderTelegramError(prefix: string, error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error || 'unknown error');
   const detail = redactText(raw).trim() || 'unknown error';
   return `${prefix}: ${detail}`;
+}
+
+async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> {
+  const { stdout, stderr } = await execFileAsync(
+    'spark',
+    args,
+    withHiddenWindows({
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  return redactText([stdout, stderr].map((value) => String(value || '').trim()).filter(Boolean).join('\n'));
+}
+
+type TelegramSourceUsedEvidence = {
+  source: string;
+  role: string;
+  freshness: 'fresh' | 'stale' | 'contradicted' | 'unknown' | 'live_probed';
+  sourceRef: string;
+  summary: string;
+};
+
+function recordTelegramSourceUsedEvidence(
+  ctx: any,
+  user: any,
+  currentMessage: string,
+  selectedRoute: string,
+  evidence: TelegramSourceUsedEvidence[],
+  confidence = 'high'
+): void {
+  const chatId = ctx.chat?.id;
+  const userId = ctx.from?.id ?? user?.id;
+  if (chatId === undefined || userId === undefined || evidence.length === 0) {
+    return;
+  }
+  for (const item of evidence) {
+    void runBuilderSourceUsed({
+      chatId,
+      userId,
+      currentMessage: selectedRoute,
+      source: item.source,
+      role: item.role,
+      freshness: item.freshness,
+      sourceRef: item.sourceRef,
+      summary: item.summary,
+      userIntent: selectedRoute,
+      selectedRoute,
+      confidence,
+      actorId: 'spark-telegram-bot'
+    }).catch((error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[SourceLedger] failed to record ${item.source} for ${selectedRoute}: ${redactText(detail)}`);
+    });
+  }
+}
+
+function runtimeTruthSourceEvidence(text: string): TelegramSourceUsedEvidence[] {
+  const signals = runtimeTruthSignals(text);
+  const evidence: TelegramSourceUsedEvidence[] = [];
+  if (signals.access) {
+    evidence.push(
+      {
+        source: 'operator_supplied_access',
+        role: 'permission_context',
+        freshness: 'fresh',
+        sourceRef: 'spark access status --level 5 --json',
+        summary: 'Telegram answer used the current Spark access state.'
+      },
+      {
+        source: 'runner_preflight',
+        role: 'execution_capability_context',
+        freshness: 'live_probed',
+        sourceRef: 'telegram runner writability preflight',
+        summary: 'Telegram answer used the current runner writability preflight.'
+      }
+    );
+  }
+  if (signals.live) {
+    evidence.push(
+      {
+        source: 'current_diagnostics',
+        role: 'live_runtime_status',
+        freshness: 'live_probed',
+        sourceRef: 'spark live status',
+        summary: 'Telegram answer used fresh Spark Live status.'
+      },
+      {
+        source: 'live_probe',
+        role: 'supervision_cross_check',
+        freshness: 'live_probed',
+        sourceRef: 'spark verify --deep',
+        summary: 'Telegram answer used a supervision cross-check.'
+      }
+    );
+  }
+  if (signals.providers) {
+    evidence.push({
+      source: 'current_diagnostics',
+      role: 'provider_status',
+      freshness: 'live_probed',
+      sourceRef: 'spark providers status',
+      summary: 'Telegram answer used fresh provider status.'
+    });
+  }
+  if (signals.memory) {
+    evidence.push({
+      source: 'current_diagnostics',
+      role: 'memory_builder_status',
+      freshness: 'live_probed',
+      sourceRef: 'spark verify --deep',
+      summary: 'Telegram answer used fresh Builder/memory evidence.'
+    });
+  }
+  return evidence;
+}
+
+function isLiveSparkHealthQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\bspark live status\b/.test(normalized) ||
+    /\blive spark health\b/.test(normalized) ||
+    /\bsame source as spark live status\b/.test(normalized) ||
+    (/\bspawner\b/.test(normalized) && /\btelegram\b/.test(normalized) && /\b(?:supervised|running|stopped|health|live)\b/.test(normalized))
+  );
+}
+
+function isSpawnerGoldenPathRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bgolden[_\s-]*path\b/.test(normalized) ||
+    (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
+    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized))
+  );
+}
+
+function extractNoEditMissionReplyPhrase(text: string): string {
+  const exactReply = text.match(/\bonly\s+repl(?:y|ies)\s*:?\s*[`"']?([A-Za-z0-9_ -]{2,80}?)[`"']?(?:[.!?\n]|$)/i)?.[1]?.trim();
+  if (exactReply) {
+    return exactReply.replace(/\s+/g, ' ').trim();
+  }
+  const bareToken = text.match(/\b([A-Z][A-Z0-9_]{5,80})\b/)?.[1]?.trim();
+  return bareToken || 'GOLDEN_PATH_OK';
+}
+
+function compactSparkLiveOutput(output: string): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Useful:/i.test(line) && !/^spark live /i.test(line))
+    .slice(0, 18)
+    .join('\n');
+}
+
+async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
+  try {
+    const [liveStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+    return [
+      'Spark Live Health',
+      '',
+      'Source: local Spark CLI from this Telegram runtime.',
+      'Commands: `spark live status`; supervision cross-check: `spark verify --deep`.',
+      '',
+      `Spawner: ${spawnerOk ? 'OK' : 'not OK in live status'}.`,
+      `Telegram: ${telegramOk ? 'OK' : 'not OK in live status'}.`,
+      supervised ? `Supervision: ${supervised.replace(/\.+$/, '')}.` : 'Supervision: not proven by verify output.',
+      '',
+      compactSparkLiveOutput(liveStatus)
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Spark Live Health',
+      '',
+      'I could not run the authoritative local Spark CLI health check from this Telegram runtime.',
+      `Error: ${detail}`,
+      '',
+      'This means this runner could not probe local Spark health. It does not prove Spawner or Telegram are offline.'
+    ].join('\n');
+  }
+}
+
+function firstMatchingLine(output: string, pattern: RegExp): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => pattern.test(line)) || '';
+}
+
+async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
+  try {
+    const [liveStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerLine = firstMatchingLine(liveStatus, /\[OK\]\s+spawner-ui|spawner-ui:/i);
+    const telegramLine = firstMatchingLine(liveStatus, /\[OK\]\s+spark-telegram-bot|spark-telegram-bot:/i);
+    const profilesLine = firstMatchingLine(liveStatus, /Telegram profiles:/i);
+    const rolesLine = firstMatchingLine(liveStatus, /LLM roles:/i);
+    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(spawnerLine);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(telegramLine);
+    const headline = liveReady && spawnerOk && telegramOk
+      ? 'Current live state: healthy.'
+      : 'Current live state: attention needed.';
+    return [
+      headline,
+      '',
+      'Fresh `spark live status` evidence:',
+      spawnerLine ? `- Spawner UI: ${spawnerOk ? 'OK' : 'not OK'} - ${spawnerLine.replace(/^\[OK\]\s+spawner-ui:\s*/i, '')}` : '- Spawner UI: not reported by live status.',
+      telegramLine ? `- Telegram: ${telegramOk ? 'OK' : 'not OK'} - ${telegramLine.replace(/^\[OK\]\s+spark-telegram-bot:\s*/i, '')}` : '- Telegram: not reported by live status.',
+      profilesLine ? `- ${profilesLine}` : '',
+      rolesLine ? `- ${rolesLine}` : '',
+      supervised ? `- Supervision: ${supervised.replace(/\.+$/, '')}.` : '- Supervision: not proven by verify output.',
+      '',
+      liveReady && spawnerOk && telegramOk
+        ? 'Call: Spark Live, Spawner, and Telegram are up right now.'
+        : 'Call: at least one live operating surface is not proven healthy right now.'
+    ].filter(Boolean).join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Current live state: unknown.',
+      '',
+      'I could not run `spark live status` from this Telegram runtime.',
+      `Error: ${detail}`,
+      '',
+      'Call: this is a probe failure, not proof that Spawner or Telegram are down.'
+    ].join('\n');
+  }
+}
+
+async function renderAuthoritativeSparkRiskProfileAnswer(): Promise<string> {
+  try {
+    const [liveStatus, providerStatus] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000).catch((error) => `provider_check_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const providersOk = !/provider_check_failed/i.test(providerStatus) && !/\[(?:FAIL|ERROR|WARN)\]/i.test(providerStatus);
+    const risk = liveReady && spawnerOk && telegramOk && providersOk ? 'low' : 'attention';
+    return [
+      `Current Spark risk profile: ${risk}.`,
+      '',
+      'Fresh evidence:',
+      `- Live stack: ${liveReady ? 'ready' : 'not fully ready'}.`,
+      `- Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
+      `- Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      `- Providers: ${providersOk ? 'OK by provider status' : 'not fully proven by provider status'}.`,
+      '',
+      risk === 'low'
+        ? 'Call: the main risk right now is regression/drift from future changes, not a current outage. I did not start a mission or repair action.'
+        : 'Call: at least one surface needs attention before trusting execution. I did not start a mission or repair action.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Current Spark risk profile: unknown.',
+      '',
+      `Fresh risk check failed: ${detail}`,
+      'I did not start a mission or repair action.'
+    ].join('\n');
+  }
+}
+
+async function buildAocLiveState(): Promise<Record<string, unknown>> {
+  try {
+    const [liveStatus, providerStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000).catch((error) => `provider_check_failed: ${error instanceof Error ? error.message : String(error)}`),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const providersOk = !/provider_check_failed/i.test(providerStatus) && !/\[(?:FAIL|ERROR|WARN)\]/i.test(providerStatus);
+    const memoryOk = /\[OK\]\s+(?:domain-chip-memory|spark-researcher|spark-intelligence-builder)/i.test(liveStatus) || /memory|domain-chip-memory|researcher/i.test(deepVerify);
+    return {
+      status: liveReady && spawnerOk && telegramOk ? 'healthy' : 'attention',
+      spawner_ok: spawnerOk,
+      telegram_ok: telegramOk,
+      providers_ok: providersOk,
+      memory_ok: memoryOk,
+      checked_at: new Date().toISOString(),
+      source: 'telegram_runtime_probe',
+      source_ref: 'spark live status; spark providers status; spark verify --deep',
+      freshness: 'live_probed',
+      claim_boundary: 'Live Spark state was probed by the Telegram runtime for this AOC request and can go stale after restart.'
+    };
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return {
+      status: 'unknown',
+      checked_at: new Date().toISOString(),
+      source: 'telegram_runtime_probe',
+      source_ref: 'spark live status',
+      freshness: 'unknown',
+      error: detail,
+      claim_boundary: 'Telegram could not probe live Spark state for this AOC request; absence of proof is not outage proof.'
+    };
+  }
+}
+
+async function renderMemoryRuntimeSeparationAnswer(): Promise<string> {
+  try {
+    const liveStatus = await runSparkCli(['live', 'status'], 45_000);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    return [
+      'No. Remembering a phrase does not change live Spark health.',
+      '',
+      `Fresh live state after the memory write: ${liveReady && spawnerOk && telegramOk ? 'healthy' : 'attention needed'}.`,
+      `Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}. Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      '',
+      'Memory can change recall/history. Runtime health still has to come from live probes.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'No. Remembering a phrase should not change live Spark health.',
+      '',
+      `I could not refresh live health for this answer: ${detail}`
+    ].join('\n');
+  }
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+}
+
+function boolText(value: unknown): string {
+  return value === true ? 'yes' : value === false ? 'no' : 'unknown';
+}
+
+async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  const runnerSummary = renderSparkAccessCapabilityStatus(chatProfile, runnerPreflight);
+  const runnerLine = runnerSummary.split('\n').find((line) => /^Runner:/i.test(line)) || 'Runner: not checked yet.';
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const chatLevel = sparkAccessLevel(chatProfile);
+    return [
+      'Spark Access Status',
+      '',
+      `Chat setting: Access level ${chatLevel}.`,
+      `Requested by CLI: Level ${requested}.`,
+      `Effective by CLI: Level ${effective}.`,
+      `Level 5: ${serviceEnabled ? 'active' : 'blocked/off'} (activation_state: ${activation}, service_enabled: ${boolText(level5.service_enabled)}).`,
+      '',
+      runnerLine,
+      '',
+      serviceEnabled && chatProfile === 'operator'
+        ? 'Verdict: whole-computer operator mode is active, with destructive/secret/publish safety checks still on.'
+        : serviceEnabled
+          ? `Verdict: Level 5 service guardrails are active, but this chat is set to Access level ${chatLevel}. Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.`
+        : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'Spark Access Status',
+      '',
+      `Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+      'CLI effective access: unavailable.',
+      `Error: ${detail}`,
+      '',
+      runnerLine,
+      '',
+      'Verdict: this runner could not read the authoritative access state, so I will not claim Level 5 is active.'
+    ].join('\n');
+  }
+}
+
+async function readSparkAccessState(): Promise<{
+  effective: unknown;
+  requested: unknown;
+  activation: string;
+  serviceEnabled: boolean;
+  workspaceWritable: unknown;
+}> {
+  const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+  const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+  const level5 = objectRecord(payload.level5);
+  const stateMachine = objectRecord(payload.state_machine);
+  const workspacePreflight = objectRecord(payload.workspace_preflight);
+  return {
+    effective: payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown',
+    requested: stateMachine.requested_access_level ?? payload.access_level ?? 'unknown',
+    activation: String(level5.activation_state || stateMachine.activation_state || 'unknown'),
+    serviceEnabled: level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true,
+    workspaceWritable: workspacePreflight.writable
+  };
+}
+
+function shouldAnswerAuthoritativeAccessCapability(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\b(?:are|is)\s+(?:you|recursive|runner|telegram\s+runner|this\s+runner)\s+(?:writable|read[-\s]*only)\b/.test(normalized) ||
+    /\bcan\s+you\s+(?:edit|write|modify|touch)\b.*\b(?:files?|outside|workspace|computer|machine)\b/.test(normalized) ||
+    /\b(?:edit|write|modify|touch)\s+files?\s+outside\s+(?:the\s+)?spark\s+workspace\b/.test(normalized) ||
+    /\boutside[-\s]*workspace\s+(?:edits?|writes?|access)\b/.test(normalized) ||
+    /\beffective\s+access\s+level\b/.test(normalized) && /\b(?:writable|edit|write|runner|current|right\s+now)\b/.test(normalized)
+  );
+}
+
+function shouldAnswerSparkRiskProfile(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\bspark\b/.test(normalized) && /\brisk\s+profile\b/.test(normalized);
+}
+
+function shouldAnswerMemoryRuntimeSeparation(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\bdid\b.*\bremember(?:ing)?\b.*\bchange\b.*\b(?:live\s+)?spark\s+health\b/.test(normalized);
+}
+
+async function renderAuthoritativeSparkEditCapabilityAnswer(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  try {
+    const accessState = await readSparkAccessState();
+    const chatLevel = sparkAccessLevel(chatProfile);
+    const runnerWritable = runnerPreflight.runnerWritable === 'yes';
+    const canOperateOutsideWorkspace = accessState.serviceEnabled && chatProfile === 'operator' && runnerWritable;
+    return [
+      canOperateOutsideWorkspace
+        ? 'Yes. This Telegram runner is writable and Level 5 operator mode is active.'
+        : 'No. Whole-computer file work is not fully available from this Telegram runner right now.',
+      '',
+      'Fresh access evidence:',
+      `- Chat setting: Access level ${chatLevel}.`,
+      `- Requested by CLI: Level ${accessState.requested}.`,
+      `- Effective by CLI: Level ${accessState.effective}.`,
+      `- Level 5 service guardrails: ${accessState.serviceEnabled ? 'active' : 'off/blocked'} (${accessState.activation}).`,
+      `- Runner writable: ${runnerPreflight.runnerWritable}.`,
+      `- Spark workspace writable: ${boolText(accessState.workspaceWritable)}.`,
+      '',
+      canOperateOutsideWorkspace
+        ? 'Boundary: routine outside-workspace operator work is allowed, but deleting important files, exposing secrets, publishing, or deploying still requires confirmation.'
+        : 'Boundary: Spark should stay in the workspace/sandbox path unless Level 5 service guardrails, chat access, and runner writability are all active.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I cannot prove whole-computer file access from current Spark access state.',
+      '',
+      `Access check failed: ${detail}`,
+      `Runner writable: ${runnerPreflight.runnerWritable}.`,
+      '',
+      'So I will treat outside-workspace edits as unavailable until the access check succeeds.'
+    ].join('\n');
+  }
+}
+
+async function renderLevel5ActivationAnswer(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+    const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+    const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+    const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const runner = runnerPreflight.runnerWritable === 'yes'
+      ? 'This Telegram runner is writable.'
+      : `This Telegram runner is not writable${runnerPreflight.failureReason ? ` (${runnerPreflight.failureReason})` : ''}.`;
+    if (serviceEnabled && chatProfile !== 'operator') {
+      return [
+        'Level 5 service guardrails are active, but this chat is not in Level 5 operator mode.',
+        '',
+        `This chat is set to Access level ${sparkAccessLevel(chatProfile)}. Requested level is ${requested}, effective service level is ${effective}.`,
+        runner,
+        'Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.'
+      ].join('\n');
+    }
+    if (serviceEnabled) {
+      return [
+        'Level 5 is active.',
+        '',
+        `Requested level is ${requested}, effective level is ${effective}, and the service guardrails are enabled.`,
+        runner,
+        'I will still ask before destructive actions, secret exposure, publishing, or deploys.'
+      ].join('\n');
+    }
+    return [
+      'Level 5 is only requested right now, not active.',
+      '',
+      `Spark reports effective access Level ${effective}; Level 5 is ${activation}.`,
+      runner,
+      'So local workspace work is available, but whole-computer operator mode is not live.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I cannot prove Level 5 is active from the local Spark access state.',
+      '',
+      `Access check failed: ${detail}`,
+      'So I will treat Level 5 as not active rather than overclaiming.'
+    ].join('\n');
+  }
+}
+
+function shouldAnswerRuntimeTruthPriority(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\b(?:which|what)\s+source\s+wins\b/.test(normalized) ||
+    /\b(?:memory|old\s+memory|stale\s+memory)\b.*\b(?:spark\s+live\s+status|fresh\s+(?:state|runtime)|current\s+(?:state|truth))\b.*\b(?:wins?|trust|believe|use)\b/.test(normalized) ||
+    /\b(?:spark\s+live\s+status|fresh\s+(?:state|runtime)|current\s+(?:state|truth))\b.*\b(?:memory|old\s+memory|stale\s+memory)\b.*\b(?:wins?|trust|believe|use)\b/.test(normalized)
+  );
+}
+
+function renderRuntimeTruthPriorityAnswer(): string {
+  return [
+    'Fresh runtime state wins for current-state questions.',
+    '',
+    'Rule: `spark live status`, `spark access status`, provider checks, and direct smoke probes are authoritative for what is true right now. Memory is useful for history and continuity, but it must not override fresh runtime evidence.',
+    '',
+    'So if memory says Spawner is down and fresh `spark live status` says Spawner is up, Spawner is up right now. The memory becomes stale context, not current truth.'
+  ].join('\n');
+}
+
+function shouldAnswerRestartSurvivalQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bsurviv(?:e|ed)\b.*\brestart\b/.test(normalized) ||
+    /\brestart\b.*\bsurviv(?:e|ed)\b/.test(normalized)
+  );
+}
+
+async function renderRestartSurvivalAnswer(chatId: string | number): Promise<string> {
+  try {
+    const [accessState, liveStatus, providerStatus, deepVerify, chatProfile] = await Promise.all([
+      readSparkAccessState(),
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`),
+      getSparkAccessProfile(chatId)
+    ]);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const memoryOk = /\[OK\]\s+(?:domain-chip-memory|spark-researcher|spark-intelligence-builder)/i.test(liveStatus) || /memory|domain-chip-memory|researcher/i.test(deepVerify);
+    const roles = providerStatus
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^\[OK\]\s+(?:chat|builder|memory|mission)\b/i.test(line))
+      .slice(0, 4);
+    return [
+      'Fresh post-restart state:',
+      '',
+      `- Access chat setting: Level ${sparkAccessLevel(chatProfile)}.`,
+      `- Effective CLI access: Level ${accessState.effective}.`,
+      `- Level 5 guardrails: ${accessState.serviceEnabled ? 'active' : 'off/blocked'} (${accessState.activation}).`,
+      `- Spawner supervision/health: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
+      `- Telegram supervision/health: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      `- Memory/Builder evidence: ${memoryOk ? 'OK present' : 'not proven OK'}.`,
+      roles.length ? `- Provider roles: ${roles.map((line) => line.replace(/^\[OK\]\s+/, '')).join('; ')}.` : '- Provider roles: not proven by provider status.',
+      '',
+      'Call: durable config/memory can survive restart, but live capability is only trusted after these fresh checks pass.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not prove what survived the restart from fresh checks.',
+      '',
+      `Error: ${detail}`
+    ].join('\n');
+  }
+}
+
+function shouldAnswerMissionProvenanceQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\b(?:did|whether|can\s+you\s+tell)\b.*\bmission\b.*\b(?:spawner|chat)\b/.test(normalized) ||
+    /\b(?:ran|run|routed)\s+through\s+spawner\b/.test(normalized) ||
+    /\bjust\s+through\s+chat\b/.test(normalized)
+  );
+}
+
+async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<string> {
+  const key = noEditProbeKey(ctx);
+  const latestProbe = lastNoEditProbeMissions.get(key) || await readNoEditProbeMission(key).catch(() => null);
+  if (latestProbe) {
+    return [
+      'Yes. The latest no-edit probe was routed through Spawner, not just chat.',
+      '',
+      `Evidence: Telegram created Spawner mission \`${latestProbe.missionId}\` for the requested reply \`${latestProbe.requestedPhrase}\` at ${latestProbe.startedAt}.`,
+      'A plain chat answer would not have a Spawner mission id.'
+    ].join('\n');
+  }
+  const recentMessages = await conversation.getRecentMessages(user, 8).catch(() => []);
+  const recentText = recentMessages.join('\n');
+  const missionId = recentText.match(/\bMission:\s*((?:spark|mission)-[A-Za-z0-9_-]+)/i)?.[1] ||
+    recentText.match(/\b((?:spark|mission)-[0-9A-Za-z_-]{6,})\b/)?.[1];
+  if (missionId) {
+    return [
+      'Most likely Spawner, not plain chat.',
+      '',
+      `Evidence: the recent thread includes mission id \`${missionId}\`. A plain chat answer would not normally produce a Spawner mission id.`,
+      'I do not have a durable no-edit probe record for this mission, so this is provenance from recent thread evidence rather than the probe store.'
+    ].join('\n');
+  }
+  return [
+    'I cannot prove whether the latest mission ran through Spawner from the current thread state.',
+    '',
+    'The proof I need is a fresh mission id or a Spawner result record. Without that, I should not claim it was Spawner.'
+  ].join('\n');
+}
+
+type RuntimeTruthSignals = {
+  access: boolean;
+  live: boolean;
+  providers: boolean;
+  memory: boolean;
+};
+
+function runtimeTruthSignals(text: string): RuntimeTruthSignals {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return { access: false, live: false, providers: false, memory: false };
+  }
+  const sourceCheck = /\b(?:old\s+memory|fresh\s+state|fresh\s+runtime|current\s+truth|using\s+memory|using\s+fresh)\b/.test(normalized);
+  const access = (
+    sourceCheck ||
+    /\blevel\s*[1-5]\b/.test(normalized) ||
+    /\bspark\s+access\b/.test(normalized) ||
+    /\baccess\s+(?:level|profile|status)\b/.test(normalized) ||
+    /\b(?:runner|read[-\s]*only|writable|operator\s+mode|whole[-\s]*computer|full\s+access)\b/.test(normalized)
+  );
+  const live = (
+    sourceCheck ||
+    /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
+    /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
+    /\blive\s+state\b/.test(normalized) ||
+    /\bspark\s+live\b/.test(normalized) ||
+    /\blive\s+(?:spark\s+)?(?:health|status|system|stack|state)\b/.test(normalized) ||
+    /\b(?:spawner|mission\s+control|telegram|relay|supervised|supervision|running|stopped|offline|online|health|systems?|state)\b/.test(normalized) &&
+      /\b(?:spark|spawner|telegram|relay|live|supervised|system|stack|health|status|state|running|stopped|offline|online)\b/.test(normalized)
+  );
+  const providers = (
+    sourceCheck ||
+    /\b(?:provider|providers|llm|model|models|codex|openai|anthropic|openrouter|ollama|chat\s+model|current\s+model)\b/.test(normalized) &&
+      /\b(?:spark|current|using|configured|healthy|working|status|test|which|what|who)\b/.test(normalized)
+  );
+  const memory = (
+    sourceCheck ||
+    /\b(?:memory\s+bridge|builder\s+memory|domain[-\s]*chip[-\s]*memory|recall|remember|memory\s+health|memory\s+status)\b/.test(normalized) &&
+      /\b(?:spark|builder|memory|bridge|health|status|online|offline|working|current)\b/.test(normalized)
+  );
+  return { access, live, providers, memory };
+}
+
+function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
+  const signals = runtimeTruthSignals(text);
+  return signals.access || signals.live || signals.providers || signals.memory;
+}
+
+function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!runtimeTruthSignals(text).live) return false;
+  return (
+    isLiveSparkHealthQuestion(text) ||
+    /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
+    /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
+    /\bwhat\s+is\s+(?:the\s+)?(?:current\s+)?live\s+state\b/.test(normalized) ||
+    /\b(?:is|are)\s+(?:spawner|telegram|spark|systems?|stack)\b.*\b(?:healthy|running|online|up|live|supervised)\b/.test(normalized) ||
+    /\b(?:spawner|telegram)\b.*\b(?:healthy|running|supervised|stopped|offline|online|up|down)\b/.test(normalized)
+  );
+}
+
+function compactRuntimeOutput(output: string, maxLines = 18): string {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^Useful:/i.test(line))
+    .slice(0, maxLines)
+    .join('\n');
+}
+
+async function buildFreshRuntimeTruthContext(text: string, chatId: string | number): Promise<string> {
+  const signals = runtimeTruthSignals(text);
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+  const lines = [
+    'Fresh Spark runtime truth for this turn (ephemeral, not memory):',
+    `- Chat access setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+    `- Telegram runner writable: ${runnerPreflight.runnerWritable}.`,
+    runnerPreflight.runnerLabel ? `- Runner preflight: ${runnerPreflight.runnerLabel}.` : '',
+  ];
+  if (signals.access) {
+    try {
+      const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+      const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+      const level5 = objectRecord(payload.level5);
+      const stateMachine = objectRecord(payload.state_machine);
+      const effective = payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown';
+      const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
+      const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
+      const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+      lines.push(
+        `- Requested access from Spark CLI: Level ${requested}.`,
+        `- Effective access from Spark CLI: Level ${effective}.`,
+        `- Level 5 service guardrails active: ${serviceEnabled ? 'yes' : 'no'} (${activation}).`
+      );
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh Spark CLI access check failed: ${detail}.`);
+    }
+  }
+  if (signals.live) {
+    try {
+      const [liveStatus, deepVerify] = await Promise.all([
+        runSparkCli(['live', 'status'], 45_000),
+        runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+      ]);
+      const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
+      lines.push(
+        '- Fresh live status:',
+        compactRuntimeOutput(liveStatus, 14),
+        supervised ? `- Supervision evidence: ${supervised.replace(/\.+$/, '')}.` : '- Supervision evidence: not proven by verify output.'
+      );
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh live status check failed: ${detail}.`);
+    }
+  }
+  if (signals.providers) {
+    try {
+      const providerStatus = await runSparkCli(['providers', 'status'], 45_000);
+      lines.push('- Fresh provider status:', compactRuntimeOutput(providerStatus, 14));
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh provider status check failed: ${detail}.`);
+    }
+  }
+  if (signals.memory) {
+    try {
+      const deepVerify = await runSparkCli(['verify', '--deep'], 90_000);
+      const memoryLines = deepVerify
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => /memory|builder|domain-chip-memory|researcher/i.test(line))
+        .slice(0, 10)
+        .join('\n');
+      lines.push('- Fresh memory/Builder evidence:', memoryLines || compactRuntimeOutput(deepVerify, 10));
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      lines.push(`- Fresh memory/Builder check failed: ${detail}.`);
+    }
+  }
+  lines.push(
+    '',
+    'Conversation guidance: Use these fresh facts as higher priority than older memory, persona, or generic access doctrine. Answer naturally and briefly. Do not dump raw status fields unless the user explicitly asks for raw/debug output. If fresh evidence is available, do not contradict it.'
+  );
+  return lines.filter(Boolean).join('\n');
 }
 
 function activeTelegramProfile(): string {
@@ -552,6 +1343,12 @@ bot.use(async (ctx, next) => {
 // Rate limiting (simple in-memory)
 const userLastAction = new Map<number, number>();
 const RATE_LIMIT_MS = 1000; // 1 second between messages
+
+const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
+
+function noEditProbeKey(ctx: any): string {
+  return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
+}
 
 // Pending clarification state — keyed by `${chatId}-${userId}`. In-memory
 // only for v1; doesn't survive bot restart. /clarify reads + clears.
@@ -901,10 +1698,22 @@ bot.command('status', async (ctx) => {
 
   status += `Builder memory bridge: ${builderBridge.available ? 'ONLINE' : 'OFFLINE'} (${builderBridge.mode})\n`;
 
-  status += 'Spark launch core: ONLINE\n';
-  status += 'Dashboard/resonance: deferred\n';
-
-  if (isAdmin) status += '\nAdmin access';
+  if (isAdmin) {
+    status += '\n';
+    status += await renderAuthoritativeSparkLiveStatus();
+    status += '\n\n';
+    status += await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    recordTelegramSourceUsedEvidence(
+      ctx,
+      ctx.from,
+      '/status',
+      'telegram_status_command',
+      runtimeTruthSourceEvidence('spark live status access providers memory')
+    );
+  } else {
+    status += 'Spark launch core: ONLINE\n';
+    status += 'Dashboard/resonance: deferred\n';
+  }
 
   await ctx.reply(status);
 });
@@ -994,7 +1803,10 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const memoryQuery = text.replace(/^\/(?:context|operating_context|agent_context|aoc)(?:@\w+)?\s*/i, '').trim();
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-    const runnerPreflight = await probeTelegramRunnerWritability();
+    const [runnerPreflight, liveState] = await Promise.all([
+      probeTelegramRunnerWritability(),
+      buildAocLiveState()
+    ]);
     const [result, memoryInPlay] = await Promise.all([
       runBuilderAgentOperatingContext({
         userId: ctx.from.id,
@@ -1003,6 +1815,7 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
         sparkAccessLevel: sparkAccessLevel(accessProfile),
         runnerWritable: runnerPreflight.runnerWritable,
         runnerLabel: runnerPreflight.runnerLabel,
+        liveState,
       }),
       memoryQuery
         ? runBuilderConversationColdContext({
@@ -1337,6 +2150,11 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   }
 
   const answersRaw = answersRawInput.trim();
+  if (isNoExecutionBoundary(answersRaw)) {
+    pendingClarifications.delete(key);
+    await ctx.reply('Got it, no build started. We can keep talking here.');
+    return;
+  }
   const runWithDefaults = /^(?:go|run|start|ship|yes|yep|yeah|do it|let'?s go|default|defaults|skip)$/i.test(answersRaw);
   pendingClarifications.delete(key);
 
@@ -2134,7 +2952,7 @@ function isDomainChipPendingStart(text: string): boolean {
 }
 
 function isDomainChipPendingCancel(text: string): boolean {
-  return /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
+  return isNoExecutionBoundary(text) || /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
 }
 
 function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: string): string {
@@ -3138,15 +3956,10 @@ bot.command('updates', async (ctx) => {
 bot.command('access', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
-  const raw = ctx.message.text.replace('/access', '').trim();
+  const raw = extractTelegramCommandArgs(ctx.message.text, 'access');
   const current = await getSparkAccessProfile(ctx.chat.id);
   if (!raw || raw.toLowerCase() === 'status') {
-    const runnerPreflight = await probeTelegramRunnerWritability();
-    await ctx.reply([
-      renderSparkAccessStatus(current),
-      '',
-      renderSparkAccessCapabilityStatus(current, runnerPreflight)
-    ].join('\n'), buildSparkAccessActionKeyboard(current));
+    await ctx.reply(await renderAuthoritativeSparkAccessStatus(ctx.chat.id), buildSparkAccessActionKeyboard(current));
     return;
   }
 
@@ -3159,7 +3972,7 @@ bot.command('access', async (ctx) => {
   if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
     const runtimeGate = validateSparkAccessProfileForRuntime(next);
     if (runtimeGate.ok) {
-      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
       return;
@@ -3178,6 +3991,27 @@ function accessLevelChangeConfirmed(raw: string): boolean {
   return /\bconfirm\b/i.test(raw);
 }
 
+function extractTelegramCommandArgs(text: string, command: string): string {
+  const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`^\\s*/${escapedCommand}(?:@\\w+)?(?:\\s+([\\s\\S]*?))?\\s*$`, 'i'));
+  if (match) {
+    return (match[1] || '').trim();
+  }
+  return text.replace(new RegExp(`^\\s*/${escapedCommand}\\b`, 'i'), '').trim();
+}
+
+async function isLevel5ServiceEnabled(): Promise<boolean> {
+  try {
+    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+    const level5 = objectRecord(payload.level5);
+    const stateMachine = objectRecord(payload.state_machine);
+    return level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+  } catch {
+    return false;
+  }
+}
+
 async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile): Promise<void> {
   const runtimeGate = validateSparkAccessProfileForRuntime(next);
   if (!runtimeGate.ok) {
@@ -3189,11 +4023,32 @@ async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile)
     return;
   }
 
+  const current = await getSparkAccessProfile(ctx.chat.id);
+  let level5DisableResult: Awaited<ReturnType<typeof runSparkAccessActionDetailed>> | null = null;
+  if (next !== 'operator' && (current === 'operator' || await isLevel5ServiceEnabled())) {
+    level5DisableResult = await runSparkAccessActionDetailed('level5_disable');
+    if (level5DisableResult.payload?.ok === false) {
+      await ctx.reply(level5DisableResult.reply);
+      return;
+    }
+  }
+
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
-  const reply = await renderSparkAccessChangeReply(next);
+  const baseReply = await renderSparkAccessChangeReply(next);
+  const reply = level5DisableResult
+    ? [
+        baseReply,
+        '',
+        'I also disabled Level 5 service guardrails so Spark returns to the workspace sandbox.',
+        level5DisableResult.needsSparkRestart ? formatSparkAccessAutomaticRestartNotice('level5_disable') : ''
+      ].filter(Boolean).join('\n')
+    : baseReply;
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  if (level5DisableResult?.needsSparkRestart) {
+    scheduleSparkRestartAfterAccessChange();
+  }
 }
 
 async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
@@ -3295,7 +4150,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
   if (next === 'operator' && current === 'operator' && !accessLevelChangeConfirmed(raw)) {
     const runtimeGate = validateSparkAccessProfileForRuntime(next);
     if (runtimeGate.ok) {
-      const reply = renderSparkAccessBriefStatus('operator', await probeTelegramRunnerWritability());
+      const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
       return true;
@@ -3486,6 +4341,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   const conversationFrame = await conversation.getConversationFrame(user, text);
   let conversationFrameContext = renderConversationFrameContext(conversationFrame, 12_000);
+  let freshRuntimeTruthContext = '';
+  const attachFreshRuntimeTruthContext = async (): Promise<void> => {
+    if (freshRuntimeTruthContext) return;
+    freshRuntimeTruthContext = await buildFreshRuntimeTruthContext(text, ctx.chat.id);
+    conversationFrameContext = [conversationFrameContext, freshRuntimeTruthContext].filter(Boolean).join('\n\n');
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_fresh_runtime_context', runtimeTruthSourceEvidence(text));
+  };
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
@@ -3509,26 +4371,129 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     !earlyBuildIntent &&
     (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
   ) {
+    await attachFreshRuntimeTruthContext();
+  }
+
+  if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
     await conversation.remember(user, text).catch(() => {});
-    const [accessProfile, runnerPreflight] = await Promise.all([
-      getSparkAccessProfile(ctx.chat.id),
-      probeTelegramRunnerWritability()
-    ]);
-    const reply = renderSparkAccessCapabilityStatus(accessProfile, runnerPreflight);
+    const reply = renderRuntimeTruthPriorityAnswer();
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_runtime_truth_priority', [
+      {
+        source: 'current_user_message',
+        role: 'latest_turn_authority',
+        freshness: 'fresh',
+        sourceRef: 'telegram current turn',
+        summary: 'Telegram answered a source-priority question from the latest user turn and source hierarchy policy.'
+      },
+      {
+        source: 'current_diagnostics',
+        role: 'current_state_authority_policy',
+        freshness: 'fresh',
+        sourceRef: 'spark source hierarchy',
+        summary: 'Fresh diagnostics and live probes outrank stale memory for current-state claims.'
+      }
+    ]);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
 
-  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
+  if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
     await conversation.remember(user, text).catch(() => {});
-    const [accessProfile, runnerPreflight] = await Promise.all([
-      getSparkAccessProfile(ctx.chat.id),
-      probeTelegramRunnerWritability()
-    ]);
-    const reply = renderSparkAccessBriefStatus(accessProfile, runnerPreflight);
+    const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerSparkRiskProfile(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkRiskProfileAnswer();
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_spark_risk_profile_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerMemoryRuntimeSeparation(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderMemoryRuntimeSeparationAnswer();
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_memory_runtime_boundary_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerRestartSurvivalQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderRestartSurvivalAnswer(ctx.chat.id);
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_survival_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerMissionProvenanceQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderMissionProvenanceAnswer(ctx, user);
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_mission_provenance_answer', [
+      {
+        source: 'mission_trace',
+        role: 'spawner_mission_provenance',
+        freshness: 'fresh',
+        sourceRef: 'telegram no-edit probe mission record',
+        summary: 'Telegram answered from no-edit Spawner probe mission evidence when available.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkLiveStateAnswer();
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+    await attachFreshRuntimeTruthContext();
+  }
+
+  if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
+    if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+      await attachFreshRuntimeTruthContext();
+    }
+  }
+
+  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const replyPhrase = extractNoEditMissionReplyPhrase(text);
+    const missionId = await handleRunCommand(
+      ctx,
+      `Reply with exactly: ${replyPhrase}. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`,
+      [missionDefaultProvider()],
+      'spawner_build',
+      { missionName: 'Telegram Golden Path Probe' }
+    );
+    if (missionId) {
+      const probeMission = {
+        missionId,
+        requestedPhrase: replyPhrase,
+        startedAt: new Date().toISOString()
+      };
+      const key = noEditProbeKey(ctx);
+      lastNoEditProbeMissions.set(key, probeMission);
+      await storeNoEditProbeMission(key, probeMission).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);
+      });
+      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
+    }
     return;
   }
 
@@ -4121,6 +5086,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    const hasFreshRuntimeTruth = Boolean(freshRuntimeTruthContext);
     let bridgeFailed = false;
     let builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>> = {
       used: false,
@@ -4129,17 +5095,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       bridgeMode: '',
       routingDecision: ''
     };
-    try {
-      const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
-        ? buildUpdateWithText(
-            ctx.update as unknown as Record<string, unknown>,
-            buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
-          )
-        : ctx.update as unknown as Record<string, unknown>;
-      builderReply = await runBuilderTelegramBridge(bridgeUpdate);
-    } catch (bridgeError) {
-      bridgeFailed = true;
-      console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
+    if (!hasFreshRuntimeTruth) {
+      try {
+        const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
+          ? buildUpdateWithText(
+              ctx.update as unknown as Record<string, unknown>,
+              buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
+            )
+          : ctx.update as unknown as Record<string, unknown>;
+        builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+      } catch (bridgeError) {
+        bridgeFailed = true;
+        console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
+      }
     }
     console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
@@ -4176,13 +5144,26 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     // Get context from previous memories
-    const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
+    const storedMemoryContext = await conversation.getContext(user, text);
+    const memories = freshRuntimeTruthContext
+      ? [freshRuntimeTruthContext, conversationFrameContext, storedMemoryContext].filter(Boolean).join('\n\n')
+      : [storedMemoryContext, conversationFrameContext].filter(Boolean).join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
 
     const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+    const systemContext = [
+      renderSparkAccessRuntimeHint(accessProfile),
+      freshRuntimeTruthContext
+        ? [
+            'Authoritative current-state context for this answer:',
+            freshRuntimeTruthContext,
+            'Use the authoritative current-state context above as the highest-priority source for current state. Do not contradict it with memory or older Builder capsules.'
+          ].join('\n')
+        : ''
+    ].filter(Boolean).join('\n\n');
 
     // Get LLM response with Spark context
-    const response = await llm.chat(chatPrompt, renderSparkAccessRuntimeHint(accessProfile), memories);
+    const response = await llm.chat(chatPrompt, systemContext, memories);
 
     if (isLowInformationLlmReply(response)) {
       await conversation.recordInterruptedTask(user, {

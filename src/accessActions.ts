@@ -276,11 +276,11 @@ export function accessActionNeedsSparkRestart(actionId: SparkAccessActionId, pay
 }
 
 export function formatSparkAccessAutomaticRestartNotice(actionId: SparkAccessActionId): string {
-  const verifyCommand = actionId === 'level5_disable' ? '/access 4' : '/access 5';
+  const verifyPrompt = actionId === 'level5_disable' ? '/access' : '"is Level 5 active?"';
   return [
     'I will restart Spark automatically now so you do not need Terminal or PowerShell.',
     'Telegram may go quiet for about 30-60 seconds.',
-    `When it comes back, send ${verifyCommand} to verify the new access state.`,
+    `When it comes back, send ${verifyPrompt} to verify the new access state.`,
   ].join('\n');
 }
 

@@ -26,6 +26,15 @@ function processOutputText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function sourceLedgerLabel(value: unknown, fallback: string): string {
+  const text = String(value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+  const label = text.replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96);
+  return label || fallback;
+}
+
 type BuilderBridgeMode = 'auto' | 'off' | 'required';
 
 interface BuilderBridgeConfig {
@@ -125,6 +134,7 @@ export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessI
   sparkAccessLevel?: number | string;
   runnerWritable?: 'yes' | 'no' | 'unknown';
   runnerLabel?: string;
+  liveState?: Record<string, unknown>;
 }
 
 export interface BuilderAgentOperatingContextResult {
@@ -138,6 +148,25 @@ export interface BuilderAgentBlackBoxInput extends BuilderSelfAwarenessInput {
 
 export interface BuilderAgentBlackBoxResult {
   replyText: string;
+  payload: Record<string, unknown>;
+}
+
+export interface BuilderSourceUsedInput extends BuilderSelfAwarenessInput {
+  source: string;
+  role?: string;
+  freshness?: 'fresh' | 'stale' | 'contradicted' | 'unknown' | 'live_probed';
+  sourceRef?: string;
+  summary?: string;
+  userIntent?: string;
+  selectedRoute?: string;
+  confidence?: string;
+  requestId?: string;
+  traceRef?: string;
+  actorId?: string;
+}
+
+export interface BuilderSourceUsedResult {
+  eventId: string;
   payload: Record<string, unknown>;
 }
 
@@ -1470,6 +1499,9 @@ export async function runBuilderAgentOperatingContext(
   if (runnerLabel) {
     args.push('--runner-label', runnerLabel);
   }
+  if (input.liveState && Object.keys(input.liveState).length > 0) {
+    args.push('--live-state-json', JSON.stringify(input.liveState));
+  }
 
   const { stdout, stderr } = await execFileAsync(
     config.pythonCommand,
@@ -1486,6 +1518,71 @@ export async function runBuilderAgentOperatingContext(
     throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
+}
+
+export async function runBuilderSourceUsed(input: BuilderSourceUsedInput): Promise<BuilderSourceUsedResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'source-used',
+    input.source,
+    '--home',
+    config.builderHome,
+    '--role',
+    input.role || 'supporting_evidence',
+    '--freshness',
+    input.freshness || 'unknown',
+    '--user-intent',
+    sourceLedgerLabel(input.userIntent || input.selectedRoute, 'telegram_source_used_evidence'),
+    '--selected-route',
+    input.selectedRoute || '',
+    '--confidence',
+    input.confidence || '',
+    '--session-id',
+    'session:telegram:redacted',
+    '--human-id',
+    'human:telegram:redacted',
+    '--actor-id',
+    input.actorId || 'spark-telegram-bot',
+    '--json',
+  ];
+  if (input.sourceRef) {
+    args.push('--source-ref', input.sourceRef);
+  }
+  if (input.summary) {
+    args.push('--summary', input.summary);
+  }
+  if (input.requestId) {
+    args.push('--request-id', input.requestId);
+  }
+  if (input.traceRef) {
+    args.push('--trace-ref', input.traceRef);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder source-used recorder returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    eventId: String(payload.event_id || ''),
+    payload,
+  };
 }
 
 export function formatAgentBlackBoxReply(payload: unknown): string {

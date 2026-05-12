@@ -87,8 +87,8 @@ void (async () => {
 
     assert.equal(result.needsSparkRestart, true);
     assert.match(formatSparkAccessAutomaticRestartNotice('level5_enable'), /do not need Terminal or PowerShell/);
-    assert.match(formatSparkAccessAutomaticRestartNotice('level5_enable'), /\/access 5/);
-    assert.match(formatSparkAccessAutomaticRestartNotice('level5_disable'), /\/access 4/);
+    assert.match(formatSparkAccessAutomaticRestartNotice('level5_enable'), /is Level 5 active\?/);
+    assert.match(formatSparkAccessAutomaticRestartNotice('level5_disable'), /\/access/);
   });
 
   await test('formats Docker smoke as no-secret sandbox evidence', () => {
