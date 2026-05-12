@@ -178,6 +178,7 @@ export interface BuilderRouteProbeResult {
 export interface BuilderRouteConfidenceGateInput {
   intent?: string;
   candidateRoute?: string;
+  routeContext?: Record<string, unknown>;
   latestSpawnerJob?: Record<string, unknown>;
 }
 
@@ -1814,6 +1815,9 @@ export async function runBuilderRouteConfidenceGate(
   ];
   if (input.latestSpawnerJob && Object.keys(input.latestSpawnerJob).length > 0) {
     args.push('--latest-spawner-job-json', JSON.stringify(input.latestSpawnerJob));
+  }
+  if (input.routeContext && Object.keys(input.routeContext).length > 0) {
+    args.push('--route-context-json', JSON.stringify(input.routeContext));
   }
 
   const { stdout, stderr } = await execFileAsync(

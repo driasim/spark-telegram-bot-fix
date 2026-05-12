@@ -3222,6 +3222,114 @@ async function recordBuilderAocPreflightForRun(input: {
   }
 }
 
+function buildDispatchConsequenceRisk(prd: string): 'medium' | 'external' {
+  const text = prd.toLowerCase();
+  const asksForExternalSideEffect = /\b(push|publish|deploy|release|ship|upload|send|post|email|tweet|live|production)\b/.test(text);
+  const boundedLocalOnly = /\b(local-only|local only|do not publish|do not deploy|do not push|no network calls|static proof)\b/.test(text);
+  return asksForExternalSideEffect && !boundedLocalOnly ? 'external' : 'medium';
+}
+
+function routeConfidenceDecision(payload: Record<string, unknown>): string {
+  return typeof payload.decision === 'string' ? payload.decision : 'ask';
+}
+
+function routeConfidenceHumanNextAction(payload: Record<string, unknown>): string {
+  return typeof payload.human_next_action === 'string'
+    ? payload.human_next_action
+    : 'Reply with a clearer scope or explicit confirmation before I start a mission.';
+}
+
+async function buildDispatchRouteConfidenceAllows(input: {
+  ctx: any;
+  accessRequirement: SparkAccessRequirement;
+  prd: string;
+  requestId: string;
+  traceRef: string;
+  runnerPreflight: Awaited<ReturnType<typeof probeTelegramRunnerWritability>> | null;
+}): Promise<boolean> {
+  if (process.env.SPARK_BOT_TEST_MODE === '1') {
+    return true;
+  }
+
+  try {
+    const runnerWritable = input.runnerPreflight?.runnerWritable || 'unknown';
+    const gate = await runBuilderRouteConfidenceGate({
+      intent: 'build_dispatch',
+      candidateRoute: 'spawner.build',
+      routeContext: {
+        latest_instruction: 'allow_execution',
+        intent_clarity: 'explicit',
+        route_fit: 'exact',
+        consequence_risk: buildDispatchConsequenceRisk(input.prd),
+        permission_required: input.accessRequirement,
+        authority_verdict: 'allowed',
+        capability_state: runnerWritable === 'no' ? 'unavailable' : 'unknown',
+        runner_state: runnerWritable === 'no' ? 'unavailable' : 'unknown',
+        confirmation_state: 'not_required',
+        reversibility: 'reversible',
+        source_status: 'present',
+        freshness: 'current_turn',
+        request_id: input.requestId,
+        trace_ref: input.traceRef,
+        joined_sources: [
+          'telegram_access_policy',
+          'telegram_route_firewall',
+          'builder_route_confidence_gate'
+        ],
+        data_boundary: {
+          exports_raw_prompt: false,
+          exports_chat_id: false,
+          exports_provider_output: false,
+          exports_memory_body: false,
+          exports_transcript_body: false,
+          exports_audio: false,
+          exports_env_value: false,
+          exports_secret: false
+        },
+        verification_command: 'spark os trace --json'
+      }
+    });
+
+    const decision = routeConfidenceDecision(gate.payload);
+    if (decision === 'act') {
+      return true;
+    }
+    if (decision === 'explain') {
+      await input.ctx.reply([
+        'Spark will not start a build from this message.',
+        '',
+        routeConfidenceHumanNextAction(gate.payload)
+      ].join('\n'));
+      return false;
+    }
+    if (decision === 'refuse') {
+      await input.ctx.reply([
+        'I cannot start that build safely from this route.',
+        '',
+        routeConfidenceHumanNextAction(gate.payload)
+      ].join('\n'));
+      return false;
+    }
+    await input.ctx.reply([
+      'I can prepare this build, but I need one confirmation first.',
+      '',
+      routeConfidenceHumanNextAction(gate.payload)
+    ].join('\n'));
+    return false;
+  } catch (error) {
+    if ((process.env.SPARK_BUILDER_BRIDGE_MODE || 'auto').toLowerCase() === 'required') {
+      await input.ctx.reply(renderSparkErrorReply(
+        error instanceof Error ? error : new Error(String(error)),
+        'builder',
+        conversation.isAdmin(input.ctx.from)
+      ));
+      return false;
+    }
+    console.warn('[RouteConfidenceGate] build dispatch gate unavailable; using local Telegram access gate:', redactText(error instanceof Error ? error.message : String(error)));
+    return true;
+  }
+}
+
 interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
@@ -3359,6 +3467,9 @@ export async function handleBuildIntent(
     userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
     reason: 'Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with shared trace.'
   });
+  if (!(await buildDispatchRouteConfidenceAllows({ ctx, accessRequirement, prd, requestId, traceRef, runnerPreflight }))) {
+    return;
+  }
 
   const prdContent = projectPath
     ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`

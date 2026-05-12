@@ -132,6 +132,22 @@ test('formats route confidence gate missing evidence as a proof refusal', () => 
   assert.match(reply, /Refresh Spawner evidence, then ask again\./);
 });
 
+test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action preflight', () => {
+  const bridgeSource = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+  const indexSource = readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const gateBlock = indexSource.match(/async function buildDispatchRouteConfidenceAllows[\s\S]*?\n}\n\ninterface RunCommandOptions/)?.[0] || '';
+
+  assert.match(bridgeSource, /routeContext\?: Record<string, unknown>/);
+  assert.match(bridgeSource, /--route-context-json/);
+  assert.match(indexSource, /async function buildDispatchRouteConfidenceAllows/);
+  assert.match(indexSource, /candidateRoute: 'spawner\.build'/);
+  assert.match(indexSource, /builder_route_confidence_gate/);
+  assert.match(indexSource, /exports_raw_prompt: false/);
+  assert.match(indexSource, /exports_chat_id: false/);
+  assert.match(indexSource, /exports_memory_body: false/);
+  assert.doesNotMatch(gateBlock, /currentMessage|user_message|raw_provider_output|raw_memory_body/);
+});
+
 test('formats authoritative cold memory context for prompt injection', () => {
   const result = formatConversationColdMemoryContext({
     context_packet: {
