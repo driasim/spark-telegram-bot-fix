@@ -1207,6 +1207,45 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('explicit no-start wording stays chat-only before pending exists', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const indexModule: any = await import('../src/index');
+		const noStartCtx = makeFakeCtx(8319079055, 8319079055, 604, replies);
+		noStartCtx.message.text = 'I am mentioning build and mission, but do not start anything.';
+		await indexModule.handleTextMessage(noStartCtx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'explicit no-start wording must not create a pending build');
+		assert.match(replies[replies.length - 1] || '', /no build.*mission started/i);
+		assert.doesNotMatch(replies.join('\n'), /Say "go"/i);
+		assert.doesNotMatch(replies.join('\n'), /Mission:/);
+
+		const dispatchesAfterBoundary = captured.filter((c) => c.body?.forceDispatch === true).length;
+		const goCtx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+		goCtx.message.text = 'go';
+		await indexModule.handleTextMessage(goCtx);
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterBoundary,
+			'bare go after explicit no-start wording must not dispatch anything'
+		);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('expired pending clarification does not steal a new voice request', async () => {
 		const indexModule: any = await import('../src/index');
 		const expiredPending = { timestamp: Date.now() - (31 * 60 * 1000) };

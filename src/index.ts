@@ -5372,9 +5372,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
-    if (isNoExecutionBoundary(text) && clearPendingExecutionState(pendingExecutionKey)) {
+    if (isNoExecutionBoundary(text)) {
+      const clearedPendingExecution = clearPendingExecutionState(pendingExecutionKey);
       await conversation.remember(user, text).catch(() => {});
-      await ctx.reply('Got it, no build or mission started. We can keep talking here.');
+      await ctx.reply(clearedPendingExecution
+        ? 'Got it, no build or mission started. I cleared the pending action, so we can keep talking here.'
+        : 'Got it, no build or mission started. We can keep talking here.');
       return;
     }
 
