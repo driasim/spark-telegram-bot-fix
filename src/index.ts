@@ -1513,8 +1513,13 @@ async function sendBuilderVoiceMedia(
   await ctx.replyWithAudio(inputFile, options);
 }
 
-function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
-  return `Saved in Telegram memory: ${directive.replace(/[.!?]+$/g, '').trim()}.`;
+function formatLocalMemoryDirectiveBufferNotice(directive: string): string {
+  const normalized = directive.replace(/[.!?]+$/g, '').trim();
+  return [
+    `I kept this in the local Telegram conversation buffer: ${normalized}.`,
+    '',
+    'I could not confirm a durable Spark memory save from Builder yet, so I should not claim this is saved memory.'
+  ].join('\n');
 }
 
 function renderSparkChipStatusBoundaryFallbackReply(): string {
@@ -1560,7 +1565,7 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
   }
 
   const reply = localSaved
-    ? formatLocalMemoryDirectiveAcknowledgement(directive)
+    ? formatLocalMemoryDirectiveBufferNotice(directive)
     : buildMemoryBridgeUnavailableReply('remember');
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(user, reply).catch(() => {});

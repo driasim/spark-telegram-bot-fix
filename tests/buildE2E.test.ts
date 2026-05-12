@@ -553,7 +553,9 @@ async function run(): Promise<void> {
 		recallCtx.message.text = 'what do you remember about how I like mission updates?';
 		await indexModule.handleTextMessage(recallCtx);
 
-		assert.match(saveReplies.join('\n'), /Saved in Telegram memory/i);
+		assert.match(saveReplies.join('\n'), /local Telegram conversation buffer/i);
+		assert.match(saveReplies.join('\n'), /could not confirm a durable Spark memory save/i);
+		assert.doesNotMatch(saveReplies.join('\n'), /Saved in Telegram memory/i);
 		assert.doesNotMatch(saveReplies.join('\n'), /passive Spark bug recognition/i);
 		assert.match(recallReplies.join('\n'), /concise and outcome-focused/i);
 		assert.doesNotMatch(recallReplies.join('\n'), /passive Spark bug recognition/i);

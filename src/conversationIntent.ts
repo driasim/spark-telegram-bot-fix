@@ -1746,7 +1746,16 @@ export function shouldSuppressBuilderReplyForPlainChat(reply: string, routingDec
 }
 
 export function shouldUseBuilderReplyForMemoryDirective(reply: string, routingDecision: string = ''): boolean {
-  return /^memory(?:_|$)/i.test(routingDecision.trim()) && !isLowInformationLlmReply(reply);
+  if (!/^memory(?:_|$)/i.test(routingDecision.trim()) || isLowInformationLlmReply(reply)) {
+    return false;
+  }
+  const normalized = reply.trim().toLowerCase();
+  return (
+    /\b(?:saved|accepted|recorded|wrote|write completed)\b.*\b(?:spark )?memory\b/.test(normalized) ||
+    /\bmemory\b.*\b(?:saved|accepted|recorded|write completed)\b/.test(normalized) ||
+    /\b(?:could not|couldn't|did not|didn't|cannot|can't)\b.*\b(?:save|confirm|write)\b/.test(normalized) ||
+    /\b(?:blocked|abstained|not saved|not confirmed)\b/.test(normalized)
+  );
 }
 
 export function renderChatRuntimeFailureReply(isAdmin: boolean, bridgeFailed: boolean = false): string {

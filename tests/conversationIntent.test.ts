@@ -1399,6 +1399,14 @@ test('memory directives only accept Builder memory-route confirmations', () => {
     true
   );
   assert.equal(
+    shouldUseBuilderReplyForMemoryDirective('I can help with that memory request.', 'memory_open_save'),
+    false
+  );
+  assert.equal(
+    shouldUseBuilderReplyForMemoryDirective('I could not confirm a durable memory save yet.', 'memory_open_save'),
+    true
+  );
+  assert.equal(
     shouldUseBuilderReplyForMemoryDirective(
       'We were shaping passive Spark bug recognition.',
       'provider_fallback_chat'
