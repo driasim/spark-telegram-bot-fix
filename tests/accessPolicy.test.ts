@@ -356,7 +356,8 @@ async function main(): Promise<void> {
     assert.match(indexSource, /const replyPhrase = extractNoEditMissionReplyPhrase\(text\)/);
     assert.match(indexSource, /Reply with exactly: \$\{replyPhrase\}/);
     assert.doesNotMatch(indexSource, /Reply with exactly: GOLDEN_PATH_OK\. Do not edit files/);
-    assert.match(indexSource, /requested exact reply: \$\{replyPhrase\}/);
+    assert.doesNotMatch(indexSource, /learnAboutUser\(user,[\s\S]{0,180}replyPhrase/);
+    assert.match(indexSource, /requested reply phrase is stored only in local probe state/);
   });
 
   await test('gates Spawner command side doors by access level', async () => {

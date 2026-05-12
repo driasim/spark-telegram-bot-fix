@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
+import { execFile } from 'node:child_process';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
 // Load .env.override LAST with override=true. Wins over anything spark-cli
@@ -154,6 +156,7 @@ import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair'
 import { parseBuildIntent } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
+import { withHiddenWindows } from './hiddenProcess';
 import { queueRouteArbiterShadow } from './routeArbiter';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
@@ -250,6 +253,7 @@ import { formatVoiceMediaCaption } from './voiceCaption';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
+const execFileAsync = promisify(execFile);
 
 installConsoleRedaction();
 
@@ -1149,8 +1153,16 @@ type NodeOutboundTraceContext = {
   missionId?: string;
 };
 
+function opaqueRef(label: string, value: unknown): string {
+  return `${label}_${createHash('sha256').update(String(value ?? '')).digest('hex').slice(0, 16)}`;
+}
+
 function chatRef(chatId: unknown): string {
-  return `chat_${createHash('sha256').update(String(chatId ?? '')).digest('hex').slice(0, 16)}`;
+  return opaqueRef('chat', chatId);
+}
+
+function userRef(userId: unknown): string {
+  return opaqueRef('user', userId);
 }
 
 function extractOutboundTraceContext(extra: unknown): NodeOutboundTraceContext | null {
@@ -1245,13 +1257,15 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     ts: new Date().toISOString(),
     event: 'final_answer_checked',
     outcome: 'suppressed_builder_reply',
-    chat_id: String(input.chatId ?? ''),
-    user_id: String(input.userId ?? ''),
+    chat_id_present: String(input.chatId ?? '').trim().length > 0,
+    user_id_present: String(input.userId ?? '').trim().length > 0,
+    chat_ref: chatRef(input.chatId),
+    user_ref: userRef(input.userId),
     suppression_reason: input.suppressionReason,
     builder_routing_decision: input.builderRoutingDecision || '',
     builder_bridge_mode: input.builderBridgeMode || '',
     builder_reply_length: input.builderReply.length,
-    builder_reply_preview: previewAuditText(input.builderReply, 180),
+    builder_reply_redacted: true,
     ...(requestId ? { request_id: requestId } : {}),
     ...(traceRef ? { trace_ref: traceRef } : {}),
     fallback_route: input.fallbackRoute,
@@ -4493,7 +4507,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         const detail = error instanceof Error ? error.message : String(error);
         console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);
       });
-      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
+      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested reply phrase is stored only in local probe state.`).catch(() => {});
     }
     return;
   }

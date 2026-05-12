@@ -462,7 +462,8 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
   const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
 
   assert.match(source, /'self',\s*'panel'/);
-  assert.match(source, /'self',\s*'turn-trace'/);
+  assert.match(source, /'self',\s*'route-selection'/);
+  assert.match(source, /'self',\s*'source-used'/);
   assert.match(source, /'--trace-ref'/);
   assert.doesNotMatch(source, /'self',\s*'context'/);
 });
