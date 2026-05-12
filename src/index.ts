@@ -25,6 +25,7 @@ import {
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
   runBuilderRouteProbe,
+  runBuilderSourceUsed,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
   runBuilderTelegramBridge,
@@ -287,6 +288,108 @@ async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> 
     })
   );
   return redactText([stdout, stderr].map((value) => String(value || '').trim()).filter(Boolean).join('\n'));
+}
+
+type TelegramSourceUsedEvidence = {
+  source: string;
+  role: string;
+  freshness: 'fresh' | 'stale' | 'contradicted' | 'unknown' | 'live_probed';
+  sourceRef: string;
+  summary: string;
+};
+
+function recordTelegramSourceUsedEvidence(
+  ctx: any,
+  user: any,
+  currentMessage: string,
+  selectedRoute: string,
+  evidence: TelegramSourceUsedEvidence[],
+  confidence = 'high'
+): void {
+  const chatId = ctx.chat?.id;
+  const userId = ctx.from?.id ?? user?.id;
+  if (chatId === undefined || userId === undefined || evidence.length === 0) {
+    return;
+  }
+  for (const item of evidence) {
+    void runBuilderSourceUsed({
+      chatId,
+      userId,
+      currentMessage,
+      source: item.source,
+      role: item.role,
+      freshness: item.freshness,
+      sourceRef: item.sourceRef,
+      summary: item.summary,
+      userIntent: currentMessage,
+      selectedRoute,
+      confidence,
+      actorId: 'spark-telegram-bot'
+    }).catch((error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`[SourceLedger] failed to record ${item.source} for ${selectedRoute}: ${redactText(detail)}`);
+    });
+  }
+}
+
+function runtimeTruthSourceEvidence(text: string): TelegramSourceUsedEvidence[] {
+  const signals = runtimeTruthSignals(text);
+  const evidence: TelegramSourceUsedEvidence[] = [];
+  if (signals.access) {
+    evidence.push(
+      {
+        source: 'operator_supplied_access',
+        role: 'permission_context',
+        freshness: 'fresh',
+        sourceRef: 'spark access status --level 5 --json',
+        summary: 'Telegram answer used the current Spark access state.'
+      },
+      {
+        source: 'runner_preflight',
+        role: 'execution_capability_context',
+        freshness: 'live_probed',
+        sourceRef: 'telegram runner writability preflight',
+        summary: 'Telegram answer used the current runner writability preflight.'
+      }
+    );
+  }
+  if (signals.live) {
+    evidence.push(
+      {
+        source: 'current_diagnostics',
+        role: 'live_runtime_status',
+        freshness: 'live_probed',
+        sourceRef: 'spark live status',
+        summary: 'Telegram answer used fresh Spark Live status.'
+      },
+      {
+        source: 'live_probe',
+        role: 'supervision_cross_check',
+        freshness: 'live_probed',
+        sourceRef: 'spark verify --deep',
+        summary: 'Telegram answer used a supervision cross-check.'
+      }
+    );
+  }
+  if (signals.providers) {
+    evidence.push({
+      source: 'current_diagnostics',
+      role: 'provider_status',
+      freshness: 'live_probed',
+      sourceRef: 'spark providers status',
+      summary: 'Telegram answer used fresh provider status.'
+    });
+  }
+  if (signals.memory) {
+    evidence.push({
+      source: 'current_diagnostics',
+      role: 'memory_builder_status',
+      freshness: 'live_probed',
+      sourceRef: 'spark verify --deep',
+      summary: 'Telegram answer used fresh Builder/memory evidence.'
+    });
+  }
+  return evidence;
 }
 
 function isLiveSparkHealthQuestion(text: string): boolean {
@@ -1556,10 +1659,22 @@ bot.command('status', async (ctx) => {
 
   status += `Builder memory bridge: ${builderBridge.available ? 'ONLINE' : 'OFFLINE'} (${builderBridge.mode})\n`;
 
-  status += 'Spark launch core: ONLINE\n';
-  status += 'Dashboard/resonance: deferred\n';
-
-  if (isAdmin) status += '\nAdmin access';
+  if (isAdmin) {
+    status += '\n';
+    status += await renderAuthoritativeSparkLiveStatus();
+    status += '\n\n';
+    status += await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    recordTelegramSourceUsedEvidence(
+      ctx,
+      ctx.from,
+      '/status',
+      'telegram_status_command',
+      runtimeTruthSourceEvidence('spark live status access providers memory')
+    );
+  } else {
+    status += 'Spark launch core: ONLINE\n';
+    status += 'Dashboard/resonance: deferred\n';
+  }
 
   await ctx.reply(status);
 });
@@ -4188,6 +4303,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (freshRuntimeTruthContext) return;
     freshRuntimeTruthContext = await buildFreshRuntimeTruthContext(text, ctx.chat.id);
     conversationFrameContext = [conversationFrameContext, freshRuntimeTruthContext].filter(Boolean).join('\n\n');
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_fresh_runtime_context', runtimeTruthSourceEvidence(text));
   };
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
@@ -4215,14 +4331,26 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await attachFreshRuntimeTruthContext();
   }
 
-  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
-    await attachFreshRuntimeTruthContext();
-  }
-
   if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = renderRuntimeTruthPriorityAnswer();
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_runtime_truth_priority', [
+      {
+        source: 'current_user_message',
+        role: 'latest_turn_authority',
+        freshness: 'fresh',
+        sourceRef: 'telegram current turn',
+        summary: 'Telegram answered a source-priority question from the latest user turn and source hierarchy policy.'
+      },
+      {
+        source: 'current_diagnostics',
+        role: 'current_state_authority_policy',
+        freshness: 'fresh',
+        sourceRef: 'spark source hierarchy',
+        summary: 'Fresh diagnostics and live probes outrank stale memory for current-state claims.'
+      }
+    ]);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4231,6 +4359,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4239,6 +4368,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkRiskProfileAnswer();
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_spark_risk_profile_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4247,6 +4377,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderMemoryRuntimeSeparationAnswer();
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_memory_runtime_boundary_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4255,6 +4386,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderRestartSurvivalAnswer(ctx.chat.id);
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_survival_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4263,6 +4395,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderMissionProvenanceAnswer(ctx, user);
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_mission_provenance_answer', [
+      {
+        source: 'mission_trace',
+        role: 'spawner_mission_provenance',
+        freshness: 'fresh',
+        sourceRef: 'telegram no-edit probe mission record',
+        summary: 'Telegram answered from no-edit Spawner probe mission evidence when available.'
+      }
+    ]);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
@@ -4271,8 +4412,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkLiveStateAnswer();
     await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
+  }
+
+  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+    await attachFreshRuntimeTruthContext();
   }
 
   if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {

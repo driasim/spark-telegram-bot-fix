@@ -141,6 +141,25 @@ export interface BuilderAgentBlackBoxResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderSourceUsedInput extends BuilderSelfAwarenessInput {
+  source: string;
+  role?: string;
+  freshness?: 'fresh' | 'stale' | 'contradicted' | 'unknown' | 'live_probed';
+  sourceRef?: string;
+  summary?: string;
+  userIntent?: string;
+  selectedRoute?: string;
+  confidence?: string;
+  requestId?: string;
+  traceRef?: string;
+  actorId?: string;
+}
+
+export interface BuilderSourceUsedResult {
+  eventId: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderRouteProbeResult {
   replyText: string;
   payload: Record<string, unknown>;
@@ -1486,6 +1505,71 @@ export async function runBuilderAgentOperatingContext(
     throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
+}
+
+export async function runBuilderSourceUsed(input: BuilderSourceUsedInput): Promise<BuilderSourceUsedResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'source-used',
+    input.source,
+    '--home',
+    config.builderHome,
+    '--role',
+    input.role || 'supporting_evidence',
+    '--freshness',
+    input.freshness || 'unknown',
+    '--user-intent',
+    input.userIntent || input.currentMessage || '',
+    '--selected-route',
+    input.selectedRoute || '',
+    '--confidence',
+    input.confidence || '',
+    '--session-id',
+    `session:telegram:${String(input.chatId).trim()}:${String(input.userId).trim()}`,
+    '--human-id',
+    `human:telegram:${String(input.userId).trim()}`,
+    '--actor-id',
+    input.actorId || 'spark-telegram-bot',
+    '--json',
+  ];
+  if (input.sourceRef) {
+    args.push('--source-ref', input.sourceRef);
+  }
+  if (input.summary) {
+    args.push('--summary', input.summary);
+  }
+  if (input.requestId) {
+    args.push('--request-id', input.requestId);
+  }
+  if (input.traceRef) {
+    args.push('--trace-ref', input.traceRef);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder source-used recorder returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    eventId: String(payload.event_id || ''),
+    payload,
+  };
 }
 
 export function formatAgentBlackBoxReply(payload: unknown): string {
