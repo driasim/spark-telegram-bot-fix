@@ -839,8 +839,7 @@ export async function recursiveSessionReview(id: string): Promise<string> {
       '• no Workspace review queue is connected yet',
       '',
       'Next',
-      `• /recursive report ${id}`,
-      `• /recursive trace ${id}`
+      `• /recursive report ${id}`
     ].join('\n');
   }
   const snapshot = await loadSparkWorkspaceSnapshot();
@@ -1445,8 +1444,7 @@ export function renderBuilderChipLoopCompletion(
   lines.push(
     '',
     'Report',
-    `• /recursive report ${pathId}`,
-    `• /recursive trace ${pathId}`
+    `• /recursive report ${pathId}`
   );
   return lines.join('\n');
 }
@@ -1479,7 +1477,7 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
     lines.push('', 'Local', '• saved on this machine');
   }
 
-  lines.push('', 'Report', `• /recursive report ${pathId}`, `• /recursive trace ${pathId}`);
+  lines.push('', 'Report', `• /recursive report ${pathId}`);
   return lines.join('\n');
 }
 
@@ -1565,7 +1563,9 @@ export function renderSpecializationPathLiveRunSummary(input: {
     'Result',
     `• ${input.completed}/${input.total} loops checked`,
     ...(typeof input.bestMetric === 'number' ? [`• best score ${formatNumber(input.bestMetric)}`] : []),
-    `• ${input.improved} improved, ${input.flat} held steady, ${input.regressed} regressed`
+    input.stoppedEarly
+      ? '• no productive candidate kept'
+      : `• ${input.improved} improved, ${input.flat} held steady, ${input.regressed} regressed`
   ];
   if (input.stoppedEarly) {
     lines.push('', 'Next', `• ${input.stoppedEarly}`);
@@ -1589,8 +1589,7 @@ export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspace
     `• ${result.workspaceUrl}`,
     '',
     'Report',
-    `• /recursive report ${result.pathId}`,
-    `• /recursive trace ${result.pathId}`
+    `• /recursive report ${result.pathId}`
   );
   return lines.join('\n');
 }

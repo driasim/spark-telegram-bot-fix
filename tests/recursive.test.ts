@@ -654,7 +654,8 @@ test('renders specialization path loop completion with workspace next step', () 
   assert.match(reply, /⚪ Latest Startup YC run held steady\./);
   assert.match(reply, /Score\n• 1\/1 rounds\n• scenario score \/ baseline 0.61/);
   assert.match(reply, /Workspace\n• updated\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
-  assert.match(reply, /Report\n• \/recursive report path_startup_yc\n• \/recursive trace path_startup_yc/);
+  assert.match(reply, /Report\n• \/recursive report path_startup_yc/);
+  assert.doesNotMatch(reply, /\/recursive trace path_startup_yc/);
   assert.doesNotMatch(reply, /What happened:/);
   assert.doesNotMatch(reply, /Saved locally:/);
   assert.doesNotMatch(reply, /Next:/);
@@ -723,6 +724,21 @@ test('renders specialization path live loop checkpoints', () => {
   assert.match(summary, /Spark QA Operator live benchmark run finished/);
   assert.match(summary, /Result\n• 20\/20 loops checked\n• best score 0.9218\n• 3 improved, 17 held steady, 0 regressed/);
   assert.match(summary, /Workspace\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
+
+  const paused = renderSpecializationPathLiveRunSummary({
+    pathKey: 'spark-qa-operator',
+    completed: 1,
+    total: 5,
+    improved: 0,
+    flat: 1,
+    regressed: 0,
+    bestMetric: 0.9418,
+    workspaceSynced: true,
+    stoppedEarly: 'create a stronger benchmark case or mutation source before continuing'
+  });
+  assert.match(paused, /Spark QA Operator live benchmark run paused/);
+  assert.match(paused, /Result\n• 1\/5 loops checked\n• best score 0.9418\n• no productive candidate kept/);
+  assert.doesNotMatch(paused, /0 improved, 1 held steady, 0 regressed/);
 });
 
 test('selects latest non-baseline path loop outcome', () => {
@@ -831,7 +847,8 @@ test('renders recursive artifact sync completion as a compact next step', () => 
 
   assert.match(reply, /🟢 Recursive artifact sync finished\./);
   assert.match(reply, /Workspace\n• updated\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
-  assert.match(reply, /Report\n• \/recursive report path_prompt_benchmark\n• \/recursive trace path_prompt_benchmark/);
+  assert.match(reply, /Report\n• \/recursive report path_prompt_benchmark/);
+  assert.doesNotMatch(reply, /\/recursive trace path_prompt_benchmark/);
   assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /Workspace outcome/);
   assert.doesNotMatch(reply, /bridge/);
@@ -1197,7 +1214,8 @@ test('renders Builder chip loop completion with Workspace sync details', () => {
   assert.match(reply, /🟢 Latest Startup YC run improved\./);
   assert.match(reply, /Score\n• 2\/2 rounds\n• best score 0.8123\n• 4 suggestions reviewed/);
   assert.match(reply, /Workspace\n• updated\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
-  assert.match(reply, /Report\n• \/recursive report path_builder_chip_startup_yc\n• \/recursive trace path_builder_chip_startup_yc/);
+  assert.match(reply, /Report\n• \/recursive report path_builder_chip_startup_yc/);
+  assert.doesNotMatch(reply, /\/recursive trace path_builder_chip_startup_yc/);
   assert.doesNotMatch(reply, /What happened:/);
   assert.doesNotMatch(reply, /Saved locally:/);
   assert.doesNotMatch(reply, /Next:/);

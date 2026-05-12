@@ -4392,6 +4392,14 @@ async function runSpecializationPathAutoloopWithLiveUpdates(input: {
 }
 
 function isUnproductiveSpecializationRound(result: any): boolean {
+  if (
+    String(result?.latestDecision || '').toLowerCase() === 'reverted'
+    && typeof result?.latestBaselineScore === 'number'
+    && typeof result?.latestCandidateScore === 'number'
+    && result.latestCandidateScore <= result.latestBaselineScore
+  ) {
+    return true;
+  }
   const text = [
     result?.summary,
     result?.stopReason,

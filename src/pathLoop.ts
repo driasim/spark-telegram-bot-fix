@@ -32,6 +32,9 @@ export interface PathLoopResult {
   latestCandidateId?: string | null;
   latestCandidateSummary?: string | null;
   latestDecision?: string | null;
+  latestBaselineScore?: number | null;
+  latestCandidateScore?: number | null;
+  latestResultingScore?: number | null;
   keptRounds?: number;
   revertedRounds?: number;
   currentScore?: number | null;
@@ -300,6 +303,9 @@ async function buildPathLoopResult(input: {
     latestCandidateId: typeof latestRound?.candidateId === 'string' ? latestRound.candidateId : null,
     latestCandidateSummary: typeof latestRound?.candidateSummary === 'string' ? latestRound.candidateSummary : null,
     latestDecision: typeof latestRound?.decision === 'string' ? latestRound.decision : null,
+    latestBaselineScore: optionalNumber(latestRound?.baselineScore),
+    latestCandidateScore: optionalNumber(latestRound?.candidateScore),
+    latestResultingScore: optionalNumber(latestRound?.resultingScore),
     keptRounds: Number.isFinite(Number(sessionSummary?.keptRounds)) ? Number(sessionSummary?.keptRounds) : undefined,
     revertedRounds: Number.isFinite(Number(sessionSummary?.revertedRounds)) ? Number(sessionSummary?.revertedRounds) : undefined,
     currentScore: optionalNumber(sessionSummary?.currentScore),
