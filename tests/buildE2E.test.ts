@@ -1358,6 +1358,39 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('repair route confidence reply stays Builder-owned and non-mutating', async () => {
+		const indexModule: any = await import('../src/index');
+		assert.equal(indexModule.shouldAnswerSparkRepairRequest('Spark is unhealthy, fix it.'), true);
+		assert.equal(indexModule.shouldAnswerSparkRepairRequest('Can we design a repair architecture for Spark?'), false);
+
+		const reply = indexModule.formatSparkRepairRouteConfidenceReply({
+			summary: {
+				liveReady: false,
+				spawnerOk: false,
+				telegramOk: true,
+				spawnerText: 'not reachable',
+				telegramText: 'polling active',
+				profilesText: '',
+				rolesText: '',
+				supervisionText: ''
+			},
+			gatePayload: {
+				decision: 'act',
+				confidence: 'high',
+				repair_target: 'spawner_ui',
+				human_next_action: 'Proceed through source-owned repair guidance.',
+				missing_evidence: []
+			},
+			command: 'spark fix spawner'
+		});
+
+		assert.match(reply, /Builder gate/);
+		assert.match(reply, /Decision: act \(high\)/);
+		assert.match(reply, /spark fix spawner/);
+		assert.match(reply, /I did not restart or mutate anything from Telegram/);
+		assert.doesNotMatch(reply, /raw_prompt|chat_id|provider_output|memory_body|secret/i);
+	});
+
 	await test('build intent for non-admin uses default tier (base)', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

@@ -589,6 +589,121 @@ function shouldAnswerRestartNeededQuestion(text: string): boolean {
   return /\brestart\b/.test(normalized) && /\b(?:needed|need|recommend|should|improve|healthy|right now)\b/.test(normalized);
 }
 
+export function shouldAnswerSparkRepairRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  if (/\b(?:plan|strategy|docs?|documentation|architecture|repo|pr|code|implement|build|design|talk|discuss)\b/.test(normalized)) {
+    return false;
+  }
+  const asksForRepair = /\b(?:fix|repair|heal|recover|restart)\b/.test(normalized);
+  const sparkTarget = /\b(?:spark|bot|telegram|spawner|mission control|runtime|live stack|system|it|this)\b/.test(normalized);
+  const unhealthySignal = /\b(?:unhealthy|down|broken|stuck|quiet|not responding|offline|failing|failed|degraded)\b/.test(normalized);
+  return asksForRepair && sparkTarget && unhealthySignal;
+}
+
+function repairTargetFromLiveSummary(summary: SparkLiveSummary): { target: string; command: string } {
+  if (!summary.spawnerOk) return { target: 'spawner_ui', command: 'spark fix spawner' };
+  if (!summary.telegramOk) return { target: 'telegram_runtime', command: 'spark fix telegram' };
+  if (!summary.liveReady) return { target: 'spark_live', command: 'spark fix live' };
+  return { target: 'none_needed', command: '/diagnose' };
+}
+
+export function formatSparkRepairRouteConfidenceReply(args: {
+  summary: SparkLiveSummary;
+  gatePayload: Record<string, unknown>;
+  command: string;
+}): string {
+  const healthy = args.summary.liveReady && args.summary.spawnerOk && args.summary.telegramOk;
+  const decision = typeof args.gatePayload.decision === 'string' ? args.gatePayload.decision : 'ask';
+  const confidence = typeof args.gatePayload.confidence === 'string' ? args.gatePayload.confidence : 'unknown';
+  const nextAction = typeof args.gatePayload.human_next_action === 'string'
+    ? args.gatePayload.human_next_action
+    : 'Run /diagnose before taking repair action.';
+  const missing = Array.isArray(args.gatePayload.missing_evidence)
+    ? args.gatePayload.missing_evidence.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3)
+    : [];
+  const target = typeof args.gatePayload.repair_target === 'string' ? args.gatePayload.repair_target : 'unknown';
+  const lines = [
+    healthy ? 'Spark does not need a repair right now.' : 'Spark repair gate checked fresh state.',
+    '',
+    'Live state',
+    `• Spawner: ${args.summary.spawnerOk ? 'reachable' : 'needs attention'}.`,
+    `• Telegram: ${args.summary.telegramOk ? 'polling' : 'needs attention'}.`,
+    `• Mission Control: ${args.summary.liveReady ? 'ready' : 'not fully ready'}.`,
+    '',
+    'Builder gate',
+    `• Decision: ${decision} (${confidence}).`,
+    `• Target: ${target}.`,
+  ];
+  if (missing.length > 0) {
+    lines.push(`• Missing: ${missing.join(', ')}.`);
+  }
+  lines.push(
+    '',
+    'Move',
+    healthy ? '• No restart or repair action was started.' : `• ${args.command}.`,
+    `• ${nextAction}`,
+    '',
+    'I did not restart or mutate anything from Telegram.'
+  );
+  return lines.join('\n');
+}
+
+async function renderSparkRepairRouteConfidenceAnswer(
+  gateRunner: typeof runBuilderRouteConfidenceGate = runBuilderRouteConfidenceGate
+): Promise<string> {
+  const [liveStatus, deepVerify] = await Promise.all([
+    runSparkCli(['live', 'status'], 45_000),
+    runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+  ]);
+  const summary = parseSparkLiveSummary(liveStatus, deepVerify);
+  const healthy = summary.liveReady && summary.spawnerOk && summary.telegramOk;
+  const repair = repairTargetFromLiveSummary(summary);
+  const gate = await gateRunner({
+    intent: 'repair',
+    candidateRoute: 'spark.repair',
+    routeContext: {
+      latest_instruction: 'allow_execution',
+      intent_clarity: 'explicit',
+      route_fit: healthy ? 'blocked' : 'exact',
+      consequence_risk: 'medium',
+      permission_required: 'none',
+      authority_verdict: {
+        schema_version: 'spark.authority_verdict.v1',
+        decision: 'not_required',
+        source_owner: 'spark-telegram-bot',
+        action_family: 'spark.repair'
+      },
+      capability_state: 'available',
+      runner_state: 'available',
+      confirmation_state: 'not_required',
+      reversibility: 'reversible',
+      repair_target: repair.target,
+      repair_scope: healthy ? 'no_repair_after_fresh_health_check' : 'local_repair_guidance',
+      health_evidence: healthy ? 'fresh_healthy' : 'fresh_degraded',
+      source_status: 'present',
+      freshness: 'current_turn',
+      joined_sources: ['telegram_runtime_probe', 'builder_route_confidence_gate'],
+      data_boundary: {
+        exports_raw_prompt: false,
+        exports_chat_id: false,
+        exports_provider_output: false,
+        exports_memory_body: false,
+        exports_transcript_body: false,
+        exports_audio: false,
+        exports_env_value: false,
+        exports_secret: false
+      },
+      verification_command: 'spark live status; spark verify --deep'
+    }
+  });
+  return formatSparkRepairRouteConfidenceReply({
+    summary,
+    gatePayload: gate.payload,
+    command: repair.command
+  });
+}
+
 async function renderRestartNeededAnswer(): Promise<string> {
   try {
     const [liveStatus, deepVerify] = await Promise.all([
@@ -4788,6 +4903,29 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_survival_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerSparkRepairRequest(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    try {
+      const reply = await renderSparkRepairRouteConfidenceAnswer();
+      await ctx.reply(reply);
+      recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_spark_repair_gate_answer', runtimeTruthSourceEvidence(text));
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    } catch (error) {
+      const detail = redactText(error instanceof Error ? error.message : String(error));
+      const reply = [
+        'Spark repair is paused.',
+        '',
+        'Builder route confidence was not available for this repair request.',
+        `Reason: ${detail}`,
+        '',
+        'Run /diagnose first. I did not restart or mutate anything from Telegram.'
+      ].join('\n');
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    }
     return;
   }
 
