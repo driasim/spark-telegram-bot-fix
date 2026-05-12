@@ -125,6 +125,7 @@ export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessI
   sparkAccessLevel?: number | string;
   runnerWritable?: 'yes' | 'no' | 'unknown';
   runnerLabel?: string;
+  liveState?: Record<string, unknown>;
 }
 
 export interface BuilderAgentOperatingContextResult {
@@ -1488,6 +1489,9 @@ export async function runBuilderAgentOperatingContext(
   const runnerLabel = String(input.runnerLabel || '').trim();
   if (runnerLabel) {
     args.push('--runner-label', runnerLabel);
+  }
+  if (input.liveState && Object.keys(input.liveState).length > 0) {
+    args.push('--live-state-json', JSON.stringify(input.liveState));
   }
 
   const { stdout, stderr } = await execFileAsync(
