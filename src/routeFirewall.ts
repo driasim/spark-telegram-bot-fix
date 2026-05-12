@@ -168,6 +168,13 @@ function isMissionPreferenceLike(normalized: string): boolean {
   );
 }
 
+function isExplicitProjectIteration(normalized: string): boolean {
+  return (
+    /\b(?:polish\s+pass|iteration|improve|polish|change|update|fix|adjust|tweak|refine|rework|redesign|clean|tighten|soften|brighten|darken)\b/.test(normalized) &&
+    /\b(?:this|that|app|site|page|screen|project|dashboard|tool|prototype|design|layout|spacing|visual|colors?|colours?|button|flow|workflow|mobile|responsive|files?|mission\s+control\s+reliability\s+desk)\b/.test(normalized)
+  );
+}
+
 function isProtectedPlainChat(normalized: string): boolean {
   if (!normalized) return false;
   if (isReadoutOrCriticRequest(normalized)) return true;
@@ -212,6 +219,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'spawner.external_research' && isExplicitExternalResearch(normalized)) {
     return { allow: true, reason: 'explicit_external_research', confidence: 'explicit' };
   }
+  if (route === 'spawner.project_iteration' && isExplicitProjectIteration(normalized)) {
+    return { allow: true, reason: 'explicit_project_iteration', confidence: 'contextual' };
+  }
   if (route === 'operator.safe_action' && isBoundedOperatorProbe(normalized)) {
     return { allow: true, reason: 'bounded_operator_probe', confidence: 'explicit' };
   }
@@ -244,6 +254,7 @@ export function shouldUseRouteArbiter(
     'explicit_provider_run',
     'explicit_memory_write',
     'explicit_external_research',
+    'explicit_project_iteration',
     'bounded_operator_probe'
   ].includes(verdict.reason)) {
     return false;

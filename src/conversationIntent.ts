@@ -1,4 +1,5 @@
 import { parseBuildIntent } from './buildIntent';
+import { isLiveSparkHealthQuestion, shouldAnswerSparkRepairRequest } from './runtimeRouteGuards';
 import type { ShippedProjectContext } from './shippedProjectContext';
 
 const COLLABORATIVE_IDEA_PATTERNS = [
@@ -1401,6 +1402,7 @@ export function isProjectImprovementRequest(text: string, project: ShippedProjec
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
   if (isSparkSelfMemoryDiagnosticQuestion(text)) return false;
+  if (shouldAnswerSparkRepairRequest(text) || isLiveSparkHealthQuestion(text)) return false;
   const explicitBuild = parseBuildIntent(text);
   if (explicitBuild?.projectPath) return false;
   if (/^(?:where|what|which|show|send|give)\b.*\b(?:link|localhost|preview|url|board|canvas|kanban)\b/.test(normalized)) {

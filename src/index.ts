@@ -38,6 +38,7 @@ import {
   runBuilderWikiQuery,
   runBuilderWikiStatus
 } from './builderBridge';
+export { shouldAnswerSparkRepairRequest } from './runtimeRouteGuards';
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
@@ -159,6 +160,7 @@ import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair'
 import { parseBuildIntent } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
+import { isLiveSparkHealthQuestion, shouldAnswerSparkRepairRequest } from './runtimeRouteGuards';
 import { withHiddenWindows } from './hiddenProcess';
 import { queueRouteArbiterShadow } from './routeArbiter';
 import { resolveMissionDefaultProvider } from './providerRouting';
@@ -401,17 +403,6 @@ function runtimeTruthSourceEvidence(text: string): TelegramSourceUsedEvidence[] 
   return evidence;
 }
 
-function isLiveSparkHealthQuestion(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!normalized) return false;
-  return (
-    /\bspark live status\b/.test(normalized) ||
-    /\blive spark health\b/.test(normalized) ||
-    /\bsame source as spark live status\b/.test(normalized) ||
-    (/\bspawner\b/.test(normalized) && /\btelegram\b/.test(normalized) && /\b(?:supervised|running|stopped|health|live)\b/.test(normalized))
-  );
-}
-
 function isSpawnerGoldenPathRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
@@ -589,18 +580,6 @@ async function renderAuthoritativeSparkLiveStateAnswer(
 function shouldAnswerRestartNeededQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return /\brestart\b/.test(normalized) && /\b(?:needed|need|recommend|should|improve|healthy|right now)\b/.test(normalized);
-}
-
-export function shouldAnswerSparkRepairRequest(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  if (!normalized) return false;
-  if (/\b(?:plan|strategy|docs?|documentation|architecture|repo|pr|code|implement|build|design|talk|discuss)\b/.test(normalized)) {
-    return false;
-  }
-  const asksForRepair = /\b(?:fix|repair|heal|recover|restart)\b/.test(normalized);
-  const sparkTarget = /\b(?:spark|bot|telegram|spawner|mission control|runtime|live stack|system|it|this)\b/.test(normalized);
-  const unhealthySignal = /\b(?:unhealthy|down|broken|stuck|quiet|not responding|offline|failing|failed|degraded)\b/.test(normalized);
-  return asksForRepair && sparkTarget && unhealthySignal;
 }
 
 function repairTargetFromLiveSummary(summary: SparkLiveSummary): { target: string; command: string; fixTarget: string } {
@@ -1157,6 +1136,7 @@ function runtimeTruthSignals(text: string): RuntimeTruthSignals {
     /\b(?:runner|read[-\s]*only|writable|operator\s+mode|whole[-\s]*computer|full\s+access)\b/.test(normalized)
   );
   const live = (
+    shouldAnswerSparkRepairRequest(text) ||
     sourceCheck ||
     /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
     /\b(?:live|health|status|state)\b.*\b(?:raw|debug|details?|full|exact)\b/.test(normalized) ||
@@ -5018,7 +4998,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && shouldAnswerSparkRepairRequest(text)) {
+  if (shouldAnswerSparkRepairRequest(text)) {
     await conversation.remember(user, text).catch(() => {});
     try {
       const reply = await renderSparkRepairRouteConfidenceAnswer();
@@ -5067,7 +5047,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
+  if (shouldAnswerAuthoritativeRuntimeStatus(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
     await ctx.reply(reply);

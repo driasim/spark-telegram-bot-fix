@@ -421,6 +421,26 @@ test('does not treat preview link questions as project improvement requests', ()
   assert.equal(buildProjectImprovementGoal('give me the localhost for this app', project), null);
 });
 
+test('does not treat Spark runtime repair or health prompts as latest project polish', () => {
+  const project = {
+    chatId: '8319079055',
+    userId: '1278511160',
+    projectName: 'Mission Control Reliability Desk',
+    projectPath: 'C:/Users/USER/.spark/workspaces/mission-1778354076476-mission-control-reliability-desk',
+    previewUrl: 'http://127.0.0.1:3333/preview/reliability/index.html',
+    missionId: 'mission-reliability',
+    iteration: 3,
+    shippedAt: '2026-05-12T00:00:00Z',
+    updatedAt: '2026-05-12T00:00:00Z'
+  };
+
+  assert.equal(isProjectImprovementRequest('Spark is unhealthy, fix it.', project), false);
+  assert.equal(buildProjectImprovementGoal('Spark is unhealthy, fix it.', project), null);
+  assert.equal(isProjectImprovementRequest('Can you check Spark health?', project), false);
+  assert.equal(buildProjectImprovementGoal('Can you check Spark health?', project), null);
+  assert.equal(isProjectImprovementRequest('fix the spacing on this app', project), true);
+});
+
 test('does not treat Spark memory and self-awareness diagnostics as latest project polish', () => {
   const project = {
     chatId: '8319079055',
