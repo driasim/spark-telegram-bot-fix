@@ -329,10 +329,18 @@ async function main(): Promise<void> {
     assert.match(bridgeSource, /--freshness/);
     assert.match(bridgeSource, /--source-ref/);
     assert.match(bridgeSource, /--selected-route/);
+    assert.match(bridgeSource, /function sourceLedgerLabel/);
+    assert.match(bridgeSource, /sourceLedgerLabel\(input\.userIntent \|\| input\.selectedRoute, 'telegram_source_used_evidence'\)/);
+    assert.match(bridgeSource, /'session:telegram:redacted'/);
+    assert.match(bridgeSource, /'human:telegram:redacted'/);
+    assert.doesNotMatch(bridgeSource, /source-used'[\s\S]{0,900}session:telegram:\$\{String\(input\.chatId\)/);
     assert.match(bridgeSource, /eventId: String\(payload\.event_id \|\| ''\)/);
 
     assert.match(indexSource, /runBuilderSourceUsed\(\{/);
-    assert.match(indexSource, /selectedRoute,\n\s*confidence/);
+    assert.match(indexSource, /currentMessage: selectedRoute/);
+    assert.match(indexSource, /userIntent: selectedRoute/);
+    assert.doesNotMatch(indexSource, /runBuilderSourceUsed\(\{[\s\S]{0,500}userIntent: currentMessage/);
+    assert.match(indexSource, /selectedRoute,\r?\n\s*confidence/);
     assert.match(indexSource, /telegram_status_command/);
     assert.match(indexSource, /telegram_spark_risk_profile_answer/);
     assert.match(indexSource, /telegram_restart_survival_answer/);
