@@ -317,7 +317,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /shouldShowRawSparkLiveDetails/);
     assert.match(indexSource, /replace\(\/\\n\{3,\}\/g, '\\n\\n'\)\.trim\(\)/);
     assert.doesNotMatch(indexSource, /System Status\\n\\n/);
-    const liveSummaryFn = indexSource.match(/function renderSparkLiveSummary[\s\S]*?\n}\n\nfunction shouldShowRawSparkLiveDetails/);
+    const liveSummaryFn = indexSource.match(/function renderSparkLiveSummary[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldShowRawSparkLiveDetails/);
     assert.ok(liveSummaryFn, 'expected live summary formatter to exist');
     assert.doesNotMatch(liveSummaryFn[0], /Fresh check:/);
     assert.match(indexSource, /const reply = await renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\);[\s\S]*?await ctx\.reply\(reply\);/);
