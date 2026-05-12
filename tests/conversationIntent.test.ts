@@ -856,6 +856,13 @@ test('extracts natural recursive commands for QA Operator loops', () => {
     }
   );
   assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('run 100 QA Operator loops live with progress updates'),
+    {
+      rawCommand: 'start spark-qa-operator rounds 100 live',
+      reason: 'Natural-language request to start a recursive loop for Spark QA Operator.'
+    }
+  );
+  assert.deepEqual(
     parseNaturalRecursiveCommandIntent('what QA decisions need review?'),
     {
       rawCommand: 'review path:spark-qa-operator',

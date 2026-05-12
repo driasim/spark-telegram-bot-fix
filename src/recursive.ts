@@ -16,6 +16,7 @@ export interface RecursiveCommand {
   id?: string;
   chipKey?: string;
   rounds?: number;
+  live?: boolean;
   rationale?: string;
   syncKind?: RecursiveArtifactSyncKind;
   syncArgs?: string[];
@@ -614,7 +615,7 @@ export function parseRecursiveCommand(raw: string): RecursiveCommand | null {
   if (action === 'start') {
     const chipKey = parts.shift();
     const rounds = parseRounds(parts);
-    return { action, chipKey, rounds };
+    return { action, chipKey, rounds, ...(parseLiveMode(parts) ? { live: true } : {}) };
   }
 
   return null;
@@ -1482,6 +1483,79 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
   return lines.join('\n');
 }
 
+function compactLoopSignal(summary: string | null | undefined): string | null {
+  const cleaned = String(summary || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(score|metric)\s+(?:still\s+)?rounds?\s+to\s+[0-9.]+\.?/gi, '')
+    .trim();
+  if (!cleaned) return null;
+  return truncateAtWord(cleaned, 140);
+}
+
+export function renderSpecializationPathLiveRoundUpdate(input: {
+  result: PathLoopResult;
+  round: number;
+  total: number;
+  previousMetric?: number | null;
+  bestMetric?: number | null;
+}): string {
+  const label = labelFromKey(input.result.pathKey || 'path');
+  const verdict = input.result.verdict || 'recorded';
+  const metricLine = input.result.metricName && typeof input.result.metricValue === 'number'
+    ? `${formatMetricLabel(input.result.metricName)} ${formatNumber(input.result.metricValue)}`
+    : 'benchmark score not reported';
+  const comparison = typeof input.result.metricValue === 'number' && typeof input.previousMetric === 'number'
+    ? input.result.metricValue > input.previousMetric
+      ? `improved from ${formatNumber(input.previousMetric)}`
+      : input.result.metricValue < input.previousMetric
+        ? `changed from ${formatNumber(input.previousMetric)}`
+        : 'unchanged from previous loop'
+    : null;
+  const best = typeof input.bestMetric === 'number' ? `best so far ${formatNumber(input.bestMetric)}` : null;
+  const signal = compactLoopSignal(input.result.summary);
+  const lines = [
+    `${outcomeStatusIcon(verdict)} ${label} loop ${input.round}/${input.total} ${friendlyOutcomeVerb(verdict)}.`,
+    '',
+    'Score',
+    `• ${metricLine}`,
+    ...(comparison ? [`• ${comparison}`] : []),
+    ...(best ? [`• ${best}`] : [])
+  ];
+  if (signal) lines.push('', 'Signal', `• ${signal}`);
+  return lines.join('\n');
+}
+
+export function renderSpecializationPathLiveRunSummary(input: {
+  pathKey: string;
+  completed: number;
+  total: number;
+  improved: number;
+  flat: number;
+  regressed: number;
+  bestMetric?: number | null;
+  workspaceSynced?: boolean;
+  stoppedEarly?: string | null;
+}): string {
+  const label = labelFromKey(input.pathKey || 'path');
+  const lines = [
+    `${input.stoppedEarly ? '🟡' : '🟢'} ${label} live benchmark run ${input.stoppedEarly ? 'paused' : 'finished'}.`,
+    '',
+    'Result',
+    `• ${input.completed}/${input.total} loops checked`,
+    ...(typeof input.bestMetric === 'number' ? [`• best score ${formatNumber(input.bestMetric)}`] : []),
+    `• ${input.improved} improved, ${input.flat} held steady, ${input.regressed} regressed`
+  ];
+  if (input.stoppedEarly) {
+    lines.push('', 'Next', `• ${input.stoppedEarly}`);
+  }
+  lines.push(
+    '',
+    input.workspaceSynced ? 'Workspace' : 'Local',
+    input.workspaceSynced ? `• ${sparkWorkspaceRecursionsUrl()}` : '• saved on this machine'
+  );
+  return lines.join('\n');
+}
+
 export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspaceSyncResult): string {
   const lines = [
     `${result.synced ? '🟢' : '🟡'} Recursive artifact sync finished.`,
@@ -1543,6 +1617,7 @@ export function renderRecursiveHelp(): string {
     '/recursive sessions - recent loops and next action',
     '/recursive report <id> - readable result summary',
     '/recursive start <targetKey> rounds <n> - run a local Builder chip loop',
+    '/recursive start <targetKey> rounds <n> live - post benchmark checkpoints while it runs',
     '',
     'When something needs you:',
     '/recursive review [id] - decisions waiting',
@@ -1807,7 +1882,11 @@ function workspaceDecisionForAction(action: 'approve' | 'defer' | 'reject' | 'mo
 function parseRounds(parts: string[]): number {
   const roundIndex = parts.findIndex((part) => part.toLowerCase() === 'rounds');
   const raw = roundIndex >= 0 ? parts[roundIndex + 1] : parts[0];
-  return Math.max(1, Math.min(10, Number.parseInt(raw || '3', 10) || 3));
+  return Math.max(1, Math.min(100, Number.parseInt(raw || '3', 10) || 3));
+}
+
+function parseLiveMode(parts: string[]): boolean {
+  return parts.some((part) => /^(?:live|stream|streaming|updates?|verbose|progress|watch)$/i.test(part));
 }
 
 function normalizeRecursiveArtifactSyncKind(value: string | undefined): RecursiveArtifactSyncKind | null {

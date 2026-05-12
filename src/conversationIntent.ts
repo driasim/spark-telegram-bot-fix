@@ -611,12 +611,19 @@ export function parseNaturalCreatorMissionIntent(text: string, context: NaturalC
 
 function naturalRoundCount(text: string): number {
   const normalized = text.toLowerCase();
-  const numeric = normalized.match(/\b(?:rounds?|passes|iterations?)\s+(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\s+(?:rounds?|passes|iterations?)\b/);
-  if (numeric) return Math.max(1, Math.min(10, Number.parseInt(numeric[1], 10) || 1));
+  const numeric =
+    normalized.match(/\b(?:rounds?|passes|iterations?|loops?)\s+(\d{1,3})\b/) ||
+    normalized.match(/\b(\d{1,3})\s+(?:rounds?|passes|iterations?|loops?)\b/) ||
+    normalized.match(/\b(\d{1,3})\b.{0,48}\b(?:rounds?|passes|iterations?|loops?)\b/);
+  if (numeric) return Math.max(1, Math.min(100, Number.parseInt(numeric[1], 10) || 1));
   if (/\b(?:one|single|a)\s+(?:round|pass|iteration)\b/i.test(text)) return 1;
   if (/\btwo\s+(?:rounds|passes|iterations)\b/i.test(text)) return 2;
   if (/\bthree\s+(?:rounds|passes|iterations)\b/i.test(text)) return 3;
   return 1;
+}
+
+function naturalRecursiveLiveMode(text: string): boolean {
+  return /\b(?:live|stream(?:ing)?|watch|progress|updates?|checkpoint|checkpoints|every\s+(?:loop|round|iteration)|each\s+(?:loop|round|iteration)|as\s+it\s+runs|while\s+it\s+runs|running\s+benchmark)\b/i.test(text);
 }
 
 const NATURAL_TARGET_STOP_WORDS = new Set([
@@ -756,8 +763,9 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
       /\b(?:run|start|do|try)\s+(?:another|one\s+more|a|one|same)\s+(?:round|pass|iteration|loop)\b/i.test(normalized) ||
       /\b(?:keep\s+going|continue|iterate\s+again|let\s+it\s+cook|keep\s+pushing|push\s+it\s+further|send\s+it\s+again|give\s+it\s+another\s+pass|one\s+more\s+pass)\b/i.test(normalized)) {
     if (!target.chipKey) return null;
+    const liveSuffix = naturalRecursiveLiveMode(normalized) ? ' live' : '';
     return {
-      rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}`,
+      rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}${liveSuffix}`,
       reason: `Natural-language request to start a recursive loop for ${target.label}.`
     };
   }

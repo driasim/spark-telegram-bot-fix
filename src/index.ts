@@ -53,7 +53,7 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
-import { resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
+import { resolveRecursiveStartTarget, runSpecializationPathAutoloop, type RecursiveStartTarget } from './pathLoop';
 import {
   parseRecursiveCommand,
   proposeRecursiveWorkspaceEvidence,
@@ -76,6 +76,8 @@ import {
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
+  renderSpecializationPathLiveRoundUpdate,
+  renderSpecializationPathLiveRunSummary,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceBridgeHints,
   sparkWorkspaceConfigured,
@@ -4280,11 +4282,18 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
       await safeSendChatAction(ctx, 'typing');
       const targetLabel = startTarget.kind === 'path' ? 'Spark Swarm specialization path loop' : 'recursive Builder chip loop';
-      await ctx.reply(`Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
+      const liveMode = Boolean(parsed.live || (startTarget.kind === 'path' && rounds > 10));
+      await ctx.reply(liveMode && startTarget.kind === 'path'
+        ? `Starting live benchmark mode for ${startTarget.key}: ${rounds} loop(s). I will post one compact checkpoint per loop.`
+        : `Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
 
       void (async () => {
         try {
           if (startTarget.kind === 'path') {
+            if (liveMode) {
+              await runSpecializationPathAutoloopWithLiveUpdates({ ctx, chatId, target: startTarget, rounds });
+              return;
+            }
             const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
             if (!result.ok) {
               await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
@@ -4329,6 +4338,69 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     }
     return ctx.reply(`Recursive command failed${status ? ` (${status})` : ''}: ${detail}`);
   }
+}
+
+async function runSpecializationPathAutoloopWithLiveUpdates(input: {
+  ctx: any;
+  chatId: number;
+  target: RecursiveStartTarget;
+  rounds: number;
+}): Promise<void> {
+  let previousMetric: number | null = null;
+  let bestMetric: number | null = null;
+  let improved = 0;
+  let flat = 0;
+  let regressed = 0;
+  let completed = 0;
+  let workspaceSynced = false;
+  let stoppedEarly: string | null = null;
+
+  for (let round = 1; round <= input.rounds; round += 1) {
+    await safeSendChatAction(input.ctx, 'typing');
+    const result = await runSpecializationPathAutoloop(input.target, 1, sparkWorkspaceBridgeHints());
+    if (!result.ok) {
+      await input.ctx.telegram.sendMessage(input.chatId, renderTelegramError(`Recursive live loop failed at ${round}/${input.rounds}`, result.error));
+      return;
+    }
+
+    completed = round;
+    workspaceSynced = workspaceSynced || Boolean(result.workspaceSynced);
+    const verdict = String(result.verdict || '').toLowerCase();
+    if (verdict.includes('regress')) regressed += 1;
+    else if (verdict.includes('improv')) improved += 1;
+    else flat += 1;
+
+    if (typeof result.metricValue === 'number') {
+      bestMetric = bestMetric === null ? result.metricValue : Math.max(bestMetric, result.metricValue);
+    }
+
+    await input.ctx.telegram.sendMessage(input.chatId, renderSpecializationPathLiveRoundUpdate({
+      result,
+      round,
+      total: input.rounds,
+      previousMetric,
+      bestMetric
+    }));
+
+    if (typeof result.metricValue === 'number') previousMetric = result.metricValue;
+    const summary = `${result.summary || ''} ${result.stopReason || ''}`.toLowerCase();
+    if (/\b(?:no new candidate|no candidate|exhausted|nothing to keep|no mutation)\b/.test(summary)) {
+      stoppedEarly = 'create a stronger benchmark case or mutation source before continuing';
+      break;
+    }
+  }
+
+  await input.ctx.telegram.sendMessage(input.chatId, renderSpecializationPathLiveRunSummary({
+    pathKey: input.target.key,
+    completed,
+    total: input.rounds,
+    improved,
+    flat,
+    regressed,
+    bestMetric,
+    workspaceSynced,
+    stoppedEarly
+  }));
 }
 
 bot.command('recursive', async (ctx) => handleRecursiveCommand(ctx));

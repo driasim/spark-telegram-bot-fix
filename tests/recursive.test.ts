@@ -23,6 +23,8 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationPathLiveRoundUpdate,
+  renderSpecializationPathLiveRunSummary,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceApiUrl,
   sparkWorkspaceBridgeHints,
@@ -675,6 +677,50 @@ test('renders QA Operator baseline metric as current run in path completion', ()
   assert.match(reply, /Score\n• 1\/1 rounds\n• current run 0.8655/);
   assert.doesNotMatch(reply, /overall score/);
   assert.doesNotMatch(reply, /baseline/);
+});
+
+test('parses live recursive benchmark mode and large round counts', () => {
+  assert.deepEqual(parseRecursiveCommand('start spark-qa-operator rounds 100 live'), {
+    action: 'start',
+    chipKey: 'spark-qa-operator',
+    rounds: 100,
+    live: true
+  });
+});
+
+test('renders specialization path live loop checkpoints', () => {
+  const update = renderSpecializationPathLiveRoundUpdate({
+    round: 2,
+    total: 20,
+    previousMetric: 0.9018,
+    bestMetric: 0.9218,
+    result: {
+      ok: true,
+      pathKey: 'spark-qa-operator',
+      verdict: 'improved',
+      metricName: 'overall_score:baseline',
+      metricValue: 0.9218,
+      summary: 'Spark QA Operator kept a benchmark-backed mutation after checking Workspace evidence.'
+    }
+  });
+
+  assert.match(update, /Spark QA Operator loop 2\/20 improved/);
+  assert.match(update, /Score\n• current run 0.9218\n• improved from 0.9018\n• best so far 0.9218/);
+  assert.match(update, /Signal\n• Spark QA Operator kept a benchmark-backed mutation/);
+
+  const summary = renderSpecializationPathLiveRunSummary({
+    pathKey: 'spark-qa-operator',
+    completed: 20,
+    total: 20,
+    improved: 3,
+    flat: 17,
+    regressed: 0,
+    bestMetric: 0.9218,
+    workspaceSynced: true
+  });
+  assert.match(summary, /Spark QA Operator live benchmark run finished/);
+  assert.match(summary, /Result\n• 20\/20 loops checked\n• best score 0.9218\n• 3 improved, 17 held steady, 0 regressed/);
+  assert.match(summary, /Workspace\n• http:\/\/127.0.0.1:4178\/runs\?tab=recursions/);
 });
 
 test('describes held-steady Workspace reports as unchanged from previous run', () => {
