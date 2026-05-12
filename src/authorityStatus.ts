@@ -15,6 +15,9 @@ export type AuthorityStatusSummary = {
   toxicPairCount: number;
   publicationChecksRequired: number;
   requiredPublicationChecks: string[];
+  verdictCount: number;
+  verdictCounts: Record<string, number>;
+  verdictActionFamilies: Record<string, number>;
   error?: string;
 };
 
@@ -49,8 +52,26 @@ export function resolveAuthorityViewPath(env: NodeJS.ProcessEnv = process.env): 
   return path.join(root, 'authority-view.json');
 }
 
-export function summarizeAuthorityView(payload: unknown): AuthorityStatusSummary {
+export function resolveTraceIndexPath(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.SPARK_SYSTEM_MAP_DIR || env.SPARK_OS_SYSTEM_MAP_DIR;
+  const root = configured && configured.trim()
+    ? configured.trim()
+    : path.join(os.homedir(), '.spark', 'state', 'system-map');
+  return path.join(root, 'trace-index.json');
+}
+
+function numberCounts(value: unknown): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(objectValue(value))
+      .map(([key, count]) => [key, numberValue(count)] as const)
+      .filter(([key]) => Boolean(key))
+  );
+}
+
+export function summarizeAuthorityView(payload: unknown, tracePayload: unknown = null): AuthorityStatusSummary {
   const root = objectValue(payload);
+  const traceRoot = objectValue(tracePayload);
+  const authorityVerdicts = objectValue(traceRoot.authority_verdicts);
   const cliAccess = objectValue(root.cli_access);
   const capabilityPolicy = objectValue(root.cli_capability_policy);
   const telegramPolicy = objectValue(root.telegram_access_policy);
@@ -76,14 +97,26 @@ export function summarizeAuthorityView(payload: unknown): AuthorityStatusSummary
     browserApprovalRequiredHookCount: numberValue(guardrails.browser_approval_required_hook_count) || approvalRequiredCount(approvalCounts),
     toxicPairCount: numberValue(guardrails.toxic_pair_count) || numberValue(capabilityPolicy.toxic_pair_count),
     publicationChecksRequired: numberValue(guardrails.publication_checks_required) || requiredPublicationChecks.length,
-    requiredPublicationChecks
+    requiredPublicationChecks,
+    verdictCount: numberValue(authorityVerdicts.verdict_count),
+    verdictCounts: numberCounts(authorityVerdicts.verdict_counts),
+    verdictActionFamilies: numberCounts(authorityVerdicts.action_family_counts)
   };
 }
 
-export async function readAuthorityStatusSummary(viewPath = resolveAuthorityViewPath()): Promise<AuthorityStatusSummary> {
+export async function readAuthorityStatusSummary(
+  viewPath = resolveAuthorityViewPath(),
+  tracePath = resolveTraceIndexPath()
+): Promise<AuthorityStatusSummary> {
   try {
     const raw = await readFile(viewPath, 'utf-8');
-    return summarizeAuthorityView(JSON.parse(raw));
+    let tracePayload: unknown = null;
+    try {
+      tracePayload = JSON.parse(await readFile(tracePath, 'utf-8'));
+    } catch {
+      tracePayload = null;
+    }
+    return summarizeAuthorityView(JSON.parse(raw), tracePayload);
   } catch (error) {
     return {
       present: false,
@@ -98,6 +131,9 @@ export async function readAuthorityStatusSummary(viewPath = resolveAuthorityView
       toxicPairCount: 0,
       publicationChecksRequired: 0,
       requiredPublicationChecks: [],
+      verdictCount: 0,
+      verdictCounts: {},
+      verdictActionFamilies: {},
       error: error instanceof Error ? error.message : String(error)
     };
   }
@@ -121,6 +157,8 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
   const publicationLine = summary.requiredPublicationChecks.length
     ? `${summary.publicationChecksRequired} publication checks tracked`
     : `${summary.publicationChecksRequired} publication checks`;
+  const verdictKinds = Object.keys(summary.verdictCounts).sort().join(', ') || 'none yet';
+  const verdictActions = Object.keys(summary.verdictActionFamilies).sort().join(', ') || 'none yet';
 
   return [
     headline,
@@ -130,12 +168,13 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
     `- ${summary.telegramProfileCount} Telegram access profiles; ${summary.spawnerLaneCount} Spawner lanes`,
     `- ${browserLine}`,
     `- ${summary.toxicPairCount} toxic capability pairs; ${publicationLine}`,
+    `- Trace verdicts: ${summary.verdictCount}; verdicts ${verdictKinds}; actions ${verdictActions}`,
     '',
     'Review',
     '- This is evidence, not permission.',
     '- High-agency actions still need source policy, runner state, confirmation, and trace.',
     '',
     'Workspace',
-    '- Full evidence: `spark os authority --json`'
+    '- Full evidence: `spark os authority --json` and `spark os trace --json`'
   ].join('\n');
 }

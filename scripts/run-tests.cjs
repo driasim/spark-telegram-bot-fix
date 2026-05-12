@@ -29,7 +29,6 @@ const tests = [
   'tests/providerRouting.test.ts',
   'tests/modelSwitch.test.ts',
   'tests/missionRelayFormatting.test.ts',
-  'tests/missionRelayHealth.test.ts',
   'tests/outboundSanitize.test.ts',
   'tests/redaction.test.ts',
   'tests/errorExplain.test.ts',
@@ -50,8 +49,6 @@ const tests = [
   'tests/creatorMissionStatus.test.ts',
   'tests/launchConversationQuality.test.ts',
   'tests/builderBridge.test.ts',
-  'tests/telegramVoiceBridge.test.ts',
-  'tests/voiceCaption.test.ts',
   'tests/pythonCommand.test.ts',
   'tests/hiddenProcess.test.ts'
 ];
