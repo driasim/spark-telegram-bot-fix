@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   buildBuilderAocPreflightCommands,
   compactColdMemoryQuery,
+  extractMemoryProofCards,
   formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
@@ -530,6 +531,39 @@ test('AOC preflight commands carry trace metadata without raw prompt or chat ids
   assert.ok(flat.includes('human:telegram:redacted'));
   assert.doesNotMatch(flat.join('\n'), /secret private project prompt/);
   assert.doesNotMatch(flat.join('\n'), /8319079055|123456789/);
+});
+
+test('extracts Builder memory proof cards as thin adapter metadata', () => {
+  const cards = extractMemoryProofCards([
+    {
+      event_id: 'evt-memory',
+      memory_proof_card: {
+        schema_version: 'spark.memory_proof_card.v1',
+        owner_system: 'spark-intelligence-builder',
+        operation: 'recall_preflight',
+        decision: 'support_only',
+        durability_tier: 'ephemeral_context',
+        freshness: 'live_probed',
+        confidence: 0.85,
+        source_refs: ['builder:aoc-preflight:req-1'],
+        data_boundary: 'No private payload exported.'
+      }
+    },
+    {
+      event_id: 'evt-other',
+      memory_proof_card: {
+        schema_version: 'spark.memory_proof_card.v1',
+        owner_system: 'spark-telegram-bot',
+        operation: 'save_result'
+      }
+    }
+  ]);
+
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].ownerSystem, 'spark-intelligence-builder');
+  assert.equal(cards[0].decision, 'support_only');
+  assert.equal(cards[0].durabilityTier, 'ephemeral_context');
+  assert.deepEqual(cards[0].sourceRefs, ['builder:aoc-preflight:req-1']);
 });
 
 test('formats black-box payload as compact event evidence', () => {

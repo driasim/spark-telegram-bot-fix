@@ -310,6 +310,24 @@ test('keeps exact list artifacts after a long compacted conversation', () => {
   assert.equal(state.warmSummary.length > 0, true);
 });
 
+test('warm summaries keep only active artifact handles instead of repeated stale artifact noise', () => {
+  const turns: ConversationTurn[] = [
+    { role: 'assistant', text: ['Old access menu:', '1. Level one', '2. Level two'].join('\n') },
+    { role: 'assistant', text: 'Done - I changed this chat to Access level 2.' },
+    { role: 'assistant', text: ['Memory build options:', '1. Recall Audit Board', '2. Memory Timeline Explorer'].join('\n') },
+    { role: 'assistant', text: 'Done - I changed this chat to Access level 4.' }
+  ];
+  const frame = buildConversationFrame('summarize', turns, {
+    hotMinTurns: 1,
+    hotTargetTokens: 1
+  });
+
+  assert.match(frame.warmSummary, /Active exact artifacts preserved/);
+  assert.match(frame.warmSummary, /Older duplicate artifacts are summary-only/);
+  assert.equal((frame.warmSummary.match(/list:/g) || []).length <= 1, true);
+  assert.equal((frame.warmSummary.match(/access_level:/g) || []).length <= 1, true);
+});
+
 test('newer list artifacts outrank older list artifacts after compaction', () => {
   let state = emptyRollingConversationFrameState();
   state = updateRollingConversationFrameState(state, {

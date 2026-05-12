@@ -187,6 +187,19 @@ export interface BuilderAocPreflightInput extends BuilderSelfAwarenessInput {
 export interface BuilderAocPreflightResult {
   recorded: boolean;
   payloads: Record<string, unknown>[];
+  memoryProofCards: MemoryProofCard[];
+}
+
+export interface MemoryProofCard {
+  schemaVersion: string;
+  ownerSystem: string;
+  operation: string;
+  decision: string;
+  durabilityTier: string;
+  freshness: string;
+  confidence: number | null;
+  sourceRefs: string[];
+  dataBoundary: string;
 }
 
 export interface BuilderWikiStatusResult {
@@ -1879,7 +1892,25 @@ export async function runBuilderAocPreflight(input: BuilderAocPreflightInput): P
     }
     payloads.push(JSON.parse(trimmedStdout) as Record<string, unknown>);
   }
-  return { recorded: payloads.length > 0, payloads };
+  return { recorded: payloads.length > 0, payloads, memoryProofCards: extractMemoryProofCards(payloads) };
+}
+
+export function extractMemoryProofCards(payloads: Record<string, unknown>[]): MemoryProofCard[] {
+  return payloads
+    .map((payload) => objectValue(payload.memory_proof_card))
+    .filter((card) => stringValue(card.schema_version) === 'spark.memory_proof_card.v1')
+    .map((card) => ({
+      schemaVersion: stringValue(card.schema_version),
+      ownerSystem: stringValue(card.owner_system),
+      operation: stringValue(card.operation),
+      decision: stringValue(card.decision),
+      durabilityTier: stringValue(card.durability_tier),
+      freshness: stringValue(card.freshness),
+      confidence: typeof card.confidence === 'number' ? card.confidence : null,
+      sourceRefs: arrayValue(card.source_refs).map(stringValue).filter(Boolean),
+      dataBoundary: stringValue(card.data_boundary),
+    }))
+    .filter((card) => card.ownerSystem === 'spark-intelligence-builder');
 }
 
 export async function runBuilderWikiStatus(input: { refresh?: boolean } = {}): Promise<BuilderWikiStatusResult> {

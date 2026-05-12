@@ -526,9 +526,15 @@ function compactOlderTurns(turns: ConversationTurn[], artifacts: ConversationArt
     if (userGoals.length) lines.push(`Older user goals: ${userGoals.join(' | ')}`);
     if (decisions.length) lines.push(`Older assistant decisions: ${decisions.join(' | ')}`);
   }
-  const exactArtifacts = artifacts.filter((artifact) => artifact.kind === 'list' || artifact.kind === 'access_level');
+  const latestList = latestArtifactOfKind(artifacts, 'list');
+  const latestAccess = latestArtifactOfKind(artifacts, 'access_level');
+  const exactArtifacts = [latestList, latestAccess].filter((artifact): artifact is ConversationArtifact => Boolean(artifact));
   if (exactArtifacts.length) {
-    lines.push(`Exact artifacts preserved: ${exactArtifacts.slice(-6).map((artifact) => `${artifact.kind}:${artifact.title}`).join('; ')}`);
+    lines.push(
+      `Active exact artifacts preserved: ${exactArtifacts
+        .map((artifact) => `${artifact.kind}:${artifact.title}`)
+        .join('; ')}. Older duplicate artifacts are summary-only and cannot override current chat.`
+    );
   }
   return lines.join('\n');
 }
