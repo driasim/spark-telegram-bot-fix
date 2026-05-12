@@ -324,6 +324,8 @@ async function main(): Promise<void> {
     assert.match(bridgeSource, /export interface BuilderSourceUsedInput/);
     assert.match(bridgeSource, /export async function runBuilderSourceUsed/);
     assert.match(bridgeSource, /'self',\s*'source-used'/);
+    assert.match(bridgeSource, /liveState\?: Record<string, unknown>/);
+    assert.match(bridgeSource, /--live-state-json/);
     assert.match(bridgeSource, /--freshness/);
     assert.match(bridgeSource, /--source-ref/);
     assert.match(bridgeSource, /--selected-route/);
@@ -335,6 +337,9 @@ async function main(): Promise<void> {
     assert.match(indexSource, /telegram_spark_risk_profile_answer/);
     assert.match(indexSource, /telegram_restart_survival_answer/);
     assert.match(indexSource, /telegram_mission_provenance_answer/);
+    assert.match(indexSource, /async function buildAocLiveState/);
+    assert.match(indexSource, /source: 'telegram_runtime_probe'/);
+    assert.match(indexSource, /liveState,/);
   });
 
   await test('no-edit Spawner probes honor the requested exact reply', async () => {

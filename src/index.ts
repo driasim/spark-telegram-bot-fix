@@ -84,6 +84,7 @@ import {
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveSpawnerUiUrl } from './spawnerUrl';
+import { readNoEditProbeMission, storeNoEditProbeMission, type NoEditProbeMission } from './noEditProbeStore';
 import {
   isLocalWorkspaceInspectionOnlyRequest,
   renderLocalWorkspaceInspectionReply,
@@ -552,6 +553,44 @@ async function renderAuthoritativeSparkRiskProfileAnswer(): Promise<string> {
   }
 }
 
+async function buildAocLiveState(): Promise<Record<string, unknown>> {
+  try {
+    const [liveStatus, providerStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['providers', 'status'], 45_000).catch((error) => `provider_check_failed: ${error instanceof Error ? error.message : String(error)}`),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
+    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
+    const providersOk = !/provider_check_failed/i.test(providerStatus) && !/\[(?:FAIL|ERROR|WARN)\]/i.test(providerStatus);
+    const memoryOk = /\[OK\]\s+(?:domain-chip-memory|spark-researcher|spark-intelligence-builder)/i.test(liveStatus) || /memory|domain-chip-memory|researcher/i.test(deepVerify);
+    return {
+      status: liveReady && spawnerOk && telegramOk ? 'healthy' : 'attention',
+      spawner_ok: spawnerOk,
+      telegram_ok: telegramOk,
+      providers_ok: providersOk,
+      memory_ok: memoryOk,
+      checked_at: new Date().toISOString(),
+      source: 'telegram_runtime_probe',
+      source_ref: 'spark live status; spark providers status; spark verify --deep',
+      freshness: 'live_probed',
+      claim_boundary: 'Live Spark state was probed by the Telegram runtime for this AOC request and can go stale after restart.'
+    };
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return {
+      status: 'unknown',
+      checked_at: new Date().toISOString(),
+      source: 'telegram_runtime_probe',
+      source_ref: 'spark live status',
+      freshness: 'unknown',
+      error: detail,
+      claim_boundary: 'Telegram could not probe live Spark state for this AOC request; absence of proof is not outage proof.'
+    };
+  }
+}
+
 async function renderMemoryRuntimeSeparationAnswer(): Promise<string> {
   try {
     const liveStatus = await runSparkCli(['live', 'status'], 45_000);
@@ -847,7 +886,8 @@ function shouldAnswerMissionProvenanceQuestion(text: string): boolean {
 }
 
 async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<string> {
-  const latestProbe = lastNoEditProbeMissions.get(noEditProbeKey(ctx));
+  const key = noEditProbeKey(ctx);
+  const latestProbe = lastNoEditProbeMissions.get(key) || await readNoEditProbeMission(key).catch(() => null);
   if (latestProbe) {
     return [
       'Yes. The latest no-edit probe was routed through Spawner, not just chat.',
@@ -865,7 +905,7 @@ async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<strin
       'Most likely Spawner, not plain chat.',
       '',
       `Evidence: the recent thread includes mission id \`${missionId}\`. A plain chat answer would not normally produce a Spawner mission id.`,
-      'I do not have the in-memory no-edit probe record for this mission, so this is provenance from recent thread evidence rather than the live probe map.'
+      'I do not have a durable no-edit probe record for this mission, so this is provenance from recent thread evidence rather than the probe store.'
     ].join('\n');
   }
   return [
@@ -1205,12 +1245,6 @@ bot.use(async (ctx, next) => {
 // Rate limiting (simple in-memory)
 const userLastAction = new Map<number, number>();
 const RATE_LIMIT_MS = 1000; // 1 second between messages
-
-type NoEditProbeMission = {
-  missionId: string;
-  requestedPhrase: string;
-  startedAt: string;
-};
 
 const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
 
@@ -1671,7 +1705,10 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const memoryQuery = text.replace(/^\/(?:context|operating_context|agent_context|aoc)(?:@\w+)?\s*/i, '').trim();
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-    const runnerPreflight = await probeTelegramRunnerWritability();
+    const [runnerPreflight, liveState] = await Promise.all([
+      probeTelegramRunnerWritability(),
+      buildAocLiveState()
+    ]);
     const [result, memoryInPlay] = await Promise.all([
       runBuilderAgentOperatingContext({
         userId: ctx.from.id,
@@ -1680,6 +1717,7 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
         sparkAccessLevel: sparkAccessLevel(accessProfile),
         runnerWritable: runnerPreflight.runnerWritable,
         runnerLabel: runnerPreflight.runnerLabel,
+        liveState,
       }),
       memoryQuery
         ? runBuilderConversationColdContext({
@@ -4259,10 +4297,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       { missionName: 'Telegram Golden Path Probe' }
     );
     if (missionId) {
-      lastNoEditProbeMissions.set(noEditProbeKey(ctx), {
+      const probeMission = {
         missionId,
         requestedPhrase: replyPhrase,
         startedAt: new Date().toISOString()
+      };
+      const key = noEditProbeKey(ctx);
+      lastNoEditProbeMissions.set(key, probeMission);
+      await storeNoEditProbeMission(key, probeMission).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);
       });
       await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
     }
