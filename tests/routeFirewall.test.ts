@@ -34,6 +34,36 @@ test('allows explicit project builds through the firewall', () => {
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('explicit no-execution boundaries beat build and mission keywords', () => {
+  const cases = [
+    'Build the app. Actually, do not build yet, help me think.',
+    'I am mentioning build and mission, but do not start anything.',
+    'no need we can talk here'
+  ];
+  const routes: DeterministicRouteId[] = [
+    'spawner.build',
+    'spawner.contextual_mission',
+    'spawner.pending_clarification',
+    'natural_run'
+  ];
+
+  for (const prompt of cases) {
+    for (const route of routes) {
+      const verdict = evaluateDeterministicRoute(route, prompt);
+      assert.equal(verdict.allow, false, `${route}: ${prompt}`);
+      assert.equal(verdict.reason, 'explicit_no_execution_boundary', `${route}: ${prompt}`);
+      assert.equal(verdict.confidence, 'blocked', `${route}: ${prompt}`);
+    }
+  }
+});
+
+test('bounded no-edit mission wording is not treated as no-execution', () => {
+  const prompt = 'Can you start a mission that only replies TEST_OK and does not edit files?';
+  const verdict = evaluateDeterministicRoute('spawner.contextual_mission', prompt);
+
+  assert.notEqual(verdict.reason, 'explicit_no_execution_boundary');
+});
+
 test('allows explicit memory updates even when they mention plans', () => {
   const verdict = evaluateDeterministicRoute(
     'memory.write',

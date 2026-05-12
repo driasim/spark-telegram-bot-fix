@@ -416,7 +416,10 @@ function isSpawnerGoldenPathRequest(text: string): boolean {
   return (
     /\bgolden[_\s-]*path\b/.test(normalized) ||
     (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
-    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized))
+    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
+    (/\bstart\s+(?:a\s+)?mission\b/.test(normalized) &&
+      /\bonly\s+repl(?:y|ies)\b/.test(normalized) &&
+      /\b(?:do(?:es)?\s+not|don't|dont)\s+edit\s+files\b/.test(normalized))
   );
 }
 

@@ -253,12 +253,16 @@ export function decideNaturalRoute(
   }
 
   const parsedBuildIntent = parseBuildIntent(normalized);
-  const buildIntent = parsedBuildIntent && routeAllowed('spawner.build', normalized) ? parsedBuildIntent : null;
+  const buildRouteVerdict = parsedBuildIntent ? evaluateDeterministicRoute('spawner.build', normalized) : null;
+  const buildIntent = parsedBuildIntent && buildRouteVerdict?.allow ? parsedBuildIntent : null;
   const chipBrief = parseNaturalChipCreateIntent(normalized);
   const conversationalIdeation = shouldPreferConversationalIdeation(normalized);
   const earlyCreatorMission = isReadoutOnlyFollowup(normalized) || conversationalIdeation
     ? null
     : parseNaturalCreatorMissionIntent(normalized, { recentMessages });
+  if (parsedBuildIntent && buildRouteVerdict?.reason === 'explicit_no_execution_boundary') {
+    return noRoute(normalized, [`route_firewall:${buildRouteVerdict.reason}`]);
+  }
   if (isGlobalDoctrineLikeRequest(normalized)) {
     return decision({
       route: 'agent_doctrine.global_blocked',

@@ -355,6 +355,8 @@ async function main(): Promise<void> {
     assert.match(indexSource, /function extractNoEditMissionReplyPhrase/);
     assert.match(indexSource, /const replyPhrase = extractNoEditMissionReplyPhrase\(text\)/);
     assert.match(indexSource, /Reply with exactly: \$\{replyPhrase\}/);
+    assert.match(indexSource, /only\\s\+repl/);
+    assert.match(indexSource, /edit\\s\+files/);
     assert.doesNotMatch(indexSource, /Reply with exactly: GOLDEN_PATH_OK\. Do not edit files/);
     assert.doesNotMatch(indexSource, /learnAboutUser\(user,[\s\S]{0,180}replyPhrase/);
     assert.match(indexSource, /requested reply phrase is stored only in local probe state/);

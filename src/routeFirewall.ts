@@ -125,6 +125,16 @@ function isShortConfirmation(normalized: string): boolean {
   return normalized.length <= 90 && /^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)(?:[.! ]*)$/i.test(normalized);
 }
 
+function hasExplicitNoExecutionBoundary(normalized: string): boolean {
+  return (
+    /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/.test(normalized) ||
+    /\b(?:we can|can we|let'?s|lets)\s+(?:just\s+)?(?:talk|discuss|think|brainstorm|reason)\s+(?:here|through|about)\b/.test(normalized) ||
+    /\b(?:help me|let'?s|lets)\s+(?:think|talk|discuss|brainstorm)\b/.test(normalized) ||
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|start|run|launch|execute|ship|kick\s+off)\b/.test(normalized) ||
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch)\s+(?:anything|a\s+mission|the\s+mission)\b/.test(normalized)
+  );
+}
+
 function isExplicitNaturalRun(normalized: string): boolean {
   return /^(?:ask\s+)?(?:claude|codex|minimax|zai|glm|openrouter|all\s+models?)\b/.test(normalized) || /^\/run\b/.test(normalized);
 }
@@ -186,6 +196,10 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (normalized.startsWith('/')) {
     return { allow: true, reason: 'slash_command', confidence: 'explicit' };
+  }
+
+  if (INTERRUPTIVE_ROUTES.has(route) && hasExplicitNoExecutionBoundary(normalized)) {
+    return { allow: false, reason: 'explicit_no_execution_boundary', confidence: 'blocked' };
   }
 
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {

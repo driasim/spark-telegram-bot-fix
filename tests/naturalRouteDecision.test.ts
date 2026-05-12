@@ -66,6 +66,22 @@ test('gives explicit project builds first refusal before utility routes', () => 
   assert.equal(route.requires_confirmation, false);
 });
 
+test('latest no-execution constraint blocks build routing', () => {
+  const route = decideNaturalRoute('Build the app. Actually, do not build yet, help me think.');
+
+  assert.equal(route.route, 'plain_chat');
+  assert.equal(route.confidence, 'weak');
+  assert.deepEqual(route.blocked_by, ['route_firewall:explicit_no_execution_boundary']);
+});
+
+test('action-keyword discussion stays chat when user forbids starting anything', () => {
+  const route = decideNaturalRoute('I am mentioning build and mission, but do not start anything.');
+
+  assert.equal(route.route, 'plain_chat');
+  assert.equal(route.confidence, 'weak');
+  assert.deepEqual(route.blocked_by, ['route_firewall:explicit_no_execution_boundary']);
+});
+
 test('routes contextual recursive report follow-ups from hot recent turns', () => {
   const route = decideNaturalRoute('where did we land?', {
     recentMessages: [

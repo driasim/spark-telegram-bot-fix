@@ -10,6 +10,10 @@ Telegram is the field console. It should detect read-only route/status questions
 
 Telegram must not become the durable memory authority, provider truth owner, or route-confidence authority.
 
+Route Confidence means "is Spark justified in taking this route right now?", not "how confident is the LLM?"
+
+Telegram may enforce local hard-stop prechecks for obvious adapter safety, especially explicit no-execution boundaries, but portable confidence doctrine and the `act | ask | explain | refuse` state machine live in Builder.
+
 ## First Supported Question
 
 ```text
@@ -61,6 +65,10 @@ Do you want live Spawner status, mission board details, or a new run?
 | Pending clarification is active | Current explicit status question wins unless the user directly answers the clarification |
 | Shadow arbiter disagrees | Keep deterministic route/firewall result; arbiter stays telemetry |
 | Raw chat/user/provider output appears in gate payload | Drop reply and surface privacy blocker |
+| `Build the app. Actually, do not build yet, help me think.` | Treat as chat; latest no-execution constraint wins |
+| `I am mentioning build and mission, but do not start anything.` | Treat as chat; action keywords are not permission |
+| Bare `go` | Only applies to an active pending action |
+| Global behavior change request | Treat as proposal/confirmation, not silent mutation |
 
 ## Data Boundary
 
@@ -93,4 +101,3 @@ Add focused tests for:
 - missing provider evidence returns a missing-proof reply
 - payload with forbidden keys is rejected
 - compact reply formatting
-
