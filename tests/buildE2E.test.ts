@@ -1294,8 +1294,11 @@ async function run(): Promise<void> {
 			dispatchesAfterStalePending,
 			'bare go after a no-start boundary must not dispatch stale clarification state'
 		);
-		assert.match(replies[replies.length - 1] || '', /staying in chat/i);
-		assert.doesNotMatch(replies[replies.length - 1] || '', /Which NFT structure/i);
+		const finalReply = replies[replies.length - 1] || '';
+		assert.ok(finalReply.trim().length > 0, 'chat-only follow-up should still answer naturally');
+		assert.doesNotMatch(finalReply, /Which NFT structure/i);
+		assert.doesNotMatch(finalReply, /Say "go"/i);
+		assert.doesNotMatch(finalReply, /Mission:/i);
 
 		restoreAxios();
 		restoreEnv();

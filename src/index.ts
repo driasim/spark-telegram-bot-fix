@@ -1618,6 +1618,16 @@ function consumeRecentNoExecutionBoundaryForFollowup(key: string, text: string):
   return true;
 }
 
+function renderNoExecutionFollowupReply(): string {
+  const replies = [
+    "Yep, still just talking. I won't treat that as permission to start anything.",
+    'All good, I am keeping this in conversation mode. No build or mission is being resumed.',
+    'Still with you here. That does not reopen the old build thread.',
+    'Got you. I am not starting or resuming anything from that.'
+  ];
+  return replies[Math.floor(Math.random() * replies.length)] || replies[0];
+}
+
 function extractCommandName(text: string | undefined): string | null {
   if (!text?.startsWith('/')) {
     return null;
@@ -5155,7 +5165,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const adminPendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
   if (conversation.isAdmin(ctx.from) && consumeRecentNoExecutionBoundaryForFollowup(adminPendingExecutionKey, text)) {
     await conversation.remember(user, text).catch(() => {});
-    await ctx.reply('Still staying in chat. I will not start or resume a build from that confirmation.');
+    await ctx.reply(renderNoExecutionFollowupReply());
     return;
   }
   const activePendingClarification = conversation.isAdmin(ctx.from)
