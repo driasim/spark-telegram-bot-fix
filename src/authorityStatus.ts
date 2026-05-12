@@ -15,6 +15,9 @@ export type AuthorityStatusSummary = {
   toxicPairCount: number;
   publicationChecksRequired: number;
   requiredPublicationChecks: string[];
+  verdictCount: number;
+  verdictCounts: Record<string, number>;
+  verdictActionFamilies: Record<string, number>;
   error?: string;
 };
 
@@ -39,6 +42,15 @@ function approvalRequiredCount(approvalModeCounts: Record<string, unknown>): num
   return Object.entries(approvalModeCounts).reduce((total, [mode, count]) => {
     return mode === 'not_required' || mode === 'blocked' ? total : total + numberValue(count);
   }, 0);
+}
+
+function numberMap(value: unknown): Record<string, number> {
+  const source = objectValue(value);
+  return Object.fromEntries(
+    Object.entries(source)
+      .map(([key, count]) => [key, numberValue(count)] as const)
+      .filter(([key, count]) => Boolean(key) && count > 0)
+  );
 }
 
 export function resolveAuthorityViewPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -76,14 +88,32 @@ export function summarizeAuthorityView(payload: unknown): AuthorityStatusSummary
     browserApprovalRequiredHookCount: numberValue(guardrails.browser_approval_required_hook_count) || approvalRequiredCount(approvalCounts),
     toxicPairCount: numberValue(guardrails.toxic_pair_count) || numberValue(capabilityPolicy.toxic_pair_count),
     publicationChecksRequired: numberValue(guardrails.publication_checks_required) || requiredPublicationChecks.length,
-    requiredPublicationChecks
+    requiredPublicationChecks,
+    verdictCount: 0,
+    verdictCounts: {},
+    verdictActionFamilies: {}
   };
 }
 
-export async function readAuthorityStatusSummary(viewPath = resolveAuthorityViewPath()): Promise<AuthorityStatusSummary> {
+export async function readAuthorityStatusSummary(
+  viewPath = resolveAuthorityViewPath(),
+  tracePath = path.join(path.dirname(viewPath), 'trace-index.json')
+): Promise<AuthorityStatusSummary> {
   try {
     const raw = await readFile(viewPath, 'utf-8');
-    return summarizeAuthorityView(JSON.parse(raw));
+    const summary = summarizeAuthorityView(JSON.parse(raw));
+    try {
+      const traceRaw = await readFile(tracePath, 'utf-8');
+      const trace = objectValue(JSON.parse(traceRaw));
+      const verdicts = objectValue(trace.authority_verdicts);
+      summary.verdictCount = numberValue(verdicts.verdict_count);
+      summary.verdictCounts = numberMap(verdicts.verdict_counts);
+      summary.verdictActionFamilies = numberMap(verdicts.action_family_counts);
+    } catch {
+      // Trace verdicts are useful supporting metadata, but /authority should still
+      // answer from authority-view.json when the trace index is absent or stale.
+    }
+    return summary;
   } catch (error) {
     return {
       present: false,
@@ -98,6 +128,9 @@ export async function readAuthorityStatusSummary(viewPath = resolveAuthorityView
       toxicPairCount: 0,
       publicationChecksRequired: 0,
       requiredPublicationChecks: [],
+      verdictCount: 0,
+      verdictCounts: {},
+      verdictActionFamilies: {},
       error: error instanceof Error ? error.message : String(error)
     };
   }
@@ -121,6 +154,9 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
   const publicationLine = summary.requiredPublicationChecks.length
     ? `${summary.publicationChecksRequired} publication checks tracked`
     : `${summary.publicationChecksRequired} publication checks`;
+  const verdictKinds = Object.keys(summary.verdictCounts);
+  const actionFamilies = Object.keys(summary.verdictActionFamilies);
+  const verdictLine = `Trace verdicts: ${summary.verdictCount}; verdicts ${verdictKinds.length ? verdictKinds.join(', ') : 'none yet'}; actions ${actionFamilies.length ? actionFamilies.join(', ') : 'none yet'}`;
 
   return [
     headline,
@@ -130,12 +166,13 @@ export function renderAuthorityStatusSummary(summary: AuthorityStatusSummary): s
     `- ${summary.telegramProfileCount} Telegram access profiles; ${summary.spawnerLaneCount} Spawner lanes`,
     `- ${browserLine}`,
     `- ${summary.toxicPairCount} toxic capability pairs; ${publicationLine}`,
+    `- ${verdictLine}`,
     '',
     'Review',
     '- This is evidence, not permission.',
     '- High-agency actions still need source policy, runner state, confirmation, and trace.',
     '',
     'Workspace',
-    '- Full evidence: `spark os authority --json`'
+    '- Full evidence: `spark os authority --json` and `spark os trace --json`'
   ].join('\n');
 }

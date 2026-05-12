@@ -690,7 +690,9 @@ async function run(): Promise<void> {
 			assert.equal(record.outcome, 'suppressed_builder_reply');
 			assert.equal(record.request_id, 'req-final-gate');
 			assert.equal(record.trace_ref, 'trace:req-final-gate');
-			assert.equal(record.builder_reply_preview, 'Noted: saved.');
+			assert.equal(record.builder_reply_length, 'Noted: saved.'.length);
+			assert.equal(record.builder_reply_redacted, true);
+			assert.equal(record.builder_reply_preview, undefined);
 			assert.deepEqual(replies, ['Local fallback response.']);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
