@@ -712,9 +712,83 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /handled by: Codex/);
-    assert.match(result.message, /Mission: spark-live/);
+    assert.match(result.message, /Latest Spawner job/);
+    assert.match(result.message, /Provider\n• Codex/);
+    assert.match(result.message, /Mission\n• Live smoke\n• running/);
+    assert.doesNotMatch(result.message, /Mission: spark-live/);
+    assert.doesNotMatch(result.message, /Result:/);
     assert.doesNotMatch(result.message, /spark-done/);
+  });
+
+  await test('latestProviderSummary does not mistake canvas preparation for an LLM provider', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [],
+          created: [
+            {
+              missionId: 'mission-canvas',
+              missionName: 'Token Launch Dashboard',
+              status: 'created',
+              lastEventType: 'mission_created',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Preparing canvas',
+              providerResults: [],
+              providerSummary: ''
+            }
+          ]
+        }
+      }
+    });
+
+    const result = await spawner.latestProviderSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Provider\n• not reported yet/);
+    assert.match(result.message, /Mission\n• Token Launch Dashboard\n• queued/);
+    assert.doesNotMatch(result.message, /handled by: Preparing canvas/);
+  });
+
+  await test('latestProviderSummary hides raw failed provider output', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-failed',
+              missionName: 'Token Launch Dashboard',
+              status: 'failed',
+              lastEventType: 'mission_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Create app shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: Blocked by the current execution environment. http://127.0.0.1:3333 is not running and patch was rejected because the workspace is read-only.'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProviderSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Provider\n• Codex/);
+    assert.match(result.message, /Mission\n• Token Launch Dashboard\n• failed/);
+    assert.match(result.message, /Open the Mission board/);
+    assert.doesNotMatch(result.message, /Blocked by the current execution environment/);
+    assert.doesNotMatch(result.message, /http:\/\/127\.0\.0\.1:3333 is not running/);
+    assert.doesNotMatch(result.message, /Result:/);
   });
 
   await test('latestProjectPreview returns the shipped app link for root route builds', async () => {

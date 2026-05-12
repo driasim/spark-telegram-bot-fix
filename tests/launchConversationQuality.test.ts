@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
@@ -56,6 +58,27 @@ test('launch prompt keeps conversation style bounded away from memory authority'
   assert.match(prompt, /Style hints are turn guidance, not durable memory/);
   assert.match(prompt, /Use Spark module names only when the user asks/);
   assert.match(prompt, /Do not offer to scaffold/);
+});
+
+test('repo carries the Telegram composition standard as mergeable product guidance', () => {
+  const standard = readFileSync(path.join(__dirname, '..', 'docs', 'TELEGRAM_COMPOSITION_STANDARD.md'), 'utf8');
+
+  assert.match(standard, /Telegram should answer only four things/);
+  assert.match(standard, /What happened\?/);
+  assert.match(standard, /Use dotted bullets/);
+  assert.match(standard, /Do not combine icons with bullets/);
+  assert.match(standard, /Put raw evidence behind Workspace, Decisions, Canvas, Board, logs, or trace links/);
+  assert.match(standard, /Does it sound like Spark helping a person/);
+});
+
+test('system prompt includes the Telegram composition standard for dense replies', () => {
+  const prompt = buildSparkChatSystemPrompt('', '');
+
+  assert.match(prompt, /answer four things only/);
+  assert.match(prompt, /Use one clear headline/);
+  assert.match(prompt, /dotted bullets/);
+  assert.match(prompt, /Do not combine icons with bullets or numbering/);
+  assert.match(prompt, /Prefer one useful next move/);
 });
 
 test('launch cold memory context remains supporting, filtered, and bounded', () => {
@@ -171,6 +194,12 @@ test('launch conversation style lint catches common drift shapes', () => {
     'Certainly! Here is a helpful response. How may I assist you today?'
   );
   assert.equal(chatbox.has('generic_chatbox_voice'), true);
+
+  const doubleMarked = issueCodes('- ✅ Spark Live is ready.');
+  assert.equal(doubleMarked.has('double_marker'), true);
+
+  const numberedIcon = issueCodes('✅ 1. latest run improved');
+  assert.equal(numberedIcon.has('double_marker'), true);
 });
 
 test('launch real Telegram formatter outputs pass safety lint', () => {

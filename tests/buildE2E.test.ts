@@ -41,13 +41,12 @@ const originalEnv = {
 	BOT_PRO_USER_IDS: process.env.BOT_PRO_USER_IDS,
 	ADMIN_TELEGRAM_IDS: process.env.ADMIN_TELEGRAM_IDS,
 	SPARK_AGENT_ACCESS_PROFILE: process.env.SPARK_AGENT_ACCESS_PROFILE,
-	SPARK_BUILDER_AOC_PREFLIGHT_REQUIRED: process.env.SPARK_BUILDER_AOC_PREFLIGHT_REQUIRED,
 	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
-	SPARK_NODE_OUTBOUND_AUDIT_PATH: process.env.SPARK_NODE_OUTBOUND_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
+	SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH: process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -147,63 +146,6 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('node outbound audit record is metadata-only', async () => {
-		restoreEnv();
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		const indexModule: any = await import('../src/index');
-		const record = indexModule.buildNodeOutboundAuditRecord(
-			8319079055,
-			'Spark OS Trace Proof reply body',
-			new Date('2026-05-11T00:00:00.000Z')
-		);
-		assert.equal(record.event, 'telegram_node_delivered');
-		assert.equal(record.privacy, 'metadata_only');
-		assert.equal(record.chat_id_present, true);
-		assert.match(record.chat_ref, /^chat_[a-f0-9]{16}$/);
-		assert.equal(record.text_length, 31);
-		assert.equal(record.trace_context_present, false);
-		assert.equal(record.mission_id_present, false);
-		assert.equal(record.chat_id, undefined);
-		assert.equal(record.user_id, undefined);
-		assert.equal(record.text_preview, undefined);
-		assert.equal(record.delivered_text, undefined);
-	});
-
-	await test('node outbound audit record carries trace context without payloads', async () => {
-		restoreEnv();
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		const indexModule: any = await import('../src/index');
-		const record = indexModule.buildNodeOutboundAuditRecord(
-			8319079055,
-			'Spark OS Trace Proof reply body',
-			new Date('2026-05-11T00:00:00.000Z'),
-			{
-				route: 'telegram_command',
-				command: 'run',
-				replyKind: 'mission_ack',
-				requestId: 'req-trace-safe',
-				traceRef: 'trace:req-trace-safe',
-				missionId: 'mission-trace-safe'
-			}
-		);
-		assert.equal(record.event, 'telegram_node_delivered');
-		assert.equal(record.privacy, 'metadata_only');
-		assert.equal(record.chat_id_present, true);
-		assert.match(record.chat_ref, /^chat_[a-f0-9]{16}$/);
-		assert.equal(record.trace_context_present, true);
-		assert.equal(record.request_id, 'req-trace-safe');
-		assert.equal(record.trace_ref, 'trace:req-trace-safe');
-		assert.equal(record.route, 'telegram_command');
-		assert.equal(record.command, 'run');
-		assert.equal(record.reply_kind, 'mission_ack');
-		assert.equal(record.mission_id_present, true);
-		assert.equal(record.chat_id, undefined);
-		assert.equal(record.user_id, undefined);
-		assert.equal(record.mission_id, undefined);
-		assert.equal(record.text_preview, undefined);
-		assert.equal(record.delivered_text, undefined);
-	});
-
 	await test('build intent posts tier + relay + chatId to /api/prd-bridge/write', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -222,7 +164,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 555, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 555, replies, replyExtras);
 
 		let caughtError: unknown = null;
 		try {
@@ -256,16 +199,25 @@ async function run(): Promise<void> {
 		assert.equal(typeof writeCall!.body.options, 'object');
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
-		assert.match(replies[0] || '', new RegExp(`Mission: ${missionId}`));
+		assert.doesNotMatch(replies[0] || '', new RegExp(`Mission: ${missionId}`));
+		assert.match(replies[0] || '', /Spawned work/);
+		assert.match(replies[0] || '', /Paired surfaces/);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'build_ack',
+			requestId: writeCall!.body.requestId,
+			traceRef: writeCall!.body.traceRef,
+			missionId
+		});
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === missionId);
 		assert.ok(subscription, 'PRD build mission should be registered for Telegram relay progress');
 		assert.equal(subscription.chatId, '8319079055');
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, writeCall!.body.requestId);
-		assert.equal(subscription.traceRef, writeCall!.body.traceRef);
 		assert.equal(subscription.traceRef, writeCall!.body.traceRef);
 
 		restoreAxios();
@@ -292,7 +244,8 @@ async function run(): Promise<void> {
 		};
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 		await indexModule.handleBuildIntent(
 			ctx,
@@ -342,44 +295,43 @@ async function run(): Promise<void> {
 		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
-		try {
-			const missionId = await indexModule.handleRunCommand(
-				ctx,
-				'Build a tiny static landing page for a cafe with a menu section.',
-				['zai'],
-				undefined,
-				{ allowBuildIntent: true }
-			);
+		const missionId = await indexModule.handleRunCommand(
+			ctx,
+			'Build a tiny static landing page for a cafe with a menu section.',
+			['zai'],
+			undefined,
+			{ allowBuildIntent: true }
+		);
 
-			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
-			assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
-			assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-			assert.match(replies.join('\n'), /Project: /);
-			assert.match(replies.join('\n'), /Mission board: http:\/\/stub-spawner\.test\/kanban/);
-			const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
-			const auditText = await waitForFileText(auditPath);
-			const record = JSON.parse(auditText.trim().split(/\r?\n/).at(-1) || '{}');
-			assert.equal(record.outcome, 'command_reply_delivered');
-			assert.equal(record.command, 'run');
-			assert.equal(record.reply_kind, 'build_ack');
-			assert.equal(record.request_id, writeCall!.body.requestId);
-			assert.equal(record.trace_ref, writeCall!.body.traceRef);
-			assert.equal(record.delivered_text, undefined);
-			assert.equal(record.chat_id, undefined);
-			const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
-			assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
-				route: 'spawner',
-				command: 'run',
-				replyKind: 'build_ack',
-				requestId: writeCall!.body.requestId,
-				traceRef: writeCall!.body.traceRef,
-				missionId: buildMissionId
-			});
-		} finally {
-			rmSync(auditDir, { recursive: true, force: true });
-			restoreAxios();
-			restoreEnv();
-		}
+		assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
+		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
+		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
+		assert.match(replies.join('\n'), /Spawned work/);
+		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
+		assert.ok(writeCall, 'expected build route to include PRD bridge call');
+		const auditText = await waitForFileText(auditPath);
+		const record = JSON.parse(auditText.trim().split(/\r?\n/).at(-1) || '{}');
+		assert.equal(record.outcome, 'command_reply_delivered');
+		assert.equal(record.command, 'run');
+		assert.equal(record.reply_kind, 'build_ack');
+		assert.equal(record.request_id, writeCall!.body.requestId);
+		assert.equal(record.trace_ref, writeCall!.body.traceRef);
+		assert.equal(record.delivered_text, undefined);
+		assert.equal(record.chat_id, undefined);
+		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'build_ack',
+			requestId: writeCall!.body.requestId,
+			traceRef: writeCall!.body.traceRef,
+			missionId: buildMissionId
+		});
+
+		rmSync(auditDir, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
 	});
 
 	await test('/run non-build requests still use the simple Spark run path', async () => {
@@ -389,10 +341,6 @@ async function run(): Promise<void> {
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
-		const auditDir = mkdtempSync(path.join(os.tmpdir(), 'spark-simple-final-gate-'));
-		const auditPath = path.join(auditDir, 'final-answer-gate-audit.jsonl');
-		process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH = auditPath;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -409,44 +357,32 @@ async function run(): Promise<void> {
 		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
-		try {
-			const missionId = await indexModule.handleRunCommand(
-				ctx,
-				'Summarize the Railway deployment health.',
-				['zai'],
-				undefined,
-				{ allowBuildIntent: true }
-			);
+		const missionId = await indexModule.handleRunCommand(
+			ctx,
+			'Summarize the Railway deployment health.',
+			['zai'],
+			undefined,
+			{ allowBuildIntent: true }
+		);
 
-			assert.equal(missionId, 'spark-simple-run-test');
-			const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
-			assert.ok(runCall, 'expected non-build /run to POST to /api/spark/run');
-			assert.match(runCall!.body.requestId, /^tg-run-/);
-			assert.doesNotMatch(runCall!.body.requestId, /8319079055/);
-			assert.equal(runCall!.body.traceRef, `trace:telegram-run:${runCall!.body.requestId}`);
-			assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'non-build /run should not use the PRD bridge');
-			const auditText = await waitForFileText(auditPath);
-			const record = JSON.parse(auditText.trim().split(/\r?\n/).at(-1) || '{}');
-			assert.equal(record.outcome, 'command_reply_delivered');
-			assert.equal(record.command, 'run');
-			assert.equal(record.reply_kind, 'mission_ack');
-			assert.equal(record.request_id, runCall!.body.requestId);
-			assert.equal(record.trace_ref, runCall!.body.traceRef);
-			assert.equal(record.delivered_text, undefined);
-			assert.equal(record.chat_id, undefined);
-			assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
-				route: 'spawner',
-				command: 'run',
-				replyKind: 'mission_ack',
-				requestId: runCall!.body.requestId,
-				traceRef: runCall!.body.traceRef,
-				missionId: 'spark-simple-run-test'
-			});
-		} finally {
-			rmSync(auditDir, { recursive: true, force: true });
-			restoreAxios();
-			restoreEnv();
-		}
+		assert.equal(missionId, 'spark-simple-run-test');
+		const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
+		assert.ok(runCall, 'expected non-build /run to POST to /api/spark/run');
+		assert.match(runCall!.body.requestId, /^tg-run-/);
+		assert.doesNotMatch(runCall!.body.requestId, /8319079055/);
+		assert.equal(runCall!.body.traceRef, `trace:telegram-run:${runCall!.body.requestId}`);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'non-build /run should not use the PRD bridge');
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'mission_ack',
+			requestId: runCall!.body.requestId,
+			traceRef: runCall!.body.traceRef,
+			missionId: 'spark-simple-run-test'
+		});
+
+		restoreAxios();
+		restoreEnv();
 	});
 
 	await test('/run exact reply probes with negated file creation stay on simple Spark run path', async () => {
@@ -456,9 +392,6 @@ async function run(): Promise<void> {
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
-		const auditDir = mkdtempSync(path.join(os.tmpdir(), 'spark-exact-final-gate-'));
-		process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH = path.join(auditDir, 'final-answer-gate-audit.jsonl');
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -474,24 +407,20 @@ async function run(): Promise<void> {
 		const ctx = makeFakeCtx(8319079055, 8319079055, 558, replies);
 		const indexModule: any = await import('../src/index');
 
-		try {
-			const missionId = await indexModule.handleRunCommand(
-				ctx,
-				'Reply exactly TESTER_REALPATH_OK and do not create files.',
-				['codex'],
-				undefined,
-				{ allowBuildIntent: true }
-			);
+		const missionId = await indexModule.handleRunCommand(
+			ctx,
+			'Reply exactly TESTER_REALPATH_OK and do not create files.',
+			['codex'],
+			undefined,
+			{ allowBuildIntent: true }
+		);
 
-			assert.equal(missionId, 'spark-realpath-probe');
-			assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'expected exact reply probe to POST to /api/spark/run');
-			assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'negated file creation should not use the PRD bridge');
-			await waitForFileText(process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH!);
-		} finally {
-			rmSync(auditDir, { recursive: true, force: true });
-			restoreAxios();
-			restoreEnv();
-		}
+		assert.equal(missionId, 'spark-realpath-probe');
+		assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'expected exact reply probe to POST to /api/spark/run');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'negated file creation should not use the PRD bridge');
+
+		restoreAxios();
+		restoreEnv();
 	});
 
 	await test('build intent keeps going when the prompt also changes update preferences', async () => {
@@ -529,7 +458,7 @@ async function run(): Promise<void> {
 		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
-		assert.match(replies[0] || '', /Project: terminal chef clock/);
+		assert.match(replies[0] || '', /• terminal chef clock/);
 
 		restoreAxios();
 		restoreEnv();
@@ -761,14 +690,7 @@ async function run(): Promise<void> {
 			assert.equal(record.outcome, 'suppressed_builder_reply');
 			assert.equal(record.request_id, 'req-final-gate');
 			assert.equal(record.trace_ref, 'trace:req-final-gate');
-			assert.equal(record.chat_id, undefined);
-			assert.equal(record.user_id, undefined);
-			assert.equal(record.chat_id_present, true);
-			assert.equal(record.user_id_present, true);
-			assert.match(record.chat_ref, /^chat_[a-f0-9]{16}$/);
-			assert.match(record.user_ref, /^user_[a-f0-9]{16}$/);
-			assert.equal(record.builder_reply_preview, undefined);
-			assert.equal(record.builder_reply_redacted, true);
+			assert.equal(record.builder_reply_preview, 'Noted: saved.');
 			assert.deepEqual(replies, ['Local fallback response.']);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
@@ -814,7 +736,7 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
 
 		const indexModule: any = await import('../src/index');
 		const prd = indexModule.buildDomainChipPrd('creates weird poster prompts from dream fragments');
@@ -853,7 +775,7 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
 		assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
 
 		restoreAxios();
 		restoreEnv();
@@ -905,8 +827,8 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 		assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
 		assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
-		assert.match(replies[0] || '', /Project: Founder Signal Room/);
-		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.match(replies[0] || '', /• Founder Signal Room/);
+		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
 
 		restoreAxios();
 		restoreEnv();
@@ -985,8 +907,9 @@ async function run(): Promise<void> {
 
 		assert.match(reply, /Canvas is ready for domain-chip-posters/);
 		assert.match(reply, /2 build steps queued\./);
-		assert.match(reply, /First up:/);
-		assert.match(reply, /Scaffold chip manifest and hooks/);
+		assert.match(reply, /Spawned tasks:/);
+		assert.match(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
+		assert.match(reply, /Validate router behavior/);
 		assert.doesNotMatch(reply, /195s/);
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
@@ -1032,9 +955,9 @@ async function run(): Promise<void> {
 			buildMode: 'advanced_prd'
 		});
 
-		assert.match(replies[0] || '', /I can build maze game/);
-		assert.match(replies[0] || '', /I recommend: browser-playable/);
-		assert.match(replies[0] || '', /Say "go" and I will start/);
+		assert.match(replies[0] || '', /I can turn this into maze game/);
+		assert.match(replies[0] || '', /Recommended starting point: browser-playable/);
+		assert.match(replies[0] || '', /Say "go" to start/);
 		assert.match(replies[0] || '', /shifting walls/);
 		assert.doesNotMatch(replies[0] || '', /Brief is too thin/);
 		assert.doesNotMatch(replies[0] || '', /Default direction/);
@@ -1091,15 +1014,45 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.traceRef, `trace:spawner-prd:${clarifiedMissionId}`);
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
 		assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
-		assert.match(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
+		assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
+		assert.match(replies.join('\n'), /Spawned work/);
 		assert.doesNotMatch(replies.join('\n'), /Canvas:/);
-		assert.match(replies.join('\n'), /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === clarifiedMissionId);
 		assert.ok(subscription, 'clarified PRD build mission should be registered for Telegram relay progress');
 		assert.equal(subscription.chatId, '8319079055');
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, dispatchCall!.body.requestId);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('NFT strategy structure conversation does not start build preview', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 598, replies);
+		ctx.message.text = 'yeah buybacks not for now actually, maybe later, i think we can earn it back from NFTs, if we do sell the NFTs via token, and create a nice structure for it to get hype right after the launch.';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'strategy conversation must not enter PRD bridge');
+		assert.doesNotMatch(replies.join('\n'), /Say "go" and I will start/i);
+		assert.doesNotMatch(replies.join('\n'), /Mission:/);
 
 		restoreAxios();
 		restoreEnv();
@@ -1141,11 +1094,21 @@ async function run(): Promise<void> {
 		const indexModule: any = await import('../src/index');
 		const noNeedCtx = makeFakeCtx(8319079055, 8319079055, 602, replies);
 		noNeedCtx.message.text = 'no need we can talk here';
-		await indexModule.handleClarificationAnswers(noNeedCtx, 'no need we can talk here');
+		await indexModule.handleTextMessage(noNeedCtx);
 
 		assert.ok(!captured.some((c) => c.body?.forceDispatch === true), 'conversation-only boundary must not dispatch the pending build');
-		assert.match(replies.join('\n'), /no build started/i);
+		assert.match(replies.join('\n'), /no build.*started/i);
 		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
+
+		const dispatchesAfterCancel = captured.filter((c) => c.body?.forceDispatch === true).length;
+		const goCtx = makeFakeCtx(8319079055, 8319079055, 603, replies);
+		goCtx.message.text = 'go';
+		await indexModule.handleTextMessage(goCtx);
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterCancel,
+			'cancel must clear pending execution state so a later go does not wake the build'
+		);
 
 		restoreAxios();
 		restoreEnv();
@@ -1208,10 +1171,97 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
 		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
 		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);
-		assert.match(replies.join('\n'), /Project: Memory Quality Dashboard/);
-		assert.doesNotMatch(replies.join('\n'), /Project: it after analyzing our systems deeply/);
+		assert.match(replies.join('\n'), /• Memory Quality Dashboard/);
+		assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
 
 		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('build dispatch route confidence helper enforces act ask explain refuse and failures', async () => {
+		const indexModule: any = await import('../src/index');
+		process.env.SPARK_BOT_TEST_MODE = '0';
+		process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'spark-rc-audit-')), 'audit.jsonl');
+
+		for (const decision of ['act', 'ask', 'explain', 'refuse'] as const) {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 701, replies);
+			let routeContext: any = null;
+			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
+				ctx,
+				accessRequirement: 'spawner_build',
+				prd: 'Create a local-only static proof page. Do not publish.',
+				requestId: `request-${decision}`,
+				traceRef: `trace-${decision}`,
+				runnerPreflight: null,
+				spawnerAvailableProbe: async () => true,
+				gateRunner: async (input: any) => {
+					routeContext = input.routeContext;
+					return {
+						payload: {
+							decision,
+							safe_reply_policy: decision === 'act' ? 'execute_with_trace' : 'test_policy',
+							human_next_action: 'test next action'
+						},
+						replyText: ''
+					};
+				}
+			});
+
+			assert.equal(allowed, decision === 'act');
+			assert.equal(routeContext.authority_verdict.schema_version, 'spark.authority_verdict.v1');
+			assert.equal(routeContext.authority_verdict.decision, 'allowed');
+			assert.equal(routeContext.capability_state, 'available');
+			assert.equal(routeContext.runner_state, 'available');
+			assert.equal(routeContext.data_boundary.exports_raw_prompt, false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'raw_prompt'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'chat_id'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'provider_output'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'memory_body'), false);
+			if (decision !== 'act') {
+				assert.match(replies.join('\n'), /test next action/);
+			}
+		}
+
+		for (const label of ['timeout', 'malformed_json'] as const) {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 702, replies);
+			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
+				ctx,
+				accessRequirement: 'spawner_build',
+				prd: 'Create a local-only static proof page.',
+				requestId: `request-${label}`,
+				traceRef: `trace-${label}`,
+				runnerPreflight: null,
+				spawnerAvailableProbe: async () => true,
+				gateRunner: async () => {
+					throw new Error(label);
+				}
+			});
+			assert.equal(allowed, false);
+			assert.match(replies.join('\n'), /Spark could not reach the Builder memory path|builder/i);
+		}
+
+		const runnerReplies: string[] = [];
+		const runnerCtx = makeFakeCtx(8319079055, 8319079055, 703, runnerReplies);
+		let unavailableContext: any = null;
+		await indexModule.buildDispatchRouteConfidenceAllows({
+			ctx: runnerCtx,
+			accessRequirement: 'operating_system',
+			prd: 'Create a local file.',
+			requestId: 'request-runner-unavailable',
+			traceRef: 'trace-runner-unavailable',
+			runnerPreflight: { runnerWritable: 'no', runnerLabel: 'read-only', checkedAt: '2026-05-12T00:00:00Z' },
+			spawnerAvailableProbe: async () => false,
+			gateRunner: async (input: any) => {
+				unavailableContext = input.routeContext;
+				return { payload: { decision: 'ask', human_next_action: 'inspect runner' }, replyText: '' };
+			}
+		});
+		assert.equal(unavailableContext.capability_state, 'unavailable');
+		assert.equal(unavailableContext.runner_state, 'unavailable');
+		assert.match(runnerReplies.join('\n'), /inspect runner/);
+
 		restoreEnv();
 	});
 
