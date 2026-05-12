@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  buildBuilderAocPreflightCommands,
   compactColdMemoryQuery,
-  buildBuilderRunPreflightSources,
-  buildBuilderRunPreflightUserMessage,
   formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
@@ -504,34 +503,32 @@ test('builder repo resolver preserves explicit operator override', () => {
   assert.equal(resolved, explicitRepo);
 });
 
-test('builder run preflight is metadata-only and trace-bearing', () => {
-  const message = buildBuilderRunPreflightUserMessage({
-    commandKind: 'build',
-    accessRequirement: 'operating_system',
-    providerCount: 1,
-    hasTargetPath: true,
-    buildMode: 'direct',
-    runnerWritable: 'yes'
-  });
-  const sources = buildBuilderRunPreflightSources({
-    requestId: 'tg-build-private-chat-id-123',
-    traceRef: 'trace:spawner-prd:mission-123',
-    commandKind: 'build'
-  });
+test('AOC preflight commands carry trace metadata without raw prompt or chat ids', () => {
+  const commands = buildBuilderAocPreflightCommands(
+    {
+      userId: '8319079055',
+      chatId: '123456789',
+      currentMessage: 'Create a secret private project prompt that must not be persisted.',
+      requestId: 'tg-build-safe',
+      traceRef: 'trace:spawner-prd:mission-safe',
+      selectedRoute: 'spawner_prd_bridge',
+      userIntent: 'telegram_run_direct_build',
+    },
+    'C:\\Users\\USER\\.spark\\state\\spark-intelligence'
+  );
+  const flat = commands.flat();
 
-  assert.match(message, /Telegram \/run build request before Spawner dispatch/);
-  assert.match(message, /Prompt body redacted/);
-  assert.match(message, /target_path=present/);
-  assert.doesNotMatch(message, /C:\\Users\\USER\\Desktop/);
-  assert.doesNotMatch(message, /Build this at/);
-  assert.equal(sources.length, 3);
-  assert.equal(sources[0].source, 'telegram_command');
-  assert.equal(sources[0].source_ref, 'trace:spawner-prd:mission-123');
-  assert.equal(sources[1].source, 'builder_aoc');
-  assert.equal(sources[2].source, 'memory_preflight');
-  assert.ok(sources.every((source) => source.freshness === 'fresh'));
-  assert.ok(sources.every((source) => !/C:\\Users\\USER\\Desktop|Build this at|private chat/i.test(source.summary)));
-  assert.match(sources[2].summary, /Memory body export disabled/);
+  assert.equal(commands.length, 3);
+  assert.ok(commands.some((args) => args.includes('route-selection')));
+  assert.ok(commands.some((args) => args.includes('source-used') && args.includes('memory_preflight')));
+  assert.ok(flat.includes('--request-id'));
+  assert.ok(flat.includes('tg-build-safe'));
+  assert.ok(flat.includes('--trace-ref'));
+  assert.ok(flat.includes('trace:spawner-prd:mission-safe'));
+  assert.ok(flat.includes('session:telegram:redacted'));
+  assert.ok(flat.includes('human:telegram:redacted'));
+  assert.doesNotMatch(flat.join('\n'), /secret private project prompt/);
+  assert.doesNotMatch(flat.join('\n'), /8319079055|123456789/);
 });
 
 test('formats black-box payload as compact event evidence', () => {
