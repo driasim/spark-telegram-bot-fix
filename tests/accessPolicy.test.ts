@@ -287,6 +287,15 @@ async function main(): Promise<void> {
     assert.match(indexSource, /shouldAnswerMemoryRuntimeSeparation/);
     assert.match(indexSource, /renderMemoryRuntimeSeparationAnswer/);
     assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
+    assert.match(indexSource, /recordTelegramSourceUsedEvidence/);
+    assert.match(indexSource, /runtimeTruthSourceEvidence/);
+    assert.match(indexSource, /runBuilderSourceUsed/);
+    assert.match(indexSource, /selectedRoute/);
+    assert.match(indexSource, /telegram_live_state_answer/);
+    assert.match(indexSource, /telegram_fresh_runtime_context/);
+    assert.match(indexSource, /source: 'current_diagnostics'/);
+    assert.match(indexSource, /source: 'runner_preflight'/);
+    assert.match(indexSource, /source: 'mission_trace'/);
     assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
     assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
     assert.match(indexSource, /runSparkCli\(\['providers', 'status'\]/);
@@ -303,8 +312,29 @@ async function main(): Promise<void> {
     assert.match(indexSource, /Current Spark risk profile:/);
     assert.match(indexSource, /Memory can change recall\/history/);
     assert.match(indexSource, /A plain chat answer would not have a Spawner mission id/);
+    assert.match(indexSource, /failed to record \$\{item\.source\} for \$\{selectedRoute\}/);
     assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
     assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
+  });
+
+  await test('Telegram fresh runtime answers record Builder source-used evidence', async () => {
+    const bridgeSource = await readFile(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+
+    assert.match(bridgeSource, /export interface BuilderSourceUsedInput/);
+    assert.match(bridgeSource, /export async function runBuilderSourceUsed/);
+    assert.match(bridgeSource, /'self',\s*'source-used'/);
+    assert.match(bridgeSource, /--freshness/);
+    assert.match(bridgeSource, /--source-ref/);
+    assert.match(bridgeSource, /--selected-route/);
+    assert.match(bridgeSource, /eventId: String\(payload\.event_id \|\| ''\)/);
+
+    assert.match(indexSource, /runBuilderSourceUsed\(\{/);
+    assert.match(indexSource, /selectedRoute,\n\s*confidence/);
+    assert.match(indexSource, /telegram_status_command/);
+    assert.match(indexSource, /telegram_spark_risk_profile_answer/);
+    assert.match(indexSource, /telegram_restart_survival_answer/);
+    assert.match(indexSource, /telegram_mission_provenance_answer/);
   });
 
   await test('no-edit Spawner probes honor the requested exact reply', async () => {
