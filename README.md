@@ -15,6 +15,12 @@ Launch v1 uses Telegram long polling only. Webhook ingress is intentionally disa
 Gateway startup acquires a durable same-host ownership lease for the bot token, with heartbeat and stale-lock recovery, so a second local gateway instance refuses to start against the same token.
 Gateway state location is now configurable with `SPARK_GATEWAY_STATE_DIR`, so a hosted deployment can mount persistent state outside the repo working tree.
 
+Current audit note:
+
+- [Spark Telegram Bot Audit - 2026-05-13](./docs/REPO_AUDIT_2026-05-13.md)
+
+Audit highlights: launch v1 is still long-polling only, local webhook/tunnel helpers are not supported, ignored runtime state should not be treated as repo truth, and strict unused-code checks are part of the maintenance gate.
+
 ## What It Does
 
 - receives Telegram updates through one long-polling gateway process
@@ -52,7 +58,9 @@ Spawner UI
 Telegram replies
 ```
 
-## Commands
+## Main Commands
+
+These are the launch-facing commands operators should expect to use. Lower-level route probes and ledgers are still available for diagnostics, but Telegram should stay a concise control/status surface rather than the source of truth for Spark runtime state.
 
 General:
 
@@ -62,11 +70,16 @@ General:
 - `/diagnose`
 - `/context`
 - `/spark`
+- `/self [improve <goal>]`
+- `/wiki [status|search <query>|answer <question>|promote <note>]`
+- `/voice`
+- `/access [status|1|2|3|4]`
 - `/remember <text>`
 - `/recall <topic>`
+- `/workspaces`
 - `/about`
 
-Admin-only mission control:
+Admin-only build and mission control:
 
 - `/run <goal>`
 - `/runminimax <goal>`
@@ -81,9 +94,20 @@ Admin-only mission control:
 - `/mission <status|pause|resume|kill> <missionId>`
 - `/chip create <natural language description>`
 - `/loop <chip_key> [rounds]`
+- `/recursive <sessions|status|report|trace|review|...>`
 - `/schedule "<cron>" mission <goal>`
 - `/schedule "<cron>" loop <chipKey> [rounds]`
 - `/schedules`
+
+Advanced diagnostics:
+
+- `/probe`
+- `/nl_route`
+- `/ledger`
+- `/capabilities`
+- `/authority`
+- `/trace`
+- `/memory_movement`
 
 Natural language build requests also work for admins. For example: "build a landing page for my app" can route into the Spawner PRD/canvas path instead of returning command help.
 
@@ -147,11 +171,13 @@ deterministic utility replies.
 Current files:
 
 - `agent-knowledge/access.md`
+- `agent-knowledge/creator-mission-status.md`
 - `agent-knowledge/memory.md`
 - `agent-knowledge/self-awareness.md`
 - `agent-knowledge/spark-doc-sources.md`
 - `agent-knowledge/spark-system.md`
 - `agent-knowledge/using-spark.md`
+- `agent-knowledge/voice-system.md`
 
 Set `SPARK_AGENT_KNOWLEDGE_DIR` to point at another directory if a deployment
 needs a custom knowledge pack. Set `SPARK_AGENT_KNOWLEDGE_ENABLED=0` to disable
@@ -251,12 +277,15 @@ If you are Claude Code, Codex, or another LLM agent operating this repo:
 6. Use `/diagnose` to verify provider/LLM wiring from Telegram.
 7. Never commit `.env`, `.env.*`, tokens, chat exports, mission logs with secrets, or screenshots containing secrets.
 8. Keep relay identity named. The main bot should report its configured primary profile, usually `primary`; tester bots should report their own profile names.
+9. Use `ops/` as validation harnesses only. Do not use it to configure Telegram ingress.
 
 ## Related Docs
 
-- [TELEGRAM_WEBHOOK_FUTURE.md](./TELEGRAM_WEBHOOK_FUTURE.md)
+- [Spark Telegram Bot Audit - 2026-05-13](./docs/REPO_AUDIT_2026-05-13.md)
+- [Spark QA operator Telegram recursion guide](./docs/QA_OPERATOR_TELEGRAM_RECURSION.md)
+- [Ops harness guide](./ops/README.md)
 
-Historical webhook/tunnel architecture notes were removed from the public launch docs because they are not part of this release.
+Historical handoffs and old design checkpoints live outside this repo at `C:\Users\USER\Desktop\spark-historical-docs\docs\spark-telegram-bot`.
 
 ## Notes
 

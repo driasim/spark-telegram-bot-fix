@@ -101,7 +101,6 @@ import {
   getConfiguredSparkAccessProfile,
   getSparkAccessProfile,
   normalizeSparkAccessProfile,
-  renderSparkAccessBriefStatus,
   renderSparkAccessChangeSummary,
   renderSparkAccessCapabilityStatus,
   renderSparkAccessChangeConfirmation,
@@ -184,7 +183,6 @@ import {
   isContextualAccessCapabilityMismatchQuestion,
   isAccessCapabilityMismatchQuestion,
   isAccessHelpQuestion,
-  isAccessStatusQuestion,
   isBuildContextRecallQuestion,
   isDiagnosticFollowupTestQuestion,
   isDiagnosticsScanRequest,
@@ -309,7 +307,7 @@ type TelegramSourceUsedEvidence = {
 function recordTelegramSourceUsedEvidence(
   ctx: any,
   user: any,
-  currentMessage: string,
+  _currentMessage: string,
   selectedRoute: string,
   evidence: TelegramSourceUsedEvidence[],
   confidence = 'high'
@@ -1140,11 +1138,6 @@ function nodeOutboundAuditPath(): string {
     process.env.SPARK_NODE_OUTBOUND_AUDIT_PATH ||
     path.join(os.homedir(), '.spark', 'state', 'spark-telegram-bot', 'node-outbound-audit.jsonl')
   );
-}
-
-function previewAuditText(text: string, limit = 240): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
 const OUTBOUND_TRACE_CONTEXT_KEY = '__sparkTraceContext';
@@ -2613,11 +2606,6 @@ function telegramRunTraceRef(requestId: string): string {
 function projectCanvasUrl(baseUrl: string, requestId: string, missionId: string): string {
   const root = baseUrl.replace(/\/+$/, '');
   return `${root}/canvas?pipeline=${encodeURIComponent(`prd-${requestId}`)}&mission=${encodeURIComponent(missionId)}`;
-}
-
-function projectKanbanUrl(baseUrl: string, missionId: string): string {
-  const root = baseUrl.replace(/\/+$/, '');
-  return `${root}/kanban?mission=${encodeURIComponent(missionId)}`;
 }
 
 function missionBoardUrl(baseUrl: string): string {
@@ -4125,15 +4113,6 @@ bot.command('access', async (ctx) => {
 
 function accessLevelChangeConfirmed(raw: string): boolean {
   return /\bconfirm\b/i.test(raw);
-}
-
-function extractTelegramCommandArgs(text: string, command: string): string {
-  const escapedCommand = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = text.match(new RegExp(`^\\s*/${escapedCommand}(?:@\\w+)?(?:\\s+([\\s\\S]*?))?\\s*$`, 'i'));
-  if (match) {
-    return (match[1] || '').trim();
-  }
-  return text.replace(new RegExp(`^\\s*/${escapedCommand}\\b`, 'i'), '').trim();
 }
 
 async function isLevel5ServiceEnabled(): Promise<boolean> {

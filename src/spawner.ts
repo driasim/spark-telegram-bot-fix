@@ -2,7 +2,7 @@ import axios from 'axios';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
-import { DEFAULT_LOCAL_SERVICE_TIMEOUT_MS, localServiceDefaultTimeoutMs, positiveIntegerEnv } from './timeoutConfig';
+import { DEFAULT_LOCAL_SERVICE_TIMEOUT_MS, positiveIntegerEnv } from './timeoutConfig';
 import type { SkillTier } from './userTier';
 
 const SPAWNER_UI_URL = resolveSpawnerUiUrl();
@@ -363,30 +363,8 @@ function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUr
   return trimmed;
 }
 
-function formatCreatorMode(value: string | undefined): string {
-  const normalized = (value || 'unknown').replace(/_/g, ' ');
-  if (value === 'full_path') return 'full creator system';
-  if (value === 'specialization_path') return 'specialization path';
-  if (value === 'domain_chip') return 'domain chip';
-  return normalized;
-}
-
 function formatCreatorReadiness(value: string | undefined): string {
   return (value || 'unknown').replace(/_/g, ' ');
-}
-
-function formatCreatorPrivacy(value: string | undefined): string {
-  if (value === 'local_only') return 'private workspace';
-  if (value === 'github_pr') return 'GitHub review';
-  if (value === 'swarm_shared') return 'Swarm sharing';
-  return value || 'private workspace';
-}
-
-function formatCreatorCheckHeadline(status: string): string {
-  if (status === 'passed') return '🟢 Creator checks passed.';
-  if (status === 'failed') return '🔴 Creator checks need attention.';
-  if (status === 'blocked') return '🟡 Creator checks are blocked.';
-  return '🟡 Creator checks finished.';
 }
 
 export function formatCreatorDomainLabel(value: string | undefined): string {
@@ -432,25 +410,6 @@ export function formatCreatorDomainLabel(value: string | undefined): string {
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join(' ');
-}
-
-function formatCreatorArtifactLabel(value: string): string {
-  const labels: Record<string, string> = {
-    domain_chip: 'domain chip',
-    benchmark_pack: 'benchmark pack',
-    specialization_path: 'specialization path',
-    autoloop_policy: 'autoloop policy',
-    tool_integration: 'Telegram/Spawner wiring',
-    swarm_publish_packet: 'Swarm review packet',
-    creator_report: 'creator report'
-  };
-  return labels[value] || value.replace(/_/g, ' ');
-}
-
-function formatCreatorArtifactLines(artifacts: string[] | undefined): string[] {
-  const usable = Array.isArray(artifacts) ? artifacts.filter((artifact) => artifact.trim()) : [];
-  if (usable.length === 0) return ['- workspace plan'];
-  return usable.slice(0, 6).map((artifact) => `- ${formatCreatorArtifactLabel(artifact)}`);
 }
 
 function latestCreatorValidationRun(trace: CreatorMissionTrace): CreatorValidationRun | null {

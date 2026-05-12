@@ -2,7 +2,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveChatProviderConfig } from './llm';
-import { resolveChatDefaultProvider, resolveKnownProviderId, resolveMissionDefaultProvider } from './providerRouting';
+import { resolveKnownProviderId, resolveMissionDefaultProvider } from './providerRouting';
 
 type ProviderId = 'zai' | 'codex' | 'anthropic' | 'openai' | 'openrouter' | 'huggingface' | 'minimax' | 'ollama' | 'lmstudio';
 type ModelRole = 'agent' | 'mission';

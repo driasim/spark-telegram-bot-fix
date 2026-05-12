@@ -1,7 +1,0 @@
-tunnel: YOUR_TUNNEL_ID
-credentials-file: <user-home>\\.cloudflared\YOUR_TUNNEL_ID.json
-
-ingress:
-  - hostname: bot.example.com
-    service: http://127.0.0.1:8907
-  - service: http_status:404

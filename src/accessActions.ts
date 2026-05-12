@@ -112,7 +112,7 @@ export function formatSparkAccessActionConfirmationPrompt(actionId: SparkAccessA
   return [hint, '', `To continue, send ${command} confirm or tap Confirm.`].join('\n');
 }
 
-export function buildSparkAccessActionKeyboard(profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+export function buildSparkAccessActionKeyboard(_profile: string): { reply_markup: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
   const rows: Array<Array<{ text: string; callback_data: string }>> = [
     [
       buttonForAction('workspace_setup'),

@@ -1099,12 +1099,6 @@ function extractFreeformLeadSummary(text: string): string | null {
   return line ? clipText(line.replace(/^Done\.\s*/i, ''), 360) : null;
 }
 
-function taskNumberFromEvent(event: DeliverableRelayEvent): string | null {
-  const raw = `${event.taskId || ''} ${event.taskName || ''}`;
-  const match = raw.match(/\b(?:task|t)[-_ ]?(\d+)\b/i);
-  return match?.[1] || null;
-}
-
 function cleanTaskLabel(label: string): string {
   const cleaned = label
     .replace(/^node-\d+-task-/i, '')
@@ -1126,10 +1120,6 @@ function cleanTaskLabel(label: string): string {
     .replace(/\bhtml\b/gi, 'HTML')
     .replace(/Three\.JS/g, 'Three.js');
   return clipText(readable, 160);
-}
-
-function formatTaskStartedMessage(event: DeliverableRelayEvent): string {
-  return '';
 }
 
 function formatTaskCompletedMessage(event: DeliverableRelayEvent): string {
@@ -1306,7 +1296,7 @@ function shouldDeliverProgressEvent(event: DeliverableRelayEvent, verbosity: Tel
 
 export function formatProgressMessageForTelegram(
   event: DeliverableRelayEvent,
-  subscription: MissionSubscription,
+  _subscription: MissionSubscription,
   verbosity: TelegramRelayVerbosity,
   linkPreference: TelegramMissionLinkPreference,
   summary?: string

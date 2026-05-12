@@ -389,7 +389,6 @@ export function inferDiagnoseLikelyIssue(args: {
 
 export async function buildDiagnoseReport(adminId: number, subject?: Partial<DiagnoseSubject>): Promise<string> {
   const started = Date.now();
-  const relayIdentity = getRelayIdentityFromEnv();
   const diagnoseSubject: DiagnoseSubject = {
     userId: subject?.userId || adminId,
     chatId: subject?.chatId || adminId,

@@ -887,7 +887,7 @@ export async function stageRecursivePromotionPacket(id: string): Promise<Recursi
 }
 
 export async function stageRecursiveSwarmPacket(id: string): Promise<RecursiveSwarmPacket> {
-  throw new Error(`Standalone Swarm staging packets are retired. Sync recursive evidence through Spark Workspace collective sync: ${sparkWorkspaceRecursionsUrl()}`);
+  throw new Error(`Standalone Swarm staging packets are retired for ${id}. Sync recursive evidence through Spark Workspace collective sync: ${sparkWorkspaceRecursionsUrl()}`);
 }
 
 export async function syncRecursiveArtifactToWorkspace(input: RecursiveArtifactSyncInput): Promise<RecursiveWorkspaceSyncResult> {
@@ -1702,7 +1702,7 @@ export function renderRecursiveDecision(record: RecursiveDecisionRecord): string
   return lines.join('\n');
 }
 
-export function renderRecursivePromotionPacket(packet: RecursivePromotionPacket): string {
+export function renderRecursivePromotionPacket(_packet: RecursivePromotionPacket): string {
   return [
     '🟡 Local promotion packet staged.',
     '',
@@ -1919,34 +1919,10 @@ function truncate(value: string, limit: number): string {
   return clean.length <= limit ? clean : `${clean.slice(0, limit - 1).trim()}...`;
 }
 
-function formatBestSignal(value: string): string {
-  const clean = formatOutcomeSummary(value);
-  const firstSentence = /^(.+?[.!?])(?:\s|$)/.exec(clean)?.[1];
-  return truncateAtWord(firstSentence || clean, 180);
-}
-
 function hasSameDisplayedImprovement(value: string | null | undefined): boolean {
   if (!value) return false;
   const number = '-?\\d+(?:\\.\\d+)?';
   return new RegExp(`\\b(?:improved|improving)\\b[\\s\\S]*?\\bfrom\\s+(${number})\\s+to\\s+\\1\\b`, 'i').test(value);
-}
-
-function formatOutcomeSummary(value: string): string {
-  let clean = value.replace(/\s+/g, ' ').trim();
-  const number = '-?\\d+(?:\\.\\d+)?';
-  const direct = new RegExp(`^(.+?)\\s+improved\\s+from\\s+(${number})\\s+to\\s+\\2(.*)$`, 'i');
-  clean = clean.replace(direct, (_match, prefix: string, score: string, suffix: string) => (
-    `${prefix} registered a tiny improvement${suffix} (score still rounds to ${score}).`
-  ));
-  const inline = new RegExp(`,?\\s+improving\\s+[A-Za-z0-9_:/ -]+\\s+from\\s+(${number})\\s+to\\s+\\1\\.?`, 'i');
-  clean = clean.replace(inline, (_match, score: string) => `; score still rounds to ${score}.`);
-  return clean;
-}
-
-function formatMasteryLine(mastery: SparkWorkspaceMastery): string {
-  const summary = sentenceCaseFirst(formatBestSignal(mastery.summary).replace(/\bmastery candidate\b/i, 'candidate'));
-  const evidence = formatMasteryEvidence(mastery);
-  return `Mastery: ${ensureSentence(summary)}${evidence ? ` ${evidence}` : ''}`;
 }
 
 function formatUpdatedAt(value: string | null | undefined): string {
@@ -1957,18 +1933,6 @@ function formatUpdatedAt(value: string | null | undefined): string {
   const hour = String(date.getUTCHours()).padStart(2, '0');
   const minute = String(date.getUTCMinutes()).padStart(2, '0');
   return `${month} ${date.getUTCDate()}, ${date.getUTCFullYear()}, ${hour}:${minute} UTC`;
-}
-
-function formatMasteryEvidence(mastery: SparkWorkspaceMastery): string | null {
-  const parts = [
-    typeof mastery.benchmarkStrength === 'number' ? `benchmark ${formatNumber(mastery.benchmarkStrength)}` : null,
-    typeof mastery.liveStrength === 'number' ? `live ${formatNumber(mastery.liveStrength)}` : null,
-    typeof mastery.supportCount === 'number' ? pluralize(mastery.supportCount, 'support') : null,
-    typeof mastery.contradictionCount === 'number' && mastery.contradictionCount > 0
-      ? pluralize(mastery.contradictionCount, 'contradiction')
-      : null
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? `Evidence: ${parts.join(', ')}.` : null;
 }
 
 function ensureSentence(value: string): string {
@@ -2264,7 +2228,6 @@ export function renderRecursiveWorkspaceReport(snapshot: SparkWorkspaceSnapshot,
   const path = findPath(snapshot, id);
   if (!path) return `Recursive loop not found in Spark Workspace: ${id}\n${sparkWorkspaceRecursionsUrl()}`;
   const spec = specializationForPath(snapshot, path);
-  const insights = spec ? snapshot.insights.filter((item) => item.specializationId === spec.id) : [];
   const pathOutcomes = outcomesForPath(snapshot, path);
   const latestOutcome = pathOutcomes.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
   const decisions = inboxForPath(snapshot, path);
@@ -2406,16 +2369,6 @@ function pathDisplayLabel(path: SparkWorkspaceEvolutionPath, spec: SparkWorkspac
   return spec?.label || labelFromKey(path.repoLabel || path.scope || path.id);
 }
 
-function recursiveStartTargetForPath(path: SparkWorkspaceEvolutionPath, spec: SparkWorkspaceSpecialization | null): string | null {
-  if (spec?.key) return spec.key;
-  if (path.id.startsWith('path:')) return path.id.slice('path:'.length);
-  const builderChipMatch = /^path_builder_chip_(.+)$/.exec(path.id);
-  if (builderChipMatch) return builderChipMatch[1].replace(/_/g, '-');
-  const simplePathMatch = /^path_(.+)$/.exec(path.id);
-  if (simplePathMatch) return simplePathMatch[1].replace(/_/g, '-');
-  return null;
-}
-
 function outcomeHeadline(label: string, verdict: string | null | undefined): string {
   return `${label} ${friendlyOutcomeVerb(verdict)}.`;
 }
@@ -2480,12 +2433,6 @@ function friendlyWorkspaceDecisionDetail(detail: string): string {
   return detail;
 }
 
-function decisionReportTarget(record: RecursiveDecisionRecord): string | null {
-  if (record.target_type === 'evolution_path' && record.target_id) return record.target_id;
-  if (/^path[:_]/.test(record.session_id)) return record.session_id;
-  return null;
-}
-
 interface ReviewItemGroup {
   item: SparkWorkspaceInboxItem;
   count: number;
@@ -2511,39 +2458,6 @@ function groupReviewItems(items: SparkWorkspaceInboxItem[]): ReviewItemGroup[] {
     }
   }
   return [...groups.values()];
-}
-
-function renderReviewGroup(group: ReviewItemGroup, index: number): string[] {
-  const item = group.item;
-  const suffix = group.count > 1 ? ` (${pluralize(group.count, 'item')})` : '';
-  const lines = [
-    `${index}. ${item.title}${suffix}`,
-    `Type: ${reviewKindLabel(item.kind)}, priority ${item.priority}.`,
-    `Why: ${ensureSentence(reviewGroupSummary(group))}`
-  ];
-  if (item.recommendedAction) {
-    lines.push(`Suggested: ${ensureSentence(truncate(item.recommendedAction, 140))}`);
-  }
-
-  const actions = reviewTelegramActions(item);
-  if (actions.length > 0) {
-    lines.push('Telegram actions:', ...actions.map((action) => `- ${action}`));
-  } else {
-    lines.push(
-      'Workspace',
-      `- ${sparkWorkspaceDecisionsUrl()}`
-    );
-  }
-  return ['', ...lines];
-}
-
-function reviewGroupSummary(group: ReviewItemGroup): string {
-  if (group.count === 1) return truncate(group.summaries[0], 160);
-  const reasons = uniqueReviewReasons(group.summaries);
-  if (reasons.length > 0) {
-    return `${pluralize(group.count, 'related decision')} need the same move. Reasons: ${truncate(reasons.join('; '), 150)}`;
-  }
-  return `${pluralize(group.count, 'related decision')} need the same move.`;
 }
 
 function reviewReasonLines(group: ReviewItemGroup): string[] {
@@ -2585,14 +2499,6 @@ function reviewTelegramActions(item: SparkWorkspaceInboxItem): string[] {
     ];
   }
   return [];
-}
-
-function reviewKindLabel(kind: string): string {
-  const normalized = kind.toLowerCase();
-  if (normalized === 'review_mastery') return 'Review mastery';
-  if (normalized === 'review_outcome') return 'Review outcome';
-  if (normalized === 'absorb') return 'Absorb insight';
-  return labelFromKey(kind);
 }
 
 function reviewPriorityRank(priority: string | null | undefined): number {
@@ -2815,48 +2721,6 @@ function metricGoalPrefersLower(outcome: SparkWorkspaceOutcome): boolean {
   if (/\b(lower|minimi[sz]e|smaller|less)\b/i.test(scorecardGoal)) return true;
   const componentGoals = outcome.context?.scorecard?.components?.map((component) => component.goal).join(' ') || '';
   return /\b(lower|minimi[sz]e|smaller|less)\b/i.test(componentGoals);
-}
-
-function formatOutcomeScorecard(outcome: SparkWorkspaceOutcome): string | null {
-  const scorecard = outcome.context?.scorecard;
-  if (!scorecard) return null;
-  const headline = typeof scorecard.headlineValue === 'number'
-    ? `${scorecard.headlineLabel || formatMetricLabel(outcome.metricName)} ${formatNumber(scorecard.headlineValue)}`
-    : null;
-  const goal = scorecard.headlineGoal ? `goal=${scorecard.headlineGoal}` : null;
-  const model = scorecard.modelLabel ? `model=${normalizeKnownAcronyms(scorecard.modelLabel)}` : null;
-  const details = (scorecard.details || [])
-    .slice(0, 2)
-    .map((detail) => normalizeKnownAcronyms(`${detail.label}: ${detail.value}`));
-  return [headline, goal, model, ...details].filter(Boolean).join('; ') || null;
-}
-
-function formatArtifactRefs(artifacts: SparkWorkspaceArtifactRef[]): string {
-  if (artifacts.length === 0) return 'Evidence: none saved yet.';
-  const highlights = uniqueArtifactLabels(artifacts).slice(0, 3);
-  if (artifacts.length === 1) {
-    const label = highlights[0];
-    return `Evidence: saved ${friendlyArtifactKind(artifacts[0].kind)}${label ? ` - ${label}` : ''}.`;
-  }
-  const highlightLine = highlights.length > 0 ? ` Highlights: ${highlights.join('; ')}.` : '';
-  return `Evidence: ${pluralize(artifacts.length, 'saved item')}.${highlightLine}`;
-}
-
-function uniqueArtifactLabels(artifacts: SparkWorkspaceArtifactRef[]): string[] {
-  const labels: string[] = [];
-  for (const artifact of artifacts) {
-    const label = truncate((artifact.label || artifact.id || '').replace(/[_:]+/g, ' ').trim(), 60);
-    if (label && !labels.includes(label)) labels.push(label);
-  }
-  return labels;
-}
-
-function friendlyArtifactKind(kind: string | null | undefined): string {
-  const normalized = (kind || '').toLowerCase();
-  if (normalized === 'run_trace') return 'run trace';
-  if (normalized === 'benchmark_run') return 'benchmark run';
-  if (normalized === 'loop_telemetry') return 'loop telemetry';
-  return formatMetricLabel(normalized || 'artifact');
 }
 
 function formatMetricLabel(value: string | null | undefined): string {

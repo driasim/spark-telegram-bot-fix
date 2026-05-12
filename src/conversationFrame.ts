@@ -408,7 +408,7 @@ function extractArtifacts(turns: ConversationTurn[]): ConversationArtifact[] {
 
 function inferFocusStack(
   currentMessage: string,
-  turns: ConversationTurn[],
+  _turns: ConversationTurn[],
   artifacts: ConversationArtifact[]
 ): ConversationFocus[] {
   const focus: ConversationFocus[] = [];

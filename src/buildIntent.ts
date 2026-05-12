@@ -427,8 +427,6 @@ function isSparkCapabilityMakeRequest(description: string): boolean {
     /\b(?:so|that)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+can\b/i.test(normalized) ||
     /\b(?:lets?|allow(?:s)?|enable(?:s)?)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:to\s+)?\b/i.test(normalized) ||
     /\b(?:make|making)\s+(?:you|spark|my\s+spark|our\s+spark|the\s+agent|my\s+agent|our\s+agent)\s+(?:able\s+to|capable\s+of)\b/i.test(normalized);
-  const capabilityObject =
-    /\b(?:capabilit(?:y|ies)|functionality|abilit(?:y|ies)|skills?|integrations?|access|permissions?)\b/i.test(normalized);
   const accessPolicyDiscussion =
     /^(?:spark\s+)?access\s+level\s*[1-5]\b/i.test(normalized) &&
     /\b(?:sandbox(?:es|ed)?|whole[-\s]*computer|operator|permission|access|capabilit(?:y|ies)|state\s+machine)\b/i.test(normalized);

@@ -34,7 +34,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
     "axios": "^1.15.2",
     "dotenv": "^17.2.3",
     "telegraf": "^4.16.3"
