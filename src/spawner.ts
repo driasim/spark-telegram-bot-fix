@@ -254,7 +254,23 @@ function latestBoardEntry(board: BoardSnapshot): BoardEntry | null {
   return entries[0] || null;
 }
 
-function providerNames(entry: BoardEntry): string {
+function isKnownProviderLabel(value: string | null | undefined): value is string {
+  if (!value?.trim()) return false;
+  const normalized = value.trim().toLowerCase();
+  return Boolean(PROVIDER_LABELS[normalized]) || [
+    'codex',
+    'claude',
+    'zai',
+    'openai',
+    'openrouter',
+    'minimax',
+    'ollama',
+    'lmstudio',
+    'huggingface'
+  ].includes(normalized);
+}
+
+function providerNames(entry: BoardEntry): string | null {
   const names = (entry.providerResults || [])
     .map((provider) => provider.providerId)
     .filter((name): name is string => Boolean(name?.trim()));
@@ -264,7 +280,9 @@ function providerNames(entry: BoardEntry): string {
   }
 
   const summaryPrefix = entry.providerSummary?.match(/^([^:]+):/)?.[1]?.trim();
-  return formatProviderLabel(summaryPrefix || entry.taskName || 'unknown');
+  if (isKnownProviderLabel(summaryPrefix)) return formatProviderLabel(summaryPrefix);
+  if (isKnownProviderLabel(entry.taskName)) return formatProviderLabel(entry.taskName);
+  return null;
 }
 
 function formatProviderLabel(providerId: string): string {
@@ -336,7 +354,8 @@ function formatLatestMission(entry: BoardEntry): string[] {
   ];
 
   if (tasks) lines.push(`Tasks: ${tasks}`);
-  lines.push(`Provider: ${providerNames(entry)}`);
+  const provider = providerNames(entry);
+  lines.push(`Provider: ${provider || 'not reported yet'}`);
   if (entry.telegramRelay?.profile || entry.telegramRelay?.port) {
     const target = [entry.telegramRelay.profile, entry.telegramRelay.port ? `:${entry.telegramRelay.port}` : '']
       .filter(Boolean)
@@ -345,6 +364,67 @@ function formatLatestMission(entry: BoardEntry): string[] {
   }
   if (entry.providerSummary) lines.push(`Result: ${entry.providerSummary}`);
   return lines;
+}
+
+function missionTitle(entry: BoardEntry): string {
+  return entry.missionName || entry.taskName || entry.missionId || 'latest mission';
+}
+
+function statusWord(status: string): string {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'running';
+  if (status === 'paused') return 'paused';
+  return 'queued';
+}
+
+function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
+  const provider = providerNames(entry);
+  const title = missionTitle(entry);
+  const status = statusWord(entry.status);
+  const missionLink = `${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(entry.missionId)}`;
+
+  if (!provider) {
+    return [
+      'Latest Spawner job',
+      '',
+      'Provider',
+      '• not reported yet',
+      '',
+      'Mission',
+      `• ${title}`,
+      `• ${status}`,
+      '',
+      'Mission board',
+      `• ${missionLink}`
+    ].join('\n');
+  }
+
+  const lines = [
+    'Latest Spawner job',
+    '',
+    'Provider',
+    `• ${provider}`,
+    '',
+    'Mission',
+    `• ${title}`,
+    `• ${status}`
+  ];
+
+  if (entry.status === 'failed') {
+    lines.push(
+      '',
+      'Move',
+      '• Open the Mission board for the failure details.'
+    );
+  }
+
+  lines.push(
+    '',
+    'Mission board',
+    `• ${missionLink}`
+  );
+  return lines.join('\n');
 }
 
 function spawnerPublicUrl(): string {
@@ -941,11 +1021,7 @@ export const spawner = {
 
       return {
         success: true,
-        message: [
-          `The latest Spawner job was handled by: ${providerNames(latest)}`,
-          '',
-          ...formatLatestMission(latest)
-        ].join('\n')
+        message: formatLatestProviderTelegramSummary(latest)
       };
     } catch (err: any) {
       return {

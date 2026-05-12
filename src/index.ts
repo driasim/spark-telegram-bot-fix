@@ -437,27 +437,111 @@ function compactSparkLiveOutput(output: string): string {
     .join('\n');
 }
 
-async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
+type SparkLiveSummary = {
+  liveReady: boolean;
+  spawnerOk: boolean;
+  telegramOk: boolean;
+  spawnerText: string;
+  telegramText: string;
+  profilesText: string;
+  rolesText: string;
+  supervisionText: string;
+};
+
+function cleanSparkStatusLine(line: string, label: string): string {
+  return line
+    .replace(new RegExp(`^\\[OK\\]\\s+${label}:\\s*`, 'i'), '')
+    .replace(/\s*\|\s*/g, ' | ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseSparkLiveSummary(liveStatus: string, deepVerify: string): SparkLiveSummary {
+  const spawnerLine = firstMatchingLine(liveStatus, /\[OK\]\s+spawner-ui|spawner-ui:/i);
+  const telegramLine = firstMatchingLine(liveStatus, /\[OK\]\s+spark-telegram-bot|spark-telegram-bot:/i);
+  const profilesLine = firstMatchingLine(liveStatus, /Telegram profiles:/i);
+  const rolesLine = firstMatchingLine(liveStatus, /LLM roles:/i);
+  const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim() || '';
+  const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
+  const spawnerOk = /\[OK\]\s+spawner-ui/i.test(spawnerLine);
+  const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(telegramLine);
+  const spawnerProviderBits = spawnerLine.match(/(\d+\s+providers listed).*?(\d+\s+configured)/i);
+  const spawnerWorkspace = spawnerLine.match(/workspace=([^|]+)/i)?.[1]?.trim();
+  const telegramRuntime = telegramLine.match(/\(([^)]*polling=active[^)]*)\)/i)?.[1]?.trim();
+  return {
+    liveReady,
+    spawnerOk,
+    telegramOk,
+    spawnerText: spawnerOk
+      ? [
+          spawnerProviderBits ? `${spawnerProviderBits[1]}, ${spawnerProviderBits[2]}` : 'healthy',
+          spawnerWorkspace ? `workspace ${spawnerWorkspace}` : ''
+        ].filter(Boolean).join('; ')
+      : (spawnerLine ? cleanSparkStatusLine(spawnerLine, 'spawner-ui') : 'not reported by live status'),
+    telegramText: telegramOk
+      ? (telegramRuntime ? `polling active (${telegramRuntime.replace(/\s+/g, ' ')})` : 'polling active')
+      : (telegramLine ? cleanSparkStatusLine(telegramLine, 'spark-telegram-bot') : 'not reported by live status'),
+    profilesText: profilesLine.replace(/^Telegram profiles:\s*/i, '').trim(),
+    rolesText: rolesLine.replace(/^LLM roles:\s*/i, '').trim(),
+    supervisionText: supervised.replace(/\.+$/, '')
+  };
+}
+
+function renderSparkLiveSummary(
+  summary: SparkLiveSummary,
+  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean } = {}
+): string {
+  const healthy = summary.liveReady && summary.spawnerOk && summary.telegramOk;
+  const includeAction = opts.includeAction ?? true;
+  const lines: string[] = [
+    healthy ? '✅ Spark is healthy right now.' : '⚠️ Spark needs attention right now.',
+    '',
+    'Live loop',
+    `• Spawner: ${summary.spawnerOk ? 'reachable' : 'needs attention'}.`,
+    `• Telegram: ${summary.telegramOk ? 'polling' : 'needs attention'}.`,
+    `• Mission Control: ${summary.liveReady ? 'ready' : 'not fully ready'}.`
+  ];
+
+  if (opts.rawDetails) {
+    lines.push(
+      '',
+      'Raw proof',
+      `• Spawner: ${summary.spawnerText}.`,
+      `• Telegram: ${summary.telegramText}.`,
+      summary.profilesText ? `• Profiles: ${summary.profilesText}.` : '',
+      summary.rolesText ? `• Models: ${summary.rolesText}.` : '',
+      summary.supervisionText ? `• Supervision: ${summary.supervisionText}.` : ''
+    );
+  }
+
+  if (includeAction) {
+    lines.push(
+      '',
+      healthy
+        ? (opts.restartGuidance
+            ? 'No restart needed. Restarting now would mostly add churn.'
+            : 'No repair action needed right now.')
+        : (opts.restartGuidance
+            ? 'Do not blindly restart. Start or restart only after confirming which supervised surface is down.'
+            : 'Next step: repair the unhealthy surface, then rerun this fresh check.')
+    );
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function shouldShowRawSparkLiveDetails(text: string): boolean {
+  return /\b(?:raw|debug|details?|pids?|pid|provider|providers|models?|supervision|exact|full)\b/i.test(text);
+}
+
+async function renderAuthoritativeSparkLiveStatus(
+  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean } = {}
+): Promise<string> {
   try {
     const [liveStatus, deepVerify] = await Promise.all([
       runSparkCli(['live', 'status'], 45_000),
       runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
     ]);
-    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(liveStatus);
-    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
-    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
-    return [
-      'Spark Live Health',
-      '',
-      'Source: local Spark CLI from this Telegram runtime.',
-      'Commands: `spark live status`; supervision cross-check: `spark verify --deep`.',
-      '',
-      `Spawner: ${spawnerOk ? 'OK' : 'not OK in live status'}.`,
-      `Telegram: ${telegramOk ? 'OK' : 'not OK in live status'}.`,
-      supervised ? `Supervision: ${supervised.replace(/\.+$/, '')}.` : 'Supervision: not proven by verify output.',
-      '',
-      compactSparkLiveOutput(liveStatus)
-    ].join('\n');
+    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), opts);
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
@@ -478,37 +562,15 @@ function firstMatchingLine(output: string, pattern: RegExp): string {
     .find((line) => pattern.test(line)) || '';
 }
 
-async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
+async function renderAuthoritativeSparkLiveStateAnswer(
+  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean } = {}
+): Promise<string> {
   try {
     const [liveStatus, deepVerify] = await Promise.all([
       runSparkCli(['live', 'status'], 45_000),
       runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
     ]);
-    const liveReady = /\[OK\]\s+Spark Live is ready/i.test(liveStatus);
-    const spawnerLine = firstMatchingLine(liveStatus, /\[OK\]\s+spawner-ui|spawner-ui:/i);
-    const telegramLine = firstMatchingLine(liveStatus, /\[OK\]\s+spark-telegram-bot|spark-telegram-bot:/i);
-    const profilesLine = firstMatchingLine(liveStatus, /Telegram profiles:/i);
-    const rolesLine = firstMatchingLine(liveStatus, /LLM roles:/i);
-    const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
-    const spawnerOk = /\[OK\]\s+spawner-ui/i.test(spawnerLine);
-    const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(telegramLine);
-    const headline = liveReady && spawnerOk && telegramOk
-      ? 'Current live state: healthy.'
-      : 'Current live state: attention needed.';
-    return [
-      headline,
-      '',
-      'Fresh `spark live status` evidence:',
-      spawnerLine ? `- Spawner UI: ${spawnerOk ? 'OK' : 'not OK'} - ${spawnerLine.replace(/^\[OK\]\s+spawner-ui:\s*/i, '')}` : '- Spawner UI: not reported by live status.',
-      telegramLine ? `- Telegram: ${telegramOk ? 'OK' : 'not OK'} - ${telegramLine.replace(/^\[OK\]\s+spark-telegram-bot:\s*/i, '')}` : '- Telegram: not reported by live status.',
-      profilesLine ? `- ${profilesLine}` : '',
-      rolesLine ? `- ${rolesLine}` : '',
-      supervised ? `- Supervision: ${supervised.replace(/\.+$/, '')}.` : '- Supervision: not proven by verify output.',
-      '',
-      liveReady && spawnerOk && telegramOk
-        ? 'Call: Spark Live, Spawner, and Telegram are up right now.'
-        : 'Call: at least one live operating surface is not proven healthy right now.'
-    ].filter(Boolean).join('\n');
+    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), opts);
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
@@ -517,7 +579,31 @@ async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
       'I could not run `spark live status` from this Telegram runtime.',
       `Error: ${detail}`,
       '',
-      'Call: this is a probe failure, not proof that Spawner or Telegram are down.'
+      'This is a probe failure, not proof that Spawner or Telegram are down.'
+    ].join('\n');
+  }
+}
+
+function shouldAnswerRestartNeededQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return /\brestart\b/.test(normalized) && /\b(?:needed|need|recommend|should|improve|healthy|right now)\b/.test(normalized);
+}
+
+async function renderRestartNeededAnswer(): Promise<string> {
+  try {
+    const [liveStatus, deepVerify] = await Promise.all([
+      runSparkCli(['live', 'status'], 45_000),
+      runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
+    ]);
+    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), { restartGuidance: true });
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I cannot prove whether restart is needed from this Telegram runtime.',
+      '',
+      `Fresh check failed: ${detail}`,
+      '',
+      'So I will not recommend restart from stale memory.'
     ].join('\n');
   }
 }
@@ -536,15 +622,15 @@ async function renderAuthoritativeSparkRiskProfileAnswer(): Promise<string> {
     return [
       `Current Spark risk profile: ${risk}.`,
       '',
-      'Fresh evidence:',
-      `- Live stack: ${liveReady ? 'ready' : 'not fully ready'}.`,
-      `- Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
-      `- Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
-      `- Providers: ${providersOk ? 'OK by provider status' : 'not fully proven by provider status'}.`,
+      'Fresh check:',
+      `• Live stack: ${liveReady ? 'ready' : 'not fully ready'}.`,
+      `• Spawner: ${spawnerOk ? 'OK' : 'not proven OK'}.`,
+      `• Telegram: ${telegramOk ? 'OK' : 'not proven OK'}.`,
+      `• Providers: ${providersOk ? 'OK by provider status' : 'not fully proven by provider status'}.`,
       '',
       risk === 'low'
-        ? 'Call: the main risk right now is regression/drift from future changes, not a current outage. I did not start a mission or repair action.'
-        : 'Call: at least one surface needs attention before trusting execution. I did not start a mission or repair action.'
+        ? 'Main risk now is regression or drift from future changes, not a current outage. I did not start a mission or repair action.'
+        : 'At least one surface needs attention before trusting execution. I did not start a mission or repair action.'
     ].join('\n');
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
@@ -868,7 +954,7 @@ async function renderRestartSurvivalAnswer(chatId: string | number): Promise<str
       `- Memory/Builder evidence: ${memoryOk ? 'OK present' : 'not proven OK'}.`,
       roles.length ? `- Provider roles: ${roles.map((line) => line.replace(/^\[OK\]\s+/, '')).join('; ')}.` : '- Provider roles: not proven by provider status.',
       '',
-      'Call: durable config/memory can survive restart, but live capability is only trusted after these fresh checks pass.'
+      'Durable config and memory can survive restart. Live capability is only trusted after these fresh checks pass.'
     ].join('\n');
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
@@ -941,6 +1027,8 @@ function runtimeTruthSignals(text: string): RuntimeTruthSignals {
   );
   const live = (
     sourceCheck ||
+    /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
+    /\b(?:live|health|status|state)\b.*\b(?:raw|debug|details?|full|exact)\b/.test(normalized) ||
     /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
     /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
     /\blive\s+state\b/.test(normalized) ||
@@ -971,6 +1059,8 @@ function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!runtimeTruthSignals(text).live) return false;
   return (
+    /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
+    /\b(?:live|health|status|state)\b.*\b(?:raw|debug|details?|full|exact)\b/.test(normalized) ||
     isLiveSparkHealthQuestion(text) ||
     /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
     /\bcurrent\s+spark\s+(?:state|status)\b/.test(normalized) ||
@@ -1391,6 +1481,13 @@ const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
 const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
 
+function clearPendingExecutionState(key: string): boolean {
+  const hadClarification = pendingClarifications.delete(key);
+  const hadDomainChip = pendingDomainChipBuilds.delete(key);
+  const hadCreatorMission = pendingCreatorMissions.delete(key);
+  return hadClarification || hadDomainChip || hadCreatorMission;
+}
+
 function extractCommandName(text: string | undefined): string | null {
   if (!text?.startsWith('/')) {
     return null;
@@ -1704,16 +1801,21 @@ bot.command('status', async (ctx) => {
 
   const builderBridge = await getBuilderBridgeStatus();
   const isAdmin = conversation.isAdmin(ctx.from);
-
-  let status = 'System Status\n\n';
-
-  status += `Builder memory bridge: ${builderBridge.available ? 'ONLINE' : 'OFFLINE'} (${builderBridge.mode})\n`;
-
+  const liveSummary = isAdmin
+    ? await renderAuthoritativeSparkLiveStatus({
+        rawDetails: shouldShowRawSparkLiveDetails('text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : ''),
+        includeAction: false
+      })
+    : '';
+  const lines = [
+    liveSummary || (builderBridge.available ? '✅ Spark is ready.' : '⚠️ Spark needs attention.'),
+    '',
+    'Core',
+    `• Memory bridge: ${builderBridge.available ? 'online' : 'offline'}.`,
+    '• Launch core: online.'
+  ];
   if (isAdmin) {
-    status += '\n';
-    status += await renderAuthoritativeSparkLiveStatus();
-    status += '\n\n';
-    status += await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    lines.push('• Access: admin.');
     recordTelegramSourceUsedEvidence(
       ctx,
       ctx.from,
@@ -1721,12 +1823,17 @@ bot.command('status', async (ctx) => {
       'telegram_status_command',
       runtimeTruthSourceEvidence('spark live status access providers memory')
     );
-  } else {
-    status += 'Spark launch core: ONLINE\n';
-    status += 'Dashboard/resonance: deferred\n';
+  }
+  if (liveSummary) {
+    lines.push(
+      '',
+      liveSummary.startsWith('✅')
+        ? 'No repair action needed right now.'
+        : 'Next step: repair the unhealthy surface, then rerun this fresh check.'
+    );
   }
 
-  await ctx.reply(status);
+  await ctx.reply(lines.join('\n').replace(/\n{3,}/g, '\n\n').trim());
 });
 
 // /diagnose command â€” one-shot full-stack health + per-provider ping test
@@ -2257,16 +2364,13 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     const publicSpawnerUrl = process.env.SPAWNER_UI_PUBLIC_URL || spawnerUrl;
     const canvasUrl = projectCanvasUrl(publicSpawnerUrl, newRequestId, missionId);
     const kanbanUrl = missionBoardUrl(publicSpawnerUrl);
-    await ctx.reply([
-      runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
-      '',
-      `Project: ${pending.projectName}`,
-      `Mode: ${pending.buildMode === 'advanced_prd' ? 'Advanced PRD build' : 'Direct build'}`,
-      `Mission: ${missionId}`,
-      `Mission board: ${kanbanUrl}`,
-      '',
-      'I am shaping the plan now. I will send the project canvas link as soon as it is ready.'
-    ].join('\n'));
+    await ctx.reply(formatBuildMissionQueuedReply({
+      lead: runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
+      projectName: pending.projectName,
+      buildMode: pending.buildMode,
+      missionId,
+      kanbanUrl
+    }));
     startPrdCanvasReadyNotifier({
       chatId: Number(ctx.chat.id),
       projectName: pending.projectName,
@@ -2594,8 +2698,44 @@ function humanProviderList(providers: string[]): string {
 
 function humanAck(providers: string[]): string {
   const who = humanProviderList(providers);
-  if (providers.length === 1) return `On it - asking ${who}, give me a moment.`;
-  return `On it - checking with ${who} in parallel. Hang on.`;
+  if (providers.length === 1) return `I will run that through ${who} now.`;
+  return `I will check that with ${who} in parallel now.`;
+}
+
+function telegramBlocks(...blocks: Array<string | null | undefined | false>): string {
+  return blocks
+    .filter((block): block is string => Boolean(block && block.trim()))
+    .map((block) => block.trim())
+    .join('\n\n');
+}
+
+function formatBuildMissionQueuedReply(input: {
+  lead: string;
+  projectName: string;
+  buildMode: 'direct' | 'advanced_prd';
+  projectPath?: string | null;
+  missionId: string;
+  kanbanUrl: string;
+}): string {
+  const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
+  return telegramBlocks(
+    input.lead,
+    [
+      'Spawned work',
+      `• ${input.projectName}`,
+      `• ${modeText}`,
+      '• Mission board'
+    ].join('\n'),
+    [
+      'Paired surfaces',
+      '• Builder planning',
+      '• Spawner / Mission Control',
+      '• Telegram relay updates'
+    ].join('\n'),
+    input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
+    ['Mission board', `• ${input.kanbanUrl}`].join('\n'),
+    'I am shaping the task canvas now. I will share it when planning is ready.'
+  );
 }
 
 function missionIdFromTelegramBuildRequest(requestId: string): string {
@@ -2877,9 +3017,9 @@ export function formatBuildClarificationReplyWithMicrocopy(
     ? 'What twist should make it fun?'
     : 'What is the one detail I should not guess?');
   return [
-    `I can build ${projectName}. I recommend: ${recommendation}.`,
-    '',
-    `Say "go" and I will start. Or steer one thing: ${steerQuestion}`
+    `I can turn this into ${projectName}.`,
+    `Recommended starting point: ${recommendation}.`,
+    `Say "go" to start, or steer one thing first: ${steerQuestion}`
   ].join('\n');
 }
 
@@ -3181,19 +3321,26 @@ export function formatCanvasReadySummary(args: {
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
-  const taskTitles = tasks
-    .map((task: any) => typeof task?.title === 'string' ? task.title.trim() : '')
+  const taskRows = tasks
+    .map((task: any) => {
+      const title = typeof task?.title === 'string' ? task.title.trim() : '';
+      if (!title) return '';
+      const skills = Array.isArray(task?.skills)
+        ? task.skills.filter((skill: unknown): skill is string => typeof skill === 'string' && Boolean(skill.trim())).slice(0, 3)
+        : [];
+      return skills.length ? `${title} - skills: ${skills.join(', ')}` : title;
+    })
     .filter(Boolean)
     .slice(0, 3);
   const lines = [
     `Canvas is ready for ${args.projectName}.`,
     `${args.taskCount ?? tasks.length} build steps queued.`,
   ];
-  if (taskTitles.length > 0) {
-    lines.push('', 'First up:');
-    taskTitles.forEach((title: string) => lines.push(`• ${title}`));
-    if (tasks.length > taskTitles.length) {
-      lines.push(`+${tasks.length - taskTitles.length} more`);
+  if (taskRows.length > 0) {
+    lines.push('', 'Spawned tasks:');
+    taskRows.forEach((row: string) => lines.push(`• ${row}`));
+    if (tasks.length > taskRows.length) {
+      lines.push(`• +${tasks.length - taskRows.length} more`);
     }
   }
   lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'I will send the final handoff when it is built.');
@@ -3627,19 +3774,14 @@ export async function handleBuildIntent(
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
     });
 
-    const ackLines = [
-      'Got it. Spark picked up the build.',
-      '',
-      `Project: ${projectName}`,
-      `Mode: ${buildMode === 'advanced_prd' ? 'Advanced PRD build' : 'Direct build'}`,
-      projectPath ? `Target folder: ${projectPath}` : null,
-      `Mission: ${missionId}`,
-      '',
-      `Mission board: ${kanbanUrl}`,
-      '',
-      'I am shaping the plan now. I will send the project canvas link as soon as it is ready.'
-    ].filter(Boolean);
-    await ctx.reply(ackLines.join('\n'), outboundTraceExtra({
+    await ctx.reply(formatBuildMissionQueuedReply({
+      lead: 'Got it. Spark picked up the build.',
+      projectName,
+      buildMode,
+      projectPath,
+      missionId,
+      kanbanUrl
+    }), outboundTraceExtra({
       route: 'spawner',
       command: 'run',
       replyKind: 'build_ack',
@@ -4649,6 +4791,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && shouldAnswerRestartNeededQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderRestartNeededAnswer();
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_needed_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   if (!earlyBuildIntent && shouldAnswerMissionProvenanceQuestion(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderMissionProvenanceAnswer(ctx, user);
@@ -4668,7 +4819,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
     await conversation.remember(user, text).catch(() => {});
-    const reply = await renderAuthoritativeSparkLiveStateAnswer();
+    const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
@@ -4977,11 +5128,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const sessionContext = await conversation.getContext(user, text);
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
-    const pendingClarification = pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text);
+    const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
+    const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
 
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
+    if (isNoExecutionBoundary(text) && clearPendingExecutionState(pendingExecutionKey)) {
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply('Got it, no build or mission started. We can keep talking here.');
+      return;
+    }
+
     if (pendingClarification && isPendingClarificationFollowup(text)) {
       await handleClarificationAnswers(ctx, text);
       return;
