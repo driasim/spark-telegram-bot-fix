@@ -26,6 +26,15 @@ function processOutputText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function sourceLedgerLabel(value: unknown, fallback: string): string {
+  const text = String(value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+  const label = text.replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96);
+  return label || fallback;
+}
+
 type BuilderBridgeMode = 'auto' | 'off' | 'required';
 
 interface BuilderBridgeConfig {
@@ -1529,15 +1538,15 @@ export async function runBuilderSourceUsed(input: BuilderSourceUsedInput): Promi
     '--freshness',
     input.freshness || 'unknown',
     '--user-intent',
-    input.userIntent || input.currentMessage || '',
+    sourceLedgerLabel(input.userIntent || input.selectedRoute, 'telegram_source_used_evidence'),
     '--selected-route',
     input.selectedRoute || '',
     '--confidence',
     input.confidence || '',
     '--session-id',
-    `session:telegram:${String(input.chatId).trim()}:${String(input.userId).trim()}`,
+    'session:telegram:redacted',
     '--human-id',
-    `human:telegram:${String(input.userId).trim()}`,
+    'human:telegram:redacted',
     '--actor-id',
     input.actorId || 'spark-telegram-bot',
     '--json',

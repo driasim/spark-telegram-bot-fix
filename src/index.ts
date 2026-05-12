@@ -317,13 +317,13 @@ function recordTelegramSourceUsedEvidence(
     void runBuilderSourceUsed({
       chatId,
       userId,
-      currentMessage,
+      currentMessage: selectedRoute,
       source: item.source,
       role: item.role,
       freshness: item.freshness,
       sourceRef: item.sourceRef,
       summary: item.summary,
-      userIntent: currentMessage,
+      userIntent: selectedRoute,
       selectedRoute,
       confidence,
       actorId: 'spark-telegram-bot'
