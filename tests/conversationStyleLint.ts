@@ -7,7 +7,8 @@ export type ConversationStyleIssueCode =
   | 'secret_like_text'
   | 'internal_jargon'
   | 'plan_dump'
-  | 'generic_chatbox_voice';
+  | 'generic_chatbox_voice'
+  | 'double_marker';
 
 export type ConversationStyleIssue = {
   code: ConversationStyleIssueCode;
@@ -48,6 +49,8 @@ const GENERIC_CHATBOX_PATTERNS: RegExp[] = [
   /\bsure[!.]?\s+here(?:'s| is)\b/i,
   /\bi'?m sorry,? but i (?:can'?t|cannot)\b/i
 ];
+
+const STATUS_ICON_PATTERN = /[✅⚠️🟢🟡🔴⚪]/u;
 
 function wordsIn(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -122,6 +125,18 @@ export function lintTelegramConversationStyle(
   for (const pattern of GENERIC_CHATBOX_PATTERNS) {
     if (pattern.test(text)) {
       pushOnce(issues, 'generic_chatbox_voice', 'Avoid generic support-chat phrasing; answer with context-aware Spark voice.');
+      break;
+    }
+  }
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^(?:[-*•]|\d+[.)])\s+/.test(trimmed) && STATUS_ICON_PATTERN.test(trimmed)) {
+      pushOnce(issues, 'double_marker', 'Do not combine bullets or numbering with status icons on the same row.');
+      break;
+    }
+    if (STATUS_ICON_PATTERN.test(trimmed) && /^\S+\s+\d+[.)]\s+/.test(trimmed)) {
+      pushOnce(issues, 'double_marker', 'Do not combine bullets or numbering with status icons on the same row.');
       break;
     }
   }

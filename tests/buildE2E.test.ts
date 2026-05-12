@@ -890,8 +890,9 @@ async function run(): Promise<void> {
 
 		assert.match(reply, /Canvas is ready for domain-chip-posters/);
 		assert.match(reply, /2 build steps queued\./);
-		assert.match(reply, /First up:/);
-		assert.match(reply, /Scaffold chip manifest and hooks/);
+		assert.match(reply, /Spawned tasks:/);
+		assert.match(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
+		assert.match(reply, /Validate router behavior/);
 		assert.doesNotMatch(reply, /195s/);
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
@@ -937,9 +938,9 @@ async function run(): Promise<void> {
 			buildMode: 'advanced_prd'
 		});
 
-		assert.match(replies[0] || '', /I can build maze game/);
-		assert.match(replies[0] || '', /I recommend: browser-playable/);
-		assert.match(replies[0] || '', /Say "go" and I will start/);
+		assert.match(replies[0] || '', /I can turn this into maze game/);
+		assert.match(replies[0] || '', /Recommended starting point: browser-playable/);
+		assert.match(replies[0] || '', /Say "go" to start/);
 		assert.match(replies[0] || '', /shifting walls/);
 		assert.doesNotMatch(replies[0] || '', /Brief is too thin/);
 		assert.doesNotMatch(replies[0] || '', /Default direction/);
