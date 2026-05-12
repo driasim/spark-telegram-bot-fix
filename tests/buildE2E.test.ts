@@ -72,15 +72,16 @@ async function readMissionRelayRegistry(): Promise<any[]> {
 	return (await readJsonFile<any[]>(resolveStatePath(`.spark-spawner-missions-${profile}-${port}.json`))) || [];
 }
 
-function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[]) {
+function makeFakeCtx(chatId: number, fromId: number, messageId: number, replies: string[], replyExtras: any[] = []) {
 	return {
 		chat: { id: chatId },
 		from: { id: fromId, username: 'cem' },
 		message: { message_id: messageId, text: 'build me a saas with auth and billing' },
 		update: { update_id: messageId },
 		sendChatAction: async (_action: string) => {},
-		reply: async (text: string) => {
+		reply: async (text: string, extra?: any) => {
 			replies.push(text);
+			replyExtras.push(extra);
 		}
 	};
 }
@@ -162,7 +163,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 555, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 555, replies, replyExtras);
 
 		let caughtError: unknown = null;
 		try {
@@ -199,6 +201,14 @@ async function run(): Promise<void> {
 		assert.match(replies[0] || '', new RegExp(`Mission: ${missionId}`));
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
 		assert.match(replies[0] || '', /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'build_ack',
+			requestId: writeCall!.body.requestId,
+			traceRef: writeCall!.body.traceRef,
+			missionId
+		});
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === missionId);
 		assert.ok(subscription, 'PRD build mission should be registered for Telegram relay progress');
@@ -231,7 +241,8 @@ async function run(): Promise<void> {
 		};
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 		await indexModule.handleBuildIntent(
 			ctx,
@@ -274,7 +285,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
 		const missionId = await indexModule.handleRunCommand(
@@ -290,6 +302,17 @@ async function run(): Promise<void> {
 		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
 		assert.match(replies.join('\n'), /Project: /);
 		assert.match(replies.join('\n'), /Mission board: http:\/\/stub-spawner\.test\/kanban/);
+		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
+		assert.ok(writeCall, 'expected build route to include PRD bridge call');
+		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'build_ack',
+			requestId: writeCall!.body.requestId,
+			traceRef: writeCall!.body.traceRef,
+			missionId: buildMissionId
+		});
 
 		restoreAxios();
 		restoreEnv();
@@ -314,7 +337,8 @@ async function run(): Promise<void> {
 		(axios as any).get = async () => ({ data: { pending: false } });
 
 		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const replyExtras: any[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
 
 		const missionId = await indexModule.handleRunCommand(
@@ -332,6 +356,14 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(runCall!.body.requestId, /8319079055/);
 		assert.equal(runCall!.body.traceRef, `trace:telegram-run:${runCall!.body.requestId}`);
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'non-build /run should not use the PRD bridge');
+		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
+			route: 'spawner',
+			command: 'run',
+			replyKind: 'mission_ack',
+			requestId: runCall!.body.requestId,
+			traceRef: runCall!.body.traceRef,
+			missionId: 'spark-simple-run-test'
+		});
 
 		restoreAxios();
 		restoreEnv();

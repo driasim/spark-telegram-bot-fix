@@ -381,6 +381,12 @@ function stripOutboundTraceContext<T>(extra: T): T {
   return clean as T;
 }
 
+function outboundTraceExtra(traceContext: NodeOutboundTraceContext): Record<string, unknown> {
+  return {
+    [OUTBOUND_TRACE_CONTEXT_KEY]: traceContext
+  };
+}
+
 export function buildNodeOutboundAuditRecord(
   chatId: unknown,
   deliveredText: unknown,
@@ -2400,7 +2406,14 @@ export async function handleRunCommand(
     return null;
   }
 
-  await ctx.reply(humanAck(result.providers || providers));
+  await ctx.reply(humanAck(result.providers || providers), outboundTraceExtra({
+    route: 'spawner',
+    command: 'run',
+    replyKind: 'mission_ack',
+    requestId: result.requestId || requestId,
+    traceRef,
+    missionId: result.missionId
+  }));
   recordCommandReplyDelivery({
     command: 'run',
     replyKind: 'mission_ack',
@@ -2549,7 +2562,14 @@ export async function handleBuildIntent(
       '',
       'I am shaping the plan now. I will send the project canvas link as soon as it is ready.'
     ].filter(Boolean);
-    await ctx.reply(ackLines.join('\n'));
+    await ctx.reply(ackLines.join('\n'), outboundTraceExtra({
+      route: 'spawner',
+      command: 'run',
+      replyKind: 'build_ack',
+      requestId,
+      traceRef,
+      missionId
+    }));
     recordCommandReplyDelivery({
       command: 'run',
       replyKind: 'build_ack',
