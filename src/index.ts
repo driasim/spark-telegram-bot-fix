@@ -26,7 +26,9 @@ import {
   runBuilderAgentOperatingContext,
   runBuilderConversationColdContext,
   runBuilderDiagnosticsScan,
+  formatRouteConfidenceGateReply,
   runBuilderRouteProbe,
+  runBuilderRouteConfidenceGate,
   runBuilderSourceUsed,
   runBuilderSelfImprovementPlan,
   runBuilderSelfAwarenessStatus,
@@ -4943,9 +4945,31 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
-      const result = spawnerBoardIntent === 'latest_provider'
-        ? await spawner.latestProviderSummary()
-        : spawnerBoardIntent === 'latest_on_kanban'
+      if (spawnerBoardIntent === 'latest_provider') {
+        try {
+          await runSparkCli(['os', 'compile', '--json'], 90_000);
+          const gate = await runBuilderRouteConfidenceGate({
+            intent: 'status',
+            candidateRoute: 'spawner.latest_job_provider',
+          });
+          await ctx.reply(formatRouteConfidenceGateReply(gate.payload));
+        } catch (error) {
+          await ctx.reply(
+            [
+              'I cannot prove the latest Spawner provider yet.',
+              '',
+              'State',
+              '- Missing: fresh Spark OS trace plus Builder RouteConfidenceGate evidence',
+              `- Detail: ${redactText(error instanceof Error ? error.message : String(error || 'unknown error'))}`,
+              '',
+              'Next',
+              '- Run /board or /diagnose, then ask again.'
+            ].join('\n')
+          );
+        }
+        return;
+      }
+      const result = spawnerBoardIntent === 'latest_on_kanban'
           ? await spawner.latestKanbanSummary()
           : spawnerBoardIntent === 'latest_project_preview'
             ? await spawner.latestProjectPreview()

@@ -9,6 +9,7 @@ import {
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
   formatMemoryInPlaySummary,
+  formatRouteConfidenceGateReply,
   formatRouteProbeReply,
   formatSelfImprovementPlanReply,
   formatSelfAwarenessReply,
@@ -93,6 +94,42 @@ test('formats route probe replies with evidence boundary', () => {
   assert.match(reply, /Evidence: memory smoke write=succeeded\/1 read_records=1 cleanup=ok/);
   assert.match(reply, /Event: evt-123 \(tool result received\)/);
   assert.match(reply, /Run \/aoc/);
+});
+
+test('formats route confidence gate live provider evidence without raw refs', () => {
+  const reply = formatRouteConfidenceGateReply({
+    schema_version: 'spark.route_confidence_gate.v1',
+    decision: 'explain',
+    confidence: 'high',
+    freshness: 'current',
+    safe_reply_policy: 'answer_live',
+    provider: 'openai',
+    model: 'gpt-5.2',
+    joined_sources: ['prd-auto-trace', 'agent-events', 'mission-control'],
+    source_refs_redacted: ['trace:sha256:abc123', 'mission:sha256:def456'],
+    verification_command: 'spark os trace --json',
+  });
+
+  assert.match(reply, /Latest Spawner job used openai \/ gpt-5\.2\./);
+  assert.match(reply, /Confidence: high/);
+  assert.match(reply, /Sources: prd-auto-trace, agent-events, mission-control/);
+  assert.doesNotMatch(reply, /abc123|def456/);
+});
+
+test('formats route confidence gate missing evidence as a proof refusal', () => {
+  const reply = formatRouteConfidenceGateReply({
+    schema_version: 'spark.route_confidence_gate.v1',
+    decision: 'explain',
+    confidence: 'low',
+    freshness: 'unknown',
+    safe_reply_policy: 'explain_missing',
+    missing_evidence: ['agent_events_provider', 'mission_control_reference'],
+    human_next_action: 'Refresh Spawner evidence, then ask again.',
+  });
+
+  assert.match(reply, /I cannot prove the latest Spawner provider yet\./);
+  assert.match(reply, /Missing: agent_events_provider, mission_control_reference/);
+  assert.match(reply, /Refresh Spawner evidence, then ask again\./);
 });
 
 test('formats authoritative cold memory context for prompt injection', () => {

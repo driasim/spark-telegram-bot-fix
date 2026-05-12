@@ -382,6 +382,17 @@ async function main(): Promise<void> {
     assert.match(naturalBoardRoute[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
   });
 
+  await test('natural latest Spawner provider route uses Builder route confidence gate', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseSpawnerBoardNaturalIntent\(text\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
+    assert.ok(naturalBoardRoute, 'expected natural Spawner board route to exist');
+    assert.match(naturalBoardRoute[0], /spawnerBoardIntent === 'latest_provider'/);
+    assert.match(naturalBoardRoute[0], /runSparkCli\(\['os', 'compile', '--json'\], 90_000\)/);
+    assert.match(naturalBoardRoute[0], /runBuilderRouteConfidenceGate\(\{/);
+    assert.match(naturalBoardRoute[0], /formatRouteConfidenceGateReply\(gate\.payload\)/);
+    assert.doesNotMatch(naturalBoardRoute[0], /latest_provider'[\s\S]{0,160}latestProviderSummary/);
+  });
+
   await test('validates mixed access change and build intents before mutating access', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     const buildIntentRoute = indexSource.match(/if \(buildIntent\) \{\s*console\.log\(`\[BuildIntent\][\s\S]*?await handleBuildIntent\(/);
