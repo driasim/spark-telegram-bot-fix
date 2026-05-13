@@ -1990,11 +1990,18 @@ function aocProbeSummaryLine(routeKey: string, payload: Record<string, unknown>)
   const failure = String(payload.failure_reason || '').trim();
   const summary = String(payload.probe_summary || failure || '').trim();
   const evidence = summary ? ` - ${summary.slice(0, 110)}` : '';
-  return `- ${label}: ${status}${latency}${evidence}`;
+  return `• ${label}: ${status}${latency}${evidence}`;
+}
+
+function aocProbeFailureSummary(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Builder bridge unavailable/i.test(message)) return 'Builder bridge unavailable';
+  if (/timed out|timeout/i.test(message)) return 'Probe timed out';
+  return 'Probe failed before evidence was available';
 }
 
 async function runAocProbeBatch(ctx: any, routeKeys: string[]): Promise<void> {
-  await ctx.reply(`Running ${routeKeys.length} route probes. This can take a little while...`);
+  await ctx.reply(`🧪 Running ${routeKeys.length} route probes. This can take a little while...`);
   const lines = ['Route probes'];
   for (const routeKey of routeKeys) {
     await safeSendChatAction(ctx, 'typing');
@@ -2002,8 +2009,7 @@ async function runAocProbeBatch(ctx: any, routeKeys: string[]): Promise<void> {
       const result = await runBuilderRouteProbe(routeKey);
       lines.push(aocProbeSummaryLine(routeKey, result.payload));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      lines.push(`- ${AOC_ROUTE_LABELS[routeKey] || routeKey}: failed - ${message.slice(0, 120)}`);
+      lines.push(`• ${AOC_ROUTE_LABELS[routeKey] || routeKey}: failed - ${aocProbeFailureSummary(error)}`);
     }
   }
   lines.push('', 'Run /aoc to see the refreshed Agent Operating Context.');
@@ -2693,15 +2699,28 @@ type PendingCreatorMission = {
 
 const pendingCreatorMissions = new Map<string, PendingCreatorMission>();
 
-const CREATOR_USAGE = [
-  'Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
-  '       /creator run <mission-creator-id>',
-  '       /creator status <mission-creator-id>',
-  '       /creator validate <mission-creator-id> [maxCommands]',
-  'Example: /creator plan private risk medium create a Startup YC benchmarked specialization path',
-  'Example: /creator run mission-creator-1776768300668',
-  'Example: /creator validate mission-creator-1776768300668 6'
-].join('\n');
+function renderCreatorUsage(reason = ''): string {
+  return [
+    reason ? `⚠️ ${reason}` : '🎯 Creator missions',
+    '',
+    'Use',
+    '• /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
+    '• /creator run <mission-creator-id>',
+    '• /creator status <mission-creator-id>',
+    '• /creator validate <mission-creator-id> [maxCommands]',
+    '',
+    'Example',
+    '• /creator plan private risk medium create a Startup YC benchmarked specialization path'
+  ].join('\n');
+}
+
+const CREATOR_USAGE = renderCreatorUsage();
+
+function isLowInformationCreatorBrief(brief: string): boolean {
+  const normalized = brief.trim().toLowerCase();
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return words.length < 3 || /^(?:public|private|github|swarm|risk|low|medium|high)$/.test(normalized);
+}
 
 function normalizeCreatorPrivacyMode(value: string): ParsedCreatorCommand['privacyMode'] | null {
   const normalized = value.toLowerCase();
@@ -3765,6 +3784,9 @@ bot.command('creator', async (ctx) => {
   if (!control && !parsed) {
     return ctx.reply(CREATOR_USAGE);
   }
+  if (parsed && isLowInformationCreatorBrief(parsed.brief)) {
+    return ctx.reply(renderCreatorUsage('Add a creator mission brief after the mode.'));
+  }
 
   const accessProfile = await getSparkAccessProfile(ctx.chat.id);
   if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
@@ -4029,7 +4051,21 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     }
 
     if (parsed.action === 'start') {
-      if (!parsed.chipKey) return ctx.reply('Usage: /recursive start <targetKey> [rounds <n>]');
+      if (!parsed.chipKey) {
+        return ctx.reply([
+          '🌀 Start a recursive loop',
+          '',
+          'Use',
+          '• /recursive start <targetKey> [rounds <n>]',
+          '',
+          'Example',
+          '• /recursive start startup-yc rounds 3',
+          '',
+          'Find targets',
+          '• /recursive sessions',
+          '• /recursive paths'
+        ].join('\n'));
+      }
       const chatId = ctx.chat.id;
       const rounds = parsed.rounds || 3;
       const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
@@ -4161,7 +4197,17 @@ bot.command('schedules', async (ctx) => {
   const sub = parts.shift()?.toLowerCase();
   if (sub === 'delete') {
     const id = parts.shift();
-    if (!id) return ctx.reply('Usage: /schedules delete <id>');
+    if (!id) {
+      return ctx.reply([
+        '🗓️ Delete a schedule',
+        '',
+        'Use',
+        '• /schedules delete <id>',
+        '',
+        'Find IDs',
+        '• /schedules'
+      ].join('\n'));
+    }
     const res = await deleteSchedule(id);
     return ctx.reply(res.ok ? `Deleted ${id}` : `Delete failed: ${res.error || 'not found'}`);
   }
@@ -4555,6 +4601,21 @@ bot.command('mission', async (ctx) => {
     markMissionRelayResumed(missionId);
   }
   await ctx.reply(result.success ? result.message : `Mission command failed: ${result.message}`);
+});
+
+bot.hears(/^\/[A-Za-z0-9_-]+(?:@\w+)?(?:\s|$)/, async (ctx) => {
+  const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+  const command = text.match(/^\/([^\s@]+)/)?.[1] || 'that';
+  await ctx.reply([
+    `❔ Unknown command: /${command}.`,
+    '',
+    'Try',
+    '• /status',
+    '• /diagnose',
+    '• /run <goal>',
+    '',
+    'For the current command list, send /start.'
+  ].join('\n'));
 });
 
 // Handle regular text messages

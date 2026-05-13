@@ -98,7 +98,7 @@ Side-effect posture:
 `/models` | Models | 5 (excellent) | `read_only` | 🧭 Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.<br><br>Fast picks<br>• Have ChatGPT/Code [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/workspaces` | Workspace | 5 (excellent) | `read_only` | ⚠️ Local workspace access is blocked.<br><br>Why<br>• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.<br>• This chat is at Access level 3.<br><br>Next [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/workspace` | Workspace | 4 (good) | `read_only` | ↪️ /workspace maps to /workspaces.<br><br>⚠️ Local workspace access is blocked.<br><br>Why<br>• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.<br>• Th [truncated] | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
-`/creator` | Creator/Chip | 5 (excellent) | `usage_only` | Usage: /creator plan [private\|github\|swarm] [risk low\|medium\|high] <brief><br> /creator run <mission-creator-id><br> /creator status <mission-creator-id><br> /creator validate <mission-creator-id> [maxCommands]<br>Exa [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
+`/creator` | Creator/Chip | 5 (excellent) | `usage_only` | 🎯 Creator missions<br><br>Use<br>• /creator plan [private\|github\|swarm] [risk low\|medium\|high] <brief><br>• /creator run <mission-creator-id><br>• /creator status <mission-creator-id><br>• /creator validate <mission-creato [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/chip` | Creator/Chip | 5 (excellent) | `usage_only` | 🌱 Create a domain chip<br><br>Use<br>• /chip create <natural language description><br><br>Example<br>• /chip create a QA operator that catches launch-blocking UI regressions<br><br>Next move<br>• Use /creator for planned creator mi [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/loop` | Creator/Chip | 5 (excellent) | `usage_only` | 🌀 Run a chip autoloop<br><br>Use<br>• /loop <chip_key> [rounds]<br><br>Example<br>• /loop startup-yc 3<br><br>What happens<br>• Spark asks the chip for candidates, evaluates them, and posts a summary. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/recursive` | Recursive | 5 (excellent) | `usage_only` | Spark Recursive Loops<br><br>Start here:<br>/recursive sessions - recent loops and next action<br>/recursive report <id> - readable result summary<br>/recursive start <targetKey> rounds <n> - run a local Builder chip loo [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
@@ -1314,13 +1314,16 @@ Score: 5 (excellent). Intent: Show creator mission usage.
 Reply 1:
 
 ```text
-Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>
- /creator run <mission-creator-id>
- /creator status <mission-creator-id>
- /creator validate <mission-creator-id> [maxCommands]
-Example: /creator plan private risk medium create a Startup YC benchmarked specialization path
-Example: /creator run mission-creator-1776768300668
-Example: /creator validate mission-creator-1776768300668 6
+🎯 Creator missions
+
+Use
+• /creator plan [private|github|swarm] [risk low|medium|high] <brief>
+• /creator run <mission-creator-id>
+• /creator status <mission-creator-id>
+• /creator validate <mission-creator-id> [maxCommands]
+
+Example
+• /creator plan private risk medium create a Startup YC benchmarked specialization path
 ```
 
 ### /chip

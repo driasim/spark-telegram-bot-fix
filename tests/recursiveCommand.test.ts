@@ -63,7 +63,9 @@ async function main(): Promise<void> {
   await test('recursive command export validates start usage through command path', async () => {
     const ctx = fakeCtx('/recursive start');
     await handleRecursiveCommand(ctx);
-    assert.equal(ctx.replies[0], 'Usage: /recursive start <targetKey> [rounds <n>]');
+    assert.match(ctx.replies[0], /Start a recursive loop/);
+    assert.match(ctx.replies[0], /\/recursive start <targetKey> \[rounds <n>\]/);
+    assert.match(ctx.replies[0], /\/recursive sessions/);
   });
 
   await test('recursive sessions report local Builder loops without Workspace credentials', async () => {
