@@ -2491,7 +2491,7 @@ bot.command('voice', async (ctx) => {
   } catch (err) {
     console.warn('[Bridge] /voice Builder route failed:', err);
   }
-  await ctx.reply('Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.');
+  await ctx.reply(renderVoiceUnavailableReply());
 });
 
 // /lessons - surprise lessons
@@ -2504,7 +2504,6 @@ bot.command('lessons', async (ctx) => {
 // /process - process pending events
 bot.command('process', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Processing queue...');
   const result = await spark.processQueue();
   await ctx.reply(result);
 });
@@ -2512,10 +2511,21 @@ bot.command('process', async (ctx) => {
 // /reflect - trigger deep reflection
 bot.command('reflect', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Starting deep reflection...');
   const result = await spark.reflect();
   await ctx.reply(result);
 });
+
+function renderVoiceUnavailableReply(): string {
+  return [
+    '🎙️ Voice setup is not ready yet.',
+    '',
+    'What happened',
+    '• Telegram is running, but Builder did not return voice status.',
+    '',
+    'Next move',
+    '• Run /diagnose, then try /voice again.'
+  ].join('\n');
+}
 
 const PROVIDER_LABELS: Record<string, string> = {
   minimax: 'MiniMax',
@@ -3609,27 +3619,52 @@ function parseRunCommand(text: string, command: string): string {
   return text.slice(idx + command.length).trim();
 }
 
+const RUN_VARIANTS: Array<{ name: string; providers: string[] }> = [
+  { name: 'run', providers: [] },
+  { name: 'runminimax', providers: ['minimax'] },
+  { name: 'runglm', providers: ['zai'] },
+  { name: 'runzai', providers: ['zai'] },
+  { name: 'runclaude', providers: ['claude'] },
+  { name: 'runcodex', providers: ['codex'] },
+  { name: 'run2', providers: ['minimax', 'zai'] },
+  { name: 'runall', providers: ['minimax', 'zai', 'claude', 'codex'] }
+];
+
 function missionDefaultProvider(): string {
   return resolveMissionDefaultProvider();
 }
 
-const RUN_VARIANTS: Array<{ name: string; providers: string[]; usage: string }> = [
-  { name: 'run', providers: [], usage: '/run <goal>  (default: current mission provider)' },
-  { name: 'runminimax', providers: ['minimax'], usage: '/runminimax <goal>' },
-  { name: 'runglm', providers: ['zai'], usage: '/runglm <goal>  (Z.AI GLM)' },
-  { name: 'runzai', providers: ['zai'], usage: '/runzai <goal>' },
-  { name: 'runclaude', providers: ['claude'], usage: '/runclaude <goal>' },
-  { name: 'runcodex', providers: ['codex'], usage: '/runcodex <goal>' },
-  { name: 'run2', providers: ['minimax', 'zai'], usage: '/run2 <goal>  (consensus: minimax + zai)' },
-  { name: 'runall', providers: ['minimax', 'zai', 'claude', 'codex'], usage: '/runall <goal>  (all 4 providers)' }
-];
+function renderRunUsage(variant: typeof RUN_VARIANTS[number]): string {
+  const command = `/${variant.name}`;
+  const isDefault = variant.name === 'run';
+  const routeLine = isDefault
+    ? `Uses current mission provider: ${missionDefaultProvider()}.`
+    : `Expert shortcut: sends directly to ${humanProviderList(variant.providers)}.`;
+  const example = isDefault
+    ? '/run audit the Telegram command copy and suggest fixes'
+    : `${command} compare the current plan against the launch docs`;
+  const title = isDefault ? '🚀 Start a mission' : `🚀 Start a ${humanProviderList(variant.providers)} mission`;
+  return [
+    title,
+    '',
+    'Use',
+    `• ${command} <goal>`,
+    '',
+    'Example',
+    `• ${example}`,
+    '',
+    'Route',
+    `• ${routeLine}`,
+    '• /model shows or changes the default mission route.'
+  ].join('\n');
+}
 
 for (const variant of RUN_VARIANTS) {
   bot.command(variant.name, async (ctx) => {
     if (!requireAdmin(ctx)) return;
     const goal = parseRunCommand(ctx.message.text, `/${variant.name}`);
     if (!goal) {
-      return ctx.reply(`Usage: ${variant.usage}`);
+      return ctx.reply(renderRunUsage(variant));
     }
     const providers = variant.name === 'run' ? [missionDefaultProvider()] : variant.providers;
     await handleRunCommand(ctx, goal, providers, undefined, { allowBuildIntent: variant.name === 'run' });
@@ -3756,6 +3791,21 @@ bot.command('creator', async (ctx) => {
   await handleCreatorMissionPlan(ctx, parsed);
 });
 
+function renderChipUsage(): string {
+  return [
+    '🌱 Create a domain chip',
+    '',
+    'Use',
+    '• /chip create <natural language description>',
+    '',
+    'Example',
+    '• /chip create a QA operator that catches launch-blocking UI regressions',
+    '',
+    'Next move',
+    '• Use /creator for planned creator missions, or /recursive for recursive loops.'
+  ].join('\n');
+}
+
 bot.command('chip', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
@@ -3765,11 +3815,11 @@ bot.command('chip', async (ctx) => {
   const prompt = parts.join(' ').trim();
 
   if (action !== 'create' || !prompt) {
-    return ctx.reply('Usage: /chip create <natural language description>');
+    return ctx.reply(renderChipUsage());
   }
 
   await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Scaffolding new domain chip from your brief...');
+  await ctx.reply('🌱 Scaffolding a new domain chip from your brief...');
 
   const result = await createChipFromPrompt(prompt);
 
@@ -3778,7 +3828,7 @@ bot.command('chip', async (ctx) => {
   }
 
   const lines = [
-    'Chip created successfully.',
+    '✅ Chip created.',
     `Key: ${result.chipKey}`,
     `Path: ${result.chipPath}`,
     `Router invokable: ${result.routerInvokable ? 'yes' : 'no'}`,
@@ -3790,6 +3840,21 @@ bot.command('chip', async (ctx) => {
   await ctx.reply(lines.join('\n'));
 });
 
+function renderLoopUsage(): string {
+  return [
+    '🌀 Run a chip autoloop',
+    '',
+    'Use',
+    '• /loop <chip_key> [rounds]',
+    '',
+    'Example',
+    '• /loop startup-yc 3',
+    '',
+    'What happens',
+    '• Spark asks the chip for candidates, evaluates them, and posts a summary.'
+  ].join('\n');
+}
+
 bot.command('loop', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
@@ -3799,14 +3864,12 @@ bot.command('loop', async (ctx) => {
   const rounds = Math.max(1, Math.min(10, Number.parseInt(parts[1] ?? '3', 10) || 3));
 
   if (!chipKey) {
-    return ctx.reply('Usage: /loop <chip_key> [rounds]\n' +
-      'Runs a recursive self-improving loop: each round calls the chip\'s suggest hook for candidates, then evaluates them.\n' +
-      'Example: /loop startup-yc 3');
+    return ctx.reply(renderLoopUsage());
   }
 
   const chatId = ctx.chat.id;
   await safeSendChatAction(ctx, 'typing');
-  await ctx.reply(`Starting autoloop on ${chipKey} for ${rounds} round(s). This may take several minutes - I'll post the summary when it finishes.`);
+  await ctx.reply(`🌀 Starting autoloop on ${chipKey} for ${rounds} round(s).\n\nI will post the summary when it finishes.`);
 
   // Detach the heavy work so the Telegraf handler returns instantly;
   // the loop can exceed the handler timeout without failing the turn.
@@ -3992,6 +4055,22 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
 
 bot.command('recursive', async (ctx) => handleRecursiveCommand(ctx));
 
+function renderScheduleUsage(): string {
+  return [
+    '🗓️ Schedule recurring work',
+    '',
+    'Use',
+    '• /schedule "<cron>" mission <goal>',
+    '• /schedule "<cron>" loop <chipKey> [rounds]',
+    '',
+    'Example',
+    '• /schedule "*/5 * * * *" loop startup-yc 2',
+    '',
+    'Manage',
+    '• /schedules lists or deletes scheduled work.'
+  ].join('\n');
+}
+
 bot.command('schedule', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
@@ -3999,14 +4078,14 @@ bot.command('schedule', async (ctx) => {
   // Expect: "<cron>" mission <goal>   OR   "<cron>" loop <chipKey> [rounds]
   const quoteMatch = raw.match(/^"([^"]+)"\s+(.*)$/);
   if (!quoteMatch) {
-    return ctx.reply('Usage: /schedule "<cron>" mission <goal>\n       /schedule "<cron>" loop <chipKey> [rounds]\nExample: /schedule "*/5 * * * *" loop startup-yc 2');
+    return ctx.reply(renderScheduleUsage());
   }
   const cron = quoteMatch[1].trim();
   const rest = quoteMatch[2].trim().split(/\s+/);
   const action = rest.shift()?.toLowerCase();
   if (action === 'mission') {
     const goal = rest.join(' ').trim();
-    if (!goal) return ctx.reply('Missing mission goal.');
+    if (!goal) return ctx.reply('⚠️ Missing mission goal.\n\nExample\n• /schedule "*/5 * * * *" mission check launch health');
     const res = await createSchedule({
       cron,
       action: 'mission',
@@ -4015,13 +4094,13 @@ bot.command('schedule', async (ctx) => {
     });
     if (!res.ok || !res.schedule) return ctx.reply(`Schedule failed: ${res.error || 'unknown error'}`);
     return ctx.reply(
-      `Schedule created.\nSchedule: ${humanizeCron(res.schedule.cron)}\nWhat it does: Run mission "${goal}"\nNext: ${formatNextFireLocal(res.schedule.nextFireAt)}\nId: ${res.schedule.id}`
+      `✅ Schedule created.\nSchedule: ${humanizeCron(res.schedule.cron)}\nWhat it does: Run mission "${goal}"\nNext: ${formatNextFireLocal(res.schedule.nextFireAt)}\nId: ${res.schedule.id}`
     );
   }
   if (action === 'loop') {
     const chipKey = rest.shift();
     const rounds = Math.max(1, Math.min(10, Number.parseInt(rest[0] ?? '2', 10) || 2));
-    if (!chipKey) return ctx.reply('Missing chipKey.');
+    if (!chipKey) return ctx.reply('⚠️ Missing chip key.\n\nExample\n• /schedule "*/5 * * * *" loop startup-yc 2');
     const res = await createSchedule({
       cron,
       action: 'loop',
@@ -4030,10 +4109,16 @@ bot.command('schedule', async (ctx) => {
     });
     if (!res.ok || !res.schedule) return ctx.reply(`Schedule failed: ${res.error || 'unknown error'}`);
     return ctx.reply(
-      `Schedule created.\nSchedule: ${humanizeCron(res.schedule.cron)}\nWhat it does: Run ${rounds} loop round${rounds === 1 ? '' : 's'} on ${chipKey}\nNext: ${formatNextFireLocal(res.schedule.nextFireAt)}\nId: ${res.schedule.id}`
+      `✅ Schedule created.\nSchedule: ${humanizeCron(res.schedule.cron)}\nWhat it does: Run ${rounds} loop round${rounds === 1 ? '' : 's'} on ${chipKey}\nNext: ${formatNextFireLocal(res.schedule.nextFireAt)}\nId: ${res.schedule.id}`
     );
   }
-  return ctx.reply(`Unknown schedule action '${action}'. Use mission or loop.`);
+  return ctx.reply([
+    `⚠️ Unknown schedule action '${action}'.`,
+    '',
+    'Use',
+    '• mission',
+    '• loop'
+  ].join('\n'));
 });
 
 bot.command('schedules', async (ctx) => {
@@ -4378,19 +4463,37 @@ function isShortResolvedListPick(text: string, frame: ConversationFrame): boolea
   return frame.referenceResolution.kind === 'list_item' && text.trim().length <= 40;
 }
 
+function renderMissionUsage(): string {
+  return [
+    '🧭 Control a mission',
+    '',
+    'Use',
+    '• /mission status <missionId>',
+    '• /mission pause <missionId>',
+    '• /mission resume <missionId>',
+    '• /mission kill <missionId>',
+    '',
+    'Example',
+    '• /mission status spark-1776768300668',
+    '',
+    'Tip',
+    '• /board shows recent mission IDs.'
+  ].join('\n');
+}
+
 bot.command('mission', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
   const args = ctx.message.text.replace('/mission', '').trim().split(/\s+/).filter(Boolean);
   if (args.length < 2) {
-    return ctx.reply('Usage: /mission <status|pause|resume|kill> <missionId>');
+    return ctx.reply(renderMissionUsage());
   }
 
   const action = args[0] as 'status' | 'pause' | 'resume' | 'kill';
   const missionId = args[1];
 
   if (!['status', 'pause', 'resume', 'kill'].includes(action)) {
-    return ctx.reply('Usage: /mission <status|pause|resume|kill> <missionId>');
+    return ctx.reply(renderMissionUsage());
   }
 
   if (missionId.includes('<') || missionId.includes('>')) {

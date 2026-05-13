@@ -13,8 +13,8 @@ Composition lens from `spark-telegram-composition`:
 
 - Registered Telegram commands found in source: 64
 - Command cases exercised: 64
-- Average usability score: 4.16 / 5
-- Score spread: 32 excellent, 10 good, 22 okay, 0 rough, 0 poor
+- Average usability score: 4.56 / 5
+- Score spread: 45 excellent, 10 good, 9 okay, 0 rough, 0 poor
 - Missing registered commands in harness: none
 - Harness-only aliases/extras: none
 
@@ -28,7 +28,7 @@ Side-effect posture:
 ## Main Findings
 
 1. The safe harness now has 0 rough/poor replies.
-2. The clearest replies are compact command/status surfaces: `/myid`, `/access`, `/diagnose`, `/updates`, `/schedules`, `/clarify`, `/recursive`, `/model`, and the Builder-offline cards.
+2. The clearest replies are compact command/status surfaces plus the new usage cards for `/run*`, `/mission`, `/chip`, `/loop`, `/schedule`, and `/voice`.
 3. `/start` is now a first-move surface instead of a full command inventory, while keeping important operator shortcuts visible.
 4. Compatibility aliases still inflate the perceived surface. They should stay functional, but primary docs should keep teaching the canonical commands.
 5. Legacy dashboard commands now explain that the surface is paused for launch v1 and point users toward supported commands.
@@ -37,10 +37,10 @@ Side-effect posture:
 
 | Priority | Commands | Improvement |
 | --- | --- | --- |
-| P1 | `/voice` | Bring the Builder voice-unavailable reply into the same compact card shape as memory/wiki/context failures. |
-| P2 | `/run*`, `/mission`, `/chip`, `/loop`, `/schedule` usage replies | Add one-line examples and clearer canonical-command pointers without making help verbose. |
-| P2 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |
-| P2 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Consider hiding aliases from primary help while preserving backward compatibility. |
+| P1 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |
+| P1 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Hide aliases from primary help while preserving backward compatibility. |
+| P2 | `/docker_smoke`, `/level5_setup` | Confirmation copy is intentionally safety-heavy; next polish could split it into a headline plus Why/Confirm rows. |
+| P2 | success-path live replies | Run real Telegram checks for `/chip create`, `/schedule`, `/mission status`, and `/run` with services online to ensure success replies stay concise. |
 | P3 | live Telegram smoke | Re-run this list against a real private chat with Builder, Spawner, Spark CLI, and providers online to score success-path composition. |
 
 ## Scorecard
@@ -72,7 +72,7 @@ Side-effect posture:
 `/black-box` | Builder/AOC | 3 (okay) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
 `/self` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/wiki` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/voice` | Builder | 3 (okay) | `blocked` | Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again. | First line is too dense to scan as a headline.; Bridge failure is understandable but repeats system ownership language. | Tighten the first line and add one clearer next action.
+`/voice` | Builder | 5 (excellent) | `blocked` | 🎙️ Voice setup is not ready yet.<br><br>What happened<br>• Telegram is running, but Builder did not return voice status.<br><br>Next move<br>• Run /diagnose, then try /voice again. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/ledger` | Builder Diagnostics | 5 (excellent) | `blocked` | Capability ledger review is unavailable right now. Run /diagnose to check the Builder bridge. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/capabilities` | Builder Diagnostics | 5 (excellent) | `read_only` | Capability garden needs review.<br><br>State<br>• 7 cards<br>• Status: local-artifacts=2, schema-shaped=3, seen=2<br>• Surfaces: creator-system=1, specialization-path=6<br><br>Review<br>• Cards are evidence, not trust.<br>• Gate ver [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/authority` | Builder Diagnostics | 4 (good) | `read_only` | Authority view has gated actions.<br><br>State<br>- Access L4; lane spark_workspace<br>- 5 Telegram access profiles; 5 Spawner lanes<br>- 5 browser approvals from 20 hooks<br>- 5 toxic capability pairs; 3 publication checks [truncated] | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
@@ -84,33 +84,33 @@ Side-effect posture:
 `/route_probe` | Route Diagnostics | 3 (okay) | `usage_only` | Route probe<br>Usage: /probe <route><br>Batch: /probe core or /probe all<br><br>Routes:<br>- core<br>- all<br>- builder<br>- spawner<br>- memory<br>- researcher<br>- swarm<br>- browser<br>- local_work | Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
 `/nl_route` | Route Diagnostics | 5 (excellent) | `usage_only` | Natural route probe<br>Usage: /nl_route <message><br><br>This shows the diagnostic route decision only. It does not execute the route. | Usage is explicit. | Keep the current shape; only minor polish needed.
 `/natural_route` | Route Diagnostics | 3 (okay) | `usage_only` | Natural route probe<br>Usage: /nl_route <message><br><br>This shows the diagnostic route decision only. It does not execute the route. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/run` | Mission Start | 3 (okay) | `usage_only` | Usage: /run <goal> (default: current mission provider) | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
-`/runminimax` | Mission Start | 3 (okay) | `usage_only` | Usage: /runminimax <goal> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/runglm` | Mission Start | 3 (okay) | `usage_only` | Usage: /runglm <goal> (Z.AI GLM) | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/runzai` | Mission Start | 3 (okay) | `usage_only` | Usage: /runzai <goal> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/runclaude` | Mission Start | 3 (okay) | `usage_only` | Usage: /runclaude <goal> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/runcodex` | Mission Start | 3 (okay) | `usage_only` | Usage: /runcodex <goal> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/run2` | Mission Start | 3 (okay) | `usage_only` | Usage: /run2 <goal> (consensus: minimax + zai) | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
-`/runall` | Mission Start | 3 (okay) | `usage_only` | Usage: /runall <goal> (all 4 providers) | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/run` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a mission<br><br>Use<br>• /run <goal><br><br>Example<br>• /run audit the Telegram command copy and suggest fixes<br><br>Route<br>• Uses current mission provider: codex.<br>• /model shows or changes the default mission route. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/runminimax` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a MiniMax mission<br><br>Use<br>• /runminimax <goal><br><br>Example<br>• /runminimax compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to MiniMax.<br>• /model shows or changes t [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/runglm` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a Z.AI GLM mission<br><br>Use<br>• /runglm <goal><br><br>Example<br>• /runglm compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to Z.AI GLM.<br>• /model shows or changes the def [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/runzai` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a Z.AI GLM mission<br><br>Use<br>• /runzai <goal><br><br>Example<br>• /runzai compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to Z.AI GLM.<br>• /model shows or changes the def [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/runclaude` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a Claude mission<br><br>Use<br>• /runclaude <goal><br><br>Example<br>• /runclaude compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to Claude.<br>• /model shows or changes the d [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/runcodex` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a Codex mission<br><br>Use<br>• /runcodex <goal><br><br>Example<br>• /runcodex compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to Codex.<br>• /model shows or changes the defau [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/run2` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a MiniMax and Z.AI GLM mission<br><br>Use<br>• /run2 <goal><br><br>Example<br>• /run2 compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to MiniMax and Z.AI GLM.<br>• /model show [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+`/runall` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a MiniMax, Z.AI GLM, Claude, and Codex mission<br><br>Use<br>• /runall <goal><br><br>Example<br>• /runall compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to MiniMax, Z.AI G [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
 `/board` | Mission Control | 4 (good) | `stubbed` | Spawner Board<br><br>Running: 0<br>- none<br><br>Paused: 0<br>- none<br><br>Completed: 0<br>- none<br><br>Failed: 0<br>- none<br><br>Created: 0<br>- none | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
-`/mission` | Mission Control | 3 (okay) | `usage_only` | Usage: /mission <status\|pause\|resume\|kill> <missionId> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
+`/mission` | Mission Control | 5 (excellent) | `usage_only` | 🧭 Control a mission<br><br>Use<br>• /mission status <missionId><br>• /mission pause <missionId><br>• /mission resume <missionId><br>• /mission kill <missionId><br><br>Example<br>• /mission status spark-1776768300668<br><br>Tip<br>• /board s [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/updates` | Mission Control | 5 (excellent) | `read_only` | Live mission updates are set to normal.<br>Normal sends pickup, canvas-ready, final handoff, and failures.<br>Mission links are set to board.<br>Mission updates include the Mission board/Kanban link.<br><br>Usage:<br>/updat [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
 `/model` | Models | 5 (excellent) | `read_only` | 🧠 Spark model routing<br><br>Current<br>• Agent chat: audit_unsupported (glm-5.1)<br>• Missions: codex (gpt-5.5)<br><br>Common switches<br>• /model agent codex<br>• /model agent claude claude-sonnet-4-6<br>• /model mission codex<br>• [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/models` | Models | 5 (excellent) | `read_only` | 🧭 Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.<br><br>Fast picks<br>• Have ChatGPT/Code [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/workspaces` | Workspace | 4 (good) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline. | Keep the current shape; only minor polish needed.
 `/workspace` | Workspace | 3 (okay) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
 `/creator` | Creator/Chip | 5 (excellent) | `usage_only` | Usage: /creator plan [private\|github\|swarm] [risk low\|medium\|high] <brief><br> /creator run <mission-creator-id><br> /creator status <mission-creator-id><br> /creator validate <mission-creator-id> [maxCommands]<br>Exa [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
-`/chip` | Creator/Chip | 3 (okay) | `usage_only` | Usage: /chip create <natural language description> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
-`/loop` | Creator/Chip | 3 (okay) | `usage_only` | Usage: /loop <chip_key> [rounds]<br>Runs a recursive self-improving loop: each round calls the chip's suggest hook for candidates, then evaluates them.<br>Example: /loop startup-yc 3 | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
+`/chip` | Creator/Chip | 5 (excellent) | `usage_only` | 🌱 Create a domain chip<br><br>Use<br>• /chip create <natural language description><br><br>Example<br>• /chip create a QA operator that catches launch-blocking UI regressions<br><br>Next move<br>• Use /creator for planned creator mi [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/loop` | Creator/Chip | 5 (excellent) | `usage_only` | 🌀 Run a chip autoloop<br><br>Use<br>• /loop <chip_key> [rounds]<br><br>Example<br>• /loop startup-yc 3<br><br>What happens<br>• Spark asks the chip for candidates, evaluates them, and posts a summary. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/recursive` | Recursive | 5 (excellent) | `usage_only` | Spark Recursive Loops<br><br>Start here:<br>/recursive sessions - recent loops and next action<br>/recursive report <id> - readable result summary<br>/recursive start <targetKey> rounds <n> - run a local Builder chip loo [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/schedule` | Scheduling | 3 (okay) | `usage_only` | Usage: /schedule "<cron>" mission <goal><br> /schedule "<cron>" loop <chipKey> [rounds]<br>Example: /schedule "*/5 * * * *" loop startup-yc 2 | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
+`/schedule` | Scheduling | 5 (excellent) | `usage_only` | 🗓️ Schedule recurring work<br><br>Use<br>• /schedule "<cron>" mission <goal><br>• /schedule "<cron>" loop <chipKey> [rounds]<br><br>Example<br>• /schedule "*/5 * * * *" loop startup-yc 2<br><br>Manage<br>• /schedules lists or deletes scheduled work. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/schedules` | Scheduling | 5 (excellent) | `stubbed` | No schedules. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/clarify` | Clarification | 5 (excellent) | `read_only` | No pending clarification for you. Send a /build message first. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/resonance` | Deferred Dashboard | 5 (excellent) | `read_only` | Resonance<br><br>⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local service [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
 `/insights` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
 `/lessons` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/process` | Deferred Dashboard | 5 (excellent) | `read_only` | Processing queue... | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/reflect` | Deferred Dashboard | 5 (excellent) | `read_only` | Starting deep reflection... | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/process` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/reflect` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
 
 ## Family Notes
 
@@ -122,7 +122,7 @@ No commands in this family scored below okay in the safe harness.
 
 ### Builder
 
-Average: 4.33 / 5.
+Average: 5.00 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -146,7 +146,7 @@ No commands in this family scored below okay in the safe harness.
 
 ### Creator/Chip
 
-Average: 3.67 / 5.
+Average: 5.00 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -164,13 +164,13 @@ No commands in this family scored below okay in the safe harness.
 
 ### Mission Control
 
-Average: 4.00 / 5.
+Average: 4.67 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
 ### Mission Start
 
-Average: 3.00 / 5.
+Average: 5.00 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -200,7 +200,7 @@ No commands in this family scored below okay in the safe harness.
 
 ### Scheduling
 
-Average: 4.00 / 5.
+Average: 5.00 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -681,12 +681,18 @@ Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-
 
 ### /voice
 
-Score: 3 (okay). Intent: Show voice route/onboarding status.
+Score: 5 (excellent). Intent: Show voice route/onboarding status.
 
 Reply 1:
 
 ```text
-Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.
+🎙️ Voice setup is not ready yet.
+
+What happened
+• Telegram is running, but Builder did not return voice status.
+
+Next move
+• Run /diagnose, then try /voice again.
 ```
 
 ### /ledger
@@ -950,82 +956,162 @@ This shows the diagnostic route decision only. It does not execute the route.
 
 ### /run
 
-Score: 3 (okay). Intent: Show mission-start usage.
+Score: 5 (excellent). Intent: Show mission-start usage.
 
 Reply 1:
 
 ```text
-Usage: /run <goal> (default: current mission provider)
+🚀 Start a mission
+
+Use
+• /run <goal>
+
+Example
+• /run audit the Telegram command copy and suggest fixes
+
+Route
+• Uses current mission provider: codex.
+• /model shows or changes the default mission route.
 ```
 
 ### /runminimax
 
-Score: 3 (okay). Intent: Show MiniMax run shortcut usage.
+Score: 5 (excellent). Intent: Show MiniMax run shortcut usage.
 
 Reply 1:
 
 ```text
-Usage: /runminimax <goal>
+🚀 Start a MiniMax mission
+
+Use
+• /runminimax <goal>
+
+Example
+• /runminimax compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to MiniMax.
+• /model shows or changes the default mission route.
 ```
 
 ### /runglm
 
-Score: 3 (okay). Intent: Show Z.AI/GLM run shortcut usage.
+Score: 5 (excellent). Intent: Show Z.AI/GLM run shortcut usage.
 
 Reply 1:
 
 ```text
-Usage: /runglm <goal> (Z.AI GLM)
+🚀 Start a Z.AI GLM mission
+
+Use
+• /runglm <goal>
+
+Example
+• /runglm compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to Z.AI GLM.
+• /model shows or changes the default mission route.
 ```
 
 ### /runzai
 
-Score: 3 (okay). Intent: Show Z.AI run shortcut usage.
+Score: 5 (excellent). Intent: Show Z.AI run shortcut usage.
 
 Reply 1:
 
 ```text
-Usage: /runzai <goal>
+🚀 Start a Z.AI GLM mission
+
+Use
+• /runzai <goal>
+
+Example
+• /runzai compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to Z.AI GLM.
+• /model shows or changes the default mission route.
 ```
 
 ### /runclaude
 
-Score: 3 (okay). Intent: Show Claude run shortcut usage.
+Score: 5 (excellent). Intent: Show Claude run shortcut usage.
 
 Reply 1:
 
 ```text
-Usage: /runclaude <goal>
+🚀 Start a Claude mission
+
+Use
+• /runclaude <goal>
+
+Example
+• /runclaude compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to Claude.
+• /model shows or changes the default mission route.
 ```
 
 ### /runcodex
 
-Score: 3 (okay). Intent: Show Codex run shortcut usage.
+Score: 5 (excellent). Intent: Show Codex run shortcut usage.
 
 Reply 1:
 
 ```text
-Usage: /runcodex <goal>
+🚀 Start a Codex mission
+
+Use
+• /runcodex <goal>
+
+Example
+• /runcodex compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to Codex.
+• /model shows or changes the default mission route.
 ```
 
 ### /run2
 
-Score: 3 (okay). Intent: Show two-provider consensus usage.
+Score: 5 (excellent). Intent: Show two-provider consensus usage.
 
 Reply 1:
 
 ```text
-Usage: /run2 <goal> (consensus: minimax + zai)
+🚀 Start a MiniMax and Z.AI GLM mission
+
+Use
+• /run2 <goal>
+
+Example
+• /run2 compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to MiniMax and Z.AI GLM.
+• /model shows or changes the default mission route.
 ```
 
 ### /runall
 
-Score: 3 (okay). Intent: Show all-provider run usage.
+Score: 5 (excellent). Intent: Show all-provider run usage.
 
 Reply 1:
 
 ```text
-Usage: /runall <goal> (all 4 providers)
+🚀 Start a MiniMax, Z.AI GLM, Claude, and Codex mission
+
+Use
+• /runall <goal>
+
+Example
+• /runall compare the current plan against the launch docs
+
+Route
+• Expert shortcut: sends directly to MiniMax, Z.AI GLM, Claude, and Codex.
+• /model shows or changes the default mission route.
 ```
 
 ### /board
@@ -1055,12 +1141,24 @@ Created: 0
 
 ### /mission
 
-Score: 3 (okay). Intent: Show mission control usage.
+Score: 5 (excellent). Intent: Show mission control usage.
 
 Reply 1:
 
 ```text
-Usage: /mission <status|pause|resume|kill> <missionId>
+🧭 Control a mission
+
+Use
+• /mission status <missionId>
+• /mission pause <missionId>
+• /mission resume <missionId>
+• /mission kill <missionId>
+
+Example
+• /mission status spark-1776768300668
+
+Tip
+• /board shows recent mission IDs.
 ```
 
 ### /updates
@@ -1174,24 +1272,40 @@ Example: /creator validate mission-creator-1776768300668 6
 
 ### /chip
 
-Score: 3 (okay). Intent: Show chip creation usage.
+Score: 5 (excellent). Intent: Show chip creation usage.
 
 Reply 1:
 
 ```text
-Usage: /chip create <natural language description>
+🌱 Create a domain chip
+
+Use
+• /chip create <natural language description>
+
+Example
+• /chip create a QA operator that catches launch-blocking UI regressions
+
+Next move
+• Use /creator for planned creator missions, or /recursive for recursive loops.
 ```
 
 ### /loop
 
-Score: 3 (okay). Intent: Show chip autoloop usage.
+Score: 5 (excellent). Intent: Show chip autoloop usage.
 
 Reply 1:
 
 ```text
-Usage: /loop <chip_key> [rounds]
-Runs a recursive self-improving loop: each round calls the chip's suggest hook for candidates, then evaluates them.
-Example: /loop startup-yc 3
+🌀 Run a chip autoloop
+
+Use
+• /loop <chip_key> [rounds]
+
+Example
+• /loop startup-yc 3
+
+What happens
+• Spark asks the chip for candidates, evaluates them, and posts a summary.
 ```
 
 ### /recursive
@@ -1228,14 +1342,22 @@ Local mode: reports come from status files on this [truncated]
 
 ### /schedule
 
-Score: 3 (okay). Intent: Show schedule creation usage.
+Score: 5 (excellent). Intent: Show schedule creation usage.
 
 Reply 1:
 
 ```text
-Usage: /schedule "<cron>" mission <goal>
- /schedule "<cron>" loop <chipKey> [rounds]
-Example: /schedule "*/5 * * * *" loop startup-yc 2
+🗓️ Schedule recurring work
+
+Use
+• /schedule "<cron>" mission <goal>
+• /schedule "<cron>" loop <chipKey> [rounds]
+
+Example
+• /schedule "*/5 * * * *" loop startup-yc 2
+
+Manage
+• /schedules lists or deletes scheduled work.
 ```
 
 ### /schedules
@@ -1318,12 +1440,6 @@ Score: 5 (excellent). Intent: Show deferred queue processing status.
 Reply 1:
 
 ```text
-Processing queue...
-```
-
-Reply 2:
-
-```text
 ⚠️ Legacy dashboard commands are paused for launch v1.
 
 Ready now
@@ -1339,12 +1455,6 @@ Next move: use /status, /diagnose, /run, or /board.
 Score: 5 (excellent). Intent: Show deferred reflection status.
 
 Reply 1:
-
-```text
-Starting deep reflection...
-```
-
-Reply 2:
 
 ```text
 ⚠️ Legacy dashboard commands are paused for launch v1.
