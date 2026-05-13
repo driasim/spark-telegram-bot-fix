@@ -254,6 +254,17 @@ function latestBoardEntry(board: BoardSnapshot): BoardEntry | null {
   return entries[0] || null;
 }
 
+function latestFailureEntry(board: BoardSnapshot): BoardEntry | null {
+  const entries = [
+    ...board.failed,
+    ...board.running,
+    ...board.completed,
+    ...board.created
+  ];
+  entries.sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
+  return entries.find((entry) => entry.status === 'failed' || entry.lastEventType === 'mission_failed') || null;
+}
+
 function isKnownProviderLabel(value: string | null | undefined): value is string {
   if (!value?.trim()) return false;
   const normalized = value.trim().toLowerCase();
@@ -425,6 +436,47 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
     `• ${missionLink}`
   );
   return lines.join('\n');
+}
+
+function failureCauseLines(entry: BoardEntry): string[] {
+  const text = providerResultText(entry).toLowerCase();
+  const causes: string[] = [];
+
+  if (/\bh70\b|\bskill api\b|\bapi\/h70-skills\b/.test(text)) {
+    causes.push('Skill API was unreachable from the spawned Codex lane.');
+  }
+  if (/\bread[-\s]*only\b|\boperation not permitted\b|\bpatch was rejected\b|\bwrite probe\b|\bwrite(?:able|ability)?\b.*\bfailed\b/.test(text)) {
+    causes.push('The spawned workspace was read-only.');
+  }
+  if (/\bconnection refused\b|\beconnrefused\b|\bfailed to connect\b/.test(text)) {
+    causes.push('A local service connection failed inside the spawned lane.');
+  }
+  if (/\bauth\b|\boauth\b|\bunauthorized\b|\bforbidden\b|\b401\b|\b403\b/.test(text)) {
+    causes.push('Provider/auth access needs a fresh check.');
+  }
+
+  return causes.length ? causes.slice(0, 3) : ['Spawner recorded a provider failure; open the board for the full trace.'];
+}
+
+function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const missionLink = `${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(entry.missionId)}`;
+  return [
+    'Latest mission needs attention.',
+    '',
+    'Mission',
+    `• ${title}`,
+    `• ${statusWord(entry.status)}`,
+    '',
+    'What blocked it',
+    ...failureCauseLines(entry).map((line) => `• ${line}`),
+    '',
+    'Move',
+    '• Open the Mission board for the full trace.',
+    '',
+    'Mission board',
+    `• ${missionLink}`
+  ].join('\n');
 }
 
 function spawnerPublicUrl(): string {
@@ -1022,6 +1074,28 @@ export const spawner = {
       return {
         success: true,
         message: formatLatestProviderTelegramSummary(latest)
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.response?.data?.error || err.message
+      };
+    }
+  },
+
+  async latestFailureSummary(): Promise<{ success: boolean; message: string }> {
+    try {
+      const latest = latestFailureEntry(await fetchBoardSnapshot());
+      if (!latest) {
+        return {
+          success: true,
+          message: 'I do not see a failed Spawner mission in the current board.'
+        };
+      }
+
+      return {
+        success: true,
+        message: formatLatestFailureTelegramSummary(latest)
       };
     } catch (err: any) {
       return {

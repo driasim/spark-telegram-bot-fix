@@ -46,6 +46,12 @@ function isInsideWorkspace(candidate: string): boolean {
 function inferConceptualProjectName(prd: string): string | null {
   const lower = prd.toLowerCase();
   if (
+    /\bgame\b/.test(lower) &&
+    /\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(lower)
+  ) {
+    return 'Recursive Sage Maze Game';
+  }
+  if (
     /\bspark\b/.test(lower) &&
     /\b(?:bug|bugs|diagnos|anomal|failure|failures|health|logs?|monitor|troubleshoot|issue|issues)\b/.test(lower) &&
     (/\bdomain[-\s]*chip\b/.test(lower) || /\bchip\b/.test(lower))
@@ -476,6 +482,25 @@ function isConversationalStrategyStructureRequest(text: string, prd: string): bo
   return strategyDomain && speculative && abstractStructure && !concreteArtifact;
 }
 
+function isAgentChosenGameBrief(text: string, prd: string): boolean {
+  const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bgame\b/.test(combined) &&
+    /\b(?:what would you|what would u|what do you|what'd you)\b/.test(combined) &&
+    /\b(?:wanna|want to|would like to)\s+build\b/.test(combined) &&
+    /\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(combined)
+  );
+}
+
+function normalizeAgentChosenGameBrief(text: string, prd: string): string {
+  if (!isAgentChosenGameBrief(text, prd)) return prd;
+  return [
+    'Build a browser-playable game chosen for Recursive Sage.',
+    'Default direction: make it a shifting maze game with keyboard controls, changing walls, a visible exit, restart, score or timer pressure, and a clear win state.',
+    'Make the first screen immediately playable, polished, responsive, and easy to verify without external services.'
+  ].join(' ');
+}
+
 function isAbstractPlanningStructureRequest(prd: string): boolean {
   const normalizedPrd = prd.toLowerCase().replace(/\s+/g, ' ').trim();
   const startsAbstract =
@@ -556,7 +581,7 @@ export function parseBuildIntent(text: string): BuildIntent | null {
   if (stripped.length < 3) return null;
 
   const projectPath = extractPath(original);
-  const prd = removeLeadingPathPrefix(stripped.trim());
+  const prd = normalizeAgentChosenGameBrief(original, removeLeadingPathPrefix(stripped.trim()));
   if (isAbstractPlanningStructureRequest(prd)) return null;
   if (isConversationalStrategyStructureRequest(trimmed, prd)) return null;
   if (isAmbiguousContextualBuildRequest(trimmed, projectPath, prd)) return null;

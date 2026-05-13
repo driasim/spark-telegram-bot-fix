@@ -155,6 +155,26 @@ test('formats structured provider failures without raw JSON noise', () => {
   assert.doesNotMatch(message, /exact_commands/);
 });
 
+test('treats blocked freeform provider completions as mission failures', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-blocked-before-start',
+    requestId: 'tg-build-blocked',
+    verbosity: 'normal',
+    response: [
+      'Blocked before task start.',
+      'I could not load the mandatory H70 skills because http://127.0.0.1:3333 is unreachable.',
+      'Per the mission instructions, I did not create files.',
+      'The filesystem sandbox is read-only.'
+    ].join(' ')
+  });
+
+  assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
+  assert.match(message, /Blocked before task start/);
+  assert.doesNotMatch(message, /✨ Spark/);
+  assert.doesNotMatch(message, /shipped|result ready|wrapped this one/i);
+});
+
 test('warns cleanly when structured provider output is malformed', () => {
   const message = formatProviderCompletionForTelegram({
     providerLabel: 'claude',

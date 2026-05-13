@@ -791,6 +791,45 @@ async function run(): Promise<void> {
     assert.doesNotMatch(result.message, /Result:/);
   });
 
+  await test('latestFailureSummary explains concrete blockers without raw dumps', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-game',
+              missionName: 'Recursive Sage Maze Game',
+              status: 'failed',
+              lastEventType: 'mission_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Create app shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: Blocked before implementation. The required H70 skill API is unavailable: curl http://127.0.0.1:3333/api/h70-skills/frontend-engineer fails with connection refused. The workspace is read-only: touch .codex_write_probe fails with Operation not permitted.'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestFailureSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Latest mission needs attention/);
+    assert.match(result.message, /Mission\n• Recursive Sage Maze Game\n• failed/);
+    assert.match(result.message, /Skill API was unreachable from the spawned Codex lane/);
+    assert.match(result.message, /spawned workspace was read-only/);
+    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-game/);
+    assert.doesNotMatch(result.message, /curl http:\/\/127\.0\.0\.1:3333\/api\/h70-skills/);
+    assert.doesNotMatch(result.message, /Operation not permitted/);
+    assert.doesNotMatch(result.message, /Result:/);
+  });
+
   await test('latestProjectPreview returns the shipped app link for root route builds', async () => {
     restoreAxios();
     const now = Date.now();

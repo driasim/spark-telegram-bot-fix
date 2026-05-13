@@ -49,6 +49,18 @@ test('parses conversational immediate new-project build requests', () => {
   assert.match(intent.prd, /new project called the Game of Ascension/);
 });
 
+test('names agent-chosen game prompts from the actual game intent', () => {
+  const intent = parseBuildIntent(
+    "what would you wanna build here as a game that you'd wanna play Rec, let's build something for you"
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Recursive Sage Maze Game');
+  assert.notEqual(intent.projectName, 'Here As A Game');
+  assert.match(intent.prd, /browser-playable game chosen for Recursive Sage/i);
+  assert.match(intent.prd, /shifting maze game/i);
+});
+
 test('infers clean landing-page names from compact build prompts', () => {
   const intent = parseBuildIntent('Build a tiny static landing page for a cafe with a menu section.');
 

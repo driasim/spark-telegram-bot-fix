@@ -5087,6 +5087,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ? await spawner.latestKanbanSummary()
           : spawnerBoardIntent === 'latest_project_preview'
             ? await spawner.latestProjectPreview()
+            : spawnerBoardIntent === 'latest_failure'
+              ? await spawner.latestFailureSummary()
           : await spawner.board();
       await ctx.reply(result.success ? result.message : `Board failed: ${result.message}`);
       return;

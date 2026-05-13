@@ -855,6 +855,31 @@ function voiceLine(kind: keyof typeof VOICE_LINES, seed: string, replacements: R
   return line;
 }
 
+function providerCompletionLooksBlocked(text: string): boolean {
+  const normalized = compactWhitespace(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    /\bblocked before task start\b/.test(normalized) ||
+    /\bblocked by (?:the |this |current )?(?:execution )?environment\b/.test(normalized) ||
+    /\bcould not load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bfailed to load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bi did not create (?:any )?files\b/.test(normalized) ||
+    /\bdid not create (?:any )?files\b/.test(normalized) ||
+    /\bworkspace (?:is|was) read-only\b/.test(normalized) ||
+    /\bread-only (?:sandbox|workspace|filesystem)\b/.test(normalized) ||
+    /\bpatch (?:was )?rejected\b/.test(normalized) ||
+    /\boperation not permitted\b/.test(normalized) ||
+    /\bfailed to connect to 127\.0\.0\.1\b/.test(normalized)
+  );
+}
+
+function providerCompletionKind(status: string | null | undefined, text: string): 'completed' | 'failed' {
+  const normalizedStatus = status?.toLowerCase();
+  if (normalizedStatus && ['failed', 'error', 'blocked'].includes(normalizedStatus)) return 'failed';
+  if (providerCompletionLooksBlocked(text)) return 'failed';
+  return 'completed';
+}
+
 function compactTelegramBlocks(...blocks: Array<string | null | undefined | false>): string {
   return blocks
     .filter((block): block is string => Boolean(block && block.trim()))
@@ -1176,7 +1201,8 @@ export function formatProviderCompletionForTelegram(input: {
     const shipped = extractSectionBullets(input.response, /^What shipped:/i, 4);
     const checks = extractSectionBullets(input.response, /^Verification passed:/i, 4);
     const lead = extractFreeformLeadSummary(input.response);
-    const lines = [voiceLine('completed', `${input.missionId}:${provider}:freeform`)];
+    const completionKind = providerCompletionKind(null, clean);
+    const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
     if (lead) lines.push('', lead);
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
@@ -1209,6 +1235,7 @@ export function formatProviderCompletionForTelegram(input: {
 
   const status = stringField(parsed, 'status');
   const summary = stringField(parsed, 'summary') || stringField(parsed, 'message');
+  const completionKind = providerCompletionKind(status, [summary, input.response].filter(Boolean).join('\n'));
   const projectPath = stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
   const openLink = input.openLink !== undefined
     ? (input.openLink ? normalizePreviewLink(input.openLink, projectPath) : null)
@@ -1218,14 +1245,14 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (verbosity === 'minimal') {
     return [
-      voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:minimal`),
+      voiceLine(completionKind, `${input.missionId}:${provider}:minimal`),
       summary ? clipText(summary, 240) : null,
       openLink ? openProjectLines(openLink).join('\n') : null,
       `Mission: ${input.missionId}`
     ].filter(Boolean).join('\n');
   }
 
-  const lines: string[] = [voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:structured`)];
+  const lines: string[] = [voiceLine(completionKind, `${input.missionId}:${provider}:structured`)];
   if (summary) {
     lines.push('', clipText(summary, verbosity === 'verbose' ? 700 : 420));
   } else if (input.goal) {
@@ -1250,7 +1277,7 @@ export function formatProviderCompletionForTelegram(input: {
     lines.push(...nextActions.slice(0, 4).map((item) => `• ${clipText(item, 180)}`));
   }
 
-  if (openLink && (!status || !['failed', 'error', 'blocked'].includes(status.toLowerCase()))) {
+  if (openLink && completionKind === 'completed') {
     lines.push('', nextPolishLine());
   }
 
