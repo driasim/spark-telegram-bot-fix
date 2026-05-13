@@ -21,6 +21,7 @@
     "nl:replay": "ts-node ops/naturalRouteReplay.ts",
     "context:live": "ts-node ops/contextWindowLiveHarness.ts",
     "context:ux": "ts-node ops/contextWindowLiveHarness.ts --ux",
+    "audit:telegram-composition": "ts-node ops/telegramCommandCompositionAudit.ts",
     "test": "node scripts/run-tests.cjs",
     "test:live-token": "node scripts/run-tests.cjs --require-real-token"
   },

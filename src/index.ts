@@ -9,8 +9,11 @@ import { promisify } from 'node:util';
 import { Telegraf } from 'telegraf';
 
 // Load .env.override LAST with override=true. Wins over anything spark-cli
-// rewrites in .env. Never committed (.gitignored).
-loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true });
+// rewrites in .env. Never committed (.gitignored). Dedicated harnesses can
+// opt out when they need an isolated process.env without local profile bleed.
+if (process.env.SPARK_SKIP_ENV_OVERRIDE !== '1') {
+  loadEnv({ path: path.join(__dirname, '..', '.env.override'), override: true });
+}
 import { message } from 'telegraf/filters';
 import {
   conversation,
@@ -265,7 +268,7 @@ if (!process.env.BOT_TOKEN && !TELEGRAM_SMOKE_MODE) {
 }
 
 const botToken = process.env.BOT_TOKEN || '0:telegram-smoke-token';
-const bot = new Telegraf(botToken, {
+export const bot = new Telegraf(botToken, {
   handlerTimeout: telegramHandlerTimeoutMs()
 });
 
@@ -312,6 +315,9 @@ function recordTelegramSourceUsedEvidence(
   evidence: TelegramSourceUsedEvidence[],
   confidence = 'high'
 ): void {
+  if (process.env.SPARK_BOT_TEST_MODE === '1') {
+    return;
+  }
   const chatId = ctx.chat?.id;
   const userId = ctx.from?.id ?? user?.id;
   if (chatId === undefined || userId === undefined || evidence.length === 0) {

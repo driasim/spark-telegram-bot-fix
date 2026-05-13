@@ -7,6 +7,7 @@ Use these when validating behavior:
 - `NATURAL_LANGUAGE_LIVE_TEST_PLAN.md` - natural-language routing and mission behavior plan.
 - `CONTEXT_WINDOW_LIVE_TEST_PLAN.md` - conversation frame, stale-memory, and follow-up tests.
 - `liveNlCommandSuite.ts` - sends prompt cards for human-in-the-loop live Telegram testing.
+- `telegramCommandCompositionAudit.ts` - drives registered Telegram commands through test-mode middleware and writes the command composition scorecard.
 - `routeBoundaryHandlerHarness.ts` - exercises no-execution and route-boundary cases.
 - `runtimeFreshnessCheck.ts` - checks source/runtime drift.
 - `naturalRouteSmoke.ts` and `naturalRouteReplay.ts` - replay route fixtures.

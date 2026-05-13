@@ -18,6 +18,7 @@ Gateway state location is now configurable with `SPARK_GATEWAY_STATE_DIR`, so a 
 Current audit note:
 
 - [Spark Telegram Bot Audit - 2026-05-13](./docs/REPO_AUDIT_2026-05-13.md)
+- [Telegram command composition audit - 2026-05-13](./docs/TELEGRAM_COMMAND_COMPOSITION_AUDIT_2026-05-13.md)
 
 Audit highlights: launch v1 is still long-polling only, local webhook/tunnel helpers are not supported, ignored runtime state should not be treated as repo truth, and strict unused-code checks are part of the maintenance gate.
 
@@ -283,6 +284,7 @@ If you are Claude Code, Codex, or another LLM agent operating this repo:
 
 - [Spark Telegram Bot Audit - 2026-05-13](./docs/REPO_AUDIT_2026-05-13.md)
 - [Spark command surface audit - 2026-05-13](./docs/SPARK_COMMAND_SURFACE_AUDIT_2026-05-13.md)
+- [Telegram command composition audit - 2026-05-13](./docs/TELEGRAM_COMMAND_COMPOSITION_AUDIT_2026-05-13.md)
 - [Spark QA operator Telegram recursion guide](./docs/QA_OPERATOR_TELEGRAM_RECURSION.md)
 - [Ops harness guide](./ops/README.md)
 
