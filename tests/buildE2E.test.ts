@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
@@ -49,6 +49,7 @@ const originalEnv = {
 	SPARK_NODE_OUTBOUND_AUDIT_PATH: process.env.SPARK_NODE_OUTBOUND_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
 	SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH: process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH,
+	SPAWNER_STATE_DIR: process.env.SPAWNER_STATE_DIR,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -1118,6 +1119,67 @@ async function run(): Promise<void> {
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, dispatchCall!.body.requestId);
 
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('bare go can recover a pending clarification from durable Spawner state', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const stateDir = mkdtempSync(path.join(os.tmpdir(), 'spark-spawner-state-'));
+		process.env.SPAWNER_STATE_DIR = stateDir;
+		const pendingDir = path.join(stateDir, 'pending-clarifications');
+		mkdirSync(pendingDir, { recursive: true });
+		writeFileSync(
+			path.join(pendingDir, 'tg-build-recover.json'),
+			JSON.stringify({
+				requestId: 'tg-build-recover',
+				projectName: 'Recovered Voxel Game',
+				originalContent: [
+					'# Recovered Voxel Game',
+					'',
+					'Build mode: advanced_prd',
+					'Build mode reason: User explicitly requested advanced PRD mode.',
+					'',
+					'Build a browser-playable voxel game for Spark. Create exactly five files.'
+				].join('\n'),
+				openQuestions: ['What should make this game feel surprising?'],
+				addedAssumptions: ['Assume a browser-playable game.'],
+				buildMode: 'advanced_prd',
+				buildModeReason: 'User explicitly requested advanced PRD mode.',
+				chatId: '8319079055',
+				userId: '8319079055',
+				timestamp: new Date().toISOString()
+			}),
+			'utf-8'
+		);
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'codex', started: true } } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 561, replies);
+		ctx.message.text = 'go';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const dispatchCall = captured.find((c) => c.body?.forceDispatch === true);
+		assert.ok(dispatchCall, 'expected durable pending clarification to dispatch on go');
+		assert.equal(dispatchCall!.body.projectName, 'Recovered Voxel Game');
+		assert.match(dispatchCall!.body.content, /^# Recovered Voxel Game/m);
+		assert.doesNotMatch(dispatchCall!.body.content, /Build mode reason:[\s\S]*Build mode reason:/);
+		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
+		assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
+
+		rmSync(stateDir, { recursive: true, force: true });
 		restoreAxios();
 		restoreEnv();
 	});

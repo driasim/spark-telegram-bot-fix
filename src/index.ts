@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -1575,6 +1575,26 @@ interface PendingClarification {
   questions: string[];
   addedAssumptions: string[];
   timestamp: number;
+}
+
+interface PersistedSpawnerClarification {
+  requestId?: string;
+  projectName?: string;
+  originalContent?: string;
+  enrichedContent?: string;
+  openQuestions?: unknown[];
+  addedAssumptions?: unknown[];
+  buildMode?: 'direct' | 'advanced_prd';
+  buildModeReason?: string;
+  projectPath?: string | null;
+  capabilityProposalPacket?: Record<string, unknown>;
+  chatId?: string;
+  userId?: string;
+  relay?: {
+    chatId?: string;
+    userId?: string;
+  };
+  timestamp?: string;
 }
 interface PendingBuildDispatchConfirmation {
   requestId: string;
@@ -3435,6 +3455,11 @@ function isPendingClarificationFollowup(text: string): boolean {
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
 }
 
+function isShortPendingConfirmation(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)$/i.test(normalized);
+}
+
 export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
   if (!pending) return false;
   const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
@@ -3457,6 +3482,95 @@ function pendingClarificationForMessage(key: string, text: string): PendingClari
     return null;
   }
   return pending;
+}
+
+function spawnerStateDir(): string {
+  return process.env.SPAWNER_STATE_DIR || path.join(os.homedir(), '.spark', 'state', 'spawner-ui');
+}
+
+function stripPrdBridgeEnvelope(content: string): string {
+  return content
+    .replace(
+      /^#\s+[^\n]+\n\nBuild mode:\s*(?:direct|advanced_prd)\nBuild mode reason:\s*[^\n]+(?:\nTarget workspace\/project path:\s*`[^`]+`)?\n\n/is,
+      ''
+    )
+    .trim() || content.trim();
+}
+
+function persistedClarificationTimestampMs(value: PersistedSpawnerClarification): number {
+  const parsed = value.timestamp ? Date.parse(value.timestamp) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function persistedClarificationMatchesUser(value: PersistedSpawnerClarification, chatId: string, userId: string): boolean {
+  const persistedChatId = String(value.chatId || value.relay?.chatId || '');
+  const persistedUserId = String(value.userId || value.relay?.userId || '');
+  if (!persistedChatId && !persistedUserId) {
+    return true;
+  }
+  return (!persistedChatId || persistedChatId === chatId) && (!persistedUserId || persistedUserId === userId);
+}
+
+function pendingClarificationFromPersisted(value: PersistedSpawnerClarification, timestampMs: number): PendingClarification | null {
+  if (!value.requestId || !value.originalContent) return null;
+  const questions = Array.isArray(value.openQuestions)
+    ? value.openQuestions.filter((question): question is string => typeof question === 'string')
+    : [];
+  const assumptions = Array.isArray(value.addedAssumptions)
+    ? value.addedAssumptions.filter((assumption): assumption is string => typeof assumption === 'string')
+    : [];
+  return {
+    requestId: value.requestId,
+    prd: stripPrdBridgeEnvelope(value.originalContent),
+    projectName: typeof value.projectName === 'string' && value.projectName.trim()
+      ? value.projectName.trim()
+      : 'Recovered Build',
+    projectPath: typeof value.projectPath === 'string' && value.projectPath.trim() ? value.projectPath.trim() : null,
+    buildMode: value.buildMode === 'advanced_prd' ? 'advanced_prd' : 'direct',
+    buildModeReason: typeof value.buildModeReason === 'string' && value.buildModeReason.trim()
+      ? value.buildModeReason.trim()
+      : 'Recovered from durable Spawner clarification state.',
+    capabilityProposalPacket: value.capabilityProposalPacket,
+    questions,
+    addedAssumptions: assumptions,
+    timestamp: timestampMs
+  };
+}
+
+async function recoverPendingClarificationFromSpawnerState(ctx: any, text: string): Promise<PendingClarification | null> {
+  if (!isShortPendingConfirmation(text)) return null;
+  if (!conversation.isAdmin(ctx.from)) return null;
+  const chatId = String(ctx.chat?.id ?? '');
+  const userId = String(ctx.from?.id ?? '');
+  const dir = path.join(spawnerStateDir(), 'pending-clarifications');
+  let files: string[] = [];
+  try {
+    files = (await readdir(dir)).filter((file) => file.endsWith('.json'));
+  } catch {
+    return null;
+  }
+
+  const candidates: Array<{ pending: PendingClarification; timestampMs: number }> = [];
+  for (const file of files) {
+    try {
+      const raw = await readFile(path.join(dir, file), 'utf-8');
+      const parsed = JSON.parse(raw) as PersistedSpawnerClarification;
+      if (!persistedClarificationMatchesUser(parsed, chatId, userId)) continue;
+      const timestampMs = persistedClarificationTimestampMs(parsed);
+      if (!timestampMs || Date.now() - timestampMs > CLARIFICATION_TTL_MS) continue;
+      const pending = pendingClarificationFromPersisted(parsed, timestampMs);
+      if (pending) candidates.push({ pending, timestampMs });
+    } catch {
+      continue;
+    }
+  }
+
+  candidates.sort((a, b) => b.timestampMs - a.timestampMs);
+  const latest = candidates[0]?.pending || null;
+  if (latest) {
+    pendingClarifications.set(`${chatId}-${userId}`, latest);
+  }
+  return latest;
 }
 
 function pendingBuildDispatchConfirmationForMessage(key: string, text: string): PendingBuildDispatchConfirmation | null {
@@ -5277,7 +5391,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const activePendingClarification = conversation.isAdmin(ctx.from)
-    ? pendingClarificationForMessage(adminPendingExecutionKey, text)
+    ? pendingClarificationForMessage(adminPendingExecutionKey, text) ||
+      await recoverPendingClarificationFromSpawnerState(ctx, text)
     : null;
   const activePendingBuildDispatchConfirmation = conversation.isAdmin(ctx.from)
     ? pendingBuildDispatchConfirmationForMessage(adminPendingExecutionKey, text)
