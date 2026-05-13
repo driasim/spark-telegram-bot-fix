@@ -61,6 +61,16 @@ test('names agent-chosen game prompts from the actual game intent', () => {
   assert.match(intent.prd, /shifting maze game/i);
 });
 
+test('preserves colon subtitles in explicit project names', () => {
+  const intent = parseBuildIntent(
+    'Build a small browser game called Recursive Sage: Signal Maze. Make it playable in one static HTML file.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Recursive Sage: Signal Maze');
+  assert.match(intent.prd, /one static HTML file/i);
+});
+
 test('infers clean landing-page names from compact build prompts', () => {
   const intent = parseBuildIntent('Build a tiny static landing page for a cafe with a menu section.');
 

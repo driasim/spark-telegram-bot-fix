@@ -155,8 +155,8 @@ function inferQuotedHeadingProjectName(prd: string): string | null {
 }
 
 function inferProjectName(prd: string, projectPath: string | null): string {
-  const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s-]{2,60}?)(?=[.,:;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
-  if (nameMatch) return nameMatch[1].trim();
+  const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s:.-]{2,80}?)(?=[.,;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
+  if (nameMatch) return nameMatch[1].trim().replace(/\s*[:;,-]\s*$/, '');
   const shippedProjectMatch = prd.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i);
   if (shippedProjectMatch) return shippedProjectMatch[1].trim();
   const quotedProjectMatch = prd.match(/\b(?:project|app|site|dashboard|tool)\s+["']([^"']{3,80})["']/i);
