@@ -279,53 +279,56 @@ export function renderModelStatus(): string {
   const missionProvider = resolveMissionDefaultProvider();
   const missionModel = process.env.SPARK_MISSION_LLM_MODEL || process.env.CODEX_MODEL || process.env.SPARK_CODEX_MODEL || 'default';
   return [
-    'Spark model routing',
+    '🧠 Spark model routing',
     '',
-    `Agent chat: ${chat.provider}${chat.model ? ` (${chat.model})` : ''}`,
-    `Missions: ${missionProvider}${missionModel ? ` (${missionModel})` : ''}`,
+    'Current',
+    `• Agent chat: ${chat.provider}${chat.model ? ` (${chat.model})` : ''}`,
+    `• Missions: ${missionProvider}${missionModel ? ` (${missionModel})` : ''}`,
     '',
-    renderModelRecommendations(),
+    'Common switches',
+    '• /model agent codex',
+    `• /model agent claude ${PROVIDERS.anthropic.defaultModel}`,
+    '• /model mission codex',
+    `• /model mission claude ${CLAUDE_MISSION_MODEL}`,
     '',
-    'Change it:',
-    '/model agent zai',
-    '/model agent codex',
-    `/model agent claude ${PROVIDERS.anthropic.defaultModel}`,
-    '/model mission codex',
-    `/model mission claude ${CLAUDE_MISSION_MODEL}`,
-    '/model agent openrouter anthropic/claude-sonnet-4.6',
-    '/model agent lmstudio <loaded-model-id>',
-    '/model agent huggingface google/gemma-4-26B-A4B-it:fastest',
-    '/model mission huggingface google/gemma-4-31B-it:fastest',
+    'More options',
+    '• /models - curated provider defaults',
+    '• /models claude - provider-specific details',
+    '• /model agent lmstudio <loaded-model-id>',
     '',
-    'You can pass an exact model id as the third value. Use /diagnose after changing to verify the route.'
+    'You can pass an exact model id as the third value. Run /diagnose after changing to verify the route.'
   ].join('\n');
 }
 
 export function renderModelRecommendations(provider?: ProviderId | null): string {
   const ids = provider ? [provider] : (Object.keys(PROVIDERS) as ProviderId[]);
   const lines = [
-    'Recommended Spark provider paths',
+    '🧭 Recommended Spark provider paths',
     '',
     'Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.',
     '',
-    'Fast picks:',
-    '- Have ChatGPT/Codex: codex with gpt-5.5',
-    '- Have Claude: claude with Sonnet for agent, Opus for hard missions',
-    '- Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face',
-    '- Want local/private: LM Studio for desktop, Ollama for terminal',
+    'Fast picks',
+    '• Have ChatGPT/Codex: codex with gpt-5.5',
+    '• Have Claude: claude with Sonnet for agent, Opus for hard missions',
+    '• Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face',
+    '• Want local/private: LM Studio for desktop, Ollama for terminal',
     '',
-    'Provider details'
+    provider ? 'Provider detail' : 'Provider defaults'
   ];
   for (const id of ids) {
     const spec = PROVIDERS[id];
     const agentModel = displayModelFor(id, 'agent', recommendedModelFor(id, 'agent'));
     const missionModel = displayModelFor(id, 'mission', recommendedModelFor(id, 'mission'));
-    lines.push(`- ${spec.botProvider}: ${spec.lane}; agent ${agentModel}; mission ${missionModel}`);
-    lines.push(`  ${spec.recommendation}`);
-    lines.push(`  ${spec.starterTip}`);
+    lines.push(`• ${spec.botProvider}: ${spec.lane}; agent ${agentModel}; mission ${missionModel}`);
+    if (provider) {
+      lines.push(`  Why: ${spec.recommendation}`);
+      lines.push(`  Good fit: ${spec.starterTip}`);
+    }
   }
   lines.push('');
-  lines.push('Spark uses these curated defaults unless you provide an exact model id.');
+  lines.push(provider
+    ? 'Spark uses these curated defaults unless you provide an exact model id.'
+    : 'For details, use /models claude, /models codex, /models openai, /models openrouter, /models zai, /models minimax, /models huggingface, /models lmstudio, or /models ollama.');
   return lines.join('\n');
 }
 
@@ -350,7 +353,7 @@ export async function switchModelRoute(role: ModelRole, provider: ProviderId, mo
   const displayModel = displayModelFor(provider, role, selectedModel);
   const label = role === 'agent' ? 'Agent chat/runtime/memory' : 'Missions';
   return [
-    `${label} now uses ${spec.botProvider === 'claude' ? 'claude' : provider} (${displayModel}).`,
+    `✅ ${label} now uses ${spec.botProvider === 'claude' ? 'claude' : provider} (${displayModel}).`,
     changedFiles.length > 0 ? 'Saved for future Spark restarts.' : 'Applied to this running bot.',
     'Run /diagnose to verify it.'
   ].join('\n');

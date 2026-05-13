@@ -131,6 +131,7 @@ import {
   formatSparkAccessAutomaticRestartNotice,
   runSparkAccessActionDetailed,
   scheduleSparkRestartAfterAccessChange,
+  sparkAccessActionLabel,
   type SparkAccessActionId
 } from './accessActions';
 import {
@@ -299,6 +300,23 @@ async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> 
   return redactText([stdout, stderr].map((value) => String(value || '').trim()).filter(Boolean).join('\n'));
 }
 
+function sparkCliFailureReason(error: unknown): string {
+  const detail = redactText(error instanceof Error ? error.message : String(error || 'unknown error'))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (/enoent|spawn spark|command not found|not recognized/.test(detail)) {
+    return 'Spark CLI is not available to this Telegram runtime.';
+  }
+  if (/timed out|timeout/.test(detail)) {
+    return 'Spark CLI did not answer before the Telegram timeout.';
+  }
+  if (/eacces|access is denied|permission denied/.test(detail)) {
+    return 'This Telegram runtime cannot execute the local Spark CLI.';
+  }
+  return 'The local Spark CLI probe failed before returning usable health data.';
+}
+
 type TelegramSourceUsedEvidence = {
   source: string;
   role: string;
@@ -455,7 +473,7 @@ async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
     const telegramOk = /\[OK\]\s+spark-telegram-bot/i.test(liveStatus);
     const supervised = deepVerify.match(/Runtime processes are running under Spark supervision:\s*([^\n]+)/i)?.[1]?.trim();
     return [
-      'Spark Live Health',
+      '✅ Spark Live health',
       '',
       'Source: local Spark CLI from this Telegram runtime.',
       'Commands: `spark live status`; supervision cross-check: `spark verify --deep`.',
@@ -467,14 +485,18 @@ async function renderAuthoritativeSparkLiveStatus(): Promise<string> {
       compactSparkLiveOutput(liveStatus)
     ].join('\n');
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
-      'Spark Live Health',
+      '⚠️ Spark Live health is unverified.',
       '',
-      'I could not run the authoritative local Spark CLI health check from this Telegram runtime.',
-      `Error: ${detail}`,
+      'What happened',
+      `• ${sparkCliFailureReason(error)}`,
       '',
-      'This means this runner could not probe local Spark health. It does not prove Spawner or Telegram are offline.'
+      'What this means',
+      '• Telegram could not prove live Spark health from here.',
+      '• This is not proof that Spawner or Telegram are offline.',
+      '',
+      'Next move',
+      '• Run /diagnose, or check `spark live status` from the Spark CLI.'
     ].join('\n');
   }
 }
@@ -518,12 +540,10 @@ async function renderAuthoritativeSparkLiveStateAnswer(): Promise<string> {
         : 'Call: at least one live operating surface is not proven healthy right now.'
     ].filter(Boolean).join('\n');
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
-      'Current live state: unknown.',
+      '⚠️ Current live state is unknown.',
       '',
-      'I could not run `spark live status` from this Telegram runtime.',
-      `Error: ${detail}`,
+      `What happened: ${sparkCliFailureReason(error)}`,
       '',
       'Call: this is a probe failure, not proof that Spawner or Telegram are down.'
     ].join('\n');
@@ -555,11 +575,10 @@ async function renderAuthoritativeSparkRiskProfileAnswer(): Promise<string> {
         : 'Call: at least one surface needs attention before trusting execution. I did not start a mission or repair action.'
     ].join('\n');
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
-      'Current Spark risk profile: unknown.',
+      '⚠️ Current Spark risk profile is unknown.',
       '',
-      `Fresh risk check failed: ${detail}`,
+      `What happened: ${sparkCliFailureReason(error)}`,
       'I did not start a mission or repair action.'
     ].join('\n');
   }
@@ -669,13 +688,12 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
         : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
     ].join('\n');
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
-      'Spark Access Status',
+      '⚠️ Spark Access status is partly unverified.',
       '',
       `Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
       'CLI effective access: unavailable.',
-      `Error: ${detail}`,
+      `Why: ${sparkCliFailureReason(error)}`,
       '',
       runnerLine,
       '',
@@ -755,11 +773,10 @@ async function renderAuthoritativeSparkEditCapabilityAnswer(chatId: string | num
         : 'Boundary: Spark should stay in the workspace/sandbox path unless Level 5 service guardrails, chat access, and runner writability are all active.'
     ].join('\n');
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
-      'I cannot prove whole-computer file access from current Spark access state.',
+      '⚠️ I cannot prove whole-computer file access from current Spark access state.',
       '',
-      `Access check failed: ${detail}`,
+      `Why: ${sparkCliFailureReason(error)}`,
       `Runner writable: ${runnerPreflight.runnerWritable}.`,
       '',
       'So I will treat outside-workspace edits as unavailable until the access check succeeds.'
@@ -1630,54 +1647,39 @@ bot.start(async (ctx) => {
   const spawnerAvailable = await spawner.isAvailable();
 
   const lines = [
-    `Hey ${name}! I'm Spark.`,
+    `👋 Hey ${name}, I'm Spark.`,
+    builderBridge.available
+      ? '🧠 Builder memory is connected.'
+      : '⚠️ Builder memory is offline right now, so I will avoid claiming saved memory.',
+    spawnerAvailable
+      ? '✅ Mission relay is reachable.'
+      : '⚠️ Mission relay is offline right now.',
     '',
-    'I remember conversations through the Builder memory path.',
+    'Good first moves:',
+    '• /status - health and access',
+    '• /diagnose - deeper health check',
+    '• /remember <text> - save an important detail',
+    '• /recall <topic> - ask what I remember',
     '',
-    'Memory Commands:',
-    '/remember <text> - Save something important',
-    '/recall <topic> - Ask what I remember about a topic',
-    '/about - Ask what I know about you',
-    '/forget <text> - Ask me to forget a saved detail',
-    '',
-    'Spark Intelligence:',
-    '/spark - System status'
+    'You can also just chat with me here.'
   ];
 
   if (conversation.isAdmin(user)) {
     lines.push(
       '',
-      'Spawner Control:',
-      '/run <goal> - Start a mission in Spawner',
-      '/board - Mission state report',
-      '/creator plan <brief> - Plan a creator mission for a chip/path/benchmark/autoloop',
-      '/creator run <missionId> - Execute a planned creator mission',
-      '/creator status <missionId> - Show creator mission readiness and validation state',
-      '/creator validate <missionId> [maxCommands] - Run creator validation gates',
-      '/workspaces - Show local project folders',
-      '/model - Show or change Agent/Mission model routing',
-      '/models - Show recommended model versions',
-      '/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory',
-      '/context - Show Agent Operating Context',
-      '/black_box - Show compact agent black-box trace counts',
-      '/trace_repair - Show trace health repair summary',
-      '/memory_movement - Show memory movement summary',
-      '/probe <route> - Run a route probe and record AOC evidence',
-      '/operating_context or /agent_context - Same, Telegram-safe aliases',
-      '/conversation_context - Show conversation-frame diagnostics',
-      '/updates <minimal|normal|verbose> - Tune live mission updates',
-      '/access <1|2|3|4|5> - Choose what this Telegram chat can do',
-      '/access_setup - Set up the safe Level 4 workspace from Telegram',
-      '/docker_doctor - Check Docker sandbox readiness without changing the computer',
-      '/docker_smoke confirm - Run the no-secret Docker sandbox smoke',
-      '/access 5 - Approve Level 5 setup from Telegram',
-      '/mission <status|pause|resume|kill> <missionId> - Control a mission'
+      'Admin shortcuts:',
+      '• /run <goal> - start a Spawner mission',
+      '• /board - mission board',
+      '• /access <1|2|3|4|5> - choose chat permissions',
+      '• /access 5 - Approve Level 5 setup from Telegram',
+      '• /model - model routing',
+      '• /workspaces - local project folders',
+      '',
+      'Advanced:',
+      '• /creator, /recursive, /context, /probe, /trace, /memory_movement, /wiki'
     );
-  }
-
-  lines.push('', 'Or just chat!');
-  if (!builderBridge.available) {
-    lines.push('', 'Builder memory bridge unavailable; local fallback may be used.');
+  } else {
+    lines.push('', 'Setup:', '• /myid - share your Telegram ID with the operator');
   }
 
   await ctx.reply(lines.join('\n'));
@@ -1693,9 +1695,6 @@ bot.start(async (ctx) => {
     }).catch((error) => {
       console.warn('[Onboarding] failed to write first-message event:', error);
     });
-  }
-  if (!spawnerAvailable && conversation.isAdmin(user)) {
-    await ctx.reply('Spawner orchestration is offline.');
   }
   if (conversation.isAdmin(user)) {
     const configuredAccess = await getConfiguredSparkAccessProfile(ctx.chat.id);
@@ -1713,9 +1712,9 @@ bot.command('status', async (ctx) => {
   const builderBridge = await getBuilderBridgeStatus();
   const isAdmin = conversation.isAdmin(ctx.from);
 
-  let status = 'System Status\n\n';
+  let status = '✅ System status\n\n';
 
-  status += `Builder memory bridge: ${builderBridge.available ? 'ONLINE' : 'OFFLINE'} (${builderBridge.mode})\n`;
+  status += `Builder memory: ${builderBridge.available ? '✅ online' : '⚠️ offline'} (${builderBridge.mode})\n`;
 
   if (isAdmin) {
     status += '\n';
@@ -1730,8 +1729,8 @@ bot.command('status', async (ctx) => {
       runtimeTruthSourceEvidence('spark live status access providers memory')
     );
   } else {
-    status += 'Spark launch core: ONLINE\n';
-    status += 'Dashboard/resonance: deferred\n';
+    status += 'Spark launch core: ✅ online\n';
+    status += 'Legacy dashboard commands: paused for launch v1\n';
   }
 
   await ctx.reply(status);
@@ -1741,7 +1740,7 @@ bot.command('status', async (ctx) => {
 bot.command('diagnose', async (ctx) => {
   if (!requireAdmin(ctx)) return;
   await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Running diagnostics - checks chat, access, relay, Spawner, and provider ping. Takes ~30s...');
+  await ctx.reply('🔎 Running diagnostics...\n\nChecks chat, access, relay, Spawner, and provider ping. Takes ~30s.');
   try {
     const report = await buildDiagnoseReport(ctx.from.id, {
       userId: ctx.from.id,
@@ -2369,7 +2368,12 @@ bot.command('remember', async (ctx) => {
   const text = ctx.message.text.replace('/remember', '').trim();
 
   if (!text) {
-    return ctx.reply('Usage: /remember <something to remember>');
+    return ctx.reply([
+      '🧠 Save a memory',
+      '',
+      'Use: /remember <something important>',
+      'Example: /remember I prefer concise mission updates.'
+    ].join('\n'));
   }
 
   try {
@@ -2393,7 +2397,12 @@ bot.command('recall', async (ctx) => {
   const query = ctx.message.text.replace('/recall', '').trim();
 
   if (!query) {
-    return ctx.reply('Usage: /recall <topic to recall>');
+    return ctx.reply([
+      '🔎 Recall memory',
+      '',
+      'Use: /recall <topic>',
+      'Example: /recall mission update preferences'
+    ].join('\n'));
   }
 
   try {
@@ -2433,8 +2442,14 @@ bot.command('forget', async (ctx) => {
     }
   }
   await ctx.reply(
-    'Usage: /forget <thing to forget>\n\n' +
-    'If the Builder memory bridge is unavailable, try again once it is back or contact the bot admin.'
+    [
+      '🧹 Forget memory',
+      '',
+      'Use: /forget <thing to forget>',
+      'Example: /forget my old project nickname',
+      '',
+      'If Builder memory is offline, try again after /diagnose shows memory is healthy.'
+    ].join('\n')
   );
 });
 
@@ -4197,8 +4212,13 @@ async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
       scheduleSparkRestartAfterAccessChange();
     }
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
-    await ctx.reply(`Access Level 5 setup failed: ${detail}`);
+    await ctx.reply([
+      '⚠️ Access Level 5 setup could not run.',
+      '',
+      `Why: ${sparkCliFailureReason(error)}`,
+      '',
+      'Next move: run /diagnose, or complete Level 5 setup from the Spark CLI.'
+    ].join('\n'));
   }
 }
 
@@ -4229,8 +4249,13 @@ async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, 
       scheduleSparkRestartAfterAccessChange();
     }
   } catch (error) {
-    const detail = redactText(error instanceof Error ? error.message : String(error));
-    await ctx.reply(`Spark access action failed: ${detail}`);
+    await ctx.reply([
+      `⚠️ ${sparkAccessActionLabel(actionId)} could not run.`,
+      '',
+      `Why: ${sparkCliFailureReason(error)}`,
+      '',
+      'Next move: run /diagnose, or run the same access action from the Spark CLI.'
+    ].join('\n'));
   }
 }
 

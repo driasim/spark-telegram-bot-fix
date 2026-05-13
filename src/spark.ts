@@ -6,8 +6,16 @@
  */
 
 const DASHBOARD_DEFERRED =
-  'The Spark dashboard/resonance surface is not part of this launch build yet. ' +
-  'Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.';
+  [
+    '⚠️ Legacy dashboard commands are paused for launch v1.',
+    '',
+    'Ready now',
+    '• Telegram chat and command routing',
+    '• Builder memory when the local bridge is healthy',
+    '• Spawner mission relay when local services are running',
+    '',
+    'Next move: use /status, /diagnose, /run, or /board.'
+  ].join('\n');
 
 export const spark = {
   /**
@@ -23,10 +31,17 @@ export const spark = {
    */
   async getQuickStatus(): Promise<string> {
     return [
-      'Launch core: ONLINE',
-      'Dashboard/resonance: deferred',
+      '✅ Spark Telegram launch core is online.',
       '',
-      DASHBOARD_DEFERRED,
+      'Ready now',
+      '• Chat and command routing through Telegram',
+      '• Builder memory when the local bridge is healthy',
+      '• Spawner mission relay when local services are running',
+      '',
+      'Paused',
+      '• Legacy resonance/dashboard commands',
+      '',
+      'Next move: use /status for live health or /run <goal> for missions.'
     ].join('\n');
   },
 
@@ -43,10 +58,10 @@ export const spark = {
   },
 
   async processQueue(): Promise<string> {
-    return 'Dashboard queue processing is deferred for this launch build.';
+    return DASHBOARD_DEFERRED;
   },
 
   async reflect(): Promise<string> {
-    return 'Dashboard reflection is deferred for this launch build.';
+    return DASHBOARD_DEFERRED;
   },
 };

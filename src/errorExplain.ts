@@ -267,14 +267,34 @@ export function renderSparkErrorReply(
   isAdmin: boolean = false
 ): string {
   const explanation = explainSparkError(error, context);
-  if (context === 'chat' && explanation.category === 'builder_or_memory') {
-    return [
-      'Memory/Builder is degraded right now, so I should stay with the visible chat instead of switching into diagnostics.',
-      'Ask me the same thing again and I will answer from the current thread. Run /diagnose only when you want a health check.'
-    ].join('\n\n');
+  if (explanation.category === 'builder_or_memory') {
+    if (context === 'chat') {
+      return [
+        '⚠️ Memory/Builder is degraded right now.',
+        '',
+        'I should stay with the visible chat instead of treating memory as authority.',
+        '',
+        'Ask me the same thing again and I will answer from the current thread. Run /diagnose only when you want a health check.'
+      ].join('\n');
+    }
+    const lines = [
+      '⚠️ Spark could not reach the Builder memory path right now.',
+      '',
+      'Why: Builder bridge command did not finish cleanly.',
+      '',
+      'Next move',
+      `• Check now: ${explanation.check}`,
+      isAdmin
+        ? `• ${explanation.repair}`
+        : '• Please ask the operator to run /diagnose and check the repair hint.'
+    ];
+    if (isAdmin) {
+      lines.push('', `Still stuck: ${doctorCommand('builder_or_memory', 'builder')}`);
+    }
+    return lines.join('\n');
   }
   const lines = [
-    explanation.userLine,
+    `⚠️ ${explanation.userLine}`,
     `Reason: ${explanation.detail}`,
     `Check now: ${explanation.check}`,
     isAdmin

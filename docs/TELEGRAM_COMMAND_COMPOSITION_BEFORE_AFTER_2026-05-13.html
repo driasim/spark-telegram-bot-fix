@@ -1,0 +1,3205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telegram Command Composition Before/After - 2026-05-13</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #15171a;
+      --muted: #5d6673;
+      --line: #d9dee7;
+      --panel: #ffffff;
+      --page: #f6f7f9;
+      --good: #146c43;
+      --ok: #8a5a00;
+      --bad: #b42318;
+      --blue: #1f5fbf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--page);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 28px 32px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 28px; line-height: 1.15; letter-spacing: 0; }
+    header p { margin-top: 8px; color: var(--muted); max-width: 980px; }
+    main { padding: 24px 32px 40px; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 20px;
+    }
+    .command-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin: 0 0 16px;
+      overflow: hidden;
+    }
+    .command-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .command-head h2 { font-size: 18px; }
+    .command-head p { color: var(--muted); margin-top: 4px; }
+    .score-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .badge {
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .score-5, .score-4 { color: var(--good); background: #e8f5ee; }
+    .score-3 { color: var(--ok); background: #fff5dc; }
+    .score-2, .score-1 { color: var(--bad); background: #ffebe8; }
+    .score-missing { color: var(--muted); background: #eceff3; }
+    .delta {
+      color: var(--blue);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0;
+    }
+    article {
+      min-width: 0;
+      padding: 16px;
+    }
+    article + article {
+      border-left: 1px solid var(--line);
+    }
+    h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    pre {
+      margin: 0;
+      padding: 12px;
+      border: 1px solid #e3e6eb;
+      border-radius: 8px;
+      background: #fbfcfd;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+    footer {
+      padding: 12px 16px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: #fbfcfd;
+    }
+    @media (max-width: 900px) {
+      header, main { padding-left: 16px; padding-right: 16px; }
+      .summary, .comparison-grid { grid-template-columns: 1fr; }
+      article + article { border-left: 0; border-top: 1px solid var(--line); }
+      .command-head { display: block; }
+      .score-row { justify-content: flex-start; margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Telegram Command Composition Before/After</h1>
+    <p>Generated from the safe Telegram composition harness. This compares all captured command replies before and after the readability pass; it is composition QA, not live service validation.</p>
+  </header>
+  <main>
+    <section class="summary" aria-label="Audit summary">
+      <div class="metric"><span>Commands</span><strong>64</strong></div>
+      <div class="metric"><span>Average score</span><strong>3.22 → 4.16</strong></div>
+      <div class="metric"><span>Movement</span><strong>22 up · 42 same · 0 down</strong></div>
+      <div class="metric"><span>After spread</span><strong>32 excellent, 10 good, 22 okay, 0 rough, 0 poor</strong></div>
+    </section>
+    
+    <section class="command-card" id="cmd-start">
+      <div class="command-head">
+        <div>
+          <h2>/start</h2>
+          <p>Onboarding · Show first-run help and current launch posture.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Hey Audit! I&#39;m Spark.
+
+I remember conversations through the Builder memory path.
+
+Memory Commands:
+/remember &lt;text&gt; - Save something important
+/recall &lt;topic&gt; - Ask what I remember about a topic
+/about - Ask what I know about you
+/forget &lt;text&gt; - Ask me to forget a saved detail
+
+Spark Intelligence:
+/spark - System status
+
+Spawner Control:
+/run &lt;goal&gt; - Start a mission in Spawner
+/board - Mission state report
+/creator plan &lt;brief&gt; - Plan a creator mission for a chip/path/benchmark/autoloop
+/creator run &lt;missionId&gt; - Execute a planned creator mission
+/creator status &lt;missionId&gt; - Show creator mission readiness and validation state
+/creator validate &lt;missionId&gt; [maxCommands] - Run creator validation gates
+/workspaces - Show local project folders
+/model - Show or change Agent/Mission model routing
+/models - Show recommended model versions
+/wiki - Check Spark LLM wiki health; use /wiki pages for vault inventory
+/context - Show Agent Operating Context
+/black_box - Show compact agent black-box trace counts
+/trace_repair - Show trace health repair summary
+/memory_movement - Show memory movement summary
+/probe &lt;route&gt; - Run a route probe and record AOC evidence
+/operating_context or /agent_context - Same, Telegram-safe aliases
+/conversation_context - Show conversation-frame diagnostics
+/updates &lt;minimal|normal|verbose&gt; - Tune live mission updates
+/access &lt;1|2|3|4|5&gt; - Choose what this Telegram chat can do
+/access_setup - Set up the safe Level 4 workspace from Telegram
+/docker_doctor - Check Docker sandbox readiness without changing the computer
+/docker_smoke confirm - Run the no-secret Docker sandbox smoke
+/access 5 - Approve Level 5 setup from Telegram
+/mission &lt;status|pause|resume|kill&gt; &lt;missionId&gt; - Control a mission
+
+Or just chat!
+
+Builder memory bridge unavailable; local fallback may be used.
+
+Reply 2:
+Choose how much access this Telegram chat has.
+
+Levels:
+• 1 - Chat, memory, recall, diagnostics. No builds.
+• 2 - Requested builds and missions.
+• 3 - Public research plus requested builds. No local files.
+• 4 - Workspace files and local debugging (`/access 4`). Recommended; setup: `/access_setup`.
+• 5 - Whole-computer operator mode (`/access 5`). Confirm once.
+
+Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.
+
+Default right now: Access level 3.
+Change it anytime with `/access 1` through `/access 5`.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+👋 Hey Audit, I&#39;m Spark.
+⚠️ Builder memory is offline right now, so I will avoid claiming saved memory.
+✅ Mission relay is reachable.
+
+Good first moves:
+• /status - health and access
+• /diagnose - deeper health check
+• /remember &lt;text&gt; - save an important detail
+• /recall &lt;topic&gt; - ask what I remember
+
+You can also just chat with me here.
+
+Admin shortcuts:
+• /run &lt;goal&gt; - start a Spawner mission
+• /board - mission board
+• /access &lt;1|2|3|4|5&gt; - choose chat permissions
+• /access 5 - Approve Level 5 setup from Telegram
+• /model - model routing
+• /workspaces - local project folders
+
+Advanced:
+• /creator, /recursive, /context, /probe, /trace, /memory_movement, /wiki
+
+Reply 2:
+Choose how much access this Telegram chat has.
+
+Levels:
+• 1 - Chat, memory, recall, diagnostics. No builds.
+• 2 - Requested builds and missions.
+• 3 - Public research plus requested builds. No local files.
+• 4 - Workspace files and local debugging (`/access 4`). Recommended; setup: `/access_setup`.
+• 5 - Whole-computer operator mode (`/access 5`). Confirm once.
+
+Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.
+
+Default right now: Access level 3.
+Change it anytime with `/access 1` through `/access 5`.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-myid">
+      <div class="command-head">
+        <div>
+          <h2>/myid</h2>
+          <p>Onboarding · Return the Telegram ID needed for allow/admin setup.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Your Telegram ID: 910000001
+Username: @none
+You are an admin</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Your Telegram ID: 910000001
+Username: @none
+You are an admin</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-access">
+      <div class="command-head">
+        <div>
+          <h2>/access</h2>
+          <p>Access · Show current chat access and capability status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1 (with keyboard):
+Spark access: Access level 3
+Current
+• Public links, docs, GitHub research, and requested builds are on.
+• Local files are off.
+
+Levels:
+• 1 - Chat, memory, recall, diagnostics. No builds.
+• 2 - Requested builds and missions.
+• 3 - Public research plus requested builds. No local files.
+• 4 - Workspace files and local debugging (`/access 4`). Recommended; setup: `/access_setup`.
+• 5 - Whole-computer operator mode (`/access 5`). Confirm once.
+
+Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.
+
+Change anytime: `/access 1` through `/access 5`.
+
+Access: Access level 3.
+Runner: writable here.
+Verdict: local filesystem work is off at this level.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1 (with keyboard):
+Spark access: Access level 3
+Current
+• Public links, docs, GitHub research, and requested builds are on.
+• Local files are off.
+
+Levels:
+• 1 - Chat, memory, recall, diagnostics. No builds.
+• 2 - Requested builds and missions.
+• 3 - Public research plus requested builds. No local files.
+• 4 - Workspace files and local debugging (`/access 4`). Recommended; setup: `/access_setup`.
+• 5 - Whole-computer operator mode (`/access 5`). Confirm once.
+
+Safety stays on: Spark still asks before secrets, destructive actions, publishing, or deploying.
+
+Change anytime: `/access 1` through `/access 5`.
+
+Access: Access level 3.
+Runner: writable here.
+Verdict: local filesystem work is off at this level.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Includes a Telegram keyboard, which helps choice-heavy flows.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-access_setup">
+      <div class="command-head">
+        <div>
+          <h2>/access_setup</h2>
+          <p>Access · Run safe workspace setup from Telegram.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark access action failed: spawn spark ENOENT</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Set up safe workspace could not run.
+
+Why: Spark CLI is not available to this Telegram runtime.
+
+Next move: run /diagnose, or run the same access action from the Spark CLI.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-docker_doctor">
+      <div class="command-head">
+        <div>
+          <h2>/docker_doctor</h2>
+          <p>Access · Check Docker sandbox readiness.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark access action failed: spawn spark ENOENT</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Check runner could not run.
+
+Why: Spark CLI is not available to this Telegram runtime.
+
+Next move: run /diagnose, or run the same access action from the Spark CLI.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-docker_smoke">
+      <div class="command-head">
+        <div>
+          <h2>/docker_smoke</h2>
+          <p>Access · Prompt before running Docker sandbox smoke.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1 (with keyboard):
+This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.
+
+To continue, send /docker_smoke confirm or tap Confirm.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1 (with keyboard):
+This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.
+
+To continue, send /docker_smoke confirm or tap Confirm.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.; Includes a Telegram keyboard, which helps choice-heavy flows.
+        <br>
+        <strong>Recommendation:</strong> Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-level5_setup">
+      <div class="command-head">
+        <div>
+          <h2>/level5_setup</h2>
+          <p>Access · Prompt before Level 5 setup.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1 (with keyboard):
+Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.
+
+To continue, send /level5_setup confirm or tap Confirm.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1 (with keyboard):
+Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.
+
+To continue, send /level5_setup confirm or tap Confirm.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.; Includes a Telegram keyboard, which helps choice-heavy flows.
+        <br>
+        <strong>Recommendation:</strong> Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-level5_disable">
+      <div class="command-head">
+        <div>
+          <h2>/level5_disable</h2>
+          <p>Access · Prompt before returning to safer sandbox.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1 (with keyboard):
+This changes Spark access guardrail state and requires confirmation.
+
+To continue, send /level5_disable confirm or tap Confirm.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1 (with keyboard):
+This changes Spark access guardrail state and requires confirmation.
+
+To continue, send /level5_disable confirm or tap Confirm.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Includes a Telegram keyboard, which helps choice-heavy flows.
+        <br>
+        <strong>Recommendation:</strong> Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-status">
+      <div class="command-head">
+        <div>
+          <h2>/status</h2>
+          <p>Status · Summarize launch health and access state.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+System Status
+
+Builder memory bridge: OFFLINE (auto)
+
+Spark Live Health
+
+I could not run the authoritative local Spark CLI health check from this Telegram runtime.
+Error: spawn spark ENOENT
+
+This means this runner could not probe local Spark health. It does not prove Spawner or Telegram are offline.
+
+Spark Access Status
+
+Chat setting: Access level 3.
+CLI effective access: unavailable.
+Error: spawn spark ENOENT
+
+Runner: writable here.
+
+Verdict: this runner could not read the authoritative access state, so I will not claim Level 5 is active.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+✅ System status
+
+Builder memory: ⚠️ offline (auto)
+
+⚠️ Spark Live health is unverified.
+
+What happened
+• Spark CLI is not available to this Telegram runtime.
+
+What this means
+• Telegram could not prove live Spark health from here.
+• This is not proof that Spawner or Telegram are offline.
+
+Next move
+• Run /diagnose, or check `spark live status` from the Spark CLI.
+
+⚠️ Spark Access status is partly unverified.
+
+Chat setting: Access level 3.
+CLI effective access: unavailable.
+Why: Spark CLI is not available to this Telegram runtime.
+
+Runner: writable here.
+
+Verdict: this runner could not read the authoritative access state, so I will not claim Level 5 is active.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-diagnose">
+      <div class="command-head">
+        <div>
+          <h2>/diagnose</h2>
+          <p>Status · Run full stack health diagnostics.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Running diagnostics - checks chat, access, relay, Spawner, and provider ping. Takes ~30s...
+
+Reply 2:
+🔴 Spark diagnostics found an issue.
+Health
+🟢 Relay ready
+🔴 Chat degraded
+🟡 Builds degraded
+🟢 Access Access level 3 / admin
+Issue
+plain chat provider is unhealthy. Check the selected chat model key/base URL, then restart the Telegram gateway.
+Routes
+Chat: zai
+Builds: codex
+Providers: 1/2 ready
+Ping: codex failed
+Workspace
+Board: 0 running / 0 completed / 0 failed
+Spawner UI: http://localhost:3333
+Checked in 0.0s.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🔎 Running diagnostics...
+
+Checks chat, access, relay, Spawner, and provider ping. Takes ~30s.
+
+Reply 2:
+🔴 Spark diagnostics found an issue.
+Health
+🟢 Relay ready
+🔴 Chat degraded
+🟡 Builds degraded
+🟢 Access Access level 3 / admin
+Issue
+plain chat provider is unhealthy. Check the selected chat model key/base URL, then restart the Telegram gateway.
+Routes
+Chat: zai
+Builds: codex
+Providers: 1/2 ready
+Ping: codex failed
+Workspace
+Board: 0 running / 0 completed / 0 failed
+Spawner UI: http://localhost:3333
+Checked in 0.0s.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-spark">
+      <div class="command-head">
+        <div>
+          <h2>/spark</h2>
+          <p>Status · Show quick Spark launch-core status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark Intelligence
+
+Launch core: ONLINE
+Dashboard/resonance: deferred
+
+The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Spark Intelligence
+
+✅ Spark Telegram launch core is online.
+
+Ready now
+• Chat and command routing through Telegram
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Paused
+• Legacy resonance/dashboard commands
+
+Next move: use /status for live health or /run &lt;goal&gt; for missions.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-about">
+      <div class="command-head">
+        <div>
+          <h2>/about</h2>
+          <p>Memory · Ask Builder what it knows about the user.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Memory is degraded/offline right now.
+
+I should answer from the current thread instead of treating old memory as authority.
+
+Next move: run /diagnose if you want to check Builder memory.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-remember">
+      <div class="command-head">
+        <div>
+          <h2>/remember</h2>
+          <p>Memory · Validate remember usage without writing memory.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /remember &lt;something to remember&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🧠 Save a memory
+
+Use: /remember &lt;something important&gt;
+Example: /remember I prefer concise mission updates.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-recall">
+      <div class="command-head">
+        <div>
+          <h2>/recall</h2>
+          <p>Memory · Validate recall usage without querying memory.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /recall &lt;topic to recall&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🔎 Recall memory
+
+Use: /recall &lt;topic&gt;
+Example: /recall mission update preferences</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-forget">
+      <div class="command-head">
+        <div>
+          <h2>/forget</h2>
+          <p>Memory · Validate forget usage without changing memory.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /forget &lt;thing to forget&gt;
+
+If the Builder memory bridge is unavailable, try again once it is back or contact the bot admin.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🧹 Forget memory
+
+Use: /forget &lt;thing to forget&gt;
+Example: /forget my old project nickname
+
+If Builder memory is offline, try again after /diagnose shows memory is healthy.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-context">
+      <div class="command-head">
+        <div>
+          <h2>/context</h2>
+          <p>Builder/AOC · Show Agent Operating Context.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +4</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-operating_context">
+      <div class="command-head">
+        <div>
+          <h2>/operating_context</h2>
+          <p>Builder/AOC · Alias for Agent Operating Context.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-agent_context">
+      <div class="command-head">
+        <div>
+          <h2>/agent_context</h2>
+          <p>Builder/AOC · Alias for Agent Operating Context.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-aoc">
+      <div class="command-head">
+        <div>
+          <h2>/aoc</h2>
+          <p>Builder/AOC · Short alias for Agent Operating Context.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +4</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-conversation_context">
+      <div class="command-head">
+        <div>
+          <h2>/conversation_context</h2>
+          <p>Builder/AOC · Show conversation-frame diagnostics.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Conversation context harness
+- Hot turns: 0
+- Warm summary tokens: 0
+- Artifacts: 0
+- Compaction events: 0
+- Safe input budget: unknown
+- Requires larger model for full target: unknown</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Conversation context harness
+- Hot turns: 0
+- Warm summary tokens: 0
+- Artifacts: 0
+- Compaction events: 0
+- Safe input budget: unknown
+- Requires larger model for full target: unknown</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Uses CLI-style hyphen bullets where Telegram cards would scan better.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-black_box">
+      <div class="command-head">
+        <div>
+          <h2>/black_box</h2>
+          <p>Builder/AOC · Show black-box trace usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-blackbox">
+      <div class="command-head">
+        <div>
+          <h2>/blackbox</h2>
+          <p>Builder/AOC · Alias for black-box trace usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-black-box">
+      <div class="command-head">
+        <div>
+          <h2>/black-box</h2>
+          <p>Builder/AOC · Hyphen alias for black-box trace usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Agent black box
+Usage: /black_box [request_id]
+
+This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-self">
+      <div class="command-head">
+        <div>
+          <h2>/self</h2>
+          <p>Builder · Show Spark self-awareness status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +4</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-wiki">
+      <div class="command-head">
+        <div>
+          <h2>/wiki</h2>
+          <p>Builder · Show wiki health/status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-1">1/5 poor</span>
+          <span class="delta">Δ +4</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark could not reach the Builder memory path right now.
+
+Reason: Builder bridge unavailable. repo=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-builder-repo home=C:\Users\USER\AppData\Local\Temp\spark-telegram-command-audit-state-SjawKU\missing-...
+
+Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+
+Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report
+
+That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Spark could not reach the Builder memory path right now.
+
+Why: Builder bridge command did not finish cleanly.
+
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
+
+Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quot; --save-report --upstream-report</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-voice">
+      <div class="command-head">
+        <div>
+          <h2>/voice</h2>
+          <p>Builder · Show voice route/onboarding status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.; Bridge failure is understandable but repeats system ownership language.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-ledger">
+      <div class="command-head">
+        <div>
+          <h2>/ledger</h2>
+          <p>Builder Diagnostics · Review capability ledger.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Capability ledger review is unavailable right now. Run /diagnose to check the Builder bridge.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Capability ledger review is unavailable right now. Run /diagnose to check the Builder bridge.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-capabilities">
+      <div class="command-head">
+        <div>
+          <h2>/capabilities</h2>
+          <p>Builder Diagnostics · Show capability garden summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Capability garden needs review.
+
+State
+• 7 cards
+• Status: local-artifacts=2, schema-shaped=3, seen=2
+• Surfaces: creator-system=1, specialization-path=6
+
+Review
+• Cards are evidence, not trust.
+• Gate verdicts, privacy review, rollback refs, and publication proof still decide promotion.
+
+Top cards
+• creator-system:spark-domain-chip-labs: local-artifacts (3 blockers)
+• specialization-path:spark-researcher-specialization-path: schema-shaped (3 blockers)
+• specialization-path:spark-swarm: local-artifacts (3 blockers)
+
+Workspace
+• Full evidence: `spark os capabilities --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Capability garden needs review.
+
+State
+• 7 cards
+• Status: local-artifacts=2, schema-shaped=3, seen=2
+• Surfaces: creator-system=1, specialization-path=6
+
+Review
+• Cards are evidence, not trust.
+• Gate verdicts, privacy review, rollback refs, and publication proof still decide promotion.
+
+Top cards
+• creator-system:spark-domain-chip-labs: local-artifacts (3 blockers)
+• specialization-path:spark-researcher-specialization-path: schema-shaped (3 blockers)
+• specialization-path:spark-swarm: local-artifacts (3 blockers)
+
+Workspace
+• Full evidence: `spark os capabilities --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-authority">
+      <div class="command-head">
+        <div>
+          <h2>/authority</h2>
+          <p>Builder Diagnostics · Show authority status summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Authority view has gated actions.
+
+State
+- Access L4; lane spark_workspace
+- 5 Telegram access profiles; 5 Spawner lanes
+- 5 browser approvals from 20 hooks
+- 5 toxic capability pairs; 3 publication checks tracked
+- Trace verdicts: 26; verdicts allowed, blocked; actions mission_execution
+
+Review
+- This is evidence, not permission.
+- High-agency actions still need source policy, runner state, confirmation, and trace.
+
+Workspace
+- Full evidence: `spark os authority --json` and `spark os trace --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Authority view has gated actions.
+
+State
+- Access L4; lane spark_workspace
+- 5 Telegram access profiles; 5 Spawner lanes
+- 5 browser approvals from 20 hooks
+- 5 toxic capability pairs; 3 publication checks tracked
+- Trace verdicts: 26; verdicts allowed, blocked; actions mission_execution
+
+Review
+- This is evidence, not permission.
+- High-agency actions still need source policy, runner state, confirmation, and trace.
+
+Workspace
+- Full evidence: `spark os authority --json` and `spark os trace --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Uses CLI-style hyphen bullets where Telegram cards would scan better.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-trace">
+      <div class="command-head">
+        <div>
+          <h2>/trace</h2>
+          <p>Builder Diagnostics · Show trace repair summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Trace repair needs attention.
+
+State
+• 38898 Builder events; 2378 trace groups
+• 32808 missing trace refs; 3241 open high-severity events
+• 0 orphan parent links
+
+Recent
+• 1h: 0/0 missing (0%)
+• 24h: 0/3 missing (0%)
+• 7d: 10317/12726 missing (81.1%)
+
+Top gaps
+• memory_orchestrator/memory_read_requested: 8612 recorded/medium
+• memory_orchestrator/memory_read_succeeded: 4307 recorded/medium
+• attachment_snapshot/plugin_or_chip_influence_recorded: 2326 recorded/medium
+
+Joins
+• Spawner derived refs 119; Builder request overlaps 23/192
+• Builder trace overlaps 23; Telegram final-answer join join_key_present
+
+Review
+• Trace health is observability evidence, not task success or memory truth.
+
+Workspace
+• Full evidence: `spark os trace --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Trace repair needs attention.
+
+State
+• 38898 Builder events; 2378 trace groups
+• 32808 missing trace refs; 3241 open high-severity events
+• 0 orphan parent links
+
+Recent
+• 1h: 0/0 missing (0%)
+• 24h: 0/3 missing (0%)
+• 7d: 10317/12726 missing (81.1%)
+
+Top gaps
+• memory_orchestrator/memory_read_requested: 8612 recorded/medium
+• memory_orchestrator/memory_read_succeeded: 4307 recorded/medium
+• attachment_snapshot/plugin_or_chip_influence_recorded: 2326 recorded/medium
+
+Joins
+• Spawner derived refs 119; Builder request overlaps 23/192
+• Builder trace overlaps 23; Telegram final-answer join join_key_present
+
+Review
+• Trace health is observability evidence, not task success or memory truth.
+
+Workspace
+• Full evidence: `spark os trace --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-trace_repair">
+      <div class="command-head">
+        <div>
+          <h2>/trace_repair</h2>
+          <p>Builder Diagnostics · Alias for trace repair summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Trace repair needs attention.
+
+State
+• 38898 Builder events; 2378 trace groups
+• 32808 missing trace refs; 3241 open high-severity events
+• 0 orphan parent links
+
+Recent
+• 1h: 0/0 missing (0%)
+• 24h: 0/3 missing (0%)
+• 7d: 10317/12726 missing (81.1%)
+
+Top gaps
+• memory_orchestrator/memory_read_requested: 8612 recorded/medium
+• memory_orchestrator/memory_read_succeeded: 4307 recorded/medium
+• attachment_snapshot/plugin_or_chip_influence_recorded: 2326 recorded/medium
+
+Joins
+• Spawner derived refs 119; Builder request overlaps 23/192
+• Builder trace overlaps 23; Telegram final-answer join join_key_present
+
+Review
+• Trace health is observability evidence, not task success or memory truth.
+
+Workspace
+• Full evidence: `spark os trace --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Trace repair needs attention.
+
+State
+• 38898 Builder events; 2378 trace groups
+• 32808 missing trace refs; 3241 open high-severity events
+• 0 orphan parent links
+
+Recent
+• 1h: 0/0 missing (0%)
+• 24h: 0/3 missing (0%)
+• 7d: 10317/12726 missing (81.1%)
+
+Top gaps
+• memory_orchestrator/memory_read_requested: 8612 recorded/medium
+• memory_orchestrator/memory_read_succeeded: 4307 recorded/medium
+• attachment_snapshot/plugin_or_chip_influence_recorded: 2326 recorded/medium
+
+Joins
+• Spawner derived refs 119; Builder request overlaps 23/192
+• Builder trace overlaps 23; Telegram final-answer join join_key_present
+
+Review
+• Trace health is observability evidence, not task success or memory truth.
+
+Workspace
+• Full evidence: `spark os trace --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-memory_movement">
+      <div class="command-head">
+        <div>
+          <h2>/memory_movement</h2>
+          <p>Builder Diagnostics · Show memory movement summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Memory movement is visible.
+
+State
+• supported; 5654 movement rows
+• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48
+• Authority: authoritative_current=1970, authoritative_historical=1344, supporting_not_authoritative=2338, structured_support=2
+• Records: current_state=327, events=503, observations=821
+• KB files 362; current-state files 23
+
+Review
+• Movement rows are evidence, not instructions.
+• Blocked or dropped rows still need a separate promotion gate.
+
+Next
+• Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().
+• Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.
+
+Workspace
+• Full evidence: `spark os memory --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Memory movement is visible.
+
+State
+• supported; 5654 movement rows
+• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48
+• Authority: authoritative_current=1970, authoritative_historical=1344, supporting_not_authoritative=2338, structured_support=2
+• Records: current_state=327, events=503, observations=821
+• KB files 362; current-state files 23
+
+Review
+• Movement rows are evidence, not instructions.
+• Blocked or dropped rows still need a separate promotion gate.
+
+Next
+• Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().
+• Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.
+
+Workspace
+• Full evidence: `spark os memory --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-memory_flow">
+      <div class="command-head">
+        <div>
+          <h2>/memory_flow</h2>
+          <p>Builder Diagnostics · Alias for memory movement summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Memory movement is visible.
+
+State
+• supported; 5654 movement rows
+• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48
+• Authority: authoritative_current=1970, authoritative_historical=1344, supporting_not_authoritative=2338, structured_support=2
+• Records: current_state=327, events=503, observations=821
+• KB files 362; current-state files 23
+
+Review
+• Movement rows are evidence, not instructions.
+• Blocked or dropped rows still need a separate promotion gate.
+
+Next
+• Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().
+• Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.
+
+Workspace
+• Full evidence: `spark os memory --json`</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Memory movement is visible.
+
+State
+• supported; 5654 movement rows
+• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48
+• Authority: authoritative_current=1970, authoritative_historical=1344, supporting_not_authoritative=2338, structured_support=2
+• Records: current_state=327, events=503, observations=821
+• KB files 362; current-state files 23
+
+Review
+• Movement rows are evidence, not instructions.
+• Blocked or dropped rows still need a separate promotion gate.
+
+Next
+• Have Builder write artifacts/memory-movement-index/memory-movement-status.json from inspect_memory_movement_status().
+• Have domain-chip-memory expose movement counts by lane, authority, source family, and record type without record text.
+
+Workspace
+• Full evidence: `spark os memory --json`</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-probe">
+      <div class="command-head">
+        <div>
+          <h2>/probe</h2>
+          <p>Route Diagnostics · Show route probe help.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Route probe
+Usage: /probe &lt;route&gt;
+Batch: /probe core or /probe all
+
+Routes:
+- core
+- all
+- builder
+- spawner
+- memory
+- researcher
+- swarm
+- browser
+- local_work</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Route probe
+Usage: /probe &lt;route&gt;
+Batch: /probe core or /probe all
+
+Routes:
+- core
+- all
+- builder
+- spawner
+- memory
+- researcher
+- swarm
+- browser
+- local_work</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-route_probe">
+      <div class="command-head">
+        <div>
+          <h2>/route_probe</h2>
+          <p>Route Diagnostics · Alias for route probe help.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Route probe
+Usage: /probe &lt;route&gt;
+Batch: /probe core or /probe all
+
+Routes:
+- core
+- all
+- builder
+- spawner
+- memory
+- researcher
+- swarm
+- browser
+- local_work</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Route probe
+Usage: /probe &lt;route&gt;
+Batch: /probe core or /probe all
+
+Routes:
+- core
+- all
+- builder
+- spawner
+- memory
+- researcher
+- swarm
+- browser
+- local_work</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-nl_route">
+      <div class="command-head">
+        <div>
+          <h2>/nl_route</h2>
+          <p>Route Diagnostics · Show natural-route probe help.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Natural route probe
+Usage: /nl_route &lt;message&gt;
+
+This shows the diagnostic route decision only. It does not execute the route.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Natural route probe
+Usage: /nl_route &lt;message&gt;
+
+This shows the diagnostic route decision only. It does not execute the route.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-natural_route">
+      <div class="command-head">
+        <div>
+          <h2>/natural_route</h2>
+          <p>Route Diagnostics · Alias for natural-route probe help.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Natural route probe
+Usage: /nl_route &lt;message&gt;
+
+This shows the diagnostic route decision only. It does not execute the route.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Natural route probe
+Usage: /nl_route &lt;message&gt;
+
+This shows the diagnostic route decision only. It does not execute the route.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-run">
+      <div class="command-head">
+        <div>
+          <h2>/run</h2>
+          <p>Mission Start · Show mission-start usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /run &lt;goal&gt; (default: current mission provider)</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /run &lt;goal&gt; (default: current mission provider)</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runminimax">
+      <div class="command-head">
+        <div>
+          <h2>/runminimax</h2>
+          <p>Mission Start · Show MiniMax run shortcut usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runminimax &lt;goal&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runminimax &lt;goal&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runglm">
+      <div class="command-head">
+        <div>
+          <h2>/runglm</h2>
+          <p>Mission Start · Show Z.AI/GLM run shortcut usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runglm &lt;goal&gt; (Z.AI GLM)</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runglm &lt;goal&gt; (Z.AI GLM)</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runzai">
+      <div class="command-head">
+        <div>
+          <h2>/runzai</h2>
+          <p>Mission Start · Show Z.AI run shortcut usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runzai &lt;goal&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runzai &lt;goal&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runclaude">
+      <div class="command-head">
+        <div>
+          <h2>/runclaude</h2>
+          <p>Mission Start · Show Claude run shortcut usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runclaude &lt;goal&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runclaude &lt;goal&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runcodex">
+      <div class="command-head">
+        <div>
+          <h2>/runcodex</h2>
+          <p>Mission Start · Show Codex run shortcut usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runcodex &lt;goal&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runcodex &lt;goal&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-run2">
+      <div class="command-head">
+        <div>
+          <h2>/run2</h2>
+          <p>Mission Start · Show two-provider consensus usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /run2 &lt;goal&gt; (consensus: minimax + zai)</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /run2 &lt;goal&gt; (consensus: minimax + zai)</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-runall">
+      <div class="command-head">
+        <div>
+          <h2>/runall</h2>
+          <p>Mission Start · Show all-provider run usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /runall &lt;goal&gt; (all 4 providers)</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /runall &lt;goal&gt; (all 4 providers)</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-board">
+      <div class="command-head">
+        <div>
+          <h2>/board</h2>
+          <p>Mission Control · Show mission board summary.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spawner Board
+
+Running: 0
+- none
+
+Paused: 0
+- none
+
+Completed: 0
+- none
+
+Failed: 0
+- none
+
+Created: 0
+- none</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Spawner Board
+
+Running: 0
+- none
+
+Paused: 0
+- none
+
+Completed: 0
+- none
+
+Failed: 0
+- none
+
+Created: 0
+- none</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Uses CLI-style hyphen bullets where Telegram cards would scan better.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-mission">
+      <div class="command-head">
+        <div>
+          <h2>/mission</h2>
+          <p>Mission Control · Show mission control usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /mission &lt;status|pause|resume|kill&gt; &lt;missionId&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /mission &lt;status|pause|resume|kill&gt; &lt;missionId&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-updates">
+      <div class="command-head">
+        <div>
+          <h2>/updates</h2>
+          <p>Mission Control · Show mission update preferences.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Live mission updates are set to normal.
+Normal sends pickup, canvas-ready, final handoff, and failures.
+Mission links are set to board.
+Mission updates include the Mission board/Kanban link.
+
+Usage:
+/updates minimal | /updates normal | /updates verbose
+/updates links none | kanban | canvas | both</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Live mission updates are set to normal.
+Normal sends pickup, canvas-ready, final handoff, and failures.
+Mission links are set to board.
+Mission updates include the Mission board/Kanban link.
+
+Usage:
+/updates minimal | /updates normal | /updates verbose
+/updates links none | kanban | canvas | both</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-model">
+      <div class="command-head">
+        <div>
+          <h2>/model</h2>
+          <p>Models · Show current model routing.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark model routing
+
+Agent chat: audit_unsupported (glm-5.1)
+Missions: codex (gpt-5.5)
+
+Recommended Spark provider paths
+
+Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.
+
+Fast picks:
+- Have ChatGPT/Codex: codex with gpt-5.5
+- Have Claude: claude with Sonnet for agent, Opus for hard missions
+- Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
+- Want local/private: LM Studio for desktop, Ollama for terminal
+
+Provider details
+- zai: API key; agent glm-5.1; mission glm-5.1
+ Best current Z.AI coding-agent default for Spark agent chat and build support.
+ Use this if you already have a Z.AI/GLM key.
+- codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
+ Recommended OpenAI/Codex model for Spark missions and local coding work.
+ Use this if you already have ChatGPT/Codex available on this machine.
+- claude: Claude sign-in or API key; agent Claude Sonnet 4.6 (claude-sonnet-4-6); mission Claude Opus 4.7 (claude-opus-4-7)
+ Latest Sonnet family default for agent chat/runtime/memory. Claude Code alias: sonnet.
+ Use this if you already have Claude. Sonnet is the daily driver; Opus is for harder missions.
+- openai: OpenAI API key; agent gpt-5.5; mission gpt-5.5
+ Recommended OpenAI API model when using an API key or OpenAI-compatible endpoint.
+ Use this if you want direct OpenAI API billing instead of Codex sign-in.
+- openrouter: API gateway; agent openai/gpt-5.5; mission openai/gpt-5.5
+ OpenRouter route for OpenAI GPT-5.5; users can replace this with any OpenRouter model id.
+ Use this if you want one API key that can try many model families.
+- lmstudio: Local/private desktop; agent local-model; mission local-model
+ Local OpenAI-compatible server at http://localhost:1234/v1. Pass the loaded LM Studio model id from its Models endpoint.
+ Use this if you want a friendly desktop app for local models.
+- huggingface: Hosted open-model router; agent google/gemma-4-26B-A4B-it:fastest; mission google/gemma-4-31B-it:fastest
+ Hugging Face router default for Gemma 4 chat. Use google/gemma-4-31B-it:fastest for heavier mission work, or pass any HF router chat model id.
+ Use this if you want hosted open models through a Hugging Face token.
+- minimax: API key; agent MiniMax-M2.7; mission MiniMax-M2.7
+ MiniMax default for users who already have a MiniMax API key.
+ Use this if you already have a MiniMax key.
+- ollama: Local/private terminal; agent llama3.2:3b; mission llama3.2:3b
+ Fast local default when installed. Users can pass any local Ollama model id, for example /model agent ollama qwen3.5:27b.
+ Use this if you want private local models and are comfortable installing models in a terminal.
+
+Spark uses these curated defaults unless you provide an exact model id.
+
+Change it:
+/model agent zai
+/model agent codex
+/model agent claude claude-sonnet-4-6
+/model mission codex
+/model mission claude claude-opus-4-7
+/model agent openrouter anthropic/claude-sonnet-4.6
+/model agent lmstudio &lt;loaded-model-id&gt;
+/model agent huggingface google/gemma-4-26B-A4B-it:fastest
+/model mission huggingface google/gemma-4-31B-it:fastest
+
+You can pass an exact model id as the third value. Use /diagnose after changing to verify the route.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🧠 Spark model routing
+
+Current
+• Agent chat: audit_unsupported (glm-5.1)
+• Missions: codex (gpt-5.5)
+
+Common switches
+• /model agent codex
+• /model agent claude claude-sonnet-4-6
+• /model mission codex
+• /model mission claude claude-opus-4-7
+
+More options
+• /models - curated provider defaults
+• /models claude - provider-specific details
+• /model agent lmstudio &lt;loaded-model-id&gt;
+
+You can pass an exact model id as the third value. Run /diagnose after changing to verify the route.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-models">
+      <div class="command-head">
+        <div>
+          <h2>/models</h2>
+          <p>Models · Show model recommendations.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +2</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Recommended Spark provider paths
+
+Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.
+
+Fast picks:
+- Have ChatGPT/Codex: codex with gpt-5.5
+- Have Claude: claude with Sonnet for agent, Opus for hard missions
+- Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
+- Want local/private: LM Studio for desktop, Ollama for terminal
+
+Provider details
+- zai: API key; agent glm-5.1; mission glm-5.1
+ Best current Z.AI coding-agent default for Spark agent chat and build support.
+ Use this if you already have a Z.AI/GLM key.
+- codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
+ Recommended OpenAI/Codex model for Spark missions and local coding work.
+ Use this if you already have ChatGPT/Codex available on this machine.
+- claude: Claude sign-in or API key; agent Claude Sonnet 4.6 (claude-sonnet-4-6); mission Claude Opus 4.7 (claude-opus-4-7)
+ Latest Sonnet family default for agent chat/runtime/memory. Claude Code alias: sonnet.
+ Use this if you already have Claude. Sonnet is the daily driver; Opus is for harder missions.
+- openai: OpenAI API key; agent gpt-5.5; mission gpt-5.5
+ Recommended OpenAI API model when using an API key or OpenAI-compatible endpoint.
+ Use this if you want direct OpenAI API billing instead of Codex sign-in.
+- openrouter: API gateway; agent openai/gpt-5.5; mission openai/gpt-5.5
+ OpenRouter route for OpenAI GPT-5.5; users can replace this with any OpenRouter model id.
+ Use this if you want one API key that can try many model families.
+- lmstudio: Local/private desktop; agent local-model; mission local-model
+ Local OpenAI-compatible server at http://localhost:1234/v1. Pass the loaded LM Studio model id from its Models endpoint.
+ Use this if you want a friendly desktop app for local models.
+- huggingface: Hosted open-model router; agent google/gemma-4-26B-A4B-it:fastest; mission google/gemma-4-31B-it:fastest
+ Hugging Face router default for Gemma 4 chat. Use google/gemma-4-31B-it:fastest for heavier mission work, or pass any HF router chat model id.
+ Use this if you want hosted open models through a Hugging Face token.
+- minimax: API key; agent MiniMax-M2.7; mission MiniMax-M2.7
+ MiniMax default for users who already have a MiniMax API key.
+ Use this if you already have a MiniMax key.
+- ollama: Local/private terminal; agent llama3.2:3b; mission llama3.2:3b
+ Fast local default when installed. Users can pass any local Ollama model id, for example /model agent ollama qwen3.5:27b.
+ Use this if you want private local models and are comfortable installing models in a terminal.
+
+Spark uses these curated defaults unless you provide an exact model id.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+🧭 Recommended Spark provider paths
+
+Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.
+
+Fast picks
+• Have ChatGPT/Codex: codex with gpt-5.5
+• Have Claude: claude with Sonnet for agent, Opus for hard missions
+• Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
+• Want local/private: LM Studio for desktop, Ollama for terminal
+
+Provider defaults
+• zai: API key; agent glm-5.1; mission glm-5.1
+• codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
+• claude: Claude sign-in or API key; agent Claude Sonnet 4.6 (claude-sonnet-4-6); mission Claude Opus 4.7 (claude-opus-4-7)
+• openai: OpenAI API key; agent gpt-5.5; mission gpt-5.5
+• openrouter: API gateway; agent openai/gpt-5.5; mission openai/gpt-5.5
+• lmstudio: Local/private desktop; agent local-model; mission local-model
+• huggingface: Hosted open-model router; agent google/gemma-4-26B-A4B-it:fastest; mission google/gemma-4-31B-it:fastest
+• minimax: API key; agent MiniMax-M2.7; mission MiniMax-M2.7
+• ollama: Local/private terminal; agent llama3.2:3b; mission llama3.2:3b
+
+For details, use /models claude, /models codex, /models openai, /models openrouter, /models zai, /models minimax, /models huggingface, /models lmstudio, or /models ollama.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-workspaces">
+      <div class="command-head">
+        <div>
+          <h2>/workspaces</h2>
+          <p>Workspace · Show local workspace inventory or access denial.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-4">4/5 good</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
+You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
+You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-workspace">
+      <div class="command-head">
+        <div>
+          <h2>/workspace</h2>
+          <p>Workspace · Alias for local workspace inventory.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
+You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
+You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.; Redundant alias; useful for compatibility, noisy in command help.
+        <br>
+        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-creator">
+      <div class="command-head">
+        <div>
+          <h2>/creator</h2>
+          <p>Creator/Chip · Show creator mission usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /creator plan [private|github|swarm] [risk low|medium|high] &lt;brief&gt;
+ /creator run &lt;mission-creator-id&gt;
+ /creator status &lt;mission-creator-id&gt;
+ /creator validate &lt;mission-creator-id&gt; [maxCommands]
+Example: /creator plan private risk medium create a Startup YC benchmarked specialization path
+Example: /creator run mission-creator-1776768300668
+Example: /creator validate mission-creator-1776768300668 6</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /creator plan [private|github|swarm] [risk low|medium|high] &lt;brief&gt;
+ /creator run &lt;mission-creator-id&gt;
+ /creator status &lt;mission-creator-id&gt;
+ /creator validate &lt;mission-creator-id&gt; [maxCommands]
+Example: /creator plan private risk medium create a Startup YC benchmarked specialization path
+Example: /creator run mission-creator-1776768300668
+Example: /creator validate mission-creator-1776768300668 6</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-chip">
+      <div class="command-head">
+        <div>
+          <h2>/chip</h2>
+          <p>Creator/Chip · Show chip creation usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /chip create &lt;natural language description&gt;</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /chip create &lt;natural language description&gt;</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-loop">
+      <div class="command-head">
+        <div>
+          <h2>/loop</h2>
+          <p>Creator/Chip · Show chip autoloop usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /loop &lt;chip_key&gt; [rounds]
+Runs a recursive self-improving loop: each round calls the chip&#39;s suggest hook for candidates, then evaluates them.
+Example: /loop startup-yc 3</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /loop &lt;chip_key&gt; [rounds]
+Runs a recursive self-improving loop: each round calls the chip&#39;s suggest hook for candidates, then evaluates them.
+Example: /loop startup-yc 3</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-recursive">
+      <div class="command-head">
+        <div>
+          <h2>/recursive</h2>
+          <p>Recursive · Show recursive Workspace help.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Spark Recursive Loops
+
+Start here:
+/recursive sessions - recent loops and next action
+/recursive report &lt;id&gt; - readable result summary
+/recursive start &lt;targetKey&gt; rounds &lt;n&gt; - run a local Builder chip loop
+
+When something needs you:
+/recursive review [id] - decisions waiting
+/recursive approve &lt;id&gt; [rationale]
+/recursive defer &lt;id&gt; &lt;rationale&gt;
+/recursive reject &lt;id&gt; &lt;rationale&gt;
+/recursive more-eval &lt;id&gt; &lt;rationale&gt;
+
+Deep cuts:
+/recursive paths - specialization lanes
+/recursive trace &lt;id&gt; - detailed timeline
+/recursive propose &lt;chip-or-path-name&gt; [submit]
+/recursive sync prompt-benchmark &lt;runJson&gt; [report &lt;reportPath&gt;]
+/recursive sync domain-chip-lab &lt;telemetryJson&gt; &lt;chipKey&gt; [chip-path &lt;path&gt;] [packet &lt;path&gt;]
+/recursive sync domain-autoloop &lt;manifestJson&gt; &lt;stateJson&gt; [policy &lt;path&gt;] [journal &lt;path&gt;] [lane-report &lt;path&gt;]
+
+Local mode: reports come from status files on this machine. Workspace sync appears when connected.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Spark Recursive Loops
+
+Start here:
+/recursive sessions - recent loops and next action
+/recursive report &lt;id&gt; - readable result summary
+/recursive start &lt;targetKey&gt; rounds &lt;n&gt; - run a local Builder chip loop
+
+When something needs you:
+/recursive review [id] - decisions waiting
+/recursive approve &lt;id&gt; [rationale]
+/recursive defer &lt;id&gt; &lt;rationale&gt;
+/recursive reject &lt;id&gt; &lt;rationale&gt;
+/recursive more-eval &lt;id&gt; &lt;rationale&gt;
+
+Deep cuts:
+/recursive paths - specialization lanes
+/recursive trace &lt;id&gt; - detailed timeline
+/recursive propose &lt;chip-or-path-name&gt; [submit]
+/recursive sync prompt-benchmark &lt;runJson&gt; [report &lt;reportPath&gt;]
+/recursive sync domain-chip-lab &lt;telemetryJson&gt; &lt;chipKey&gt; [chip-path &lt;path&gt;] [packet &lt;path&gt;]
+/recursive sync domain-autoloop &lt;manifestJson&gt; &lt;stateJson&gt; [policy &lt;path&gt;] [journal &lt;path&gt;] [lane-report &lt;path&gt;]
+
+Local mode: reports come from status files on this machine. Workspace sync appears when connected.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-schedule">
+      <div class="command-head">
+        <div>
+          <h2>/schedule</h2>
+          <p>Scheduling · Show schedule creation usage.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-3">3/5 okay</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Usage: /schedule &quot;&lt;cron&gt;&quot; mission &lt;goal&gt;
+ /schedule &quot;&lt;cron&gt;&quot; loop &lt;chipKey&gt; [rounds]
+Example: /schedule &quot;*/5 * * * *&quot; loop startup-yc 2</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Usage: /schedule &quot;&lt;cron&gt;&quot; mission &lt;goal&gt;
+ /schedule &quot;&lt;cron&gt;&quot; loop &lt;chipKey&gt; [rounds]
+Example: /schedule &quot;*/5 * * * *&quot; loop startup-yc 2</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax.
+        <br>
+        <strong>Recommendation:</strong> Tighten the first line and add one clearer next action.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-schedules">
+      <div class="command-head">
+        <div>
+          <h2>/schedules</h2>
+          <p>Scheduling · List schedules.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+No schedules.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+No schedules.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-clarify">
+      <div class="command-head">
+        <div>
+          <h2>/clarify</h2>
+          <p>Clarification · Handle a pending clarification answer.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-5">5/5 excellent</span>
+          <span class="delta">Δ 0</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+No pending clarification for you. Send a /build message first.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+No pending clarification for you. Send a /build message first.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-resonance">
+      <div class="command-head">
+        <div>
+          <h2>/resonance</h2>
+          <p>Deferred Dashboard · Show deferred resonance status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Resonance
+
+The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Resonance
+
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Hide or retire this from Telegram help until the dashboard surface is real.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-insights">
+      <div class="command-head">
+        <div>
+          <h2>/insights</h2>
+          <p>Deferred Dashboard · Show deferred insights status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Hide or retire this from Telegram help until the dashboard surface is real.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-lessons">
+      <div class="command-head">
+        <div>
+          <h2>/lessons</h2>
+          <p>Deferred Dashboard · Show deferred lessons status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Hide or retire this from Telegram help until the dashboard surface is real.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-process">
+      <div class="command-head">
+        <div>
+          <h2>/process</h2>
+          <p>Deferred Dashboard · Show deferred queue processing status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Processing queue...
+
+Reply 2:
+Dashboard queue processing is deferred for this launch build.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Processing queue...
+
+Reply 2:
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Hide or retire this from Telegram help until the dashboard surface is real.
+      </footer>
+    </section>
+  
+
+    <section class="command-card" id="cmd-reflect">
+      <div class="command-head">
+        <div>
+          <h2>/reflect</h2>
+          <p>Deferred Dashboard · Show deferred reflection status.</p>
+        </div>
+        <div class="score-row">
+          <span class="badge score-2">2/5 rough</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-5">5/5 excellent</span>
+        </div>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>Reply 1:
+Starting deep reflection...
+
+Reply 2:
+Dashboard reflection is deferred for this launch build.</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>Reply 1:
+Starting deep reflection...
+
+Reply 2:
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.</pre>
+        </article>
+      </div>
+      <footer>
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
+        <br>
+        <strong>Recommendation:</strong> Hide or retire this from Telegram help until the dashboard surface is real.
+      </footer>
+    </section>
+  
+  </main>
+</body>
+</html>

@@ -13,8 +13,8 @@ Composition lens from `spark-telegram-composition`:
 
 - Registered Telegram commands found in source: 64
 - Command cases exercised: 64
-- Average usability score: 3.22 / 5
-- Score spread: 14 excellent, 9 good, 24 okay, 11 rough, 6 poor
+- Average usability score: 4.16 / 5
+- Score spread: 32 excellent, 10 good, 22 okay, 0 rough, 0 poor
 - Missing registered commands in harness: none
 - Harness-only aliases/extras: none
 
@@ -27,52 +27,51 @@ Side-effect posture:
 
 ## Main Findings
 
-1. The safest, clearest replies are the compact status/preference commands: `/myid`, `/access`, `/diagnose`, `/updates`, `/schedules`, `/clarify`, and `/recursive`.
-2. The weakest replies are bridge/setup failures that expose implementation language such as missing Builder repos, missing `spark` executable, or dashboard-deferred placeholders.
-3. `/start` is useful but too menu-shaped. It reads like a command inventory rather than a first next step.
-4. Aliases work, but they inflate the perceived surface. They should remain compatibility routes and disappear from primary help.
-5. Deferred dashboard commands should be hidden or retired from Telegram help until they have a real product surface.
+1. The safe harness now has 0 rough/poor replies.
+2. The clearest replies are compact command/status surfaces: `/myid`, `/access`, `/diagnose`, `/updates`, `/schedules`, `/clarify`, `/recursive`, `/model`, and the Builder-offline cards.
+3. `/start` is now a first-move surface instead of a full command inventory, while keeping important operator shortcuts visible.
+4. Compatibility aliases still inflate the perceived surface. They should stay functional, but primary docs should keep teaching the canonical commands.
+5. Legacy dashboard commands now explain that the surface is paused for launch v1 and point users toward supported commands.
 
 ## Priority Improvements
 
 | Priority | Commands | Improvement |
 | --- | --- | --- |
-| P1 | `/access_setup`, `/docker_doctor`, `/status` failure branch | Replace raw CLI failure text with a human card: status, blocked reason, one Spark CLI command or log location. |
-| P1 | `/self`, `/wiki`, `/context`, `/voice`, `/ledger`, `/about` | Convert Builder-unavailable replies into one consistent "Builder is offline" card with `/diagnose` as the next move. |
-| P1 | `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect` | Hide from help or remove later; current replies mostly say the feature is not part of launch. |
-| P2 | `/start` | Replace the large menu with 4 primary actions and a short "advanced commands" pointer. |
-| P2 | provider-specific `/run*` commands | Keep compatibility, but teach `/model` plus `/run` as the main path. |
-| P2 | route/AOC aliases | Canonicalize docs around `/context`, `/probe`, `/nl_route`, `/trace`, `/memory_movement`. |
+| P1 | `/voice` | Bring the Builder voice-unavailable reply into the same compact card shape as memory/wiki/context failures. |
+| P2 | `/run*`, `/mission`, `/chip`, `/loop`, `/schedule` usage replies | Add one-line examples and clearer canonical-command pointers without making help verbose. |
+| P2 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |
+| P2 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Consider hiding aliases from primary help while preserving backward compatibility. |
+| P3 | live Telegram smoke | Re-run this list against a real private chat with Builder, Spawner, Spark CLI, and providers online to score success-path composition. |
 
 ## Scorecard
 
 | Command | Family | Score | Posture | Observed first reply | Notes | Recommendation |
 | --- | --- | ---: | --- | --- | --- | --- |
-`/start` | Onboarding | 2 (rough) | `stubbed` | Hey Audit! I'm Spark.<br><br>I remember conversations through the Builder memory path.<br><br>Memory Commands:<br>/remember <text> - Save something important<br>/recall <topic> - Ask what I remember about a topic<br>/about - A [truncated] | Very long for Telegram scanning.; Bridge failure is understandable but repeats system ownership language. | Redesign the Telegram reply before broadening user exposure.
+`/start` | Onboarding | 4 (good) | `stubbed` | 👋 Hey Audit, I'm Spark.<br>⚠️ Builder memory is offline right now, so I will avoid claiming saved memory.<br>✅ Mission relay is reachable.<br><br>Good first moves:<br>• /status - health and access<br>• /diagnose - deeper h [truncated] | Long for Telegram; should probably deep-link to Workspace or docs. | Keep the current shape; only minor polish needed.
 `/myid` | Onboarding | 5 (excellent) | `read_only` | Your Telegram ID: 910000001<br>Username: @none<br>You are an admin | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/access` | Access | 5 (excellent) | `read_only` | Spark access: Access level 3<br>Current<br>• Public links, docs, GitHub research, and requested builds are on.<br>• Local files are off.<br><br>Levels:<br>• 1 - Chat, memory, recall, diagnostics. No builds.<br>• 2 - Requested [truncated] | Includes a Telegram keyboard, which helps choice-heavy flows. | Keep the current shape; only minor polish needed.
-`/access_setup` | Access | 2 (rough) | `blocked` | Spark access action failed: spawn spark ENOENT | Leaks raw/internal implementation detail. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
-`/docker_doctor` | Access | 2 (rough) | `blocked` | Spark access action failed: spawn spark ENOENT | Leaks raw/internal implementation detail. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+`/access_setup` | Access | 5 (excellent) | `blocked` | ⚠️ Set up safe workspace could not run.<br><br>Why: Spark CLI is not available to this Telegram runtime.<br><br>Next move: run /diagnose, or run the same access action from the Spark CLI. | Readable and compact in the safe harness. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
+`/docker_doctor` | Access | 5 (excellent) | `blocked` | ⚠️ Check runner could not run.<br><br>Why: Spark CLI is not available to this Telegram runtime.<br><br>Next move: run /diagnose, or run the same access action from the Spark CLI. | Readable and compact in the safe harness. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
 `/docker_smoke` | Access | 4 (good) | `usage_only` | This runs a no-secret Docker sandbox smoke. It may build or use a local image, but should not mount your home folder, Spark secrets, or the Docker socket.<br><br>To continue, send /docker_smoke confirm or tap Confirm. | First line is too dense to scan as a headline.; Includes a Telegram keyboard, which helps choice-heavy flows. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
 `/level5_setup` | Access | 4 (good) | `usage_only` | Level 5 is whole-computer operator mode. Spark will write local guardrail env files and require a restart before it becomes active.<br><br>To continue, send /level5_setup confirm or tap Confirm. | First line is too dense to scan as a headline.; Includes a Telegram keyboard, which helps choice-heavy flows. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
 `/level5_disable` | Access | 5 (excellent) | `usage_only` | This changes Spark access guardrail state and requires confirmation.<br><br>To continue, send /level5_disable confirm or tap Confirm. | Includes a Telegram keyboard, which helps choice-heavy flows. | Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.
-`/status` | Status | 2 (rough) | `blocked` | System Status<br><br>Builder memory bridge: OFFLINE (auto)<br><br>Spark Live Health<br><br>I could not run the authoritative local Spark CLI health check from this Telegram runtime.<br>Error: spawn spark ENOENT<br><br>This means thi [truncated] | Leaks raw/internal implementation detail. | Wrap the failure in a human status card with one next action and move raw detail to logs.
-`/diagnose` | Status | 5 (excellent) | `stubbed` | Running diagnostics - checks chat, access, relay, Spawner, and provider ping. Takes ~30s... | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/spark` | Status | 2 (rough) | `read_only` | Spark Intelligence<br><br>Launch core: ONLINE<br>Dashboard/resonance: deferred<br><br>The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the [truncated] | Deferred dashboard copy reads stale as a user-facing command. | Redesign the Telegram reply before broadening user exposure.
-`/about` | Memory | 4 (good) | `blocked` | I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority. | First line is too dense to scan as a headline. | Keep the current shape; only minor polish needed.
-`/remember` | Memory | 3 (okay) | `usage_only` | Usage: /remember <something to remember> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
-`/recall` | Memory | 3 (okay) | `usage_only` | Usage: /recall <topic to recall> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
-`/forget` | Memory | 3 (okay) | `usage_only` | Usage: /forget <thing to forget><br><br>If the Builder memory bridge is unavailable, try again once it is back or contact the bot admin. | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
-`/context` | Builder/AOC | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language. | Wrap the failure in a human status card with one next action and move raw detail to logs.
-`/operating_context` | Builder/AOC | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/agent_context` | Builder/AOC | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/aoc` | Builder/AOC | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language. | Wrap the failure in a human status card with one next action and move raw detail to logs.
+`/status` | Status | 4 (good) | `blocked` | ✅ System status<br><br>Builder memory: ⚠️ offline (auto)<br><br>⚠️ Spark Live health is unverified.<br><br>What happened<br>• Spark CLI is not available to this Telegram runtime.<br><br>What this means<br>• Telegram could not prove liv [truncated] | Long for Telegram; should probably deep-link to Workspace or docs. | Keep the current shape; only minor polish needed.
+`/diagnose` | Status | 5 (excellent) | `stubbed` | 🔎 Running diagnostics...<br><br>Checks chat, access, relay, Spawner, and provider ping. Takes ~30s. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/spark` | Status | 5 (excellent) | `read_only` | Spark Intelligence<br><br>✅ Spark Telegram launch core is online.<br><br>Ready now<br>• Chat and command routing through Telegram<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local servi [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/about` | Memory | 5 (excellent) | `blocked` | ⚠️ Memory is degraded/offline right now.<br><br>I should answer from the current thread instead of treating old memory as authority.<br><br>Next move: run /diagnose if you want to check Builder memory. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/remember` | Memory | 5 (excellent) | `usage_only` | 🧠 Save a memory<br><br>Use: /remember <something important><br>Example: /remember I prefer concise mission updates. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/recall` | Memory | 5 (excellent) | `usage_only` | 🔎 Recall memory<br><br>Use: /recall <topic><br>Example: /recall mission update preferences | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/forget` | Memory | 5 (excellent) | `usage_only` | 🧹 Forget memory<br><br>Use: /forget <thing to forget><br>Example: /forget my old project nickname<br><br>If Builder memory is offline, try again after /diagnose shows memory is healthy. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/context` | Builder/AOC | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/operating_context` | Builder/AOC | 3 (okay) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/agent_context` | Builder/AOC | 3 (okay) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/aoc` | Builder/AOC | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/conversation_context` | Builder/AOC | 4 (good) | `read_only` | Conversation context harness<br>- Hot turns: 0<br>- Warm summary tokens: 0<br>- Artifacts: 0<br>- Compaction events: 0<br>- Safe input budget: unknown<br>- Requires larger model for full target: unknown | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
 `/black_box` | Builder/AOC | 5 (excellent) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit. | Keep the current shape; only minor polish needed.
 `/blackbox` | Builder/AOC | 3 (okay) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
 `/black-box` | Builder/AOC | 3 (okay) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/self` | Builder | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language. | Wrap the failure in a human status card with one next action and move raw detail to logs.
-`/wiki` | Builder | 1 (poor) | `blocked` | Spark could not reach the Builder memory path right now.<br><br>Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state><br><br>Check now: Run /diagnose so Spark can check Builder, memory, a [truncated] | Leaks raw/internal implementation detail.; Shows local paths or state locations in chat.; Bridge failure is understandable but repeats system ownership language. | Wrap the failure in a human status card with one next action and move raw detail to logs.
+`/self` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/wiki` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/voice` | Builder | 3 (okay) | `blocked` | Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again. | First line is too dense to scan as a headline.; Bridge failure is understandable but repeats system ownership language. | Tighten the first line and add one clearer next action.
 `/ledger` | Builder Diagnostics | 5 (excellent) | `blocked` | Capability ledger review is unavailable right now. Run /diagnose to check the Builder bridge. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/capabilities` | Builder Diagnostics | 5 (excellent) | `read_only` | Capability garden needs review.<br><br>State<br>• 7 cards<br>• Status: local-artifacts=2, schema-shaped=3, seen=2<br>• Surfaces: creator-system=1, specialization-path=6<br><br>Review<br>• Cards are evidence, not trust.<br>• Gate ver [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
@@ -96,8 +95,8 @@ Side-effect posture:
 `/board` | Mission Control | 4 (good) | `stubbed` | Spawner Board<br><br>Running: 0<br>- none<br><br>Paused: 0<br>- none<br><br>Completed: 0<br>- none<br><br>Failed: 0<br>- none<br><br>Created: 0<br>- none | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
 `/mission` | Mission Control | 3 (okay) | `usage_only` | Usage: /mission <status\|pause\|resume\|kill> <missionId> | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
 `/updates` | Mission Control | 5 (excellent) | `read_only` | Live mission updates are set to normal.<br>Normal sends pickup, canvas-ready, final handoff, and failures.<br>Mission links are set to board.<br>Mission updates include the Mission board/Kanban link.<br><br>Usage:<br>/updat [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
-`/model` | Models | 2 (rough) | `read_only` | Spark model routing<br><br>Agent chat: audit_unsupported (glm-5.1)<br>Missions: codex (gpt-5.5)<br><br>Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval [truncated] | Very long for Telegram scanning.; Uses CLI-style hyphen bullets where Telegram cards would scan better. | Redesign the Telegram reply before broadening user exposure.
-`/models` | Models | 3 (okay) | `read_only` | Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.<br><br>Fast picks:<br>- Have ChatGPT/Codex: [truncated] | Long for Telegram; should probably deep-link to Workspace or docs.; Uses CLI-style hyphen bullets where Telegram cards would scan better. | Tighten the first line and add one clearer next action.
+`/model` | Models | 5 (excellent) | `read_only` | 🧠 Spark model routing<br><br>Current<br>• Agent chat: audit_unsupported (glm-5.1)<br>• Missions: codex (gpt-5.5)<br><br>Common switches<br>• /model agent codex<br>• /model agent claude claude-sonnet-4-6<br>• /model mission codex<br>• [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/models` | Models | 5 (excellent) | `read_only` | 🧭 Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.<br><br>Fast picks<br>• Have ChatGPT/Code [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/workspaces` | Workspace | 4 (good) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline. | Keep the current shape; only minor polish needed.
 `/workspace` | Workspace | 3 (okay) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
 `/creator` | Creator/Chip | 5 (excellent) | `usage_only` | Usage: /creator plan [private\|github\|swarm] [risk low\|medium\|high] <brief><br> /creator run <mission-creator-id><br> /creator status <mission-creator-id><br> /creator validate <mission-creator-id> [maxCommands]<br>Exa [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
@@ -107,25 +106,25 @@ Side-effect posture:
 `/schedule` | Scheduling | 3 (okay) | `usage_only` | Usage: /schedule "<cron>" mission <goal><br> /schedule "<cron>" loop <chipKey> [rounds]<br>Example: /schedule "*/5 * * * *" loop startup-yc 2 | Usage is explicit.; Clear but terse; no extra reassurance or examples beyond syntax. | Tighten the first line and add one clearer next action.
 `/schedules` | Scheduling | 5 (excellent) | `stubbed` | No schedules. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/clarify` | Clarification | 5 (excellent) | `read_only` | No pending clarification for you. Send a /build message first. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/resonance` | Deferred Dashboard | 2 (rough) | `read_only` | Resonance<br><br>The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path. | Deferred dashboard copy reads stale as a user-facing command. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/insights` | Deferred Dashboard | 2 (rough) | `read_only` | The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path. | First line is too dense to scan as a headline.; Deferred dashboard copy reads stale as a user-facing command. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/lessons` | Deferred Dashboard | 2 (rough) | `read_only` | The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path. | First line is too dense to scan as a headline.; Deferred dashboard copy reads stale as a user-facing command. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/process` | Deferred Dashboard | 2 (rough) | `read_only` | Processing queue... | Deferred dashboard copy reads stale as a user-facing command. | Hide or retire this from Telegram help until the dashboard surface is real.
-`/reflect` | Deferred Dashboard | 2 (rough) | `read_only` | Starting deep reflection... | Deferred dashboard copy reads stale as a user-facing command. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/resonance` | Deferred Dashboard | 5 (excellent) | `read_only` | Resonance<br><br>⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local service [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/insights` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/lessons` | Deferred Dashboard | 5 (excellent) | `read_only` | ⚠️ Legacy dashboard commands are paused for launch v1.<br><br>Ready now<br>• Telegram chat and command routing<br>• Builder memory when the local bridge is healthy<br>• Spawner mission relay when local services are runni [truncated] | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/process` | Deferred Dashboard | 5 (excellent) | `read_only` | Processing queue... | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
+`/reflect` | Deferred Dashboard | 5 (excellent) | `read_only` | Starting deep reflection... | Readable and compact in the safe harness. | Hide or retire this from Telegram help until the dashboard surface is real.
 
 ## Family Notes
 
 ### Access
 
-Average: 3.67 / 5.
+Average: 4.67 / 5.
 
-Needs attention: `/access_setup`, `/docker_doctor`.
+No commands in this family scored below okay in the safe harness.
 
 ### Builder
 
-Average: 1.67 / 5.
+Average: 4.33 / 5.
 
-Needs attention: `/self`, `/wiki`.
+No commands in this family scored below okay in the safe harness.
 
 ### Builder Diagnostics
 
@@ -135,9 +134,9 @@ No commands in this family scored below okay in the safe harness.
 
 ### Builder/AOC
 
-Average: 2.38 / 5.
+Average: 3.88 / 5.
 
-Needs attention: `/context`, `/operating_context`, `/agent_context`, `/aoc`.
+No commands in this family scored below okay in the safe harness.
 
 ### Clarification
 
@@ -153,13 +152,13 @@ No commands in this family scored below okay in the safe harness.
 
 ### Deferred Dashboard
 
-Average: 2.00 / 5.
+Average: 5.00 / 5.
 
-Needs attention: `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect`.
+No commands in this family scored below okay in the safe harness.
 
 ### Memory
 
-Average: 3.25 / 5.
+Average: 5.00 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -177,15 +176,15 @@ No commands in this family scored below okay in the safe harness.
 
 ### Models
 
-Average: 2.50 / 5.
+Average: 5.00 / 5.
 
-Needs attention: `/model`.
+No commands in this family scored below okay in the safe harness.
 
 ### Onboarding
 
-Average: 3.50 / 5.
+Average: 4.50 / 5.
 
-Needs attention: `/start`.
+No commands in this family scored below okay in the safe harness.
 
 ### Recursive
 
@@ -207,9 +206,9 @@ No commands in this family scored below okay in the safe harness.
 
 ### Status
 
-Average: 3.00 / 5.
+Average: 4.67 / 5.
 
-Needs attention: `/status`, `/spark`.
+No commands in this family scored below okay in the safe harness.
 
 ### Workspace
 
@@ -221,35 +220,33 @@ No commands in this family scored below okay in the safe harness.
 
 ### /start
 
-Score: 2 (rough). Intent: Show first-run help and current launch posture.
+Score: 4 (good). Intent: Show first-run help and current launch posture.
 
 Reply 1:
 
 ```text
-Hey Audit! I'm Spark.
+👋 Hey Audit, I'm Spark.
+⚠️ Builder memory is offline right now, so I will avoid claiming saved memory.
+✅ Mission relay is reachable.
 
-I remember conversations through the Builder memory path.
+Good first moves:
+• /status - health and access
+• /diagnose - deeper health check
+• /remember <text> - save an important detail
+• /recall <topic> - ask what I remember
 
-Memory Commands:
-/remember <text> - Save something important
-/recall <topic> - Ask what I remember about a topic
-/about - Ask what I know about you
-/forget <text> - Ask me to forget a saved detail
+You can also just chat with me here.
 
-Spark Intelligence:
-/spark - System status
+Admin shortcuts:
+• /run <goal> - start a Spawner mission
+• /board - mission board
+• /access <1|2|3|4|5> - choose chat permissions
+• /access 5 - Approve Level 5 setup from Telegram
+• /model - model routing
+• /workspaces - local project folders
 
-Spawner Control:
-/run <goal> - Start a mission in Spawner
-/board - Mission state report
-/creator plan <brief> - Plan a creator mission for a chip/path/benchmark/autoloop
-/creator run <missionId> - Execute a planned creator mission
-/creator status <missionId> - Show creator mission readiness and validation state
-/creator validate <missionId> [maxCommands] - Run creator validation gates
-/workspaces - Show local project folders
-/model - Show or change Agent/Mission model routing
-/models - Show recommended model versions
-/wiki - Check Spark LLM wiki health; u [truncated]
+Advanced:
+• /creator, /recursive, /context, /probe, /trace, /memory_movement, /wiki
 ```
 
 Reply 2:
@@ -312,22 +309,30 @@ Verdict: local filesystem work is off at this level.
 
 ### /access_setup
 
-Score: 2 (rough). Intent: Run safe workspace setup from Telegram.
+Score: 5 (excellent). Intent: Run safe workspace setup from Telegram.
 
 Reply 1:
 
 ```text
-Spark access action failed: spawn spark ENOENT
+⚠️ Set up safe workspace could not run.
+
+Why: Spark CLI is not available to this Telegram runtime.
+
+Next move: run /diagnose, or run the same access action from the Spark CLI.
 ```
 
 ### /docker_doctor
 
-Score: 2 (rough). Intent: Check Docker sandbox readiness.
+Score: 5 (excellent). Intent: Check Docker sandbox readiness.
 
 Reply 1:
 
 ```text
-Spark access action failed: spawn spark ENOENT
+⚠️ Check runner could not run.
+
+Why: Spark CLI is not available to this Telegram runtime.
+
+Next move: run /diagnose, or run the same access action from the Spark CLI.
 ```
 
 ### /docker_smoke
@@ -368,27 +373,32 @@ To continue, send /level5_disable confirm or tap Confirm.
 
 ### /status
 
-Score: 2 (rough). Intent: Summarize launch health and access state.
+Score: 4 (good). Intent: Summarize launch health and access state.
 
 Reply 1:
 
 ```text
-System Status
+✅ System status
 
-Builder memory bridge: OFFLINE (auto)
+Builder memory: ⚠️ offline (auto)
 
-Spark Live Health
+⚠️ Spark Live health is unverified.
 
-I could not run the authoritative local Spark CLI health check from this Telegram runtime.
-Error: spawn spark ENOENT
+What happened
+• Spark CLI is not available to this Telegram runtime.
 
-This means this runner could not probe local Spark health. It does not prove Spawner or Telegram are offline.
+What this means
+• Telegram could not prove live Spark health from here.
+• This is not proof that Spawner or Telegram are offline.
 
-Spark Access Status
+Next move
+• Run /diagnose, or check `spark live status` from the Spark CLI.
+
+⚠️ Spark Access status is partly unverified.
 
 Chat setting: Access level 3.
 CLI effective access: unavailable.
-Error: spawn spark ENOENT
+Why: Spark CLI is not available to this Telegram runtime.
 
 Runner: writable here.
 
@@ -402,7 +412,9 @@ Score: 5 (excellent). Intent: Run full stack health diagnostics.
 Reply 1:
 
 ```text
-Running diagnostics - checks chat, access, relay, Spawner, and provider ping. Takes ~30s...
+🔎 Running diagnostics...
+
+Checks chat, access, relay, Spawner, and provider ping. Takes ~30s.
 ```
 
 Reply 2:
@@ -429,139 +441,151 @@ Checked in 0.0s.
 
 ### /spark
 
-Score: 2 (rough). Intent: Show quick Spark launch-core status.
+Score: 5 (excellent). Intent: Show quick Spark launch-core status.
 
 Reply 1:
 
 ```text
 Spark Intelligence
 
-Launch core: ONLINE
-Dashboard/resonance: deferred
+✅ Spark Telegram launch core is online.
 
-The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.
+Ready now
+• Chat and command routing through Telegram
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Paused
+• Legacy resonance/dashboard commands
+
+Next move: use /status for live health or /run <goal> for missions.
 ```
 
 ### /about
 
-Score: 4 (good). Intent: Ask Builder what it knows about the user.
+Score: 5 (excellent). Intent: Ask Builder what it knows about the user.
 
 Reply 1:
 
 ```text
-I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority.
+⚠️ Memory is degraded/offline right now.
+
+I should answer from the current thread instead of treating old memory as authority.
+
+Next move: run /diagnose if you want to check Builder memory.
 ```
 
 ### /remember
 
-Score: 3 (okay). Intent: Validate remember usage without writing memory.
+Score: 5 (excellent). Intent: Validate remember usage without writing memory.
 
 Reply 1:
 
 ```text
-Usage: /remember <something to remember>
+🧠 Save a memory
+
+Use: /remember <something important>
+Example: /remember I prefer concise mission updates.
 ```
 
 ### /recall
 
-Score: 3 (okay). Intent: Validate recall usage without querying memory.
+Score: 5 (excellent). Intent: Validate recall usage without querying memory.
 
 Reply 1:
 
 ```text
-Usage: /recall <topic to recall>
+🔎 Recall memory
+
+Use: /recall <topic>
+Example: /recall mission update preferences
 ```
 
 ### /forget
 
-Score: 3 (okay). Intent: Validate forget usage without changing memory.
+Score: 5 (excellent). Intent: Validate forget usage without changing memory.
 
 Reply 1:
 
 ```text
-Usage: /forget <thing to forget>
+🧹 Forget memory
 
-If the Builder memory bridge is unavailable, try again once it is back or contact the bot admin.
+Use: /forget <thing to forget>
+Example: /forget my old project nickname
+
+If Builder memory is offline, try again after /diagnose shows memory is healthy.
 ```
 
 ### /context
 
-Score: 1 (poor). Intent: Show Agent Operating Context.
+Score: 5 (excellent). Intent: Show Agent Operating Context.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /operating_context
 
-Score: 1 (poor). Intent: Alias for Agent Operating Context.
+Score: 3 (okay). Intent: Alias for Agent Operating Context.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /agent_context
 
-Score: 1 (poor). Intent: Alias for Agent Operating Context.
+Score: 3 (okay). Intent: Alias for Agent Operating Context.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /aoc
 
-Score: 1 (poor). Intent: Short alias for Agent Operating Context.
+Score: 5 (excellent). Intent: Short alias for Agent Operating Context.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /conversation_context
@@ -621,42 +645,38 @@ This shows compact event evidence only. It does not promote memory or grant auth
 
 ### /self
 
-Score: 1 (poor). Intent: Show Spark self-awareness status.
+Score: 5 (excellent). Intent: Show Spark self-awareness status.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /wiki
 
-Score: 1 (poor). Intent: Show wiki health/status.
+Score: 5 (excellent). Intent: Show wiki health/status.
 
 Reply 1:
 
 ```text
-Spark could not reach the Builder memory path right now.
+⚠️ Spark could not reach the Builder memory path right now.
 
-Reason: Builder bridge unavailable. repo=<audit-temp-state> home=<audit-temp-state>
+Why: Builder bridge command did not finish cleanly.
 
-Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
-
-Operator fix: spark fix telegram, then spark verify --onboarding.
+Next move
+• Check now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.
+• Operator fix: spark fix telegram, then spark verify --onboarding.
 
 Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-report --upstream-report
-
-That uses your configured LLM, redacts sensitive data, and creates a local upstream PR draft only if you review/share it.
 ```
 
 ### /voice
@@ -1062,60 +1082,56 @@ Usage:
 
 ### /model
 
-Score: 2 (rough). Intent: Show current model routing.
+Score: 5 (excellent). Intent: Show current model routing.
 
 Reply 1:
 
 ```text
-Spark model routing
+🧠 Spark model routing
 
-Agent chat: audit_unsupported (glm-5.1)
-Missions: codex (gpt-5.5)
+Current
+• Agent chat: audit_unsupported (glm-5.1)
+• Missions: codex (gpt-5.5)
 
-Recommended Spark provider paths
+Common switches
+• /model agent codex
+• /model agent claude claude-sonnet-4-6
+• /model mission codex
+• /model mission claude claude-opus-4-7
 
-Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.
+More options
+• /models - curated provider defaults
+• /models claude - provider-specific details
+• /model agent lmstudio <loaded-model-id>
 
-Fast picks:
-- Have ChatGPT/Codex: codex with gpt-5.5
-- Have Claude: claude with Sonnet for agent, Opus for hard missions
-- Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
-- Want local/private: LM Studio for desktop, Ollama for terminal
-
-Provider details
-- zai: API key; agent glm-5.1; mission glm-5.1
- Best current Z.AI coding-agent default for Spark agent chat and build support.
- Use this if you already have a Z.AI/GLM key.
-- codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
- Recommended OpenAI/Codex model for Spark missions and local coding work.
- Use this if you already have ChatGPT/Codex [truncated]
+You can pass an exact model id as the third value. Run /diagnose after changing to verify the route.
 ```
 
 ### /models
 
-Score: 3 (okay). Intent: Show model recommendations.
+Score: 5 (excellent). Intent: Show model recommendations.
 
 Reply 1:
 
 ```text
-Recommended Spark provider paths
+🧭 Recommended Spark provider paths
 
 Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.
 
-Fast picks:
-- Have ChatGPT/Codex: codex with gpt-5.5
-- Have Claude: claude with Sonnet for agent, Opus for hard missions
-- Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
-- Want local/private: LM Studio for desktop, Ollama for terminal
+Fast picks
+• Have ChatGPT/Codex: codex with gpt-5.5
+• Have Claude: claude with Sonnet for agent, Opus for hard missions
+• Have API keys: OpenAI, OpenRouter, Z.AI, MiniMax, or Hugging Face
+• Want local/private: LM Studio for desktop, Ollama for terminal
 
-Provider details
-- zai: API key; agent glm-5.1; mission glm-5.1
- Best current Z.AI coding-agent default for Spark agent chat and build support.
- Use this if you already have a Z.AI/GLM key.
-- codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
- Recommended OpenAI/Codex model for Spark missions and local coding work.
- Use this if you already have ChatGPT/Codex available on this machine.
-- claude: Claude sign-in or API key; agent Claude Sonnet 4.6 [truncated]
+Provider defaults
+• zai: API key; agent glm-5.1; mission glm-5.1
+• codex: ChatGPT/Codex sign-in; agent gpt-5.5; mission gpt-5.5
+• claude: Claude sign-in or API key; agent Claude Sonnet 4.6 (claude-sonnet-4-6); mission Claude Opus 4.7 (claude-opus-4-7)
+• openai: OpenAI API key; agent gpt-5.5; mission gpt-5.5
+• openrouter: API gateway; agent openai/gpt-5.5; mission openai/gpt-5.5
+• lmstudio: Local/private desktop; agent local-model; mission local-model
+• [truncated]
 ```
 
 ### /workspaces
@@ -1244,39 +1260,60 @@ No pending clarification for you. Send a /build message first.
 
 ### /resonance
 
-Score: 2 (rough). Intent: Show deferred resonance status.
+Score: 5 (excellent). Intent: Show deferred resonance status.
 
 Reply 1:
 
 ```text
 Resonance
 
-The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.
 ```
 
 ### /insights
 
-Score: 2 (rough). Intent: Show deferred insights status.
+Score: 5 (excellent). Intent: Show deferred insights status.
 
 Reply 1:
 
 ```text
-The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.
 ```
 
 ### /lessons
 
-Score: 2 (rough). Intent: Show deferred lessons status.
+Score: 5 (excellent). Intent: Show deferred lessons status.
 
 Reply 1:
 
 ```text
-The Spark dashboard/resonance surface is not part of this launch build yet. Core chat, LLM, Builder memory, and Spawner relay are the supported launch path.
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.
 ```
 
 ### /process
 
-Score: 2 (rough). Intent: Show deferred queue processing status.
+Score: 5 (excellent). Intent: Show deferred queue processing status.
 
 Reply 1:
 
@@ -1287,12 +1324,19 @@ Processing queue...
 Reply 2:
 
 ```text
-Dashboard queue processing is deferred for this launch build.
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.
 ```
 
 ### /reflect
 
-Score: 2 (rough). Intent: Show deferred reflection status.
+Score: 5 (excellent). Intent: Show deferred reflection status.
 
 Reply 1:
 
@@ -1303,7 +1347,14 @@ Starting deep reflection...
 Reply 2:
 
 ```text
-Dashboard reflection is deferred for this launch build.
+⚠️ Legacy dashboard commands are paused for launch v1.
+
+Ready now
+• Telegram chat and command routing
+• Builder memory when the local bridge is healthy
+• Spawner mission relay when local services are running
+
+Next move: use /status, /diagnose, /run, or /board.
 ```
 
 ## Interpretation

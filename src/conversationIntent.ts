@@ -2009,12 +2009,30 @@ export function formatAgentDoctrinePreferenceStatus(preferences: string[]): stri
 
 export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' | 'about'): string {
   if (action === 'remember') {
-    return 'I could not confirm that through Spark memory yet, so I am not going to claim it was saved. Memory is degraded; run /diagnose only if you want a health check.';
+    return [
+      '⚠️ Memory is degraded/offline right now.',
+      '',
+      'I could not confirm the save, so I will not claim it was remembered.',
+      '',
+      'Next move: try again later, or run /diagnose only if you want a health check.'
+    ].join('\n');
   }
   if (action === 'recall') {
-    return 'I could not get a useful memory answer yet. Memory is degraded, so current chat should win until recall is healthy again.';
+    return [
+      '⚠️ Memory recall is degraded/offline right now.',
+      '',
+      'Current chat should win until recall is healthy again.',
+      '',
+      'Next move: run /diagnose if you want to check Builder memory.'
+    ].join('\n');
   }
-  return 'I could not inspect Spark memory yet. Memory is degraded, so I should answer from the current thread instead of treating old memory as authority.';
+  return [
+    '⚠️ Memory is degraded/offline right now.',
+    '',
+    'I should answer from the current thread instead of treating old memory as authority.',
+    '',
+    'Next move: run /diagnose if you want to check Builder memory.'
+  ].join('\n');
 }
 
 export function buildIdeationFallbackReply(text: string): string {

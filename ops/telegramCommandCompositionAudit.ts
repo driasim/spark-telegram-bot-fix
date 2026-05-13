@@ -35,6 +35,13 @@ interface AuditResult {
   recommendation: string;
 }
 
+interface AuditPayload {
+  auditDate: string;
+  generatedAt: string;
+  label: string;
+  results: AuditResult[];
+}
+
 const AUDIT_DATE = '2026-05-13';
 const ADMIN_BASE = 910_000_000;
 const ALLOWED_USER = 920_000_001;
@@ -549,6 +556,7 @@ function renderMarkdown(results: AuditResult[]): string {
   const extras = Array.from(audited).filter((name) => !registered.includes(name)).sort();
   const average = results.reduce((sum, item) => sum + item.score, 0) / Math.max(1, results.length);
   const byScore = (score: number) => results.filter((item) => item.score === score);
+  const roughOrPoor = results.filter((item) => item.score <= 2);
   const families = Array.from(new Set(results.map((item) => item.family))).sort();
 
   const lines: string[] = [
@@ -581,22 +589,21 @@ function renderMarkdown(results: AuditResult[]): string {
     '',
     '## Main Findings',
     '',
-    '1. The safest, clearest replies are the compact status/preference commands: `/myid`, `/access`, `/diagnose`, `/updates`, `/schedules`, `/clarify`, and `/recursive`.',
-    '2. The weakest replies are bridge/setup failures that expose implementation language such as missing Builder repos, missing `spark` executable, or dashboard-deferred placeholders.',
-    '3. `/start` is useful but too menu-shaped. It reads like a command inventory rather than a first next step.',
-    '4. Aliases work, but they inflate the perceived surface. They should remain compatibility routes and disappear from primary help.',
-    '5. Deferred dashboard commands should be hidden or retired from Telegram help until they have a real product surface.',
+    `1. The safe harness now has ${roughOrPoor.length} rough/poor replies${roughOrPoor.length ? `: ${roughOrPoor.map((item) => `\`${item.command}\``).join(', ')}` : '.'}`,
+    '2. The clearest replies are compact command/status surfaces: `/myid`, `/access`, `/diagnose`, `/updates`, `/schedules`, `/clarify`, `/recursive`, `/model`, and the Builder-offline cards.',
+    '3. `/start` is now a first-move surface instead of a full command inventory, while keeping important operator shortcuts visible.',
+    '4. Compatibility aliases still inflate the perceived surface. They should stay functional, but primary docs should keep teaching the canonical commands.',
+    '5. Legacy dashboard commands now explain that the surface is paused for launch v1 and point users toward supported commands.',
     '',
     '## Priority Improvements',
     '',
     '| Priority | Commands | Improvement |',
     '| --- | --- | --- |',
-    '| P1 | `/access_setup`, `/docker_doctor`, `/status` failure branch | Replace raw CLI failure text with a human card: status, blocked reason, one Spark CLI command or log location. |',
-    '| P1 | `/self`, `/wiki`, `/context`, `/voice`, `/ledger`, `/about` | Convert Builder-unavailable replies into one consistent "Builder is offline" card with `/diagnose` as the next move. |',
-    '| P1 | `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect` | Hide from help or remove later; current replies mostly say the feature is not part of launch. |',
-    '| P2 | `/start` | Replace the large menu with 4 primary actions and a short "advanced commands" pointer. |',
-    '| P2 | provider-specific `/run*` commands | Keep compatibility, but teach `/model` plus `/run` as the main path. |',
-    '| P2 | route/AOC aliases | Canonicalize docs around `/context`, `/probe`, `/nl_route`, `/trace`, `/memory_movement`. |',
+    '| P1 | `/voice` | Bring the Builder voice-unavailable reply into the same compact card shape as memory/wiki/context failures. |',
+    '| P2 | `/run*`, `/mission`, `/chip`, `/loop`, `/schedule` usage replies | Add one-line examples and clearer canonical-command pointers without making help verbose. |',
+    '| P2 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |',
+    '| P2 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Consider hiding aliases from primary help while preserving backward compatibility. |',
+    '| P3 | live Telegram smoke | Re-run this list against a real private chat with Builder, Spawner, Spark CLI, and providers online to score success-path composition. |',
     '',
     '## Scorecard',
     '',
@@ -667,6 +674,15 @@ function renderMarkdown(results: AuditResult[]): string {
   return lines.join('\n');
 }
 
+function buildAuditPayload(results: AuditResult[]): AuditPayload {
+  return {
+    auditDate: AUDIT_DATE,
+    generatedAt: new Date().toISOString(),
+    label: process.env.SPARK_TELEGRAM_COMPOSITION_RUN_LABEL?.trim() || 'Telegram command composition audit',
+    results
+  };
+}
+
 async function main(): Promise<void> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'spark-telegram-command-audit-state-'));
   const tempBin = mkdtempSync(path.join(os.tmpdir(), 'spark-telegram-command-audit-bin-'));
@@ -692,6 +708,14 @@ async function main(): Promise<void> {
   mkdirSync(path.dirname(outPath), { recursive: true });
   writeFileSync(outPath, renderMarkdown(results), 'utf-8');
   console.log(`\nWrote ${outPath}`);
+
+  const jsonOut = process.env.SPARK_TELEGRAM_COMPOSITION_JSON_OUT?.trim();
+  if (jsonOut) {
+    const jsonPath = path.resolve(process.cwd(), jsonOut);
+    mkdirSync(path.dirname(jsonPath), { recursive: true });
+    writeFileSync(jsonPath, JSON.stringify(buildAuditPayload(results), null, 2), 'utf-8');
+    console.log(`Wrote ${jsonPath}`);
+  }
 
   const jsonStateModule: any = await import('../src/jsonState');
   jsonStateModule.resetJsonStateForTests?.();
