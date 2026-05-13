@@ -282,6 +282,7 @@ If you are Claude Code, Codex, or another LLM agent operating this repo:
 ## Related Docs
 
 - [Spark Telegram Bot Audit - 2026-05-13](./docs/REPO_AUDIT_2026-05-13.md)
+- [Spark command surface audit - 2026-05-13](./docs/SPARK_COMMAND_SURFACE_AUDIT_2026-05-13.md)
 - [Spark QA operator Telegram recursion guide](./docs/QA_OPERATOR_TELEGRAM_RECURSION.md)
 - [Ops harness guide](./ops/README.md)
 
