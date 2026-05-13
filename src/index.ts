@@ -1576,7 +1576,21 @@ interface PendingClarification {
   addedAssumptions: string[];
   timestamp: number;
 }
+interface PendingBuildDispatchConfirmation {
+  requestId: string;
+  missionId: string;
+  traceRef: string;
+  prd: string;
+  projectName: string;
+  projectPath: string | null;
+  buildMode: 'direct' | 'advanced_prd';
+  buildModeReason: string;
+  capabilityProposalPacket?: Record<string, unknown>;
+  humanNextAction: string;
+  timestamp: number;
+}
 const pendingClarifications = new Map<string, PendingClarification>();
+const pendingBuildDispatchConfirmations = new Map<string, PendingBuildDispatchConfirmation>();
 const noExecutionBoundaries = new Map<string, number>();
 interface PendingDomainChipBuild {
   brief: string;
@@ -1596,9 +1610,10 @@ let pollingActive = false;
 
 function clearPendingExecutionState(key: string): boolean {
   const hadClarification = pendingClarifications.delete(key);
+  const hadBuildDispatch = pendingBuildDispatchConfirmations.delete(key);
   const hadDomainChip = pendingDomainChipBuilds.delete(key);
   const hadCreatorMission = pendingCreatorMissions.delete(key);
-  return hadClarification || hadDomainChip || hadCreatorMission;
+  return hadClarification || hadBuildDispatch || hadDomainChip || hadCreatorMission;
 }
 
 function rememberNoExecutionBoundary(key: string): void {
@@ -2526,6 +2541,48 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   }
 }
 
+async function handleBuildDispatchConfirmation(ctx: any, answersRawInput: string): Promise<void> {
+  const key = `${ctx.chat.id}-${ctx.from.id}`;
+  const pending = pendingBuildDispatchConfirmations.get(key);
+  if (!pending) {
+    await ctx.reply('No pending build confirmation for you. Send the build message again.');
+    return;
+  }
+  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
+    pendingBuildDispatchConfirmations.delete(key);
+    await ctx.reply('Build confirmation window expired (30 min). Send the build message again.');
+    return;
+  }
+
+  const answersRaw = answersRawInput.trim();
+  if (isNoExecutionBoundary(answersRaw)) {
+    pendingBuildDispatchConfirmations.delete(key);
+    await ctx.reply('Got it, no build started. We can keep talking here.');
+    return;
+  }
+
+  if (!isPendingClarificationFollowup(answersRaw)) {
+    return;
+  }
+
+  pendingBuildDispatchConfirmations.delete(key);
+  await handleBuildIntent(
+    ctx,
+    pending.prd,
+    pending.projectName,
+    pending.projectPath,
+    pending.buildMode,
+    pending.buildModeReason,
+    pending.capabilityProposalPacket,
+    {
+      requestId: pending.requestId,
+      missionId: pending.missionId,
+      traceRef: pending.traceRef,
+      confirmationState: 'confirmed'
+    }
+  );
+}
+
 function startPrdCanvasReadyNotifier(args: {
   chatId: number;
   projectName: string;
@@ -3385,11 +3442,28 @@ export function shouldUsePendingClarificationForMessage(pending: { timestamp: nu
   return isPendingClarificationFollowup(text);
 }
 
+export function shouldUsePendingBuildDispatchConfirmationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
+  if (!pending) return false;
+  const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
+  if (!expired) return true;
+  return isPendingClarificationFollowup(text);
+}
+
 function pendingClarificationForMessage(key: string, text: string): PendingClarification | null {
   const pending = pendingClarifications.get(key);
   if (!pending) return null;
   if (!shouldUsePendingClarificationForMessage(pending, text)) {
     pendingClarifications.delete(key);
+    return null;
+  }
+  return pending;
+}
+
+function pendingBuildDispatchConfirmationForMessage(key: string, text: string): PendingBuildDispatchConfirmation | null {
+  const pending = pendingBuildDispatchConfirmations.get(key);
+  if (!pending) return null;
+  if (!shouldUsePendingBuildDispatchConfirmationForMessage(pending, text)) {
+    pendingBuildDispatchConfirmations.delete(key);
     return null;
   }
   return pending;
@@ -3577,6 +3651,7 @@ export async function buildDispatchRouteConfidenceAllows(input: {
   confirmationState?: 'not_required' | 'confirmed' | 'missing';
   gateRunner?: typeof runBuilderRouteConfidenceGate;
   spawnerAvailableProbe?: () => Promise<boolean>;
+  onConfirmationRequired?: (input: { decision: string; humanNextAction: string }) => void | Promise<void>;
 }): Promise<boolean> {
   if (process.env.SPARK_BOT_TEST_MODE === '1') {
     return true;
@@ -3671,10 +3746,12 @@ export async function buildDispatchRouteConfidenceAllows(input: {
       ].join('\n'));
       return false;
     }
+    const humanNextAction = routeConfidenceHumanNextAction(gate.payload);
+    await input.onConfirmationRequired?.({ decision, humanNextAction });
     await input.ctx.reply([
       'I can prepare this build, but I need one confirmation first.',
       '',
-      routeConfidenceHumanNextAction(gate.payload)
+      humanNextAction
     ].join('\n'));
     return false;
   } catch (error) {
@@ -3794,7 +3871,13 @@ export async function handleBuildIntent(
   projectPath: string | null,
   buildMode: 'direct' | 'advanced_prd',
   buildModeReason: string,
-  capabilityProposalPacket?: Record<string, unknown>
+  capabilityProposalPacket?: Record<string, unknown>,
+  options: {
+    requestId?: string;
+    missionId?: string;
+    traceRef?: string;
+    confirmationState?: 'not_required' | 'confirmed' | 'missing';
+  } = {}
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -3822,9 +3905,9 @@ export async function handleBuildIntent(
 
   const spawnerUrl = resolveSpawnerUiUrl();
   const chatId = Number(ctx.chat.id);
-  const requestId = opaqueTelegramRequestId('tg-build');
-  const missionId = missionIdFromTelegramBuildRequest(requestId);
-  const traceRef = spawnerPrdTraceRef(missionId);
+  const requestId = options.requestId || opaqueTelegramRequestId('tg-build');
+  const missionId = options.missionId || missionIdFromTelegramBuildRequest(requestId);
+  const traceRef = options.traceRef || spawnerPrdTraceRef(missionId);
   await recordBuilderAocPreflightForRun({
     ctx,
     requestId,
@@ -3833,7 +3916,32 @@ export async function handleBuildIntent(
     userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
     reason: 'Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with shared trace.'
   });
-  if (!(await buildDispatchRouteConfidenceAllows({ ctx, accessRequirement, prd, requestId, traceRef, runnerPreflight }))) {
+  if (!(await buildDispatchRouteConfidenceAllows({
+    ctx,
+    accessRequirement,
+    prd,
+    requestId,
+    traceRef,
+    runnerPreflight,
+    confirmationState: options.confirmationState,
+    onConfirmationRequired: options.confirmationState === 'confirmed'
+      ? undefined
+      : ({ humanNextAction }) => {
+          pendingBuildDispatchConfirmations.set(`${ctx.chat.id}-${ctx.from.id}`, {
+            requestId,
+            missionId,
+            traceRef,
+            prd,
+            projectName,
+            projectPath,
+            buildMode,
+            buildModeReason,
+            capabilityProposalPacket,
+            humanNextAction,
+            timestamp: Date.now()
+          });
+        }
+  }))) {
     return;
   }
 
@@ -5171,6 +5279,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const activePendingClarification = conversation.isAdmin(ctx.from)
     ? pendingClarificationForMessage(adminPendingExecutionKey, text)
     : null;
+  const activePendingBuildDispatchConfirmation = conversation.isAdmin(ctx.from)
+    ? pendingBuildDispatchConfirmationForMessage(adminPendingExecutionKey, text)
+    : null;
+  if (
+    activePendingBuildDispatchConfirmation &&
+    isPendingClarificationFollowup(text) &&
+    deterministicRouteAllowed('spawner.pending_clarification', text)
+  ) {
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.build_confirmation');
+    await handleBuildDispatchConfirmation(ctx, text);
+    return;
+  }
   if (
     activePendingClarification &&
     isPendingClarificationFollowup(text) &&
