@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 import {
   createRouteArbiterRecord,
   parseRouteArbiterResponse,
+  routeArbiterLedgerPath,
   routeArbiterMode,
   routeArbiterTextHash
 } from '../src/routeArbiter';
@@ -80,4 +83,24 @@ test('route arbiter records keep raw prompt text out of the ledger', () => {
   assert.equal(record.arbiter_intent, 'design');
   assert.equal(record.arbiter_allow, false);
   assert.doesNotMatch(serialized, /access level 4 creates|really 4/i);
+});
+
+test('route arbiter default ledger lives under Spark state, not the source cwd', () => {
+  const previousGatewayStateDir = process.env.SPARK_GATEWAY_STATE_DIR;
+  const previousSparkHome = process.env.SPARK_HOME;
+  const sparkHome = path.join(os.tmpdir(), 'spark-route-arbiter-home');
+  delete process.env.SPARK_GATEWAY_STATE_DIR;
+  process.env.SPARK_HOME = sparkHome;
+
+  try {
+    assert.equal(
+      routeArbiterLedgerPath({} as NodeJS.ProcessEnv),
+      path.join(sparkHome, 'state', 'spark-telegram-bot', '.spark-route-arbiter-shadow.jsonl')
+    );
+  } finally {
+    if (previousGatewayStateDir === undefined) delete process.env.SPARK_GATEWAY_STATE_DIR;
+    else process.env.SPARK_GATEWAY_STATE_DIR = previousGatewayStateDir;
+    if (previousSparkHome === undefined) delete process.env.SPARK_HOME;
+    else process.env.SPARK_HOME = previousSparkHome;
+  }
 });

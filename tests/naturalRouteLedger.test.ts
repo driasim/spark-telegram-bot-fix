@@ -47,7 +47,10 @@ async function run(): Promise<void> {
     assert.equal(record.shadow_route, 'spawner.build');
     assert.equal(record.executed_route, 'spawner.build');
     assert.equal(record.profile, 'spark_agi');
+    assert.match(record.user_id, /^user:sha256:[a-f0-9]{12}$/);
+    assert.match(record.chat_id, /^chat:sha256:[a-f0-9]{12}$/);
     assert.doesNotMatch(serialized, /tiny timer app|spark-timer|Desktop/i);
+    assert.doesNotMatch(serialized, /8319079055/);
     assert.equal(Object.prototype.hasOwnProperty.call(record, 'payload'), false);
   });
 

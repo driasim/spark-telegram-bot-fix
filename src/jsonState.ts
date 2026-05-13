@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import os from 'node:os';
 import path from 'node:path';
 
 let db: DatabaseSync | null = null;
@@ -65,9 +66,14 @@ export async function writeJsonAtomic(filePath: string, value: unknown): Promise
     .run(filePath, payload, new Date().toISOString());
 }
 
+function defaultGatewayStateDir(): string {
+  const sparkHome = process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  return path.join(sparkHome, 'state', 'spark-telegram-bot');
+}
+
 export function resolveStatePath(filename: string): string {
-  const stateDir = process.env.SPARK_GATEWAY_STATE_DIR?.trim();
-  return path.join(stateDir || process.cwd(), filename);
+  const stateDir = process.env.SPARK_GATEWAY_STATE_DIR?.trim() || defaultGatewayStateDir();
+  return path.join(stateDir, filename);
 }
 
 export function resetJsonStateForTests(): void {
