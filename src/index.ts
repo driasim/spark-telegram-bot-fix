@@ -971,14 +971,64 @@ function shouldAnswerMissionProvenanceQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
     /\b(?:did|whether|can\s+you\s+tell)\b.*\bmission\b.*\b(?:spawner|chat)\b/.test(normalized) ||
+    /\b(?:did|whether|can\s+you\s+tell)\b.*\bspawner\s+mission\b/.test(normalized) ||
+    /\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\bspawner\s+mission\b/.test(normalized) ||
     /\b(?:ran|run|routed)\s+through\s+spawner\b/.test(normalized) ||
     /\bjust\s+through\s+chat\b/.test(normalized)
   );
 }
 
+function isSpecificChatPromptMissionQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksMissionCreation = (
+    /\b(?:did|whether|can\s+you\s+tell|answer)\b.*\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\b(?:spawner\s+)?mission\b/.test(normalized) ||
+    /\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\bspawner\s+mission\b/.test(normalized)
+  );
+  const specificPrompt = /\b(?:route[-\s]*gate|qa\s+prompt|last\s+(?:prompt|turn|message)|that\s+(?:prompt|turn|message)|previous\s+(?:prompt|turn|message))\b/.test(normalized) ||
+    /\b(?:last|previous|that)\s+['"`]?go['"`]?\b/.test(normalized);
+  return asksMissionCreation && specificPrompt;
+}
+
 async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<string> {
   const key = noEditProbeKey(ctx);
   const latestProbe = lastNoEditProbeMissions.get(key) || await readNoEditProbeMission(key).catch(() => null);
+  const recentMessages = await conversation.getRecentMessages(user, 12).catch(() => []);
+  const recentText = recentMessages.join('\n');
+  const messageText = ctx.message?.text || '';
+  if (isSpecificChatPromptMissionQuestion(messageText)) {
+    const normalizedQuestion = messageText.toLowerCase().replace(/\s+/g, ' ').trim();
+    const lastGoQuestion = /\b(?:last|previous|that)\s+['"`]?go['"`]?\b/.test(normalizedQuestion);
+    const routeGateEvidence = /\bRoute:\s*chat\s+QA\s*\/\s*route[-\s]*gate\b/i.test(recentText) ||
+      /\bno mission,\s*no setup,\s*no access change,\s*no repair\b/i.test(recentText);
+    const clearedGoEvidence = /\bnot seeing an active build or mission waiting\b/i.test(recentText) ||
+      /\bno build or mission started\b/i.test(recentText) ||
+      /\bno build.*mission started\b/i.test(recentText);
+    return [
+      routeGateEvidence
+        ? 'No. The route-gate QA prompt stayed in chat.'
+        : clearedGoEvidence
+          ? 'No. The last `go` stayed in chat.'
+          : lastGoQuestion
+            ? 'I do not see proof that the last `go` created a Spawner mission.'
+        : 'I do not see proof that the specific QA prompt created a mission.',
+      '',
+      'Evidence',
+      routeGateEvidence
+        ? '• The recent assistant reply classified it as chat QA / route-gate advisory.'
+        : clearedGoEvidence
+          ? '• The recent assistant reply said there was no active build or mission waiting.'
+        : '• The recent thread does not show a fresh mission id tied to that prompt.',
+      latestProbe
+        ? `• Latest recorded no-edit Spawner probe is \`${latestProbe.missionId}\` for \`${latestProbe.requestedPhrase}\`.`
+        : '• I do not have a recorded no-edit Spawner probe newer than that prompt.',
+      '',
+      routeGateEvidence
+        ? 'A chat route-gate answer should not count as Spawner execution unless Spark returns a fresh mission id for that exact turn.'
+        : lastGoQuestion
+          ? 'A chat `go` only counts as Spawner execution when Spark returns a fresh mission id for that exact turn.'
+          : 'A chat answer should not count as Spawner execution unless Spark returns a fresh mission id for that exact turn.'
+    ].join('\n');
+  }
   if (latestProbe) {
     return [
       'Yes. The latest no-edit probe was routed through Spawner, not just chat.',
@@ -987,8 +1037,6 @@ async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<strin
       'A plain chat answer would not have a Spawner mission id.'
     ].join('\n');
   }
-  const recentMessages = await conversation.getRecentMessages(user, 8).catch(() => []);
-  const recentText = recentMessages.join('\n');
   const missionId = recentText.match(/\bMission:\s*((?:spark|mission)-[A-Za-z0-9_-]+)/i)?.[1] ||
     recentText.match(/\b((?:spark|mission)-[0-9A-Za-z_-]{6,})\b/)?.[1];
   if (missionId) {

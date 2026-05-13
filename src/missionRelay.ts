@@ -901,6 +901,30 @@ function providerCompletionKind(status: string | null | undefined, text: string)
   return 'completed';
 }
 
+function freeformFailureLines(text: string): string[] {
+  const normalized = compactWhitespace(stripMarkdownFileLinks(stripThinkingAndMeta(text))).toLowerCase();
+  const lines: string[] = [];
+  if (/\bblocked before task start\b/.test(normalized)) {
+    lines.push('Blocked before task start.');
+  }
+  if (/\bh70\b|\bskill api\b|\bapi\/h70-skills\b/.test(normalized)) {
+    lines.push('Skill API was unavailable in the spawned lane.');
+  }
+  if (/\bread-only\b|\boperation not permitted\b|\bpatch (?:was )?rejected\b|\bcannot write\b|\bnot writable\b/.test(normalized)) {
+    lines.push('The spawned runner or workspace could not write.');
+  }
+  if (/\bfailed to connect\b|\bconnection refused\b|\beconnrefused\b/.test(normalized)) {
+    lines.push('A local service connection failed in the spawned lane.');
+  }
+  if (/\bunknown error\b/.test(normalized)) {
+    lines.push('The provider returned only unknown error.');
+  }
+  if (lines.length === 0 && providerCompletionLooksBlocked(text)) {
+    lines.push('The provider reported a blocker before completion.');
+  }
+  return Array.from(new Set(lines)).slice(0, 4);
+}
+
 function compactTelegramBlocks(...blocks: Array<string | null | undefined | false>): string {
   return blocks
     .filter((block): block is string => Boolean(block && block.trim()))
@@ -1240,7 +1264,12 @@ export function formatProviderCompletionForTelegram(input: {
     const lead = extractFreeformLeadSummary(input.response);
     const completionKind = providerCompletionKind(null, clean);
     const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
-    if (lead) lines.push('', lead);
+    const failureLines = completionKind === 'failed' ? freeformFailureLines(input.response) : [];
+    if (failureLines.length > 0) {
+      lines.push('', 'What blocked it', ...failureLines.map((line) => `• ${line}`));
+    } else if (lead) {
+      lines.push('', lead);
+    }
     if (completionKind === 'failed' && !openLink) {
       lines.push('', 'Move', '• Open the Mission board for the full trace.');
     }

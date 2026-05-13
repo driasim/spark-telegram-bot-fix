@@ -909,6 +909,8 @@ async function run(): Promise<void> {
     assert.match(result.message, /spawned workspace was read-only/);
     assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
     assert.doesNotMatch(result.message, /kanban\?mission=mission-game/);
+    assert.doesNotMatch(result.message, /\b(?:mandatory|required)\s+H70/i);
+    assert.doesNotMatch(result.message, /Access Level/i);
     assert.doesNotMatch(result.message, /curl http:\/\/127\.0\.0\.1:3333\/api\/h70-skills/);
     assert.doesNotMatch(result.message, /Operation not permitted/);
     assert.doesNotMatch(result.message, /Result:/);

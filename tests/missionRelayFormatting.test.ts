@@ -187,6 +187,8 @@ test('treats blocked freeform provider completions as mission failures', () => {
 
   assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
   assert.match(message, /Blocked before task start/);
+  assert.doesNotMatch(message, /\b(?:mandatory|required)\s+H70/i);
+  assert.doesNotMatch(message, /filesystem sandbox is read-only/i);
   assert.doesNotMatch(message, /✨ Spark/);
   assert.doesNotMatch(message, /shipped|result ready|wrapped this one/i);
 });

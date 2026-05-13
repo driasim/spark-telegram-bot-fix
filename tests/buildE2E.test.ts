@@ -1130,6 +1130,8 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pending-cancel-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -1178,6 +1180,51 @@ async function run(): Promise<void> {
 		assert.match(replies[replies.length - 1] || '', /not seeing an active build or mission waiting/i);
 		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
 
+		const provenanceCtx = makeFakeCtx(8319079055, 8319079055, 604, replies);
+		provenanceCtx.message.text = 'Did my last go create a Spawner mission? Answer from fresh mission history if you can. Do not start anything.';
+		await indexModule.handleTextMessage(provenanceCtx);
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterCancel,
+			'provenance question about the canceled go must not dispatch anything'
+		);
+		assert.match(replies[replies.length - 1] || '', /No\..*(last `?go`?|specific)|I do not see proof/i);
+		assert.match(replies[replies.length - 1] || '', /no active build or mission waiting|fresh mission id|specific/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /latest no-edit probe was routed through Spawner/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission board|Spawned work/i);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('specific QA mission provenance question answers in chat without spawning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-route-gate-provenance-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 604, replies);
+		ctx.message.text = 'Did the route-gate QA prompt at 1:37 create a Spawner mission? Answer from fresh mission history if you can: yes or no, with the evidence. Do not start anything.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		assert.equal(captured.length, 0, 'provenance question must not call Spawner or PRD bridge');
+		assert.match(replies[0] || '', /I do not see proof|stayed in chat/i);
+		assert.match(replies[0] || '', /fresh mission id|specific QA prompt|route-gate/i);
+		assert.doesNotMatch(replies[0] || '', /latest no-edit probe was routed through Spawner/i);
+		assert.doesNotMatch(replies[0] || '', /Mission board|Spawned work/i);
+
+		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
 		restoreEnv();
 	});
