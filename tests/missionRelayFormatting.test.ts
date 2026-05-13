@@ -945,9 +945,48 @@ test('completion can withhold an unreachable hosted preview link', () => {
   });
 
   assert.match(message, /Built the cafe landing page\./);
-  assert.match(message, /Preview is still preparing\. Use the Mission board for now\./);
+  assert.match(message, /Preview link is not reachable yet\./);
+  assert.match(message, /Built files are here:\n\/data\/workspaces\/mission-1-cafe/);
   assert.doesNotMatch(message, /Open it here:/);
   assert.doesNotMatch(message, /\/preview\//);
+});
+
+test('completion uses relay project path when provider summary omits it', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-event-project-path',
+    verbosity: 'normal',
+    openLink: null,
+    projectPath: 'C:\\Users\\USER\\.spark\\workspaces\\mission-1-game',
+    previewPending: true,
+    response: JSON.stringify({
+      summary: 'Built the browser game.',
+      status: 'completed'
+    })
+  });
+
+  assert.match(message, /Built the browser game\./);
+  assert.match(message, /Preview link is not reachable yet\./);
+  assert.match(message, /Built files are here:\nC:\\Users\\USER\\.spark\\workspaces\\mission-1-game/);
+  assert.doesNotMatch(message, /Open it here:/);
+});
+
+test('completion says when neither preview nor build location is available', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-no-artifact-link',
+    verbosity: 'normal',
+    openLink: null,
+    previewPending: true,
+    response: JSON.stringify({
+      summary: 'The mission completed but did not report an artifact.',
+      status: 'completed'
+    })
+  });
+
+  assert.match(message, /The mission completed but did not report an artifact\./);
+  assert.match(message, /Preview link is not reachable yet\. Mission Control has the raw build record\./);
+  assert.doesNotMatch(message, /Open it here:/);
 });
 
 test('reports this relay identity from env', () => {

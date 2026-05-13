@@ -580,6 +580,7 @@ interface MissionCompletionSummary {
   providerLabel: string;
   response: string;
   openLink?: string | null;
+  projectPath?: string | null;
   previewPending?: boolean;
   creatorEvidence?: CreatorCompletionEvidence | null;
 }
@@ -750,7 +751,8 @@ async function fetchMissionCompletionSummary(
           providerLabel,
           response: responseText,
           openLink,
-          previewPending: false,
+          projectPath,
+          previewPending: Boolean((projectPath || previewUrl) && !openLink),
           creatorEvidence
         };
       } finally {
@@ -814,6 +816,7 @@ async function sendFetchedCompletionSummary(
       goal: subscription.goal,
       verbosity,
       openLink: completion.openLink,
+      projectPath: completion.projectPath,
       previewPending: completion.previewPending,
       creatorEvidence: completion.creatorEvidence
     });
@@ -1128,6 +1131,21 @@ function openProjectLines(openLink: string | null): string[] {
   return openLink ? ['Open it here:', openLink] : [];
 }
 
+function builtProjectLines(projectPath: string | null, previewPending?: boolean): string[] {
+  if (projectPath) {
+    return [
+      previewPending
+        ? 'Preview link is not reachable yet.'
+        : 'No preview link was reported.',
+      'Built files are here:',
+      clipText(projectPath, 360)
+    ];
+  }
+  return previewPending
+    ? ['Preview link is not reachable yet. Mission Control has the raw build record.']
+    : [];
+}
+
 function nextPolishLine(): string {
   return 'Tell Spark what you want changed next and we can keep polishing from here.';
 }
@@ -1312,6 +1330,7 @@ export function formatProviderCompletionForTelegram(input: {
   goal?: string;
   verbosity?: TelegramRelayVerbosity;
   openLink?: string | null;
+  projectPath?: string | null;
   previewPending?: boolean;
   creatorEvidence?: CreatorCompletionEvidence | null;
 }): string {
@@ -1337,7 +1356,7 @@ export function formatProviderCompletionForTelegram(input: {
         '• Open the canvas or Mission board for the full raw record.'
       ].join('\n');
     }
-    const projectPath = extractProjectPathFromText(input.response);
+    const projectPath = input.projectPath || extractProjectPathFromText(input.response);
     const openLink = input.openLink !== undefined
       ? (input.openLink ? normalizePreviewLink(input.openLink, projectPath) : null)
       : projectOpenLink(projectPath);
@@ -1348,8 +1367,9 @@ export function formatProviderCompletionForTelegram(input: {
     if (lead) lines.push('', lead);
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
-    } else if (projectPath && input.previewPending) {
-      lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+    } else {
+      const builtLines = builtProjectLines(projectPath, input.previewPending);
+      if (builtLines.length > 0) lines.push('', ...builtLines);
     }
     if (shipped.length > 0) {
       lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
@@ -1377,7 +1397,7 @@ export function formatProviderCompletionForTelegram(input: {
 
   const status = stringField(parsed, 'status');
   const summary = stringField(parsed, 'summary') || stringField(parsed, 'message');
-  const projectPath = stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
+  const projectPath = input.projectPath || stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
   const openLink = input.openLink !== undefined
     ? (input.openLink ? normalizePreviewLink(input.openLink, projectPath) : null)
     : projectOpenLink(projectPath);
@@ -1389,6 +1409,7 @@ export function formatProviderCompletionForTelegram(input: {
       voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:minimal`),
       summary ? clipText(summary, 240) : null,
       openLink ? openProjectLines(openLink).join('\n') : null,
+      !openLink ? builtProjectLines(projectPath, input.previewPending).join('\n') || null : null,
       `Mission: ${input.missionId}`
     ].filter(Boolean).join('\n');
   }
@@ -1402,8 +1423,9 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (openLink) {
     lines.push('', ...openProjectLines(openLink));
-  } else if (projectPath && input.previewPending) {
-    lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+  } else {
+    const builtLines = builtProjectLines(projectPath, input.previewPending);
+    if (builtLines.length > 0) lines.push('', ...builtLines);
   }
 
   if (verification.length > 0) {
@@ -2291,6 +2313,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
           clearHeartbeatForMission(event.missionId);
           const hasProjectLink = !!(previewLinkFromEvent(event) || projectPathFromEvent(event));
           const openLink = hasProjectLink ? await readyProjectOpenLinkFromEvent(event) : undefined;
+          const projectPath = projectPathFromEvent(event);
           const message = formatProviderCompletionForTelegram({
             providerLabel: extracted.providerLabel,
             response: extracted.response,
@@ -2299,6 +2322,7 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
             goal: subscription.goal,
             verbosity,
             openLink,
+            projectPath,
             previewPending: hasProjectLink && !openLink
           });
           const chunks = chunkForTelegram(message);
