@@ -192,6 +192,7 @@ import {
   isGlobalAgentDoctrineRequest,
   isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
+  isSparkWorkflowBugHuntRequest,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isProjectImprovementRequest,
@@ -203,6 +204,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  renderSparkWorkflowBugHuntReply,
   builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
@@ -2389,10 +2391,10 @@ function startPrdCanvasReadyNotifier(args: {
         const elapsedMs = Date.now() - started;
         if (heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
           const elapsedSec = Math.round(elapsedMs / 1000);
-          await bot.telegram.sendMessage(
-            args.chatId,
-            `Still working on ${args.projectName}. Spark is shaping the PRD and preparing the canvas (${elapsedSec}s elapsed).`
-          ).catch(() => {});
+          await bot.telegram.sendMessage(args.chatId, formatCanvasShapingHeartbeatSummary({
+            projectName: args.projectName,
+            elapsedSeconds: elapsedSec
+          })).catch(() => {});
           heartbeatIndex += 1;
         }
 
@@ -2438,10 +2440,11 @@ function startPrdCanvasReadyNotifier(args: {
     if (shouldSuppressMissionHandoff(args.missionId)) {
       return;
     }
-    await bot.telegram.sendMessage(
-      args.chatId,
-      `Analysis is still running after ${Math.round(readyTimeoutMs / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
-    );
+    await bot.telegram.sendMessage(args.chatId, formatCanvasStillRunningSummary({
+      projectName: args.projectName,
+      elapsedSeconds: Math.round(readyTimeoutMs / 1000),
+      kanbanUrl: args.kanbanUrl
+    }));
   })();
 }
 
@@ -2684,6 +2687,45 @@ function telegramBlocks(...blocks: Array<string | null | undefined | false>): st
     .join('\n\n');
 }
 
+export function formatCanvasStillRunningSummary(args: {
+  projectName: string;
+  elapsedSeconds: number;
+  kanbanUrl: string;
+}): string {
+  return telegramBlocks(
+    `Canvas is still preparing for ${args.projectName}.`,
+    [
+      'Status',
+      `• Analysis has been running for ${args.elapsedSeconds}s.`
+    ].join('\n'),
+    [
+      'Move',
+      '• I will send the canvas when it is ready.'
+    ].join('\n'),
+    [
+      'Mission board',
+      `• ${args.kanbanUrl}`
+    ].join('\n')
+  );
+}
+
+export function formatCanvasShapingHeartbeatSummary(args: {
+  projectName: string;
+  elapsedSeconds: number;
+}): string {
+  return telegramBlocks(
+    `Still shaping ${args.projectName}.`,
+    [
+      'Status',
+      `• Canvas prep has been running for ${args.elapsedSeconds}s.`
+    ].join('\n'),
+    [
+      'Move',
+      '• I will send the canvas link when planning is ready.'
+    ].join('\n')
+  );
+}
+
 function formatBuildMissionQueuedReply(input: {
   lead: string;
   projectName: string;
@@ -2698,8 +2740,7 @@ function formatBuildMissionQueuedReply(input: {
     [
       'Spawned work',
       `• ${input.projectName}`,
-      `• ${modeText}`,
-      '• Mission board'
+      `• ${modeText}`
     ].join('\n'),
     [
       'Paired surfaces',
@@ -2982,12 +3023,25 @@ export function formatBuildClarificationReplyWithMicrocopy(
 ): string {
   const lower = `${projectName}\n${questions.join('\n')}\n${assumptions.join('\n')}`.toLowerCase();
   const isGame = /\b(game|maze|puzzle|arcade|player|score|level|win condition)\b/.test(lower);
+  const isReasoningGame =
+    isGame &&
+    /\b(reasoning|trust|claims?|verify|quarantine|memory|contradiction|confidence|logic)\b/.test(lower);
+  const explicitlyWantsMaze = /\bmaze\b/.test(lower);
   const isDashboard = /\b(dashboard|metric|analytics|monitor|report)\b/.test(lower);
-  const recommendation = microcopy?.recommendation || (isGame
-    ? 'browser-playable, keyboard controls, clear win/score loop, restart, and local best score'
+  const fallbackRecommendation = isReasoningGame
+    ? 'trust/verify/quarantine choices, scoring, explanations, and replayable reasoning rounds'
+    : isGame
+      ? 'browser-playable, keyboard controls, clear win/score loop, restart, and local best score'
     : isDashboard
       ? 'focused web dashboard, the key metrics first, seeded data if live data is not ready, and clean empty/error states'
-      : (assumptions[0]?.replace(/^Assume\s+/i, '').replace(/\.$/, '') || 'focused web v1 with a polished first screen and simple verification'));
+      : (assumptions[0]?.replace(/^Assume\s+/i, '').replace(/\.$/, '') || 'focused web v1 with a polished first screen and simple verification');
+  const microcopyRecommendation = microcopy?.recommendation || '';
+  const recommendation =
+    isReasoningGame &&
+    !explicitlyWantsMaze &&
+    /\bmaze\b/.test(microcopyRecommendation.toLowerCase())
+      ? fallbackRecommendation
+      : (microcopyRecommendation || fallbackRecommendation);
   const steerQuestion = microcopy?.steeringQuestion || questions[0] || (isGame
     ? 'What twist should make it fun?'
     : 'What is the one detail I should not guess?');
@@ -3095,6 +3149,17 @@ function isDomainChipPendingCancel(text: string): boolean {
   return isNoExecutionBoundary(text) || /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
 }
 
+export function isDomainChipPendingDirection(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || normalized.length > 260) return false;
+  if (isDomainChipPendingStart(normalized) || isDomainChipPendingCancel(normalized)) return true;
+  if (/^(?:what|which|how|why|can|could|should|would|do|does|did|is|are|will)\b/.test(normalized)) return false;
+  if (/\b(?:test|tests|testing|unit\s+test|qa|bug\s+hunter|bug\s+hunt|edge\s+cases?|spawner|mission\s+control|workflow|prs?|publish|merge|ship)\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:names?|rationale|usage\s+angle|vibe|style|tone|output|outputs?|luxury|absurd|consumer|sci[-\s]*fi|surreal|weird|funny|serious|enterprise|developer|technical|visual|image|poster|prompt|prompts)\b/.test(normalized);
+}
+
 function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: string): string {
   if (isDomainChipPendingStart(text)) {
     return `${pending.prd}\n\n## Pre-build direction\n\nUse the default direction: surreal-but-usable outputs, short rationale, usage angle, and router-safe tests.`;
@@ -3117,6 +3182,10 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pendingDomainChipBuilds.delete(key);
     await ctx.reply('No problem. I will hold off on creating that domain chip.');
     return true;
+  }
+
+  if (!isDomainChipPendingDirection(text)) {
+    return false;
   }
 
   pendingDomainChipBuilds.delete(key);
@@ -3211,6 +3280,11 @@ function isPendingClarificationFollowup(text: string): boolean {
   const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
   const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
+}
+
+function isBareExecutionStart(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(?:go|run|start|ship|do it|let'?s go|default|defaults|skip)[.! ]*$/i.test(normalized);
 }
 
 export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
@@ -3312,13 +3386,22 @@ export function formatCanvasReadySummary(args: {
     `${args.taskCount ?? tasks.length} build steps queued.`,
   ];
   if (taskRows.length > 0) {
-    lines.push('', 'Spawned tasks:');
+    lines.push('', 'Spawned tasks');
     taskRows.forEach((row: string) => lines.push(`• ${row}`));
     if (tasks.length > taskRows.length) {
       lines.push(`• +${tasks.length - taskRows.length} more`);
     }
   }
-  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'I will send the final handoff when it is built.');
+  lines.push(
+    '',
+    'Canvas',
+    `• ${args.readyCanvasUrl}`,
+    '',
+    'Mission board',
+    `• ${args.kanbanUrl}`,
+    '',
+    'I will send the final handoff when it is built.'
+  );
   return lines.join('\n');
 }
 
@@ -4656,6 +4739,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+
+  if (!earlyBuildIntent && isSparkWorkflowBugHuntRequest(text)) {
+    const reply = renderSparkWorkflowBugHuntReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.qa_planning', 'spark-telegram-bot', 'plain_chat.qa_plan');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
   if (safeOperatorAction && deterministicRouteAllowed('operator.safe_action', text)) {
     await conversation.remember(user, text).catch(() => {});
@@ -4930,6 +5023,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
+      await conversation.remember(user, text).catch(() => {});
+      return;
+    }
+
     const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
     if (
       isProjectImprovementRequest(text, latestShippedProject) &&
@@ -5033,6 +5131,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         'advanced_prd',
         'User asked Spark to choose the recommended direction after collaborative scoping.'
       );
+      return;
+    }
+
+    if (isBareExecutionStart(text)) {
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply('I am not seeing an active build or mission waiting from here. Give me the target again and I will route it fresh.');
       return;
     }
 

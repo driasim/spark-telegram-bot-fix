@@ -116,6 +116,13 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       reason: 'plain_chat_protected'
     },
     {
+      name: 'bug-hunt QA is chat, not pending domain chip execution',
+      route: 'domain_chip.pending',
+      prompt: 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow',
+      allow: false,
+      reason: 'plain_chat_protected'
+    },
+    {
       name: 'explicit project still builds',
       route: 'spawner.build',
       prompt: 'Build a private local-first dashboard for memory reports. It should show stale context, source labels, and review queues.',

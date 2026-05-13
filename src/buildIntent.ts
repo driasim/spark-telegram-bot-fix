@@ -47,8 +47,11 @@ function inferConceptualProjectName(prd: string): string | null {
   const lower = prd.toLowerCase();
   if (
     /\bgame\b/.test(lower) &&
-    /\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(lower)
+    /\b(?:rec|recursive|recursive sage|spark recursive|for you|you'?d wanna play|you would want to play|would actually want to play|actually want to play)\b/.test(lower)
   ) {
+    if (/\b(?:reasoning|trust|memory|contradiction|confidence|logic)\b/.test(lower)) {
+      return 'Recursive Sage Reasoning Game';
+    }
     return 'Recursive Sage Maze Game';
   }
   if (
@@ -93,9 +96,9 @@ function inferProductPhraseProjectName(prd: string): string | null {
   const normalized = prd.replace(/\s+/g, ' ').trim();
   const productType = '(?:domain[-\\s]*chip|landing\\s+page|dashboard|workbench|agent|tool|app|game|system|tracker|planner|timer|clock|site|website|page)';
   const patterns = [
-    new RegExp(`^(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
+    new RegExp(`^(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
   ];
   const genericLeadingWords = new Set([
     'a',
@@ -116,6 +119,7 @@ function inferProductPhraseProjectName(prd: string): string | null {
     'playful',
     'passive',
     'narrow',
+    'another',
     'vanilla',
     'browser',
     'based'
@@ -339,6 +343,13 @@ function isBuildRouteMetaDiscussion(text: string): boolean {
     return true;
   }
   if (
+    /^(?:what|which|how|why|is|are|do|does|can|could|should|would)\b/.test(normalized) &&
+    /\b(?:test|tests|testing|edge\s+cases?|qa|bug(?:s)?|improve|improving|better)\b/.test(normalized) &&
+    /\b(?:spawner|mission\s+control|mission\s+loop|route|workflow|telegram|relay)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
     /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
     /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
   ) {
@@ -494,6 +505,15 @@ function isAgentChosenGameBrief(text: string, prd: string): boolean {
 
 function normalizeAgentChosenGameBrief(text: string, prd: string): string {
   if (!isAgentChosenGameBrief(text, prd)) return prd;
+  const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  const wantsReasoningGame = /\b(?:reasoning|trust|memory|contradiction|confidence|logic|verify|verification|claims?|self[-\s]*test)\b/.test(combined);
+  if (wantsReasoningGame) {
+    return [
+      'Build a browser-playable reasoning game chosen for Recursive Sage.',
+      'Default direction: make it test reasoning, memory drift, contradiction handling, trust calibration, and action confidence through clear choices such as trust, verify, quarantine, or revise.',
+      'Include scoring, short explanations after each choice, replayable rounds, a visible win or mastery state, restart, and a polished responsive first screen that works without external services.'
+    ].join(' ');
+  }
   return [
     'Build a browser-playable game chosen for Recursive Sage.',
     'Default direction: make it a shifting maze game with keyboard controls, changing walls, a visible exit, restart, score or timer pressure, and a clear win state.',

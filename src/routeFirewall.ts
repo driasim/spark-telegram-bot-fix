@@ -90,7 +90,10 @@ function mentionsSparkSystem(normalized: string): boolean {
 function isMetaDiscussion(normalized: string): boolean {
   return (
     /\b(?:hijack(?:s|ed|ing)?|deterministic|route|routing|fallback|drift|state\s+machine|access\s+level|runner|read[-\s]*only|writable|sandbox(?:es|ed)?|docker|ssh|modal|restart|setup|installer|updates?|upgrades?)\b/.test(normalized) &&
-    /\b(?:check|audit|review|think|design|plan|decipher|understand|explain|dig|deeper|make\s+sure|cover|fix|solve|avoid|prevent|reliable|future|best\s+way|how|what|why|whether)\b/.test(normalized)
+    /\b(?:check|audit|review|think|design|plan|prepare|decipher|understand|explain|dig|deeper|make\s+sure|cover|fix|solve|avoid|prevent|reliable|future|best\s+way|how|what|why|whether|test|testing|qa|bug\s+hunt(?:er|ing)?)\b/.test(normalized)
+  ) || (
+    /\b(?:unit\s+tests?|qa|bug\s+hunt(?:er|ing)?|edge\s+cases?|regression|smoke\s+tests?)\b/.test(normalized) &&
+    /\b(?:spawner|mission\s+control|mission\s+loop|telegram|relay|workflow|routing|route|builder)\b/.test(normalized)
   );
 }
 

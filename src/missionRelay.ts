@@ -496,6 +496,24 @@ function missionReferenceLines(missionId: string, links: string[]): string[] {
   return missionIdIsLinked(missionId, links) ? links : [`Mission: ${missionId}`, ...links];
 }
 
+export function formatMissionRelayStateMessageForTelegram(input: {
+  state: 'cancelled' | 'paused' | 'resumed';
+  missionId: string;
+  links?: string[];
+}): string {
+  const links = input.links || [];
+  const movement = input.state === 'cancelled'
+    ? ['Run cancelled.', '• Late handoff messages will stay quiet for this run.']
+    : input.state === 'paused'
+      ? ['Run paused.', '• Telegram auto-handoffs are held until it resumes.']
+      : ['Run resumed.', '• Telegram handoffs are enabled again.'];
+  return compactTelegramBlocks(
+    movement[0],
+    ['Move', movement[1]].join('\n'),
+    links.length > 0 ? links.join('\n') : null
+  );
+}
+
 function requestIdFromEvent(event: DeliverableRelayEvent): string | null {
   const data = asRecord(event.data);
   const value = data?.requestId;
@@ -869,7 +887,10 @@ function providerCompletionLooksBlocked(text: string): boolean {
     /\bread-only (?:sandbox|workspace|filesystem)\b/.test(normalized) ||
     /\bpatch (?:was )?rejected\b/.test(normalized) ||
     /\boperation not permitted\b/.test(normalized) ||
-    /\bfailed to connect to 127\.0\.0\.1\b/.test(normalized)
+    /\bfailed to connect to 127\.0\.0\.1\b/.test(normalized) ||
+    /\bunknown error\b/.test(normalized) ||
+    /\bcould not finish\b/.test(normalized) ||
+    /\b(?:mission|run|step)\s+failed\b/.test(normalized)
   );
 }
 
@@ -1182,6 +1203,22 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (!parsed) {
     const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
+    if (!clean) {
+      return [
+        '⚪ Spark finished, but no final notes came back.',
+        '',
+        'Move',
+        '• Open the project preview or Mission board to inspect the result.'
+      ].join('\n');
+    }
+    if (/^completed without a text response\.?$/i.test(clean)) {
+      return [
+        '⚪ Spark finished, but no final notes came back.',
+        '',
+        'Move',
+        '• Open the project preview or Mission board to inspect the result.'
+      ].join('\n');
+    }
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
     if (looksStructured) {
       return [
@@ -1204,6 +1241,9 @@ export function formatProviderCompletionForTelegram(input: {
     const completionKind = providerCompletionKind(null, clean);
     const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
     if (lead) lines.push('', lead);
+    if (completionKind === 'failed' && !openLink) {
+      lines.push('', 'Move', '• Open the Mission board for the full trace.');
+    }
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
     } else if (projectPath && input.previewPending) {
@@ -1220,16 +1260,11 @@ export function formatProviderCompletionForTelegram(input: {
       }
     }
     if (openLink) lines.push('', nextPolishLine());
-    if (verbosity === 'verbose') {
-      lines.push('', `Mission: ${input.missionId}`);
-    }
     if (lines.length > 1) return lines.join('\n');
     return [
       `${provider} says:`,
       '',
-      clean,
-      '',
-      `Mission: ${input.missionId}`
+      clean
     ].join('\n').trim();
   }
 
@@ -1247,8 +1282,7 @@ export function formatProviderCompletionForTelegram(input: {
     return [
       voiceLine(completionKind, `${input.missionId}:${provider}:minimal`),
       summary ? clipText(summary, 240) : null,
-      openLink ? openProjectLines(openLink).join('\n') : null,
-      `Mission: ${input.missionId}`
+      openLink ? openProjectLines(openLink).join('\n') : null
     ].filter(Boolean).join('\n');
   }
 
@@ -1281,12 +1315,6 @@ export function formatProviderCompletionForTelegram(input: {
     lines.push('', nextPolishLine());
   }
 
-  if (verbosity === 'verbose') {
-    lines.push('', `Mission: ${input.missionId}`);
-  }
-  if (verbosity === 'verbose' && input.requestId) {
-    lines.push(`Request: ${input.requestId}`);
-  }
   return lines.join('\n');
 }
 
@@ -1610,9 +1638,6 @@ export function formatMissionHeartbeatForTelegram(input: {
     lines.push('', 'I will nudge you again when there is new signal.');
   }
 
-  if (input.verbosity === 'verbose') {
-    lines.push(`Mission: ${input.missionId}`);
-  }
   return lines.join('\n');
 }
 
@@ -2073,14 +2098,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const alreadySuppressed = shouldSuppressMissionHandoff(event.missionId);
         markMissionRelayCancelled(event.missionId);
         if (!alreadySuppressed) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission cancelled.',
-              '',
-              `Mission: ${event.missionId}`,
-              'I will suppress any late handoff messages for this run.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'cancelled', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_cancelled')
           );
         }
@@ -2092,14 +2113,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const alreadyPaused = isMissionRelayPaused(event.missionId);
         markMissionRelayPaused(event.missionId);
         if (!alreadyPaused) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission paused.',
-              '',
-              `Mission: ${event.missionId}`,
-              'I will hold Telegram auto-handoffs until it resumes.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'paused', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_paused')
           );
         }
@@ -2111,14 +2128,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const wasPaused = isMissionRelayPaused(event.missionId);
         markMissionRelayResumed(event.missionId);
         if (wasPaused) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission resumed.',
-              '',
-              `Mission: ${event.missionId}`,
-              'Telegram handoffs are enabled again.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'resumed', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_resumed')
           );
         }

@@ -1141,6 +1141,35 @@ function isPersistentMemoryQualityEvaluationRequest(normalized: string): boolean
   );
 }
 
+export function isSparkWorkflowBugHuntRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  const qaLanguage = /\b(?:unit\s+tests?|qa|bug\s+hunt(?:er|ing)?|edge\s+cases?|regressions?|smoke\s+tests?|test\s+suite|comprehensive\s+tests?|trigger\s+bugs?|bug\s+hunter)\b/.test(normalized);
+  const sparkSurface = /\b(?:spawner|mission\s+control|mission\s+loop|telegram|relay|workflow|canvas|kanban|builder|route|routing)\b/.test(normalized);
+  return qaLanguage && sparkSurface;
+}
+
+export function renderSparkWorkflowBugHuntReply(_text: string): string {
+  return [
+    'Yes. I would treat this as a QA pass first, not a mission launch.',
+    '',
+    'Coverage',
+    '• route hijacks and no-execution boundaries',
+    '• duplicate “go” and pending-state leaks',
+    '• no-edit Spawner probes',
+    '• latest Kanban/provider truth',
+    '• Spawner-down cases with no fake mission id',
+    '• completion dedupe and Telegram composition clutter',
+    '',
+    'Move',
+    '• Add failing regressions, hotfix the boundary, run focused tests, then prove it live in Telegram.',
+    '',
+    'I will not start a mission from this wording.'
+  ].join('\n');
+}
+
 export function isDiagnosticsScanRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {

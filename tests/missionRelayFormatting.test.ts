@@ -10,6 +10,7 @@ import {
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
   formatProviderCompletionForTelegram,
+  formatMissionRelayStateMessageForTelegram,
   isCompletionDeliveryCachedForTests,
   isMissionRelayPaused,
   markMissionRelayCancelled,
@@ -98,6 +99,7 @@ test('keeps minimal structured provider summaries compact', () => {
   assert.doesNotMatch(message, /Files changed: 3/);
   assert.doesNotMatch(message, /src\/kanban\.ts/);
   assert.doesNotMatch(message, /Checks:/);
+  assert.doesNotMatch(message, /Mission: spark-minimal/);
 });
 
 test('keeps verbose completion summaries readable and non-console-like', () => {
@@ -122,6 +124,20 @@ test('keeps verbose completion summaries readable and non-console-like', () => {
   assert.match(message, /Quality checks passed \(3 checks\)\./);
   assert.doesNotMatch(message, /Verification commands run/);
   assert.doesNotMatch(message, /npm run|playwright|Changed files|README\.md/);
+  assert.doesNotMatch(message, /Mission: spark-verbose/);
+  assert.doesNotMatch(message, /Request: tg-build-verbose/);
+});
+
+test('freeform completion fallback does not repeat raw mission ids', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-freeform',
+    verbosity: 'verbose',
+    response: 'Finished the tiny single-file game and verified it opens from the preview.'
+  });
+
+  assert.match(message, /Finished the tiny single-file game/);
+  assert.doesNotMatch(message, /Mission: spark-freeform/);
 });
 
 test('formats structured provider failures without raw JSON noise', () => {
@@ -366,6 +382,26 @@ test('mission start update links the mission once through kanban', () => {
   assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
   assert.doesNotMatch(message || '', /Canvas:/);
   assert.doesNotMatch(message || '', /\/missions/);
+});
+
+test('pause and resume relay messages avoid raw mission id clutter', () => {
+  const paused = formatMissionRelayStateMessageForTelegram({
+    state: 'paused',
+    missionId: 'spark-123',
+    links: buildMissionSurfaceLinks('spark-123', 'board')
+  });
+  const resumed = formatMissionRelayStateMessageForTelegram({
+    state: 'resumed',
+    missionId: 'spark-123',
+    links: buildMissionSurfaceLinks('spark-123', 'board')
+  });
+
+  assert.match(paused, /Run paused\./);
+  assert.match(paused, /Move\n• Telegram auto-handoffs are held until it resumes\./);
+  assert.match(paused, /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
+  assert.doesNotMatch(paused, /Mission: spark-123/);
+  assert.match(resumed, /Run resumed\./);
+  assert.doesNotMatch(resumed, /Mission: spark-123/);
 });
 
 test('suppresses late mission start after canvas tasks are already planned', () => {
@@ -751,7 +787,7 @@ test('suppresses low-signal mission heartbeat summaries', () => {
 
   assert.match(message, /No new checkpoint yet/);
   assert.doesNotMatch(message, /Elapsed:/);
-  assert.match(message, /Mission: spark-123/);
+  assert.doesNotMatch(message, /Mission: spark-123/);
   assert.doesNotMatch(message, /Z\.AI: Document launch path is running/);
 });
 

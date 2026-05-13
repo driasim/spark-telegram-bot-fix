@@ -203,6 +203,7 @@ async function run(): Promise<void> {
 		assert.match(replies[0] || '', /Paired surfaces/);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
 		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		assert.equal(((replies[0] || '').match(/Mission board/g) || []).length, 1);
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
 			command: 'run',
@@ -304,6 +305,7 @@ async function run(): Promise<void> {
 		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
 		assert.match(replies.join('\n'), /Spawned work/);
 		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		assert.equal((replies.join('\n').match(/Mission board/g) || []).length, 1);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected build route to include PRD bridge call');
 		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
@@ -863,6 +865,54 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 853, replies);
+		ctx.message.text = 'build a domain-chip for Telegram memory routing';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+		assert.match(replies.join('\n'), /Before I start/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'preview should not enqueue before confirmation');
+
+		const qaCtx = makeFakeCtx(8319079055, 8319079055, 854, replies);
+		qaCtx.message.text = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
+		await indexModule.handleTextMessage(qaCtx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'unrelated QA turn must not dispatch pending domain chip');
+		assert.match(replies.join('\n'), /QA pass first, not a mission launch/);
+		assert.match(replies.join('\n'), /I will not start a mission from this wording/);
+		assert.doesNotMatch(replies.join('\n'), /read-only/i);
+		assert.doesNotMatch(replies.join('\n'), /Prepared, but/i);
+		assert.doesNotMatch(replies.join('\n'), /Starting domain-chip-/);
+		assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+
+		const directionCtx = makeFakeCtx(8319079055, 8319079055, 855, replies);
+		directionCtx.message.text = 'names with rationale and usage angle, make the vibe surreal';
+		await indexModule.handleTextMessage(directionCtx);
+
+		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'actual domain-chip direction should still dispatch pending chip');
+		assert.match(replies.join('\n'), /use that direction and start domain-chip-/i);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('canvas ready summary stays readable and includes canvas link', async () => {
 		const indexModule: any = await import('../src/index');
 		const reply = indexModule.formatCanvasReadySummary({
@@ -892,15 +942,45 @@ async function run(): Promise<void> {
 
 		assert.match(reply, /Canvas is ready for domain-chip-posters/);
 		assert.match(reply, /2 build steps queued\./);
-		assert.match(reply, /Spawned tasks:/);
+		assert.match(reply, /Spawned tasks/);
 		assert.match(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
 		assert.match(reply, /Validate router behavior/);
 		assert.doesNotMatch(reply, /195s/);
 		assert.doesNotMatch(reply, /Architecture:/);
 		assert.doesNotMatch(reply, /Tests\/checks/);
-		assert.match(reply, /Canvas: http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+		assert.match(reply, /Canvas\n• http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+		assert.match(reply, /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
 		assert.match(reply, /I will send the final handoff when it is built/);
 	});
+
+	await test('canvas still-running summary avoids raw mission id noise', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.formatCanvasStillRunningSummary({
+			projectName: 'Signal Maze',
+			elapsedSeconds: 180,
+			kanbanUrl: 'http://stub-spawner.test/kanban?mission=mission-test'
+		});
+
+		assert.match(reply, /Canvas is still preparing for Signal Maze\./);
+		assert.match(reply, /Status\n• Analysis has been running for 180s\./);
+		assert.match(reply, /Move\n• I will send the canvas when it is ready\./);
+		assert.match(reply, /Mission board\n• http:\/\/stub-spawner\.test\/kanban\?mission=mission-test/);
+		assert.doesNotMatch(reply, /Mission: mission-test/);
+	});
+
+	await test('canvas shaping heartbeat uses composed Telegram sections', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.formatCanvasShapingHeartbeatSummary({
+			projectName: 'Axiom Garden',
+			elapsedSeconds: 120
+		});
+
+			assert.match(reply, /Still shaping Axiom Garden\./);
+			assert.match(reply, /Status\n• Canvas prep has been running for 120s\./);
+			assert.match(reply, /Move\n• I will send the canvas link when planning is ready\./);
+			assert.doesNotMatch(reply, /Still working on/);
+			assert.doesNotMatch(reply, /\(120s elapsed\)/);
+		});
 
 	await test('clarification replies are natural and project-specific', async () => {
 		restoreAxios();
@@ -1003,6 +1083,7 @@ async function run(): Promise<void> {
 		assert.match(replies.join('\n'), /Spawned work/);
 		assert.doesNotMatch(replies.join('\n'), /Canvas:/);
 		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		assert.equal((replies.join('\n').match(/Mission board/g) || []).length, 1);
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === clarifiedMissionId);
 		assert.ok(subscription, 'clarified PRD build mission should be registered for Telegram relay progress');
@@ -1094,6 +1175,8 @@ async function run(): Promise<void> {
 			dispatchesAfterCancel,
 			'cancel must clear pending execution state so a later go does not wake the build'
 		);
+		assert.match(replies[replies.length - 1] || '', /not seeing an active build or mission waiting/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
 
 		restoreAxios();
 		restoreEnv();

@@ -353,32 +353,35 @@ function projectOpenLinkForEntry(entry: BoardEntry): string | null {
     || (rootRouteLooksLikeProject(text) ? PROJECT_PREVIEW_URL.replace(/\/+$/, '') : null);
 }
 
-function formatLatestMission(entry: BoardEntry): string[] {
-  const title = entry.missionName || entry.taskName || 'Unnamed mission';
-  const tasks = entry.taskNames && entry.taskNames.length > 0
-    ? entry.taskNames.slice(0, 3).join(', ')
-    : entry.taskName || null;
-  const lines = [
-    `Mission: ${entry.missionId}`,
-    `Status: ${entry.status}`,
-    `Title: ${title}`
-  ];
-
-  if (tasks) lines.push(`Tasks: ${tasks}`);
-  const provider = providerNames(entry);
-  lines.push(`Provider: ${provider || 'not reported yet'}`);
-  if (entry.telegramRelay?.profile || entry.telegramRelay?.port) {
-    const target = [entry.telegramRelay.profile, entry.telegramRelay.port ? `:${entry.telegramRelay.port}` : '']
-      .filter(Boolean)
-      .join('');
-    lines.push(`Relay: ${target}`);
-  }
-  if (entry.providerSummary) lines.push(`Result: ${entry.providerSummary}`);
-  return lines;
+function missionTitle(entry: BoardEntry): string {
+  return entry.missionName || entry.taskName || 'latest mission';
 }
 
-function missionTitle(entry: BoardEntry): string {
-  return entry.missionName || entry.taskName || entry.missionId || 'latest mission';
+function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const provider = providerNames(entry);
+  const lines = [
+    'The latest mission is visible on Kanban.',
+    '',
+    'Mission',
+    `• ${title}`,
+    `• ${statusWord(entry.status)}`
+  ];
+
+  if (provider) {
+    lines.push(
+      '',
+      'Provider',
+      `• ${provider}`
+    );
+  }
+
+  lines.push(
+    '',
+    'Mission board',
+    `• ${missionBoardUrl()}`
+  );
+  return lines.join('\n');
 }
 
 function statusWord(status: string): string {
@@ -393,7 +396,6 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   const provider = providerNames(entry);
   const title = missionTitle(entry);
   const status = statusWord(entry.status);
-  const missionLink = `${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(entry.missionId)}`;
 
   if (!provider) {
     return [
@@ -407,7 +409,7 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
       `• ${status}`,
       '',
       'Mission board',
-      `• ${missionLink}`
+      `• ${missionBoardUrl()}`
     ].join('\n');
   }
 
@@ -433,7 +435,7 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   lines.push(
     '',
     'Mission board',
-    `• ${missionLink}`
+    `• ${missionBoardUrl()}`
   );
   return lines.join('\n');
 }
@@ -460,7 +462,6 @@ function failureCauseLines(entry: BoardEntry): string[] {
 
 function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
   const title = missionTitle(entry);
-  const missionLink = `${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(entry.missionId)}`;
   return [
     'Latest mission needs attention.',
     '',
@@ -475,12 +476,72 @@ function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
     '• Open the Mission board for the full trace.',
     '',
     'Mission board',
-    `• ${missionLink}`
+    `• ${missionBoardUrl()}`
   ].join('\n');
+}
+
+function formatBoardTelegramSummary(board: BoardSnapshot): string {
+  const counts = {
+    running: board.running.length,
+    paused: board.paused.length,
+    completed: board.completed.length,
+    failed: board.failed.length,
+    queued: board.created.length
+  };
+  const latest = latestBoardEntry(board);
+  const lines = [
+    'Spawner board',
+    '',
+    'Counts',
+    `• running: ${counts.running}`,
+    `• paused: ${counts.paused}`,
+    `• completed: ${counts.completed}`,
+    `• failed: ${counts.failed}`,
+    `• queued: ${counts.queued}`
+  ];
+
+  const active = board.running[0] || board.paused[0] || board.created[0] || null;
+  if (active) {
+    lines.push(
+      '',
+      'Active',
+      `• ${missionTitle(active)}`,
+      `• ${statusWord(active.status)}`
+    );
+    const activeProvider = providerNames(active);
+    if (activeProvider) {
+      lines.push(`• provider: ${activeProvider}`);
+    }
+  }
+
+  if (latest && latest !== active) {
+    lines.push(
+      '',
+      'Latest',
+      `• ${missionTitle(latest)}`,
+      `• ${statusWord(latest.status)}`
+    );
+    const provider = providerNames(latest);
+    if (provider) {
+      lines.push(`• provider: ${provider}`);
+    }
+  }
+
+  lines.push(
+    '',
+    'Mission board',
+    `• ${missionBoardUrl()}`
+  );
+
+  return lines.join('\n');
 }
 
 function spawnerPublicUrl(): string {
   return resolveSpawnerPublicUrl().replace(/\/+$/, '');
+}
+
+function missionBoardUrl(): string {
+  return `${spawnerPublicUrl()}/kanban`;
 }
 
 function creatorMissionKanbanUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
@@ -1000,32 +1061,9 @@ export const spawner = {
   async board(): Promise<{ success: boolean; message: string }> {
     try {
       const board = await fetchBoardSnapshot();
-      const sections: Array<[string, BoardEntry[]]> = [
-        ['Running', board.running],
-        ['Paused', board.paused],
-        ['Completed', board.completed],
-        ['Failed', board.failed],
-        ['Created', board.created]
-      ];
-
-      const lines = ['Spawner Board'];
-      for (const [label, entries] of sections) {
-        lines.push('');
-        lines.push(`${label}: ${entries.length}`);
-        if (entries.length === 0) {
-          lines.push('- none');
-          continue;
-        }
-
-        for (const entry of entries.slice(0, 5)) {
-          const task = entry.taskName ? ` | ${entry.taskName}` : '';
-          lines.push(`- ${entry.missionId}${task}`);
-        }
-      }
-
       return {
         success: true,
-        message: lines.join('\n')
+        message: formatBoardTelegramSummary(board)
       };
     } catch (err: any) {
       return {
@@ -1047,11 +1085,7 @@ export const spawner = {
 
       return {
         success: true,
-        message: [
-          'The latest mission is visible on Kanban.',
-          '',
-          ...formatLatestMission(latest)
-        ].join('\n')
+        message: formatLatestKanbanTelegramSummary(latest)
       };
     } catch (err: any) {
       return {
@@ -1123,10 +1157,14 @@ export const spawner = {
         return {
           success: true,
           message: [
-            'I found the latest mission, but I do not see a local app link in the handoff yet.',
+            'I found the latest mission, but I do not see a local app link yet.',
             '',
-            `Latest: ${latest.missionName || latest.taskName || latest.missionId}`,
-            `Mission board: ${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(latest.missionId)}`
+            'Mission',
+            `• ${missionTitle(latest)}`,
+            `• ${statusWord(latest.status)}`,
+            '',
+            'Mission board',
+            `• ${missionBoardUrl()}`
           ].join('\n')
         };
       }
