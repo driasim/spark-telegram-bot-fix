@@ -13,8 +13,8 @@ Composition lens from `spark-telegram-composition`:
 
 - Registered Telegram commands found in source: 64
 - Command cases exercised: 64
-- Average usability score: 4.56 / 5
-- Score spread: 45 excellent, 10 good, 9 okay, 0 rough, 0 poor
+- Average usability score: 4.73 / 5
+- Score spread: 47 excellent, 17 good, 0 okay, 0 rough, 0 poor
 - Missing registered commands in harness: none
 - Harness-only aliases/extras: none
 
@@ -37,10 +37,9 @@ Side-effect posture:
 
 | Priority | Commands | Improvement |
 | --- | --- | --- |
-| P1 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |
-| P1 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Hide aliases from primary help while preserving backward compatibility. |
+| P1 | live success-path replies | Run real Telegram checks for `/chip create`, `/schedule`, `/mission status`, and `/run` with services online to ensure success replies stay concise. |
+| P2 | compatibility aliases | Keep the canonical-command banner and hide aliases from primary help unless usage shows people still need them. |
 | P2 | `/docker_smoke`, `/level5_setup` | Confirmation copy is intentionally safety-heavy; next polish could split it into a headline plus Why/Confirm rows. |
-| P2 | success-path live replies | Run real Telegram checks for `/chip create`, `/schedule`, `/mission status`, and `/run` with services online to ensure success replies stay concise. |
 | P3 | live Telegram smoke | Re-run this list against a real private chat with Builder, Spawner, Spark CLI, and providers online to score success-path composition. |
 
 ## Scorecard
@@ -63,13 +62,13 @@ Side-effect posture:
 `/recall` | Memory | 5 (excellent) | `usage_only` | 🔎 Recall memory<br><br>Use: /recall <topic><br>Example: /recall mission update preferences | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/forget` | Memory | 5 (excellent) | `usage_only` | 🧹 Forget memory<br><br>Use: /forget <thing to forget><br>Example: /forget my old project nickname<br><br>If Builder memory is offline, try again after /diagnose shows memory is healthy. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/context` | Builder/AOC | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/operating_context` | Builder/AOC | 3 (okay) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/agent_context` | Builder/AOC | 3 (okay) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/operating_context` | Builder/AOC | 4 (good) | `blocked` | ↪️ /operating_context maps to /context.<br><br>⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can [truncated] | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
+`/agent_context` | Builder/AOC | 4 (good) | `blocked` | ↪️ /agent_context maps to /context.<br><br>⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can chec [truncated] | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
 `/aoc` | Builder/AOC | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/conversation_context` | Builder/AOC | 4 (good) | `read_only` | Conversation context harness<br>- Hot turns: 0<br>- Warm summary tokens: 0<br>- Artifacts: 0<br>- Compaction events: 0<br>- Safe input budget: unknown<br>- Requires larger model for full target: unknown | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
-`/black_box` | Builder/AOC | 5 (excellent) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit. | Keep the current shape; only minor polish needed.
-`/blackbox` | Builder/AOC | 3 (okay) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/black-box` | Builder/AOC | 3 (okay) | `usage_only` | Agent black box<br>Usage: /black_box [request_id]<br><br>This shows compact event evidence only. It does not promote memory or grant authority. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/black_box` | Builder/AOC | 5 (excellent) | `usage_only` | 🧾 Agent black box<br><br>Use<br>• /black_box [request_id]<br><br>What it shows<br>• Compact event evidence only.<br>• It does not promote memory or grant authority. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/blackbox` | Builder/AOC | 4 (good) | `usage_only` | ↪️ /blackbox maps to /black_box.<br><br>🧾 Agent black box<br><br>Use<br>• /black_box [request_id]<br><br>What it shows<br>• Compact event evidence only.<br>• It does not promote memory or grant authority. | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
+`/black-box` | Builder/AOC | 4 (good) | `usage_only` | ↪️ /black-box maps to /black_box.<br><br>🧾 Agent black box<br><br>Use<br>• /black_box [request_id]<br><br>What it shows<br>• Compact event evidence only.<br>• It does not promote memory or grant authority. | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
 `/self` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/wiki` | Builder | 5 (excellent) | `blocked` | ⚠️ Spark could not reach the Builder memory path right now.<br><br>Why: Builder bridge command did not finish cleanly.<br><br>Next move<br>• Check now: Run /diagnose so Spark can check Builder, memory, and the selected m [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/voice` | Builder | 5 (excellent) | `blocked` | 🎙️ Voice setup is not ready yet.<br><br>What happened<br>• Telegram is running, but Builder did not return voice status.<br><br>Next move<br>• Run /diagnose, then try /voice again. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
@@ -77,13 +76,13 @@ Side-effect posture:
 `/capabilities` | Builder Diagnostics | 5 (excellent) | `read_only` | Capability garden needs review.<br><br>State<br>• 7 cards<br>• Status: local-artifacts=2, schema-shaped=3, seen=2<br>• Surfaces: creator-system=1, specialization-path=6<br><br>Review<br>• Cards are evidence, not trust.<br>• Gate ver [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/authority` | Builder Diagnostics | 4 (good) | `read_only` | Authority view has gated actions.<br><br>State<br>- Access L4; lane spark_workspace<br>- 5 Telegram access profiles; 5 Spawner lanes<br>- 5 browser approvals from 20 hooks<br>- 5 toxic capability pairs; 3 publication checks [truncated] | Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
 `/trace` | Builder Diagnostics | 4 (good) | `read_only` | Trace repair needs attention.<br><br>State<br>• 38898 Builder events; 2378 trace groups<br>• 32808 missing trace refs; 3241 open high-severity events<br>• 0 orphan parent links<br><br>Recent<br>• 1h: 0/0 missing (0%)<br>• 24h: 0/3 m [truncated] | Long for Telegram; should probably deep-link to Workspace or docs. | Keep the current shape; only minor polish needed.
-`/trace_repair` | Builder Diagnostics | 3 (okay) | `read_only` | Trace repair needs attention.<br><br>State<br>• 38898 Builder events; 2378 trace groups<br>• 32808 missing trace refs; 3241 open high-severity events<br>• 0 orphan parent links<br><br>Recent<br>• 1h: 0/0 missing (0%)<br>• 24h: 0/3 m [truncated] | Long for Telegram; should probably deep-link to Workspace or docs.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/trace_repair` | Builder Diagnostics | 4 (good) | `read_only` | ↪️ /trace_repair maps to /trace.<br><br>Trace repair needs attention.<br><br>State<br>• 38898 Builder events; 2378 trace groups<br>• 32808 missing trace refs; 3241 open high-severity events<br>• 0 orphan parent links<br><br>Recent<br>• [truncated] | Long for Telegram; should probably deep-link to Workspace or docs.; Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
 `/memory_movement` | Builder Diagnostics | 5 (excellent) | `read_only` | Memory movement is visible.<br><br>State<br>• supported; 5654 movement rows<br>• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48<br>• Authority: authoritative_current=1970, authoritative_hist [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/memory_flow` | Builder Diagnostics | 3 (okay) | `read_only` | Memory movement is visible.<br><br>State<br>• supported; 5654 movement rows<br>• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48<br>• Authority: authoritative_current=1970, authoritative_hist [truncated] | Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/probe` | Route Diagnostics | 4 (good) | `usage_only` | Route probe<br>Usage: /probe <route><br>Batch: /probe core or /probe all<br><br>Routes:<br>- core<br>- all<br>- builder<br>- spawner<br>- memory<br>- researcher<br>- swarm<br>- browser<br>- local_work | Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better. | Keep the current shape; only minor polish needed.
-`/route_probe` | Route Diagnostics | 3 (okay) | `usage_only` | Route probe<br>Usage: /probe <route><br>Batch: /probe core or /probe all<br><br>Routes:<br>- core<br>- all<br>- builder<br>- spawner<br>- memory<br>- researcher<br>- swarm<br>- browser<br>- local_work | Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
-`/nl_route` | Route Diagnostics | 5 (excellent) | `usage_only` | Natural route probe<br>Usage: /nl_route <message><br><br>This shows the diagnostic route decision only. It does not execute the route. | Usage is explicit. | Keep the current shape; only minor polish needed.
-`/natural_route` | Route Diagnostics | 3 (okay) | `usage_only` | Natural route probe<br>Usage: /nl_route <message><br><br>This shows the diagnostic route decision only. It does not execute the route. | Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/memory_flow` | Builder Diagnostics | 4 (good) | `read_only` | ↪️ /memory_flow maps to /memory_movement.<br><br>Memory movement is visible.<br><br>State<br>• supported; 5654 movement rows<br>• Movement: captured=81, saved=81, promoted=381, retrieved=2613, summarized=48<br>• Authority: aut [truncated] | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
+`/probe` | Route Diagnostics | 5 (excellent) | `usage_only` | 🧪 Route probe<br><br>Use<br>• /probe <route><br>• /probe core<br>• /probe all<br><br>Routes<br>• builder<br>• spawner<br>• memory<br>• researcher<br>• swarm<br>• browser<br>• local_work | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/route_probe` | Route Diagnostics | 4 (good) | `usage_only` | ↪️ /route_probe maps to /probe.<br><br>🧪 Route probe<br><br>Use<br>• /probe <route><br>• /probe core<br>• /probe all<br><br>Routes<br>• builder<br>• spawner<br>• memory<br>• researcher<br>• swarm<br>• browser<br>• local_work | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
+`/nl_route` | Route Diagnostics | 5 (excellent) | `usage_only` | 🧭 Natural route probe<br><br>Use<br>• /nl_route <message><br><br>What it does<br>• Shows the diagnostic route decision only.<br>• Does not execute the route. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/natural_route` | Route Diagnostics | 4 (good) | `usage_only` | ↪️ /natural_route maps to /nl_route.<br><br>🧭 Natural route probe<br><br>Use<br>• /nl_route <message><br><br>What it does<br>• Shows the diagnostic route decision only.<br>• Does not execute the route. | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
 `/run` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a mission<br><br>Use<br>• /run <goal><br><br>Example<br>• /run audit the Telegram command copy and suggest fixes<br><br>Route<br>• Uses current mission provider: codex.<br>• /model shows or changes the default mission route. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/runminimax` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a MiniMax mission<br><br>Use<br>• /runminimax <goal><br><br>Example<br>• /runminimax compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to MiniMax.<br>• /model shows or changes t [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
 `/runglm` | Mission Start | 5 (excellent) | `usage_only` | 🚀 Start a Z.AI GLM mission<br><br>Use<br>• /runglm <goal><br><br>Example<br>• /runglm compare the current plan against the launch docs<br><br>Route<br>• Expert shortcut: sends directly to Z.AI GLM.<br>• /model shows or changes the def [truncated] | Readable and compact in the safe harness. | Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.
@@ -97,8 +96,8 @@ Side-effect posture:
 `/updates` | Mission Control | 5 (excellent) | `read_only` | Live mission updates are set to normal.<br>Normal sends pickup, canvas-ready, final handoff, and failures.<br>Mission links are set to board.<br>Mission updates include the Mission board/Kanban link.<br><br>Usage:<br>/updat [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
 `/model` | Models | 5 (excellent) | `read_only` | 🧠 Spark model routing<br><br>Current<br>• Agent chat: audit_unsupported (glm-5.1)<br>• Missions: codex (gpt-5.5)<br><br>Common switches<br>• /model agent codex<br>• /model agent claude claude-sonnet-4-6<br>• /model mission codex<br>• [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/models` | Models | 5 (excellent) | `read_only` | 🧭 Recommended Spark provider paths<br><br>Choose one provider first. Spark uses it for agent chat, runtime, memory, retrieval, and missions. You can split agent vs mission later.<br><br>Fast picks<br>• Have ChatGPT/Code [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
-`/workspaces` | Workspace | 4 (good) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline. | Keep the current shape; only minor polish needed.
-`/workspace` | Workspace | 3 (okay) | `read_only` | This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.<br>You can say "change my access level to 4" or send [truncated] | First line is too dense to scan as a headline.; Redundant alias; useful for compatibility, noisy in command help. | Keep as compatibility, but stop advertising it as a primary command.
+`/workspaces` | Workspace | 5 (excellent) | `read_only` | ⚠️ Local workspace access is blocked.<br><br>Why<br>• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.<br>• This chat is at Access level 3.<br><br>Next [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
+`/workspace` | Workspace | 4 (good) | `read_only` | ↪️ /workspace maps to /workspaces.<br><br>⚠️ Local workspace access is blocked.<br><br>Why<br>• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.<br>• Th [truncated] | Compatibility alias clearly points to the canonical command. | Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
 `/creator` | Creator/Chip | 5 (excellent) | `usage_only` | Usage: /creator plan [private\|github\|swarm] [risk low\|medium\|high] <brief><br> /creator run <mission-creator-id><br> /creator status <mission-creator-id><br> /creator validate <mission-creator-id> [maxCommands]<br>Exa [truncated] | Usage is explicit. | Keep the current shape; only minor polish needed.
 `/chip` | Creator/Chip | 5 (excellent) | `usage_only` | 🌱 Create a domain chip<br><br>Use<br>• /chip create <natural language description><br><br>Example<br>• /chip create a QA operator that catches launch-blocking UI regressions<br><br>Next move<br>• Use /creator for planned creator mi [truncated] | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
 `/loop` | Creator/Chip | 5 (excellent) | `usage_only` | 🌀 Run a chip autoloop<br><br>Use<br>• /loop <chip_key> [rounds]<br><br>Example<br>• /loop startup-yc 3<br><br>What happens<br>• Spark asks the chip for candidates, evaluates them, and posts a summary. | Readable and compact in the safe harness. | Keep the current shape; only minor polish needed.
@@ -128,13 +127,13 @@ No commands in this family scored below okay in the safe harness.
 
 ### Builder Diagnostics
 
-Average: 4.14 / 5.
+Average: 4.43 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
 ### Builder/AOC
 
-Average: 3.88 / 5.
+Average: 4.38 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -194,7 +193,7 @@ No commands in this family scored below okay in the safe harness.
 
 ### Route Diagnostics
 
-Average: 3.75 / 5.
+Average: 4.50 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -212,7 +211,7 @@ No commands in this family scored below okay in the safe harness.
 
 ### Workspace
 
-Average: 3.50 / 5.
+Average: 4.50 / 5.
 
 No commands in this family scored below okay in the safe harness.
 
@@ -536,11 +535,13 @@ Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-
 
 ### /operating_context
 
-Score: 3 (okay). Intent: Alias for Agent Operating Context.
+Score: 4 (good). Intent: Alias for Agent Operating Context.
 
 Reply 1:
 
 ```text
+↪️ /operating_context maps to /context.
+
 ⚠️ Spark could not reach the Builder memory path right now.
 
 Why: Builder bridge command did not finish cleanly.
@@ -554,11 +555,13 @@ Still stuck: spark doctor llm "Spark builder failure: builder_or_memory" --save-
 
 ### /agent_context
 
-Score: 3 (okay). Intent: Alias for Agent Operating Context.
+Score: 4 (good). Intent: Alias for Agent Operating Context.
 
 Reply 1:
 
 ```text
+↪️ /agent_context maps to /context.
+
 ⚠️ Spark could not reach the Builder memory path right now.
 
 Why: Builder bridge command did not finish cleanly.
@@ -611,36 +614,52 @@ Score: 5 (excellent). Intent: Show black-box trace usage.
 Reply 1:
 
 ```text
-Agent black box
-Usage: /black_box [request_id]
+🧾 Agent black box
 
-This shows compact event evidence only. It does not promote memory or grant authority.
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.
 ```
 
 ### /blackbox
 
-Score: 3 (okay). Intent: Alias for black-box trace usage.
+Score: 4 (good). Intent: Alias for black-box trace usage.
 
 Reply 1:
 
 ```text
-Agent black box
-Usage: /black_box [request_id]
+↪️ /blackbox maps to /black_box.
 
-This shows compact event evidence only. It does not promote memory or grant authority.
+🧾 Agent black box
+
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.
 ```
 
 ### /black-box
 
-Score: 3 (okay). Intent: Hyphen alias for black-box trace usage.
+Score: 4 (good). Intent: Hyphen alias for black-box trace usage.
 
 Reply 1:
 
 ```text
-Agent black box
-Usage: /black_box [request_id]
+↪️ /black-box maps to /black_box.
 
-This shows compact event evidence only. It does not promote memory or grant authority.
+🧾 Agent black box
+
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.
 ```
 
 ### /self
@@ -793,11 +812,13 @@ Workspace
 
 ### /trace_repair
 
-Score: 3 (okay). Intent: Alias for trace repair summary.
+Score: 4 (good). Intent: Alias for trace repair summary.
 
 Reply 1:
 
 ```text
+↪️ /trace_repair maps to /trace.
+
 Trace repair needs attention.
 
 State
@@ -856,11 +877,13 @@ Workspace
 
 ### /memory_flow
 
-Score: 3 (okay). Intent: Alias for memory movement summary.
+Score: 4 (good). Intent: Alias for memory movement summary.
 
 Reply 1:
 
 ```text
+↪️ /memory_flow maps to /memory_movement.
+
 Memory movement is visible.
 
 State
@@ -884,48 +907,52 @@ Workspace
 
 ### /probe
 
-Score: 4 (good). Intent: Show route probe help.
+Score: 5 (excellent). Intent: Show route probe help.
 
 Reply 1:
 
 ```text
-Route probe
-Usage: /probe <route>
-Batch: /probe core or /probe all
+🧪 Route probe
 
-Routes:
-- core
-- all
-- builder
-- spawner
-- memory
-- researcher
-- swarm
-- browser
-- local_work
+Use
+• /probe <route>
+• /probe core
+• /probe all
+
+Routes
+• builder
+• spawner
+• memory
+• researcher
+• swarm
+• browser
+• local_work
 ```
 
 ### /route_probe
 
-Score: 3 (okay). Intent: Alias for route probe help.
+Score: 4 (good). Intent: Alias for route probe help.
 
 Reply 1:
 
 ```text
-Route probe
-Usage: /probe <route>
-Batch: /probe core or /probe all
+↪️ /route_probe maps to /probe.
 
-Routes:
-- core
-- all
-- builder
-- spawner
-- memory
-- researcher
-- swarm
-- browser
-- local_work
+🧪 Route probe
+
+Use
+• /probe <route>
+• /probe core
+• /probe all
+
+Routes
+• builder
+• spawner
+• memory
+• researcher
+• swarm
+• browser
+• local_work
 ```
 
 ### /nl_route
@@ -935,23 +962,33 @@ Score: 5 (excellent). Intent: Show natural-route probe help.
 Reply 1:
 
 ```text
-Natural route probe
-Usage: /nl_route <message>
+🧭 Natural route probe
 
-This shows the diagnostic route decision only. It does not execute the route.
+Use
+• /nl_route <message>
+
+What it does
+• Shows the diagnostic route decision only.
+• Does not execute the route.
 ```
 
 ### /natural_route
 
-Score: 3 (okay). Intent: Alias for natural-route probe help.
+Score: 4 (good). Intent: Alias for natural-route probe help.
 
 Reply 1:
 
 ```text
-Natural route probe
-Usage: /nl_route <message>
+↪️ /natural_route maps to /nl_route.
 
-This shows the diagnostic route decision only. It does not execute the route.
+🧭 Natural route probe
+
+Use
+• /nl_route <message>
+
+What it does
+• Shows the diagnostic route decision only.
+• Does not execute the route.
 ```
 
 ### /run
@@ -1234,24 +1271,40 @@ Provider defaults
 
 ### /workspaces
 
-Score: 4 (good). Intent: Show local workspace inventory or access denial.
+Score: 5 (excellent). Intent: Show local workspace inventory or access denial.
 
 Reply 1:
 
 ```text
-This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
-You can say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.
+⚠️ Local workspace access is blocked.
+
+Why
+• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.
+• This chat is at Access level 3.
+
+Next move
+• Say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces.
+• Use `/access 5` only when you really want whole-computer operator mode.
 ```
 
 ### /workspace
 
-Score: 3 (okay). Intent: Alias for local workspace inventory.
+Score: 4 (good). Intent: Alias for local workspace inventory.
 
 Reply 1:
 
 ```text
-This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
-You can say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.
+↪️ /workspace maps to /workspaces.
+
+⚠️ Local workspace access is blocked.
+
+Why
+• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.
+• This chat is at Access level 3.
+
+Next move
+• Say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces.
+• Use `/access 5` only when you really want whole-computer operator mode.
 ```
 
 ### /creator

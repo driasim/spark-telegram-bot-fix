@@ -146,9 +146,9 @@
   <main>
     <section class="summary" aria-label="Audit summary">
       <div class="metric"><span>Commands</span><strong>64</strong></div>
-      <div class="metric"><span>Average score</span><strong>3.22 → 4.56</strong></div>
-      <div class="metric"><span>Movement</span><strong>35 up · 29 same · 0 down</strong></div>
-      <div class="metric"><span>After spread</span><strong>45 excellent, 10 good, 9 okay, 0 rough, 0 poor</strong></div>
+      <div class="metric"><span>Average score</span><strong>3.22 → 4.73</strong></div>
+      <div class="metric"><span>Movement</span><strong>44 up · 20 same · 0 down</strong></div>
+      <div class="metric"><span>After spread</span><strong>47 excellent, 17 good, 0 okay, 0 rough, 0 poor</strong></div>
     </section>
     
     <section class="command-card" id="cmd-start">
@@ -958,8 +958,8 @@ Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quo
         </div>
         <div class="score-row">
           <span class="badge score-1">1/5 poor</span>
-          <span class="delta">Δ +2</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -981,6 +981,8 @@ That uses your configured LLM, redacts sensitive data, and creates a local upstr
         <article>
           <h3>After</h3>
           <pre>Reply 1:
+↪️ /operating_context maps to /context.
+
 ⚠️ Spark could not reach the Builder memory path right now.
 
 Why: Builder bridge command did not finish cleanly.
@@ -993,9 +995,9 @@ Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quo
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1008,8 +1010,8 @@ Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quo
         </div>
         <div class="score-row">
           <span class="badge score-1">1/5 poor</span>
-          <span class="delta">Δ +2</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +3</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1031,6 +1033,8 @@ That uses your configured LLM, redacts sensitive data, and creates a local upstr
         <article>
           <h3>After</h3>
           <pre>Reply 1:
+↪️ /agent_context maps to /context.
+
 ⚠️ Spark could not reach the Builder memory path right now.
 
 Why: Builder bridge command did not finish cleanly.
@@ -1043,9 +1047,9 @@ Still stuck: spark doctor llm &quot;Spark builder failure: builder_or_memory&quo
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1168,14 +1172,18 @@ This shows compact event evidence only. It does not promote memory or grant auth
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Agent black box
-Usage: /black_box [request_id]
+🧾 Agent black box
 
-This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
         <br>
         <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
       </footer>
@@ -1190,8 +1198,8 @@ This shows compact event evidence only. It does not promote memory or grant auth
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1206,16 +1214,22 @@ This shows compact event evidence only. It does not promote memory or grant auth
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Agent black box
-Usage: /black_box [request_id]
+↪️ /blackbox maps to /black_box.
 
-This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+🧾 Agent black box
+
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1228,8 +1242,8 @@ This shows compact event evidence only. It does not promote memory or grant auth
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1244,16 +1258,22 @@ This shows compact event evidence only. It does not promote memory or grant auth
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Agent black box
-Usage: /black_box [request_id]
+↪️ /black-box maps to /black_box.
 
-This shows compact event evidence only. It does not promote memory or grant authority.</pre>
+🧾 Agent black box
+
+Use
+• /black_box [request_id]
+
+What it shows
+• Compact event evidence only.
+• It does not promote memory or grant authority.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1644,8 +1664,8 @@ Workspace
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1682,6 +1702,8 @@ Workspace
         <article>
           <h3>After</h3>
           <pre>Reply 1:
+↪️ /trace_repair maps to /trace.
+
 Trace repair needs attention.
 
 State
@@ -1711,9 +1733,9 @@ Workspace
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Long for Telegram; should probably deep-link to Workspace or docs.; Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1794,8 +1816,8 @@ Workspace
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1825,6 +1847,8 @@ Workspace
         <article>
           <h3>After</h3>
           <pre>Reply 1:
+↪️ /memory_flow maps to /memory_movement.
+
 Memory movement is visible.
 
 State
@@ -1847,9 +1871,9 @@ Workspace
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1862,8 +1886,8 @@ Workspace
         </div>
         <div class="score-row">
           <span class="badge score-4">4/5 good</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-5">5/5 excellent</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1888,24 +1912,25 @@ Routes:
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Route probe
-Usage: /probe &lt;route&gt;
-Batch: /probe core or /probe all
+🧪 Route probe
 
-Routes:
-- core
-- all
-- builder
-- spawner
-- memory
-- researcher
-- swarm
-- browser
-- local_work</pre>
+Use
+• /probe &lt;route&gt;
+• /probe core
+• /probe all
+
+Routes
+• builder
+• spawner
+• memory
+• researcher
+• swarm
+• browser
+• local_work</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
         <br>
         <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
       </footer>
@@ -1920,8 +1945,8 @@ Routes:
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -1946,26 +1971,29 @@ Routes:
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Route probe
-Usage: /probe &lt;route&gt;
-Batch: /probe core or /probe all
+↪️ /route_probe maps to /probe.
 
-Routes:
-- core
-- all
-- builder
-- spawner
-- memory
-- researcher
-- swarm
-- browser
-- local_work</pre>
+🧪 Route probe
+
+Use
+• /probe &lt;route&gt;
+• /probe core
+• /probe all
+
+Routes
+• builder
+• spawner
+• memory
+• researcher
+• swarm
+• browser
+• local_work</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.; Uses CLI-style hyphen bullets where Telegram cards would scan better.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -1994,14 +2022,18 @@ This shows the diagnostic route decision only. It does not execute the route.</p
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Natural route probe
-Usage: /nl_route &lt;message&gt;
+🧭 Natural route probe
 
-This shows the diagnostic route decision only. It does not execute the route.</pre>
+Use
+• /nl_route &lt;message&gt;
+
+What it does
+• Shows the diagnostic route decision only.
+• Does not execute the route.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
         <br>
         <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
       </footer>
@@ -2016,8 +2048,8 @@ This shows the diagnostic route decision only. It does not execute the route.</p
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -2032,16 +2064,22 @@ This shows the diagnostic route decision only. It does not execute the route.</p
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-Natural route probe
-Usage: /nl_route &lt;message&gt;
+↪️ /natural_route maps to /nl_route.
 
-This shows the diagnostic route decision only. It does not execute the route.</pre>
+🧭 Natural route probe
+
+Use
+• /nl_route &lt;message&gt;
+
+What it does
+• Shows the diagnostic route decision only.
+• Does not execute the route.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> Usage is explicit.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   
@@ -2740,8 +2778,8 @@ For details, use /models claude, /models codex, /models openai, /models openrout
         </div>
         <div class="score-row">
           <span class="badge score-4">4/5 good</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-4">4/5 good</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-5">5/5 excellent</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -2754,12 +2792,19 @@ You can say &quot;change my access level to 4&quot; or send `/access 4` for Spar
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
-You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+⚠️ Local workspace access is blocked.
+
+Why
+• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.
+• This chat is at Access level 3.
+
+Next move
+• Say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces.
+• Use `/access 5` only when you really want whole-computer operator mode.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.
+        <strong>Latest audit note:</strong> Readable and compact in the safe harness.
         <br>
         <strong>Recommendation:</strong> Keep the current shape; only minor polish needed.
       </footer>
@@ -2774,8 +2819,8 @@ You can say &quot;change my access level to 4&quot; or send `/access 4` for Spar
         </div>
         <div class="score-row">
           <span class="badge score-3">3/5 okay</span>
-          <span class="delta">Δ 0</span>
-          <span class="badge score-3">3/5 okay</span>
+          <span class="delta">Δ +1</span>
+          <span class="badge score-4">4/5 good</span>
         </div>
       </div>
       <div class="comparison-grid">
@@ -2788,14 +2833,23 @@ You can say &quot;change my access level to 4&quot; or send `/access 4` for Spar
         <article>
           <h3>After</h3>
           <pre>Reply 1:
-This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work, but this chat is at Access level 3.
-You can say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.</pre>
+↪️ /workspace maps to /workspaces.
+
+⚠️ Local workspace access is blocked.
+
+Why
+• This operating system request needs Access level 4 for sandboxed local work, or Access level 5 for whole-computer work.
+• This chat is at Access level 3.
+
+Next move
+• Say &quot;change my access level to 4&quot; or send `/access 4` for Spark sandbox workspaces.
+• Use `/access 5` only when you really want whole-computer operator mode.</pre>
         </article>
       </div>
       <footer>
-        <strong>Latest audit note:</strong> First line is too dense to scan as a headline.; Redundant alias; useful for compatibility, noisy in command help.
+        <strong>Latest audit note:</strong> Compatibility alias clearly points to the canonical command.
         <br>
-        <strong>Recommendation:</strong> Keep as compatibility, but stop advertising it as a primary command.
+        <strong>Recommendation:</strong> Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.
       </footer>
     </section>
   

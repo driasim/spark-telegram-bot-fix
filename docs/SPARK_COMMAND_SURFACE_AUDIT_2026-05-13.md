@@ -70,15 +70,15 @@ Current command families registered in `src/index.ts`:
 | Mission start | `/run`, `/runminimax`, `/runglm`, `/runzai`, `/runclaude`, `/runcodex`, `/run2`, `/runall` | Yes, admin | `/run` is canonical. Provider-specific run commands are power shortcuts; consider moving provider choice into `/model` plus `/run`. |
 | Mission control | `/board`, `/mission`, `/updates` | Yes | Keep; this is Telegram's best current product lane. |
 | Model/provider | `/model`, `/models` | Yes | Keep, but make relationship to `spark providers` obvious in docs. |
-| Workspace/build context | `/workspaces`, `/workspace`, natural-language build requests | Yes, admin | Keep `/workspaces`; plural should be canonical. |
+| Workspace/build context | `/workspaces`, `/workspace`, natural-language build requests | Yes, admin | Keep `/workspaces`; plural is canonical. `/workspace` is a compatibility alias that now points back to `/workspaces`. |
 | Creator/chip/loop | `/creator`, `/chip`, `/loop` | Yes, advanced | Useful, but the boundary between Telegram, Builder, and Spawner is crowded. |
 | Recursive Workspace | `/recursive` | Yes, advanced | Powerful but heavy. Best candidate for a later simplification pass: Telegram should summarize and deep-link, not become the full recursive Workspace UI. |
 | Scheduling | `/schedule`, `/schedules` | Yes | Keep if schedules are actively used; otherwise this is easy to move behind Spawner/CLI. |
-| Route/authority diagnostics | `/probe`, `/route_probe`, `/nl_route`, `/natural_route`, `/ledger`, `/capabilities`, `/authority`, `/trace`, `/trace_repair`, `/memory_movement`, `/memory_flow`, `/black_box`, `/blackbox`, `/operating_context`, `/agent_context`, `/aoc` | Advanced | Too many aliases. Keep canonical `/probe`, `/nl_route`, `/ledger`, `/capabilities`, `/authority`, `/trace`, `/memory_movement`, `/aoc`; hide or retire duplicate aliases over time. |
+| Route/authority diagnostics | `/probe`, `/route_probe`, `/nl_route`, `/natural_route`, `/ledger`, `/capabilities`, `/authority`, `/trace`, `/trace_repair`, `/memory_movement`, `/memory_flow`, `/black_box`, `/blackbox`, `/operating_context`, `/agent_context`, `/aoc` | Advanced | Too many aliases, but duplicate aliases now show a canonical-command banner. Keep canonical `/probe`, `/nl_route`, `/ledger`, `/capabilities`, `/authority`, `/trace`, `/memory_movement`, `/aoc`; hide or retire duplicate aliases over time. |
 | Clarification | `/clarify` | Maybe | Useful only if operators know the pending-state model. Could be folded into natural replies. |
 | Deferred dashboard placeholders | `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect` | Not really | These currently point at deferred dashboard/resonance behavior. They are safe but stale-looking; hide or remove in a cleanup pass. |
 
-Most redundant Telegram aliases:
+Most redundant Telegram aliases, now kept as compatibility paths with canonical-command banners:
 
 - `/context`, `/operating_context`, `/agent_context`, `/aoc`, `/conversation_context`
 - `/probe`, `/route_probe`, `/nl_route`, `/natural_route`
@@ -91,7 +91,7 @@ Recommended Telegram shape:
 
 - Keep user-facing: `/start`, `/myid`, `/status`, `/diagnose`, `/access`, `/context`, `/remember`, `/recall`, `/self`, `/wiki`, `/voice`, `/run`, `/board`, `/mission`, `/updates`, `/model`, `/workspaces`.
 - Keep admin/advanced but document separately: `/recursive`, `/creator`, `/chip`, `/loop`, `/schedule`, `/schedules`, `/probe`, `/nl_route`, `/ledger`, `/capabilities`, `/authority`, `/trace`, `/memory_movement`, `/aoc`.
-- Retire or hide later: `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect`, duplicate aliases, and direct CLI-like setup shortcuts if `/access` can absorb them.
+- Retire or hide later: `/resonance`, `/insights`, `/lessons`, `/process`, `/reflect`, duplicate aliases after one compatibility period, and direct CLI-like setup shortcuts if `/access` can absorb them.
 
 ## Builder CLI
 
@@ -229,9 +229,9 @@ These are safe-looking candidates for later hiding/removal, not immediate deleti
 
 | Area | Current issue | Better shape |
 | --- | --- | --- |
-| Telegram route diagnostics | `/probe`, `/route_probe`, `/nl_route`, `/natural_route`, Builder `/probe` | One `/probe` command with submodes, plus `/nl_route` only if operators actively use it. |
-| Operating context | `/context`, `/operating_context`, `/agent_context`, `/aoc`, `/conversation_context`, Builder `/aoc` | Keep `/context` for users and `/aoc` for expert short form. |
-| Trace/memory diagnostics | `/trace`, `/trace_repair`, `/memory_movement`, `/memory_flow` | Keep `/trace` and `/memory_movement`; fold repair under subcommands. |
+| Telegram route diagnostics | `/probe`, `/route_probe`, `/nl_route`, `/natural_route`, Builder `/probe` | One `/probe` command with submodes, plus `/nl_route` only if operators actively use it. Compatibility aliases now point to the canonical commands. |
+| Operating context | `/context`, `/operating_context`, `/agent_context`, `/aoc`, `/conversation_context`, Builder `/aoc` | Keep `/context` for users and `/aoc` for expert short form. Compatibility aliases now point to `/context`. |
+| Trace/memory diagnostics | `/trace`, `/trace_repair`, `/memory_movement`, `/memory_flow` | Keep `/trace` and `/memory_movement`; fold repair under subcommands. Compatibility aliases now point to the canonical commands. |
 | Provider-specific run commands | `/runminimax`, `/runglm`, `/runzai`, `/runclaude`, `/runcodex`, `/run2`, `/runall` | Prefer `/model` or `/run --provider <name>` eventually. |
 | Access setup from Telegram | `/access_setup`, `/docker_doctor`, `/docker_smoke`, `/level5_setup`, `/level5_disable` | Prefer Spark CLI for setup; Telegram can show status and link/print next command. |
 | Builder Telegram adapter vs Gateway | Both understand `/self`, `/wiki`, `/voice`, `/probe`, `/ledger`, `/chip` | Gateway should be the curated front door; Builder should remain the implementation owner. |
@@ -244,7 +244,7 @@ Recommended order:
 
 1. Keep current behavior stable and document the three main surfaces: Spark CLI, Telegram, Spawner UI.
 2. Hide or de-emphasize Telegram deferred dashboard commands.
-3. Decide canonical aliases for diagnostics, then leave compatibility aliases undocumented for one release.
+3. Keep canonical-command banners on compatibility aliases and leave those aliases undocumented for one release.
 4. Move provider-specific run shortcuts toward `/model` + `/run` or `/run --provider`.
 5. Turn `/recursive` into a concise status/deep-link control and let Spawner/Workspace own the detailed UI.
 6. Make Builder's expert command families discoverable through one "Builder expert tools" doc, not Telegram user help.

@@ -1815,6 +1815,30 @@ bot.command('wiki', async (ctx) => {
   }
 });
 
+const TELEGRAM_COMMAND_ALIASES: Record<string, string> = {
+  operating_context: 'context',
+  agent_context: 'context',
+  blackbox: 'black_box',
+  'black-box': 'black_box',
+  route_probe: 'probe',
+  natural_route: 'nl_route',
+  trace_repair: 'trace',
+  memory_flow: 'memory_movement',
+  workspace: 'workspaces',
+};
+
+function telegramCommandName(ctx: any): string {
+  const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
+  return text.match(/^\/([^\s@]+)/)?.[1]?.toLowerCase() || '';
+}
+
+function withCanonicalAliasNotice(ctx: any, replyText: string): string {
+  const alias = telegramCommandName(ctx);
+  const canonical = TELEGRAM_COMMAND_ALIASES[alias];
+  if (!canonical) return replyText;
+  return [`↪️ /${alias} maps to /${canonical}.`, '', replyText].join('\n');
+}
+
 async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
   try {
@@ -1843,9 +1867,9 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
         : Promise.resolve({ used: false, contextText: '', sourceCount: 0, bridgeMode: 'not_requested' }),
     ]);
     const memorySummary = memoryQuery ? formatMemoryInPlaySummary(memoryInPlay) : '';
-    await ctx.reply([result.replyText, memorySummary].filter(Boolean).join('\n\n'));
+    await ctx.reply(withCanonicalAliasNotice(ctx, [result.replyText, memorySummary].filter(Boolean).join('\n\n')));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -1856,12 +1880,16 @@ async function handleAgentBlackBoxCommand(ctx: any): Promise<void> {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const arg = text.replace(/^\/(?:black_box|blackbox|black-box)(?:@\w+)?\s*/i, '').trim();
     if (/^(?:help|usage)$/i.test(arg)) {
-      await ctx.reply([
-        'Agent black box',
-        'Usage: /black_box [request_id]',
+      await ctx.reply(withCanonicalAliasNotice(ctx, [
+        '🧾 Agent black box',
         '',
-        'This shows compact event evidence only. It does not promote memory or grant authority.'
-      ].join('\n'));
+        'Use',
+        '• /black_box [request_id]',
+        '',
+        'What it shows',
+        '• Compact event evidence only.',
+        '• It does not promote memory or grant authority.'
+      ].join('\n')));
       return;
     }
     const requestId = arg.split(/\s+/)[0] || '';
@@ -1872,9 +1900,9 @@ async function handleAgentBlackBoxCommand(ctx: any): Promise<void> {
       requestId,
       limit: 12,
     });
-    await ctx.reply(result.replyText);
+    await ctx.reply(withCanonicalAliasNotice(ctx, result.replyText));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -1937,20 +1965,21 @@ function normalizeAocProbeRoute(raw: string): string {
 
 function renderAocProbeHelp(): string {
   return [
-    'Route probe',
-    'Usage: /probe <route>',
-    'Batch: /probe core or /probe all',
+    '🧪 Route probe',
     '',
-    'Routes:',
-    '- core',
-    '- all',
-    '- builder',
-    '- spawner',
-    '- memory',
-    '- researcher',
-    '- swarm',
-    '- browser',
-    '- local_work',
+    'Use',
+    '• /probe <route>',
+    '• /probe core',
+    '• /probe all',
+    '',
+    'Routes',
+    '• builder',
+    '• spawner',
+    '• memory',
+    '• researcher',
+    '• swarm',
+    '• browser',
+    '• local_work',
   ].join('\n');
 }
 
@@ -1988,7 +2017,7 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const routeArg = text.replace(/^\/(?:probe|route_probe)(?:@\w+)?\s*/i, '').trim();
     if (!routeArg || /^(?:help|routes?|list)$/i.test(routeArg)) {
-      await ctx.reply(renderAocProbeHelp());
+      await ctx.reply(withCanonicalAliasNotice(ctx, renderAocProbeHelp()));
       return;
     }
     const firstArg = routeArg.split(/\s+/)[0]?.trim().toLowerCase().replace(/-/g, '_') || '';
@@ -2002,13 +2031,13 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     }
     const routeKey = normalizeAocProbeRoute(firstArg);
     if (!routeKey) {
-      await ctx.reply(renderAocProbeHelp());
+      await ctx.reply(withCanonicalAliasNotice(ctx, renderAocProbeHelp()));
       return;
     }
     const result = await runBuilderRouteProbe(routeKey);
-    await ctx.reply(result.replyText);
+    await ctx.reply(withCanonicalAliasNotice(ctx, result.replyText));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -2019,12 +2048,16 @@ async function handleNaturalRouteProbeCommand(ctx: any): Promise<void> {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const probeText = text.replace(/^\/(?:nl_route|natural_route)(?:@\w+)?\s*/i, '').trim();
     if (!probeText || /^(?:help|usage)$/i.test(probeText)) {
-      await ctx.reply([
-        'Natural route probe',
-        'Usage: /nl_route <message>',
+      await ctx.reply(withCanonicalAliasNotice(ctx, [
+        '🧭 Natural route probe',
         '',
-        'This shows the diagnostic route decision only. It does not execute the route.'
-      ].join('\n'));
+        'Use',
+        '• /nl_route <message>',
+        '',
+        'What it does',
+        '• Shows the diagnostic route decision only.',
+        '• Does not execute the route.'
+      ].join('\n')));
       return;
     }
     const decision = decideNaturalRoute(probeText, {
@@ -2035,9 +2068,9 @@ async function handleNaturalRouteProbeCommand(ctx: any): Promise<void> {
         pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, probeText)
       )
     });
-    await ctx.reply(renderNaturalRouteDecisionReply(decision));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderNaturalRouteDecisionReply(decision)));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'chat', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'chat', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -2083,9 +2116,9 @@ async function handleTraceRepairCommand(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
   try {
     const summary = await readTraceRepairSummary();
-    await ctx.reply(renderTraceRepairSummary(summary));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderTraceRepairSummary(summary)));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -2094,9 +2127,9 @@ async function handleMemoryMovementCommand(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
   try {
     const summary = await readMemoryMovementSummary();
-    await ctx.reply(renderMemoryMovementSummary(summary));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderMemoryMovementSummary(summary)));
   } catch (err: any) {
-    await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from))));
   }
 }
 
@@ -2122,18 +2155,18 @@ async function handleLocalWorkspaceInventory(ctx: any): Promise<void> {
   if (!requireAdmin(ctx)) return;
   const accessProfile = await getSparkAccessProfile(ctx.chat.id);
   if (!sparkAccessAllows(accessProfile, 'operating_system')) {
-    await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+    await ctx.reply(withCanonicalAliasNotice(ctx, renderSparkAccessDenial(accessProfile, 'operating_system')));
     return;
   }
   await safeSendChatAction(ctx, 'typing');
   try {
     const summary = await summarizeLocalWorkspaces();
     const reply = renderLocalWorkspaceInspectionReply(summary);
-    await ctx.reply(reply);
+    await ctx.reply(withCanonicalAliasNotice(ctx, reply));
     await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    await ctx.reply(`Local workspace inspection failed: ${detail}`);
+    await ctx.reply(withCanonicalAliasNotice(ctx, `Local workspace inspection failed: ${detail}`));
   }
 }
 

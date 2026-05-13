@@ -210,19 +210,39 @@ export function sparkMissionNeedsOperatingSystemAccess(goal: string, projectPath
 export function renderSparkAccessDenial(profile: SparkAccessProfile, requirement: SparkAccessRequirement): string {
   if (requirement === 'operating_system') {
     return [
-      `This operating system request needs ${sparkAccessLabel('developer')} for sandboxed local work, or ${sparkAccessLabel('operator')} for whole-computer work, but this chat is at ${sparkAccessLabel(profile)}.`,
-      'You can say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces, or `/access 5` only when you really want whole-computer operator mode.'
+      '⚠️ Local workspace access is blocked.',
+      '',
+      'Why',
+      `• This operating system request needs ${sparkAccessLabel('developer')} for sandboxed local work, or ${sparkAccessLabel('operator')} for whole-computer work.`,
+      `• This chat is at ${sparkAccessLabel(profile)}.`,
+      '',
+      'Next move',
+      '• Say "change my access level to 4" or send `/access 4` for Spark sandbox workspaces.',
+      '• Use `/access 5` only when you really want whole-computer operator mode.'
     ].join('\n');
   }
   if (requirement === 'external_research') {
     return [
-      `This needs ${sparkAccessLabel('agent')} or higher, but this chat is at ${sparkAccessLabel(profile)}.`,
-      'You can say "change my access level to 3" for public links/docs/GitHub research, or "change my access level to 4" when you also want sandboxed local project access. Level 5 is only for rare whole-computer operator work.'
+      '⚠️ External research is blocked.',
+      '',
+      'Why',
+      `• This needs ${sparkAccessLabel('agent')} or higher.`,
+      `• This chat is at ${sparkAccessLabel(profile)}.`,
+      '',
+      'Next move',
+      '• Say "change my access level to 3" for public links, docs, and GitHub research.',
+      '• Say "change my access level to 4" when you also want sandboxed local project access.'
     ].join('\n');
   }
   return [
-    `This needs ${sparkAccessLabel('builder')} or higher, but this chat is at ${sparkAccessLabel(profile)}.`,
-    'You can say "change my access level to 2" or send `/access 2` when you want Spark to build through Spawner after you ask.'
+    '⚠️ Builder access is blocked.',
+    '',
+    'Why',
+    `• This needs ${sparkAccessLabel('builder')} or higher.`,
+    `• This chat is at ${sparkAccessLabel(profile)}.`,
+    '',
+    'Next move',
+    '• Say "change my access level to 2" or send `/access 2` when you want Spark to build through Spawner after you ask.'
   ].join('\n');
 }
 

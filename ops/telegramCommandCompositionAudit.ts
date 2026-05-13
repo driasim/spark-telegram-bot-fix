@@ -341,7 +341,7 @@ function recommendationFor(command: string, score: number, notes: string[]): str
 
   if (deferred.has(name)) return 'Hide or retire this from Telegram help until the dashboard surface is real.';
   if (setup.has(name)) return 'Prefer /access as the Telegram front door and keep detailed setup in Spark CLI.';
-  if (aliasCommands.has(name)) return 'Keep as compatibility, but stop advertising it as a primary command.';
+  if (aliasCommands.has(name)) return 'Keep as compatibility with the canonical-command banner; do not advertise it as a primary command.';
   if (providerRuns.has(name)) return 'Consider moving provider choice into /model plus /run, leaving this as an expert shortcut.';
   if (notes.some((note) => /raw|internal|path|ENOENT|repo=|home=/.test(note))) {
     return 'Wrap the failure in a human status card with one next action and move raw detail to logs.';
@@ -440,8 +440,13 @@ function scoreResult(input: {
     'black-box'
   ]);
   if (aliasCommands.has(name)) {
-    notes.push('Redundant alias; useful for compatibility, noisy in command help.');
-    score = Math.min(score, 3);
+    if (joined.includes(`/${name} maps to /`)) {
+      notes.push('Compatibility alias clearly points to the canonical command.');
+      score = Math.min(score, 4);
+    } else {
+      notes.push('Redundant alias; useful for compatibility, noisy in command help.');
+      score = Math.min(score, 3);
+    }
   }
 
   const terseUsage = /^Usage:\s*\/\w+/.test(headline) && lineCount <= 3;
@@ -599,10 +604,9 @@ function renderMarkdown(results: AuditResult[]): string {
     '',
     '| Priority | Commands | Improvement |',
     '| --- | --- | --- |',
-    '| P1 | route/AOC aliases | Keep aliases working, but document `/context`, `/probe`, `/nl_route`, `/trace`, and `/memory_movement` as the canonical forms. |',
-    '| P1 | `/workspace`, `/memory_flow`, `/blackbox`, `/black-box`, `/route_probe`, `/natural_route` | Hide aliases from primary help while preserving backward compatibility. |',
+    '| P1 | live success-path replies | Run real Telegram checks for `/chip create`, `/schedule`, `/mission status`, and `/run` with services online to ensure success replies stay concise. |',
+    '| P2 | compatibility aliases | Keep the canonical-command banner and hide aliases from primary help unless usage shows people still need them. |',
     '| P2 | `/docker_smoke`, `/level5_setup` | Confirmation copy is intentionally safety-heavy; next polish could split it into a headline plus Why/Confirm rows. |',
-    '| P2 | success-path live replies | Run real Telegram checks for `/chip create`, `/schedule`, `/mission status`, and `/run` with services online to ensure success replies stay concise. |',
     '| P3 | live Telegram smoke | Re-run this list against a real private chat with Builder, Spawner, Spark CLI, and providers online to score success-path composition. |',
     '',
     '## Scorecard',
