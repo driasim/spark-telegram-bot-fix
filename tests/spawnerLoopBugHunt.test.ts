@@ -344,7 +344,7 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
   assert.match(reply, /The latest canvas is for Proof Orchard\./);
   assert.match(reply, /4 build steps are queued\./);
   assert.match(reply, /Skill tier: base tier/);
-  assert.match(reply, /Tasks\n• Create the app shell - frontend-engineer, ui-design/);
+  assert.match(reply, /Tasks\n• Create the app shell - frontend, UI design/);
   assert.match(reply, /• Write smoke notes/);
   assert.doesNotMatch(reply, /• Write smoke notes - technical-writer/);
   assert.match(reply, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Pro can add 1 skill: docs/);

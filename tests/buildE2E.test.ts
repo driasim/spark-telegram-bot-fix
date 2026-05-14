@@ -19,7 +19,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
-import { getTierForUser } from '../src/userTier';
+import { describeTier, getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
 
 type AsyncTest = () => Promise<void> | void;
@@ -144,6 +144,12 @@ async function run(): Promise<void> {
 		delete process.env.BOT_DEFAULT_TIER;
 		assert.equal(getTierForUser(99999), 'base');
 		restoreEnv();
+	});
+
+	await test('describeTier: base copy matches canonical starter loadout', () => {
+		assert.equal(describeTier('base'), 'base tier (30-skill starter loadout)');
+		assert.doesNotMatch(describeTier('base'), /41/);
+		assert.equal(describeTier('pro'), 'pro tier (full spark-skill-graphs catalog)');
 	});
 
 	await test('build intent posts tier + relay + chatId to /api/prd-bridge/write', async () => {
