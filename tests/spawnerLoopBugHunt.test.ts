@@ -19,6 +19,7 @@ import {
   formatLatestCanvasPlanReply,
   isDomainChipPendingDirection,
   isRouteConfidenceGateUnsupportedError,
+  latestCanvasPlanFromLoadState,
   routeConfidenceGateCompatibilityAllows
 } from '../src/index';
 
@@ -108,7 +109,8 @@ test('bug hunt: no-execution boundaries outrank build and mission words', () => 
     'No need, we can talk here.',
     'Do not run another mission; just tell me what edge cases remain.',
     'Don\'t launch anything yet, but explain how the Spawner loop should recover after restart.',
-    'No build for now, I only want to compare the Mission board and Canvas language.'
+    'No build for now, I only want to compare the Mission board and Canvas language.',
+    'For QA, show the latest canvas plan and skills for the H70 Orbit Proof build. Do not start anything new.'
   ];
 
   prompts.forEach((prompt) => {
@@ -286,6 +288,44 @@ test('bug hunt: pro canvas previews can show pro skills without hiding base skil
   assert.doesNotMatch(reply, /Pro can add/);
 });
 
+test('bug hunt: pro canvas skill summaries show up to ten skills before collapsing', () => {
+  const reply = formatCanvasReadySummary({
+    projectName: 'H70 Orbit Proof',
+    taskCount: 4,
+    elapsed: 20,
+    tier: 'pro',
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p-h70&mission=mission-h70',
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-h70',
+    analysis: {
+      tasks: [
+        {
+          title: 'Create the playable game shell',
+          skills: ['frontend-engineer', 'threejs-3d-graphics', 'game-development', 'game-ui-design', 'responsive-mobile-first']
+        },
+        {
+          title: 'Design the core play and reasoning loop',
+          skills: ['game-design', 'game-design-core', 'puzzle-design', 'procedural-generation', 'level-design']
+        },
+        {
+          title: 'Add scoring, restart, and player feedback',
+          skills: ['state-management', 'game-ui-design', 'player-onboarding', 'accessibility']
+        },
+        {
+          title: 'Verify the playable loop',
+          skills: ['qa-engineering', 'testing-strategies', 'accessibility']
+        }
+      ]
+    }
+  });
+
+  assert.match(
+    reply,
+    /Skills invoked\n• Active: 15 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels, \+5 more/
+  );
+  assert.doesNotMatch(reply, /\+11 more/);
+  assert.doesNotMatch(reply, /frontend, accessibility, testing, game dev, \+8 more/);
+});
+
 test('bug hunt: canvas task details stay available as an explicit follow-up', () => {
   const reply = formatLatestCanvasPlanReply({
     projectName: 'Proof Orchard',
@@ -311,6 +351,39 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(reply, /^Mission:/im);
   assert.doesNotMatch(reply, /Mission board/);
+});
+
+test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
+  const plan = latestCanvasPlanFromLoadState({
+    requestId: 'tg-build-d9318b7927c7-1778771867119',
+    missionId: 'mission-1778771867119',
+    pipelineName: 'H70 Orbit Proof',
+    tier: 'pro',
+    timestamp: '2026-05-14T15:17:52.587Z',
+    nodes: [
+      {
+        skill: {
+          name: 'Create the playable game shell',
+          skillChain: ['frontend-engineer', 'threejs-3d-graphics', 'game-development', 'game-ui-design', 'responsive-mobile-first']
+        }
+      },
+      {
+        skill: {
+          name: 'Design the core play and reasoning loop',
+          skillChain: ['game-design', 'game-design-core', 'puzzle-design', 'procedural-generation', 'level-design']
+        }
+      }
+    ]
+  }, 'http://127.0.0.1:3333');
+
+  assert.ok(plan);
+  const reply = formatLatestCanvasPlanReply(plan);
+  assert.match(reply, /The latest canvas is for H70 Orbit Proof\./);
+  assert.match(reply, /2 build steps are queued\./);
+  assert.match(reply, /• Create the playable game shell - frontend, Three\.js, game dev, game UI, mobile/);
+  assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels/);
+  assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas\?pipeline=prd-tg-build-d9318b7927c7-1778771867119&mission=mission-1778771867119/);
+  assert.doesNotMatch(reply, /I can turn this into/);
 });
 
 test('bug hunt: provider completion does not make failures look shipped', () => {

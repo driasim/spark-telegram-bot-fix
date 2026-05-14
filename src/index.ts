@@ -42,6 +42,7 @@ import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
 import { installConsoleRedaction, redactText } from './redaction';
+import { readJsonFile } from './jsonState';
 import {
   formatCreatorMissionExecutionSummary,
   formatCreatorMissionStatusSummary,
@@ -3539,8 +3540,7 @@ function taskSkillsFromAnalysisTask(task: any): string[] {
 	const raw: unknown[] = Array.isArray(task?.skills) ? task.skills : [];
 	return raw
 		.filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
-		.map((skill) => skill.trim())
-		.slice(0, 4);
+		.map((skill) => skill.trim());
 }
 
 const BASE_SKILL_IDS = new Set([
@@ -3595,6 +3595,7 @@ const COMMON_PRO_SKILL_IDS = new Set([
 	'risk-management-trading',
 	'state-management',
 	'technical-writer',
+	'threejs-3d-graphics',
 	'tokenomics-design'
 ]);
 
@@ -3614,15 +3615,19 @@ function readableSkillLabel(skill: string): string {
 	const normalized = skill.trim().toLowerCase().replace(/[_\s]+/g, '-');
 	const shortLabels: Record<string, string> = {
 		'frontend-engineer': 'frontend',
+		'threejs-3d-graphics': 'Three.js',
 		'game-development': 'game dev',
 		'game-design': 'game design',
 		'game-design-core': 'game loop',
 		'game-ui-design': 'game UI',
+		'puzzle-design': 'puzzle',
 		'responsive-mobile-first': 'mobile',
 		'state-management': 'state',
 		'player-onboarding': 'onboarding',
 		'qa-engineering': 'QA',
 		'testing-strategies': 'testing',
+		'test-architect': 'test design',
+		'tailwind-css': 'Tailwind',
 		'technical-writer': 'docs',
 		'ui-design': 'UI design',
 		'accessibility': 'accessibility',
@@ -3641,17 +3646,20 @@ function formatCanvasSkillSummary(tasks: any[], tier: SkillTier): string | null 
 	if (skills.length === 0) return null;
 	const base = skills.filter((skill) => skillTierForDisplay(skill) === 'base');
 	const pro = skills.filter((skill) => skillTierForDisplay(skill) === 'pro');
-	const activeSkills = tier === 'pro' ? [...base, ...pro] : base;
+	const activeSkills = tier === 'pro'
+		? skills.filter((skill) => skillTierForDisplay(skill) !== 'unknown')
+		: base;
 	const rows: string[] = [];
 	if (activeSkills.length > 0) {
-		const previewLimit = tier === 'pro' ? 4 : 5;
+		const previewLimit = 10;
 		const preview = activeSkills.slice(0, previewLimit).map(readableSkillLabel).join(', ');
 		const hiddenCount = Math.max(0, activeSkills.length - previewLimit);
 		rows.push(`• Active: ${activeSkills.length} ${activeSkills.length === 1 ? 'skill' : 'skills'}: ${preview}${hiddenCount > 0 ? `, +${hiddenCount} more` : ''}`);
 	}
 	if (tier === 'base' && pro.length > 0) {
-		const preview = pro.slice(0, 5).map(readableSkillLabel).join(', ');
-		rows.push(`• Pro can add ${pro.length} ${pro.length === 1 ? 'skill' : 'skills'}: ${preview}${pro.length > 5 ? `, +${pro.length - 5} more` : ''}`);
+		const previewLimit = 10;
+		const preview = pro.slice(0, previewLimit).map(readableSkillLabel).join(', ');
+		rows.push(`• Pro can add ${pro.length} ${pro.length === 1 ? 'skill' : 'skills'}: ${preview}${pro.length > previewLimit ? `, +${pro.length - previewLimit} more` : ''}`);
 	}
 	if (rows.length === 0) return null;
 	return ['Skills invoked', ...rows].join('\n');
@@ -3708,6 +3716,56 @@ function rememberLatestCanvasPlan(chatId: string | number, userId: string | numb
   });
 }
 
+function spawnerUiStatePath(filename: string): string {
+  const sparkHome = process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  return path.join(sparkHome, 'state', 'spawner-ui', filename);
+}
+
+function normalizeCanvasSkillTier(value: unknown): SkillTier {
+  return typeof value === 'string' && value.toLowerCase() === 'pro' ? 'pro' : 'base';
+}
+
+export function latestCanvasPlanFromLoadState(state: any, baseUrl: string): LatestCanvasPlan | null {
+  if (!state || typeof state !== 'object') return null;
+  const projectName = typeof state.pipelineName === 'string' && state.pipelineName.trim()
+    ? state.pipelineName.trim()
+    : null;
+  const requestId = typeof state.requestId === 'string' && state.requestId.trim()
+    ? state.requestId.trim()
+    : null;
+  const missionId = typeof state.missionId === 'string' && state.missionId.trim()
+    ? state.missionId.trim()
+    : null;
+  if (!projectName || !requestId || !missionId) return null;
+  const nodes = Array.isArray(state.nodes) ? state.nodes : [];
+  const tasks = nodes
+    .map((node: any) => {
+      const skill = node?.skill && typeof node.skill === 'object' ? node.skill : null;
+      const title = typeof skill?.name === 'string' ? skill.name.trim() : '';
+      const chain: unknown[] = Array.isArray(skill?.skillChain) ? skill.skillChain : Array.isArray(skill?.tags) ? skill.tags : [];
+      const skills = chain
+        .filter((entry: unknown): entry is string => typeof entry === 'string' && Boolean(entry.trim()))
+        .map((entry: string) => entry.trim());
+      return title ? { title, skills } : null;
+    })
+    .filter((task: LatestCanvasPlanTask | null): task is LatestCanvasPlanTask => Boolean(task))
+    .slice(0, 10);
+  return {
+    projectName,
+    taskCount: nodes.length || tasks.length || null,
+    tasks,
+    tier: normalizeCanvasSkillTier(state.tier),
+    readyCanvasUrl: projectCanvasUrl(baseUrl, requestId, missionId),
+    recordedAt: typeof state.timestamp === 'string' ? state.timestamp : new Date().toISOString()
+  };
+}
+
+async function readLatestCanvasPlanFromSpawnerState(): Promise<LatestCanvasPlan | null> {
+  const publicSpawnerUrl = process.env.SPAWNER_UI_PUBLIC_URL || process.env.SPAWNER_UI_URL || 'http://127.0.0.1:3333';
+  const state = await readJsonFile<any>(spawnerUiStatePath('last-canvas-load.json'));
+  return latestCanvasPlanFromLoadState(state, publicSpawnerUrl);
+}
+
 function isLatestCanvasPlanQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
@@ -3720,7 +3778,7 @@ function isLatestCanvasPlanQuestion(text: string): boolean {
 export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
   const taskLines = plan.tasks.length > 0
     ? plan.tasks.map((task) => {
-        const visibleSkills = taskSkillsForTierDisplay(task.skills, plan.tier);
+        const visibleSkills = taskSkillsForTierDisplay(task.skills, plan.tier).map(readableSkillLabel);
         const skills = visibleSkills.length > 0 ? ` - ${visibleSkills.join(', ')}` : '';
         return `• ${task.title}${skills}`;
       })
@@ -5121,7 +5179,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isLatestCanvasPlanQuestion(text)) {
-    const latestPlan = latestCanvasPlans.get(canvasPlanKey(ctx.chat?.id, ctx.from?.id));
+    const latestPlan = latestCanvasPlans.get(canvasPlanKey(ctx.chat?.id, ctx.from?.id)) ||
+      await readLatestCanvasPlanFromSpawnerState();
     if (latestPlan) {
       const reply = formatLatestCanvasPlanReply(latestPlan);
       await conversation.remember(user, text).catch(() => {});

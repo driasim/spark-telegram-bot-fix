@@ -164,6 +164,17 @@ function isExplicitExternalResearch(normalized: string): boolean {
   );
 }
 
+function isNoExecutionBoundary(normalized: string): boolean {
+  return [
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|ship|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|the\s+mission|the\s+build|the\s+project|it|this|that)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:(?:a|another)\s+)?(?:mission|build|project)\b/,
+    /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
+    /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
 function isMissionPreferenceLike(normalized: string): boolean {
   return (
     /\b(?:mission|missions|spawner|canvas|board|kanban|telegram|notify|notifications?|links?)\b/.test(normalized) &&
@@ -189,6 +200,10 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (normalized.startsWith('/')) {
     return { allow: true, reason: 'slash_command', confidence: 'explicit' };
+  }
+
+  if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
+    return { allow: false, reason: 'no_execution_boundary', confidence: 'blocked' };
   }
 
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {
