@@ -797,8 +797,8 @@ async function run(): Promise<void> {
     const result = await spawner.latestMissionSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /The latest Spawner mission was Telegram Golden Path Probe\. It finished\./);
-    assert.match(result.message, /Codex is attached to it\./);
+    assert.match(result.message, /The latest build was Telegram Golden Path Probe\. It finished, and Codex handled it\./);
+    assert.doesNotMatch(result.message, /attached to it\./);
     assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /spark-done/);
     assert.doesNotMatch(result.message, /^Mission$/m);

@@ -2446,7 +2446,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     const canvasUrl = projectCanvasUrl(publicSpawnerUrl, newRequestId, missionId);
     const kanbanUrl = missionBoardUrl(publicSpawnerUrl);
     await ctx.reply(formatBuildMissionQueuedReply({
-      lead: runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
+      lead: runWithDefaults ? 'Perfect, I will use the default direction.' : 'Got it, I will use that direction.',
       projectName: pending.projectName,
       buildMode: pending.buildMode,
       buildLane,
@@ -2814,7 +2814,7 @@ export function formatCanvasStillRunningSummary(args: {
   kanbanUrl: string;
 }): string {
   return telegramBlocks(
-    `still preparing ${args.projectName}. I will send the canvas when it is ready.`,
+    `still preparing ${args.projectName}. It is taking a little longer than usual, and I will send the canvas when it is ready.`,
     `Board: ${args.kanbanUrl}`
   );
 }
@@ -2824,7 +2824,8 @@ export function formatCanvasShapingHeartbeatSummary(args: {
   elapsedSeconds: number;
 }): string {
   return telegramBlocks(
-    `still shaping ${args.projectName}. I will send the canvas when it is ready.`
+    `still shaping ${args.projectName}.`,
+    'I will keep this quiet until the canvas is ready or something needs attention.'
   );
 }
 
@@ -2844,7 +2845,7 @@ function formatBuildMissionQueuedReply(input: {
       : 'direct build';
   return telegramBlocks(
     input.lead,
-    `🛠️ I am setting up ${input.projectName} as a ${modeText}. I will send the canvas when planning is ready.`,
+    `🛠️ Setting up ${input.projectName} as a ${modeText}. Canvas next.`,
     input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
   );
 }
@@ -3476,19 +3477,16 @@ export function formatCanvasReadySummary(args: {
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
-  const lines = [
+  const rawTaskCount = typeof args.taskCount === 'number' ? args.taskCount : tasks.length;
+  const taskCount = Number.isFinite(rawTaskCount) ? rawTaskCount : 0;
+  const buildStepLine = taskCount > 0
+    ? `I queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'}, and Spark is moving into the build now.`
+    : 'Spark is moving into the build now.';
+  return telegramBlocks(
     `Canvas is ready for ${args.projectName}.`,
-    `${args.taskCount ?? tasks.length} build steps queued.`,
-  ];
-  lines.push(
-    '',
-    'Canvas',
-    `• ${args.readyCanvasUrl}`,
-    '',
-    'Ask for tasks or skills if you want the full plan.',
-    'I will send the final handoff when it is built.'
+    buildStepLine,
+    ['Canvas', `• ${args.readyCanvasUrl}`].join('\n')
   );
-  return lines.join('\n');
 }
 
 function taskTitleFromAnalysisTask(task: any): string | null {
@@ -3999,7 +3997,7 @@ export async function handleBuildIntent(
     });
 
     await ctx.reply(formatBuildMissionQueuedReply({
-      lead: 'Got it. Spark picked up the build.',
+      lead: 'Got it. Spark is on it.',
       projectName,
       buildMode,
       buildLane,
