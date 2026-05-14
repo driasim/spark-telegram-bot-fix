@@ -155,6 +155,13 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       prompt: 'For QA, show the latest canvas plan and skills for the H70 Orbit Proof build. Do not start anything new.',
       allow: false,
       reason: 'no_execution_boundary'
+    },
+    {
+      name: 'no build or mission boundary blocks build route',
+      route: 'spawner.build',
+      prompt: 'No build or mission for now, just help me think through the QA plan.',
+      allow: false,
+      reason: 'no_execution_boundary'
     }
   ];
 
