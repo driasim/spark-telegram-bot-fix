@@ -155,6 +155,44 @@ test('formats structured provider failures without raw JSON noise', () => {
   assert.doesNotMatch(message, /exact_commands/);
 });
 
+test('treats blocked freeform provider completions as mission failures', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-blocked-before-start',
+    requestId: 'tg-build-blocked',
+    verbosity: 'normal',
+    response: [
+      'Blocked before task start.',
+      'I could not load the mandatory H70 skills because http://127.0.0.1:3333 is unreachable.',
+      'Per the mission instructions, I did not create files.',
+      'The filesystem sandbox is read-only.'
+    ].join(' ')
+  });
+
+  assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
+  assert.match(message, /What blocked it/);
+  assert.match(message, /Blocked before task start/);
+  assert.match(message, /project folder could not write|local service connection failed|Skill loading was unavailable/i);
+  assert.doesNotMatch(message, /\b(?:mandatory|required)\s+H70/i);
+  assert.doesNotMatch(message, /filesystem sandbox is read-only/i);
+  assert.doesNotMatch(message, /✨ Spark/);
+  assert.doesNotMatch(message, /shipped|result ready|wrapped this one/i);
+});
+
+test('explains empty provider completions without pretending the build shipped', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-empty-completion',
+    requestId: 'tg-build-empty',
+    verbosity: 'normal',
+    response: 'Completed without a text response.'
+  });
+
+  assert.match(message, /Spark finished, but it did not send useful final notes back\./);
+  assert.match(message, /Open the preview or board if you want to inspect what changed\./);
+  assert.doesNotMatch(message, /✨ Spark|shipped|result ready|wrapped this one/i);
+});
+
 test('warns cleanly when structured provider output is malformed', () => {
   const message = formatProviderCompletionForTelegram({
     providerLabel: 'claude',

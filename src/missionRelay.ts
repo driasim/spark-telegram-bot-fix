@@ -952,6 +952,58 @@ function voiceLine(kind: keyof typeof VOICE_LINES, seed: string, replacements: R
   return line;
 }
 
+function providerCompletionLooksBlocked(text: string): boolean {
+  const normalized = compactWhitespace(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    /\bblocked before task start\b/.test(normalized) ||
+    /\bblocked by (?:the |this |current )?(?:execution )?environment\b/.test(normalized) ||
+    /\bcould not load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bfailed to load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bi did not create (?:any )?files\b/.test(normalized) ||
+    /\bdid not create (?:any )?files\b/.test(normalized) ||
+    /\bworkspace (?:is|was) read-only\b/.test(normalized) ||
+    /\bread-only (?:sandbox|workspace|filesystem)\b/.test(normalized) ||
+    /\bpatch (?:was )?rejected\b/.test(normalized) ||
+    /\boperation not permitted\b/.test(normalized) ||
+    /\bfailed to connect to 127\.0\.0\.1\b/.test(normalized) ||
+    /\bunknown error\b/.test(normalized) ||
+    /\bcould not finish\b/.test(normalized) ||
+    /\b(?:mission|run|step)\s+failed\b/.test(normalized)
+  );
+}
+
+function providerCompletionKind(status: string | null | undefined, text: string): 'completed' | 'failed' {
+  const normalizedStatus = status?.toLowerCase();
+  if (normalizedStatus && ['failed', 'error', 'blocked'].includes(normalizedStatus)) return 'failed';
+  if (providerCompletionLooksBlocked(text)) return 'failed';
+  return 'completed';
+}
+
+function freeformFailureLines(text: string): string[] {
+  const normalized = compactWhitespace(stripMarkdownFileLinks(stripThinkingAndMeta(text))).toLowerCase();
+  const lines: string[] = [];
+  if (/\bblocked before task start\b/.test(normalized)) {
+    lines.push('Blocked before task start.');
+  }
+  if (/\bh70\b|\bskill api\b|\bapi\/h70-skills\b/.test(normalized)) {
+    lines.push('Skill loading was unavailable in the spawned lane.');
+  }
+  if (/\bread-only\b|\boperation not permitted\b|\bpatch (?:was )?rejected\b|\bcannot write\b|\bnot writable\b/.test(normalized)) {
+    lines.push('The spawned runner or project folder could not write.');
+  }
+  if (/\bfailed to connect\b|\bconnection refused\b|\beconnrefused\b/.test(normalized)) {
+    lines.push('A local service connection failed in the spawned lane.');
+  }
+  if (/\bunknown error\b/.test(normalized)) {
+    lines.push('The provider only gave me `unknown error`, so I do not want to guess.');
+  }
+  if (lines.length === 0 && providerCompletionLooksBlocked(text)) {
+    lines.push('The provider reported a blocker before completion.');
+  }
+  return Array.from(new Set(lines)).slice(0, 4);
+}
+
 function compactTelegramBlocks(...blocks: Array<string | null | undefined | false>): string {
   return blocks
     .filter((block): block is string => Boolean(block && block.trim()))
@@ -1344,6 +1396,13 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (!parsed) {
     const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
+    if (!clean || /^completed without a text response\.?$/i.test(clean)) {
+      return [
+        'Spark finished, but it did not send useful final notes back.',
+        '',
+        'Open the preview or board if you want to inspect what changed.'
+      ].join('\n');
+    }
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
     if (looksStructured) {
       return [
@@ -1363,8 +1422,17 @@ export function formatProviderCompletionForTelegram(input: {
     const shipped = extractSectionBullets(input.response, /^What shipped:/i, 4);
     const checks = extractSectionBullets(input.response, /^Verification passed:/i, 4);
     const lead = extractFreeformLeadSummary(input.response);
-    const lines = [voiceLine('completed', `${input.missionId}:${provider}:freeform`)];
-    if (lead) lines.push('', lead);
+    const completionKind = providerCompletionKind(null, clean);
+    const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
+    const failureLines = completionKind === 'failed' ? freeformFailureLines(input.response) : [];
+    if (failureLines.length > 0) {
+      lines.push('', 'What blocked it', ...failureLines.map((line) => `• ${line}`));
+    } else if (lead) {
+      lines.push('', lead);
+    }
+    if (completionKind === 'failed' && !openLink) {
+      lines.push('', 'The board has the raw trace if you want to inspect it.');
+    }
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
     } else {
@@ -1397,6 +1465,7 @@ export function formatProviderCompletionForTelegram(input: {
 
   const status = stringField(parsed, 'status');
   const summary = stringField(parsed, 'summary') || stringField(parsed, 'message');
+  const completionKind = providerCompletionKind(status, [summary, input.response].filter(Boolean).join('\n'));
   const projectPath = input.projectPath || stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
   const openLink = input.openLink !== undefined
     ? (input.openLink ? normalizePreviewLink(input.openLink, projectPath) : null)
@@ -1406,7 +1475,7 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (verbosity === 'minimal') {
     return [
-      voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:minimal`),
+      voiceLine(completionKind, `${input.missionId}:${provider}:minimal`),
       summary ? clipText(summary, 240) : null,
       openLink ? openProjectLines(openLink).join('\n') : null,
       !openLink ? builtProjectLines(projectPath, input.previewPending).join('\n') || null : null,
@@ -1414,7 +1483,7 @@ export function formatProviderCompletionForTelegram(input: {
     ].filter(Boolean).join('\n');
   }
 
-  const lines: string[] = [voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:structured`)];
+  const lines: string[] = [voiceLine(completionKind, `${input.missionId}:${provider}:structured`)];
   if (summary) {
     lines.push('', clipText(summary, verbosity === 'verbose' ? 700 : 420));
   } else if (input.goal) {
