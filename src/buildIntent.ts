@@ -413,6 +413,12 @@ function isBuildRouteMetaDiscussion(text: string): boolean {
     return true;
   }
   if (
+    /\b(?:h70\s+)?skills?\b.*\bmandatory\b/.test(normalized) &&
+    /\b(?:normal\s+)?prompts?\b.*\b(?:operate|work)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
     /\b(?:words?|keywords?|terms?|phrases?)\s+(?:like|such\s+as)\b/.test(normalized) &&
     /\b(?:build|access|sandbox|workspace|docker|route|hijack)\b/.test(normalized)
   ) {
@@ -472,6 +478,20 @@ function isFilesystemOperationProbe(text: string): boolean {
     return true;
   }
   return false;
+}
+
+function isNoExecutionBoundary(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return false;
+  return [
+    /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|ship|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|the\s+mission|the\s+build|the\s+project|it|this|that)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:(?:a|another)\s+)?(?:mission|build|project)\b/,
+    /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
+    /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function isConversationFramingMakeRequest(description: string): boolean {
@@ -557,13 +577,19 @@ function isConversationalStrategyStructureRequest(text: string, prd: string): bo
 }
 
 function isAgentChosenGameBrief(text: string, prd: string): boolean {
-  const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
-  return (
-    /\bgame\b/.test(combined) &&
-    /\b(?:what would you|what would u|what do you|what'd you)\b/.test(combined) &&
-    /\b(?:wanna|want to|would like to)\s+build\b/.test(combined) &&
-    /\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(combined)
-  );
+	const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
+	if (/\bcalled\s+[a-z0-9][a-z0-9 :.'&-]{2,80}/i.test(combined)) return false;
+	const asksAgentToChoose = (
+		/\bgame\b/.test(combined) &&
+		/\b(?:what would you|what would u|what do you|what'd you)\b/.test(combined) &&
+		/\b(?:wanna|want to|would like to)\s+build\b/.test(combined) &&
+		/\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(combined)
+	);
+	const asksForRecursivePlayableGame = (
+		/\b(?:build|make|create)\b.*\bgame\b/.test(combined) &&
+		/\b(?:spark\s+recursive|recursive\s+sage|recursive)\b.*\b(?:want\s+to\s+play|would\s+actually\s+want\s+to\s+play|actually\s+want\s+to\s+play)\b/.test(combined)
+	);
+	return asksAgentToChoose || asksForRecursivePlayableGame;
 }
 
 function normalizeAgentChosenGameBrief(text: string, prd: string): string {
@@ -648,6 +674,8 @@ export function parseBuildIntent(text: string): BuildIntent | null {
   const original = text.trim().replace(/[‘’]/g, "'");
   if (isExactReplyNoFileProbe(original)) return null;
   if (isFilesystemOperationProbe(original)) return null;
+  if (isNoExecutionBoundary(original)) return null;
+  if (isBuildRouteMetaDiscussion(original)) return null;
   const trimmed = normalizeBuildCommandText(original);
   if (!trimmed) return null;
   if (isBuildIdeationRequest(trimmed)) return null;

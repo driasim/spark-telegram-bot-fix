@@ -148,6 +148,13 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       prompt: 'ask claude to review this plan',
       allow: true,
       reason: 'explicit_provider_run'
+    },
+    {
+      name: 'canvas plan lookup is chat, not a new build',
+      route: 'spawner.build',
+      prompt: 'For QA, show the latest canvas plan and skills for the H70 Orbit Proof build. Do not start anything new.',
+      allow: false,
+      reason: 'no_execution_boundary'
     }
   ];
 
