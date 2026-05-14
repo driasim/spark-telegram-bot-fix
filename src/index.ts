@@ -722,7 +722,7 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
   const runnerSummary = renderSparkAccessCapabilityStatus(chatProfile, runnerPreflight);
   const runnerLine = runnerSummary.split('\n').find((line) => /^Runner:/i.test(line)) || 'Runner: not checked yet.';
   try {
-    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const rawStatus = await runSparkCli(['access', 'status', '--json'], 30_000);
     const payload = JSON.parse(rawStatus) as Record<string, unknown>;
     const level5 = objectRecord(payload.level5);
     const stateMachine = objectRecord(payload.state_machine);
@@ -730,6 +730,9 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
     const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
     const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
     const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const stateMachineWholeComputer = stateMachine.can_operate_whole_computer === true ||
+      stateMachine.effective_access_level === 5 ||
+      payload.effective_access_level === 5;
     const chatLevel = sparkAccessLevel(chatProfile);
     return [
       'Spark Access Status',
@@ -741,8 +744,10 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
       '',
       runnerLine,
       '',
-      serviceEnabled && chatProfile === 'operator'
+      serviceEnabled && chatProfile === 'operator' && stateMachineWholeComputer
         ? 'Verdict: whole-computer operator mode is active, with destructive/secret/publish safety checks still on.'
+        : serviceEnabled && chatProfile === 'operator'
+          ? `Verdict: chat is set to Level ${chatLevel} and Level 5 service guardrails are active, but plain CLI effective access is Level ${effective}. Treat whole-computer work as service-lane only until the execution route proves Level 5 for this turn.`
         : serviceEnabled
           ? `Verdict: Level 5 service guardrails are active, but this chat is set to Access level ${chatLevel}. Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.`
         : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
@@ -4776,6 +4781,23 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       });
       await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
     }
+    return;
+  }
+
+  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_status_answer', [
+      {
+        source: 'spark_access_status',
+        role: 'access_truth',
+        freshness: 'fresh',
+        sourceRef: 'spark access status --json',
+        summary: 'Telegram answered access status from the Spark CLI access state and runner writability preflight.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
 

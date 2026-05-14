@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
@@ -1227,6 +1227,75 @@ async function run(): Promise<void> {
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('natural access status uses authoritative CLI state instead of generic help', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-status-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		writeFileSync(
+			path.join(tempRoot, 'spark-access-status.json'),
+			JSON.stringify({
+				access_level: 5,
+				effective_access_level: 4,
+				level5: {
+					activation_state: 'blocked',
+					service_enabled: false
+				},
+				state_machine: {
+					requested_access_level: 5,
+					effective_access_level: 4
+				},
+				workspace_preflight: {
+					writable: true
+				}
+			})
+		);
+		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ -z "$4" ]; then',
+				`  cat "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '\\"')}"`,
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+			ctx.message.text = 'What access level are we on right now? Use fresh access status, and separate chat setting, effective CLI level, and runner writability. Do not change anything.';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /Spark Access Status/);
+			assert.match(reply, /Chat setting: Access level 5/);
+			assert.match(reply, /Requested by CLI: Level 5/);
+			assert.match(reply, /Effective by CLI: Level 4/);
+			assert.match(reply, /Level 5: blocked\/off/);
+			assert.match(reply, /Runner:/);
+			assert.doesNotMatch(reply, /Levels:\n1 - Chat/);
+			assert.doesNotMatch(reply, /Change it with `\/access 1`/);
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
 	});
 
 	await test('expired pending clarification does not steal a new voice request', async () => {
