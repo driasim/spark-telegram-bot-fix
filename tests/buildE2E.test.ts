@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
@@ -46,7 +46,6 @@ const originalEnv = {
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
-	SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH: process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -106,6 +105,7 @@ async function callHandleBuildIntent(opts: {
 	prd: string;
 	projectName: string;
 	buildMode: 'direct' | 'advanced_prd';
+	buildLane?: 'fast_direct' | 'direct' | 'advanced_prd';
 }): Promise<void> {
 	process.env.SPARK_BOT_TEST_MODE = '1';
 	process.env.SPARK_CLARIFICATION_COPY_LLM = '0';
@@ -117,7 +117,7 @@ async function callHandleBuildIntent(opts: {
 	if (typeof indexModule.handleBuildIntent !== 'function') {
 		throw new Error('handleBuildIntent not exported from src/index.ts — export it for E2E testing');
 	}
-	await indexModule.handleBuildIntent(opts.ctx, opts.prd, opts.projectName, null, opts.buildMode, 'test');
+	await indexModule.handleBuildIntent(opts.ctx, opts.prd, opts.projectName, null, opts.buildMode, 'test', undefined, opts.buildLane);
 }
 
 async function run(): Promise<void> {
@@ -152,6 +152,7 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_BOT_TEST_MODE = '1';
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -200,10 +201,12 @@ async function run(): Promise<void> {
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
 		assert.doesNotMatch(replies[0] || '', new RegExp(`Mission: ${missionId}`));
-		assert.match(replies[0] || '', /Spawned work/);
-		assert.match(replies[0] || '', /Paired surfaces/);
+		assert.match(replies[0] || '', /🛠️ Setting up saas-billing-test as a direct build\./);
+		assert.match(replies[0] || '', /Canvas next\./);
+		assert.doesNotMatch(replies[0] || '', /Spawned work/);
+		assert.doesNotMatch(replies[0] || '', /Paired surfaces/);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+		assert.doesNotMatch(replies[0] || '', /Mission board/);
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
 			command: 'run',
@@ -219,6 +222,42 @@ async function run(): Promise<void> {
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, writeCall!.body.requestId);
 		assert.equal(subscription.traceRef, writeCall!.body.traceRef);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('fast build intent tells PRD bridge to skip heavyweight planning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'deterministic-fast-lane', started: false } } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies);
+		await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a one-screen emoji ergonomics smoke page with saved favorites and responsive checks.',
+			projectName: 'One Screen Emoji Ergonomics Smoke Page',
+			buildMode: 'direct',
+			buildLane: 'fast_direct'
+		});
+
+		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
+		assert.ok(writeCall, 'expected POST to /api/prd-bridge/write');
+		assert.equal(writeCall!.body.buildLane, 'fast_direct');
+		assert.equal(writeCall!.body.options.fastLane, true);
+		assert.equal(writeCall!.body.options.includeSkills, false);
+		assert.match(writeCall!.body.content, /Build lane: fast_direct/);
+		assert.match(replies[0] || '', /as a fast build\./);
 
 		restoreAxios();
 		restoreEnv();
@@ -300,13 +339,16 @@ async function run(): Promise<void> {
 			{ allowBuildIntent: true }
 		);
 
-		assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
-		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
-		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-		assert.match(replies.join('\n'), /Spawned work/);
-		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
+			assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
+			assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
+			assert.match(replies.join('\n'), /🛠️ Setting up Cafe Landing Page as a fast build\./);
+			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected build route to include PRD bridge call');
+		assert.equal(writeCall!.body.buildLane, 'fast_direct');
+		assert.equal(writeCall!.body.options.fastLane, true);
 		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
@@ -442,10 +484,10 @@ async function run(): Promise<void> {
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected mixed preference/build prompt to POST to /api/prd-bridge/write');
-		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
-		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
-		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
-		assert.match(replies[0] || '', /• terminal chef clock/);
+			assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
+			assert.equal(writeCall!.body.buildMode, 'advanced_prd');
+			assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
+			assert.match(replies[0] || '', /🛠️ Setting up terminal chef clock as a planning canvas\./);
 
 		restoreAxios();
 		restoreEnv();
@@ -758,11 +800,12 @@ async function run(): Promise<void> {
 		assert.match(writeCall!.body.content, /current Spark-compatible domain chip standards/);
 		assert.match(writeCall!.body.content, /CAPABILITY_PROPOSAL_STANDARD_V1/);
 		assert.equal(writeCall!.body.capabilityProposalPacket.schema_version, 'spark.capability_proposal.v1');
-		assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
-		assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
-		assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
-		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
+			assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
+			assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
+			assert.match(replies[0] || '', /🛠️ Setting up domain-chip-creates-weird-poster-prompts-from as a planning canvas\./);
+			assert.doesNotMatch(replies[0] || '', /Canvas:/);
+			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
 		restoreAxios();
 		restoreEnv();
@@ -812,10 +855,10 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.projectName, 'Founder Signal Room');
 		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
-		assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
-		assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
-		assert.match(replies[0] || '', /• Founder Signal Room/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
+			assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
+			assert.match(replies[0] || '', /🛠️ Setting up Founder Signal Room as a planning canvas\./);
+			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
 		restoreAxios();
 		restoreEnv();
@@ -865,6 +908,54 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 853, replies);
+		ctx.message.text = 'build a domain-chip for Telegram memory routing';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+		assert.match(replies.join('\n'), /Before I start/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'preview should not enqueue before confirmation');
+
+		const qaCtx = makeFakeCtx(8319079055, 8319079055, 854, replies);
+		qaCtx.message.text = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
+		await indexModule.handleTextMessage(qaCtx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'unrelated QA turn must not dispatch pending domain chip');
+		assert.match(replies.join('\n'), /QA pass first, not a mission launch/);
+		assert.match(replies.join('\n'), /I will not start a mission from this wording/);
+		assert.doesNotMatch(replies.join('\n'), /read-only/i);
+		assert.doesNotMatch(replies.join('\n'), /Prepared, but/i);
+		assert.doesNotMatch(replies.join('\n'), /Starting domain-chip-/);
+		assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+
+		const directionCtx = makeFakeCtx(8319079055, 8319079055, 855, replies);
+		directionCtx.message.text = 'names with rationale and usage angle, make the vibe surreal';
+		await indexModule.handleTextMessage(directionCtx);
+
+		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'actual domain-chip direction should still dispatch pending chip');
+		assert.match(replies.join('\n'), /use that direction and start domain-chip-/i);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('canvas ready summary stays readable and includes canvas link', async () => {
 		const indexModule: any = await import('../src/index');
 		const reply = indexModule.formatCanvasReadySummary({
@@ -892,17 +983,56 @@ async function run(): Promise<void> {
 			}
 		});
 
-		assert.match(reply, /Canvas is ready for domain-chip-posters/);
-		assert.match(reply, /2 build steps queued\./);
-		assert.match(reply, /Spawned tasks:/);
-		assert.match(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
-		assert.match(reply, /Validate router behavior/);
-		assert.doesNotMatch(reply, /195s/);
-		assert.doesNotMatch(reply, /Architecture:/);
-		assert.doesNotMatch(reply, /Tests\/checks/);
-		assert.match(reply, /Canvas: http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
-		assert.match(reply, /I will send the final handoff when it is built/);
+			assert.match(reply, /Canvas is ready for domain-chip-posters/);
+			assert.match(reply, /I queued 2 build steps, and Spark is moving into the build now\./);
+			assert.doesNotMatch(reply, /Spawned tasks/);
+			assert.doesNotMatch(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
+			assert.doesNotMatch(reply, /Validate router behavior/);
+			assert.doesNotMatch(reply, /195s/);
+			assert.doesNotMatch(reply, /Architecture:/);
+			assert.doesNotMatch(reply, /Tests\/checks/);
+			assert.match(reply, /Canvas\n• http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+			assert.doesNotMatch(reply, /Mission board/);
+			assert.doesNotMatch(reply, /Ask for tasks or skills if you want the full plan\./);
+			assert.doesNotMatch(reply, /I will send the final handoff when it is built/);
 	});
+
+	await test('canvas still-running summary avoids raw mission id noise', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.formatCanvasStillRunningSummary({
+			projectName: 'Signal Maze',
+			elapsedSeconds: 180,
+			kanbanUrl: 'http://stub-spawner.test/kanban?mission=mission-test'
+		});
+
+		assert.match(reply, /still preparing Signal Maze\./);
+		assert.match(reply, /taking a little longer than usual/);
+		assert.match(reply, /I will send the canvas when it is ready\./);
+		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-test/);
+		assert.doesNotMatch(reply, /Mission board\n•/);
+		assert.doesNotMatch(reply, /🛠️/);
+		assert.doesNotMatch(reply, /It has been shaping/);
+		assert.doesNotMatch(reply, /^Status$/m);
+		assert.doesNotMatch(reply, /^Move$/m);
+		assert.doesNotMatch(reply, /Mission: mission-test/);
+	});
+
+	await test('canvas shaping heartbeat uses composed Telegram sections', async () => {
+		const indexModule: any = await import('../src/index');
+		const reply = indexModule.formatCanvasShapingHeartbeatSummary({
+			projectName: 'Axiom Garden',
+			elapsedSeconds: 120
+		});
+
+			assert.match(reply, /still shaping Axiom Garden\./);
+			assert.match(reply, /still shaping Axiom Garden\.\n\nI will keep this quiet until the canvas is ready or something needs attention\./);
+			assert.doesNotMatch(reply, /🛠️/);
+			assert.doesNotMatch(reply, /Canvas prep has been running/);
+			assert.doesNotMatch(reply, /^Status$/m);
+			assert.doesNotMatch(reply, /^Move$/m);
+			assert.doesNotMatch(reply, /Still working on/);
+			assert.doesNotMatch(reply, /\(120s elapsed\)/);
+		});
 
 	await test('clarification replies are natural and project-specific', async () => {
 		restoreAxios();
@@ -945,10 +1075,12 @@ async function run(): Promise<void> {
 		assert.match(replies[0] || '', /I can turn this into maze game/);
 		assert.match(replies[0] || '', /Recommended starting point: browser-playable/);
 		assert.match(replies[0] || '', /Say "go" to start/);
+		assert.match(replies[0] || '', /maze game\.\n\nRecommended starting point:/);
+		assert.match(replies[0] || '', /local best score\.\n\nSay "go" to start/);
 		assert.match(replies[0] || '', /shifting walls/);
 		assert.doesNotMatch(replies[0] || '', /Brief is too thin/);
 		assert.doesNotMatch(replies[0] || '', /Default direction/);
-		assert.ok((replies[0] || '').split('\n').length <= 3, 'clarification reply should stay short');
+		assert.ok((replies[0] || '').split('\n').length <= 5, 'clarification reply should stay short with paragraph spacing');
 		assert.doesNotMatch(replies[0] || '', /Who is the first user/);
 
 		restoreAxios();
@@ -1000,11 +1132,12 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.missionId, clarifiedMissionId);
 		assert.equal(dispatchCall!.body.traceRef, `trace:spawner-prd:${clarifiedMissionId}`);
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
-		assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
-		assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
-		assert.match(replies.join('\n'), /Spawned work/);
-		assert.doesNotMatch(replies.join('\n'), /Canvas:/);
-		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.match(replies.join('\n'), /Perfect, I will use the default direction/);
+			assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
+			assert.match(replies.join('\n'), /🛠️ Setting up maze game as a planning canvas\./);
+			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+			assert.doesNotMatch(replies.join('\n'), /Canvas:/);
+			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === clarifiedMissionId);
 		assert.ok(subscription, 'clarified PRD build mission should be registered for Telegram relay progress');
@@ -1051,6 +1184,8 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pending-cancel-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -1096,9 +1231,138 @@ async function run(): Promise<void> {
 			dispatchesAfterCancel,
 			'cancel must clear pending execution state so a later go does not wake the build'
 		);
+		assert.match(replies[replies.length - 1] || '', /not seeing an active build or mission waiting/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
 
+		const provenanceCtx = makeFakeCtx(8319079055, 8319079055, 604, replies);
+		provenanceCtx.message.text = 'Did my last go create a Spawner mission? Answer from fresh mission history if you can. Do not start anything.';
+		await indexModule.handleTextMessage(provenanceCtx);
+		assert.equal(
+			captured.filter((c) => c.body?.forceDispatch === true).length,
+			dispatchesAfterCancel,
+			'provenance question about the canceled go must not dispatch anything'
+		);
+		assert.match(replies[replies.length - 1] || '', /No\..*(last `?go`?|specific)|I do not see proof/i);
+		assert.match(replies[replies.length - 1] || '', /no active build or mission waiting|fresh mission id|specific/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /latest no-edit probe was routed through Spawner/i);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission board|Spawned work/i);
+
+		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('specific QA mission provenance question answers in chat without spawning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-route-gate-provenance-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 604, replies);
+		ctx.message.text = 'Did the route-gate QA prompt at 1:37 create a Spawner mission? Answer from fresh mission history if you can: yes or no, with the evidence. Do not start anything.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		assert.equal(captured.length, 0, 'provenance question must not call Spawner or PRD bridge');
+		assert.match(replies[0] || '', /I do not see proof|stayed in chat/i);
+		assert.match(replies[0] || '', /fresh mission id|specific QA prompt|route-gate/i);
+		assert.doesNotMatch(replies[0] || '', /latest no-edit probe was routed through Spawner/i);
+		assert.doesNotMatch(replies[0] || '', /Mission board|Spawned work/i);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('natural access status uses authoritative CLI state instead of generic help', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-status-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		writeFileSync(
+			path.join(tempRoot, 'spark-access-status.json'),
+			JSON.stringify({
+				access_level: 5,
+				effective_access_level: 4,
+				level5: {
+					activation_state: 'blocked',
+					service_enabled: false
+				},
+				state_machine: {
+					requested_access_level: 5,
+					effective_access_level: 4
+				},
+				workspace_preflight: {
+					writable: true
+				}
+			})
+		);
+		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ -z "$4" ]; then',
+				`  cat "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '\\"')}"`,
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		writeFileSync(
+			path.join(binDir, 'spark.cmd'),
+			[
+				'@echo off',
+				'if "%~1"=="access" if "%~2"=="status" if "%~3"=="--json" if "%~4"=="" (',
+				`  type "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '""')}"`,
+				'  exit /b 0',
+				')',
+				'echo unexpected spark command: %* 1>&2',
+				'exit /b 1',
+				''
+			].join('\r\n')
+		);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+			ctx.message.text = 'What access level are we on right now? Use fresh access status, and separate chat setting, effective CLI level, and runner writability. Do not change anything.';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /Spark Access Status/);
+			assert.match(reply, /Chat setting: Access level 5/);
+			assert.match(reply, /Requested by CLI: Level 5/);
+			assert.match(reply, /Effective by CLI: Level 4/);
+			assert.match(reply, /Level 5: blocked\/off/);
+			assert.match(reply, /Runner:/);
+			assert.doesNotMatch(reply, /Levels:\n1 - Chat/);
+			assert.doesNotMatch(reply, /Change it with `\/access 1`/);
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
 	});
 
 	await test('expired pending clarification does not steal a new voice request', async () => {
@@ -1158,97 +1422,10 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
 		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
 		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);
-		assert.match(replies.join('\n'), /• Memory Quality Dashboard/);
-		assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
+			assert.match(replies.join('\n'), /🛠️ Setting up Memory Quality Dashboard as a planning canvas\./);
+			assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
 
 		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('build dispatch route confidence helper enforces act ask explain refuse and failures', async () => {
-		const indexModule: any = await import('../src/index');
-		process.env.SPARK_BOT_TEST_MODE = '0';
-		process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'spark-rc-audit-')), 'audit.jsonl');
-
-		for (const decision of ['act', 'ask', 'explain', 'refuse'] as const) {
-			const replies: string[] = [];
-			const ctx = makeFakeCtx(8319079055, 8319079055, 701, replies);
-			let routeContext: any = null;
-			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
-				ctx,
-				accessRequirement: 'spawner_build',
-				prd: 'Create a local-only static proof page. Do not publish.',
-				requestId: `request-${decision}`,
-				traceRef: `trace-${decision}`,
-				runnerPreflight: null,
-				spawnerAvailableProbe: async () => true,
-				gateRunner: async (input: any) => {
-					routeContext = input.routeContext;
-					return {
-						payload: {
-							decision,
-							safe_reply_policy: decision === 'act' ? 'execute_with_trace' : 'test_policy',
-							human_next_action: 'test next action'
-						},
-						replyText: ''
-					};
-				}
-			});
-
-			assert.equal(allowed, decision === 'act');
-			assert.equal(routeContext.authority_verdict.schema_version, 'spark.authority_verdict.v1');
-			assert.equal(routeContext.authority_verdict.decision, 'allowed');
-			assert.equal(routeContext.capability_state, 'available');
-			assert.equal(routeContext.runner_state, 'available');
-			assert.equal(routeContext.data_boundary.exports_raw_prompt, false);
-			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'raw_prompt'), false);
-			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'chat_id'), false);
-			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'provider_output'), false);
-			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'memory_body'), false);
-			if (decision !== 'act') {
-				assert.match(replies.join('\n'), /test next action/);
-			}
-		}
-
-		for (const label of ['timeout', 'malformed_json'] as const) {
-			const replies: string[] = [];
-			const ctx = makeFakeCtx(8319079055, 8319079055, 702, replies);
-			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
-				ctx,
-				accessRequirement: 'spawner_build',
-				prd: 'Create a local-only static proof page.',
-				requestId: `request-${label}`,
-				traceRef: `trace-${label}`,
-				runnerPreflight: null,
-				spawnerAvailableProbe: async () => true,
-				gateRunner: async () => {
-					throw new Error(label);
-				}
-			});
-			assert.equal(allowed, false);
-			assert.match(replies.join('\n'), /Spark could not reach the Builder memory path|builder/i);
-		}
-
-		const runnerReplies: string[] = [];
-		const runnerCtx = makeFakeCtx(8319079055, 8319079055, 703, runnerReplies);
-		let unavailableContext: any = null;
-		await indexModule.buildDispatchRouteConfidenceAllows({
-			ctx: runnerCtx,
-			accessRequirement: 'operating_system',
-			prd: 'Create a local file.',
-			requestId: 'request-runner-unavailable',
-			traceRef: 'trace-runner-unavailable',
-			runnerPreflight: { runnerWritable: 'no', runnerLabel: 'read-only', checkedAt: '2026-05-12T00:00:00Z' },
-			spawnerAvailableProbe: async () => false,
-			gateRunner: async (input: any) => {
-				unavailableContext = input.routeContext;
-				return { payload: { decision: 'ask', human_next_action: 'inspect runner' }, replyText: '' };
-			}
-		});
-		assert.equal(unavailableContext.capability_state, 'unavailable');
-		assert.equal(unavailableContext.runner_state, 'unavailable');
-		assert.match(runnerReplies.join('\n'), /inspect runner/);
-
 		restoreEnv();
 	});
 

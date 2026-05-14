@@ -7,9 +7,12 @@ export interface BuildIntent {
   projectName: string;
   buildMode: BuildMode;
   buildModeReason: string;
+  buildLane: BuildLane;
+  buildLaneReason: string;
 }
 
 export type BuildMode = 'direct' | 'advanced_prd';
+export type BuildLane = 'fast_direct' | 'direct' | 'advanced_prd';
 
 function defaultWorkspaceRoot(): string {
   if (process.env.SPARK_PROJECT_ROOT?.trim()) return process.env.SPARK_PROJECT_ROOT.trim();
@@ -45,6 +48,15 @@ function isInsideWorkspace(candidate: string): boolean {
 
 function inferConceptualProjectName(prd: string): string | null {
   const lower = prd.toLowerCase();
+  if (
+    /\bgame\b/.test(lower) &&
+    /\b(?:rec|recursive|recursive sage|spark recursive|for you|you'?d wanna play|you would want to play|would actually want to play|actually want to play)\b/.test(lower)
+  ) {
+    if (/\b(?:reasoning|trust|memory|contradiction|confidence|logic)\b/.test(lower)) {
+      return 'Recursive Sage Reasoning Game';
+    }
+    return 'Recursive Sage Maze Game';
+  }
   if (
     /\bspark\b/.test(lower) &&
     /\b(?:bug|bugs|diagnos|anomal|failure|failures|health|logs?|monitor|troubleshoot|issue|issues)\b/.test(lower) &&
@@ -87,9 +99,9 @@ function inferProductPhraseProjectName(prd: string): string | null {
   const normalized = prd.replace(/\s+/g, ' ').trim();
   const productType = '(?:domain[-\\s]*chip|landing\\s+page|dashboard|workbench|agent|tool|app|game|system|tracker|planner|timer|clock|site|website|page)';
   const patterns = [
-    new RegExp(`^(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:a|an|the|new)?\\s*([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
+    new RegExp(`^(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
+    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
   ];
   const genericLeadingWords = new Set([
     'a',
@@ -110,6 +122,7 @@ function inferProductPhraseProjectName(prd: string): string | null {
     'playful',
     'passive',
     'narrow',
+    'another',
     'vanilla',
     'browser',
     'based'
@@ -137,6 +150,24 @@ function inferProductPhraseProjectName(prd: string): string | null {
   return null;
 }
 
+function inferForAudienceProductName(prd: string): string | null {
+  const normalized = prd.replace(/\s+/g, ' ').trim();
+  const match = normalized.match(
+    /^(?:a\s+|an\s+|the\s+)?(platform|system|dashboard|tool|app)\s+for\s+(?:managing\s+|tracking\s+|organizing\s+|running\s+)?([A-Za-z][A-Za-z0-9 -]{2,40}?)(?=\s+(?:with|that|which|where|using|and)\b|[.,:;?!]|$)/i
+  );
+  if (!match) return null;
+
+  const product = match[1].toLowerCase();
+  let audience = match[2]
+    .replace(/\b(?:users?|people|teams?|things?|stuff)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!audience) return null;
+  if (/^agents?$/i.test(audience)) audience = 'Agent';
+  else audience = titleCaseProjectName(audience.replace(/s$/i, ''));
+  return titleCaseProjectName(`${audience} ${product}`);
+}
+
 function inferQuotedHeadingProjectName(prd: string): string | null {
   const headingMatch = prd.match(
     /\b(?:big\s+|large\s+|hero\s+)?(?:heading|headline|title|h1)\b(?:\s+(?:that\s+)?(?:says|reads|called|named))?\s*[:\-]?\s*["']([^"']{3,80})["']/i
@@ -149,8 +180,8 @@ function inferQuotedHeadingProjectName(prd: string): string | null {
 }
 
 function inferProjectName(prd: string, projectPath: string | null): string {
-  const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s-]{2,60}?)(?=[.,:;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
-  if (nameMatch) return nameMatch[1].trim();
+  const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s:.-]{2,80}?)(?=[.,;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
+  if (nameMatch) return nameMatch[1].trim().replace(/\s*[:;,-]\s*$/, '');
   const shippedProjectMatch = prd.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i);
   if (shippedProjectMatch) return shippedProjectMatch[1].trim();
   const quotedProjectMatch = prd.match(/\b(?:project|app|site|dashboard|tool)\s+["']([^"']{3,80})["']/i);
@@ -165,6 +196,8 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   if (quotedHeadingName) return quotedHeadingName;
   const conceptualName = inferConceptualProjectName(prd);
   if (conceptualName) return conceptualName;
+  const audienceProductName = inferForAudienceProductName(prd);
+  if (audienceProductName) return audienceProductName;
   const productPhraseName = inferProductPhraseProjectName(prd);
   if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');
@@ -272,6 +305,46 @@ function inferBuildMode(text: string, prd: string, projectPath: string | null): 
   };
 }
 
+function inferBuildLane(
+  text: string,
+  prd: string,
+  projectPath: string | null,
+  buildMode: BuildMode
+): { lane: BuildLane; reason: string } {
+  const lower = `${text}\n${prd}`.toLowerCase();
+  if (buildMode === 'advanced_prd') {
+    return {
+      lane: 'advanced_prd',
+      reason: 'Advanced PRD lane selected because the request benefits from task planning before execution.'
+    };
+  }
+
+  const explicitFast = /\b(?:fast\s+lane|fast\s+build|quick\s+build|quickly|finish\s+fast|tiny|small|one[-\s]*screen|single[-\s]*screen|smoke\s+(?:page|test|check|app)|one[-\s]*file|single[-\s]*file)\b/.test(lower);
+  const staticSurface = /\b(?:static|vanilla[-\s]*js|html|css|javascript|no\s+build\s+step|page|landing\s+page)\b/.test(lower);
+  const heavyScope = /\b(?:advanced\s+prd|prd|platform|system|mission\s+control|kanban|canvas|auth|oauth|login|database|backend|api|integration|multi[-\s]*tenant|payments?|stripe|deploy|production|real[-\s]*time|websocket|mobile\s+app|desktop\s+app)\b/.test(lower);
+  const featureWords = (lower.match(/\b(?:filters?|charts?|dashboard|analytics|localstorage|persistence|editor|roles?|workflow|alerts?|calendar|export|import|collaboration|admin)\b/g) || []).length;
+  const requestedFiles = (lower.match(/\b[\w.-]+\.(?:html|css|js|ts|tsx|jsx|json|md|py|svelte|vue|go|rs)\b/g) || []).length;
+
+  if (!heavyScope && (isConstrainedStaticSingleFileBuild(text) || (explicitFast && (staticSurface || featureWords <= 3) && requestedFiles <= 4))) {
+    return {
+      lane: 'fast_direct',
+      reason: 'Tiny or smoke-test build; use lightweight planning and avoid the full PRD canvas pass.'
+    };
+  }
+
+  if (projectPath && requestedFiles >= 4 && featureWords >= 4) {
+    return {
+      lane: 'direct',
+      reason: 'Direct build lane selected: concrete files and enough feature scope for the normal canvas handoff.'
+    };
+  }
+
+  return {
+    lane: 'direct',
+    reason: 'Direct build lane selected: small explicit build with normal planning depth.'
+  };
+}
+
 function isConstrainedStaticSingleFileBuild(text: string): boolean {
   const lower = text.toLowerCase();
   const namesIndex = /\bindex\.html\b/.test(lower);
@@ -329,6 +402,13 @@ function isBuildRouteMetaDiscussion(text: string): boolean {
   if (
     /\b(?:what|which|how|why|is|are|do|does|can|could|should|would)\b.*\b(?:build|building)\b.*\b(?:updates?|upgrades?|self[-\s]*updates?|ledger|systems?|spark|capabilit(?:y|ies)|improvements?)\b/.test(normalized) &&
     !/\b(?:build|create|make|ship|scaffold|generate|develop)\s+(?:a|an|the|new|this)\s+[^?.!]{0,80}\b(?:app|dashboard|tool|site|website|page|game|system|tracker|planner|timer|clock)\b/.test(normalized)
+  ) {
+    return true;
+  }
+  if (
+    /^(?:what|which|how|why|is|are|do|does|can|could|should|would)\b/.test(normalized) &&
+    /\b(?:test|tests|testing|edge\s+cases?|qa|bug(?:s)?|improve|improving|better)\b/.test(normalized) &&
+    /\b(?:spawner|mission\s+control|mission\s+loop|route|workflow|telegram|relay)\b/.test(normalized)
   ) {
     return true;
   }
@@ -476,6 +556,34 @@ function isConversationalStrategyStructureRequest(text: string, prd: string): bo
   return strategyDomain && speculative && abstractStructure && !concreteArtifact;
 }
 
+function isAgentChosenGameBrief(text: string, prd: string): boolean {
+  const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\bgame\b/.test(combined) &&
+    /\b(?:what would you|what would u|what do you|what'd you)\b/.test(combined) &&
+    /\b(?:wanna|want to|would like to)\s+build\b/.test(combined) &&
+    /\b(?:rec|recursive sage|for you|you'?d wanna play|you would want to play)\b/.test(combined)
+  );
+}
+
+function normalizeAgentChosenGameBrief(text: string, prd: string): string {
+  if (!isAgentChosenGameBrief(text, prd)) return prd;
+  const combined = `${text}\n${prd}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  const wantsReasoningGame = /\b(?:reasoning|trust|memory|contradiction|confidence|logic|verify|verification|claims?|self[-\s]*test)\b/.test(combined);
+  if (wantsReasoningGame) {
+    return [
+      'Build a browser-playable reasoning game chosen for Recursive Sage.',
+      'Default direction: make it test reasoning, memory drift, contradiction handling, trust calibration, and action confidence through clear choices such as trust, verify, quarantine, or revise.',
+      'Include scoring, short explanations after each choice, replayable rounds, a visible win or mastery state, restart, and a polished responsive first screen that works without external services.'
+    ].join(' ');
+  }
+  return [
+    'Build a browser-playable game chosen for Recursive Sage.',
+    'Default direction: make it a shifting maze game with keyboard controls, changing walls, a visible exit, restart, score or timer pressure, and a clear win state.',
+    'Make the first screen immediately playable, polished, responsive, and easy to verify without external services.'
+  ].join(' ');
+}
+
 function isAbstractPlanningStructureRequest(prd: string): boolean {
   const normalizedPrd = prd.toLowerCase().replace(/\s+/g, ' ').trim();
   const startsAbstract =
@@ -556,18 +664,21 @@ export function parseBuildIntent(text: string): BuildIntent | null {
   if (stripped.length < 3) return null;
 
   const projectPath = extractPath(original);
-  const prd = removeLeadingPathPrefix(stripped.trim());
+  const prd = normalizeAgentChosenGameBrief(original, removeLeadingPathPrefix(stripped.trim()));
   if (isAbstractPlanningStructureRequest(prd)) return null;
   if (isConversationalStrategyStructureRequest(trimmed, prd)) return null;
   if (isAmbiguousContextualBuildRequest(trimmed, projectPath, prd)) return null;
   const projectName = inferProjectName(prd, projectPath);
   const buildMode = inferBuildMode(original, prd, projectPath);
+  const buildLane = inferBuildLane(original, prd, projectPath, buildMode.mode);
 
   return {
     projectPath,
     prd,
     projectName,
     buildMode: buildMode.mode,
-    buildModeReason: buildMode.reason
+    buildModeReason: buildMode.reason,
+    buildLane: buildLane.lane,
+    buildLaneReason: buildLane.reason
   };
 }

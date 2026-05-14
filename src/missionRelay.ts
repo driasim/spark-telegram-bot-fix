@@ -496,6 +496,24 @@ function missionReferenceLines(missionId: string, links: string[]): string[] {
   return missionIdIsLinked(missionId, links) ? links : [`Mission: ${missionId}`, ...links];
 }
 
+export function formatMissionRelayStateMessageForTelegram(input: {
+  state: 'cancelled' | 'paused' | 'resumed';
+  missionId: string;
+  links?: string[];
+}): string {
+  const links = input.links || [];
+  const movement = input.state === 'cancelled'
+    ? ['Run cancelled.', 'I will keep any late handoff messages quiet for this one.']
+    : input.state === 'paused'
+      ? ['Run paused.', 'I will hold Telegram handoffs until it resumes.']
+      : ['Run resumed.', 'Telegram handoffs are back on.'];
+  return compactTelegramBlocks(
+    movement[0],
+    movement[1],
+    links.length > 0 ? links.join('\n') : null
+  );
+}
+
 function requestIdFromEvent(event: DeliverableRelayEvent): string | null {
   const data = asRecord(event.data);
   const value = data?.requestId;
@@ -794,10 +812,10 @@ function clipText(text: string, maxLength: number): string {
 
 const VOICE_LINES = {
   missionStarted: [
-    'Spark is on it.',
-    'The run is moving.',
-    'Spark picked it up.',
-    'We are underway.'
+    '🛠️ Spark is on it.',
+    '🛠️ The run is moving.',
+    '🛠️ Spark picked it up.',
+    '🛠️ We are underway.'
   ],
   taskStarted: [
     'Step {n} started',
@@ -812,15 +830,15 @@ const VOICE_LINES = {
     'Finished step {n}'
   ],
   progress: [
-    'Spark has a real update.',
-    'The build has new signal.',
-    'A concrete change landed.',
-    'The run moved forward.'
+    '🛠️ Spark has a real update.',
+    '🛠️ The build has new signal.',
+    '🛠️ A concrete change landed.',
+    '🛠️ The run moved forward.'
   ],
   heartbeat: [
-    'Still working.',
-    'Still with it.',
-    'The run is still active.',
+    'still working.',
+    'still with it.',
+    'the run is still active.',
     'Spark is still on this.'
   ],
   completed: [
@@ -830,10 +848,10 @@ const VOICE_LINES = {
     '✨ Spark wrapped this one.'
   ],
   failed: [
-    'This run needs attention.',
-    'Something blocked the mission.',
-    'The build hit a problem.',
-    'Spark could not finish this run.'
+    '⚠️ This run needs attention.',
+    '⚠️ Something blocked the mission.',
+    '⚠️ The build hit a problem.',
+    '⚠️ Spark could not finish this run.'
   ]
 } as const;
 
@@ -853,6 +871,58 @@ function voiceLine(kind: keyof typeof VOICE_LINES, seed: string, replacements: R
     line = line.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
   }
   return line;
+}
+
+function providerCompletionLooksBlocked(text: string): boolean {
+  const normalized = compactWhitespace(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    /\bblocked before task start\b/.test(normalized) ||
+    /\bblocked by (?:the |this |current )?(?:execution )?environment\b/.test(normalized) ||
+    /\bcould not load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bfailed to load (?:the )?mandatory h70 skills\b/.test(normalized) ||
+    /\bi did not create (?:any )?files\b/.test(normalized) ||
+    /\bdid not create (?:any )?files\b/.test(normalized) ||
+    /\bworkspace (?:is|was) read-only\b/.test(normalized) ||
+    /\bread-only (?:sandbox|workspace|filesystem)\b/.test(normalized) ||
+    /\bpatch (?:was )?rejected\b/.test(normalized) ||
+    /\boperation not permitted\b/.test(normalized) ||
+    /\bfailed to connect to 127\.0\.0\.1\b/.test(normalized) ||
+    /\bunknown error\b/.test(normalized) ||
+    /\bcould not finish\b/.test(normalized) ||
+    /\b(?:mission|run|step)\s+failed\b/.test(normalized)
+  );
+}
+
+function providerCompletionKind(status: string | null | undefined, text: string): 'completed' | 'failed' {
+  const normalizedStatus = status?.toLowerCase();
+  if (normalizedStatus && ['failed', 'error', 'blocked'].includes(normalizedStatus)) return 'failed';
+  if (providerCompletionLooksBlocked(text)) return 'failed';
+  return 'completed';
+}
+
+function freeformFailureLines(text: string): string[] {
+  const normalized = compactWhitespace(stripMarkdownFileLinks(stripThinkingAndMeta(text))).toLowerCase();
+  const lines: string[] = [];
+  if (/\bblocked before task start\b/.test(normalized)) {
+    lines.push('Blocked before task start.');
+  }
+  if (/\bh70\b|\bskill api\b|\bapi\/h70-skills\b/.test(normalized)) {
+    lines.push('Skill API was unavailable in the spawned lane.');
+  }
+  if (/\bread-only\b|\boperation not permitted\b|\bpatch (?:was )?rejected\b|\bcannot write\b|\bnot writable\b/.test(normalized)) {
+    lines.push('The spawned runner or workspace could not write.');
+  }
+  if (/\bfailed to connect\b|\bconnection refused\b|\beconnrefused\b/.test(normalized)) {
+    lines.push('A local service connection failed in the spawned lane.');
+  }
+  if (/\bunknown error\b/.test(normalized)) {
+    lines.push('The provider returned only unknown error.');
+  }
+  if (lines.length === 0 && providerCompletionLooksBlocked(text)) {
+    lines.push('The provider reported a blocker before completion.');
+  }
+  return Array.from(new Set(lines)).slice(0, 4);
 }
 
 function compactTelegramBlocks(...blocks: Array<string | null | undefined | false>): string {
@@ -1157,6 +1227,20 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (!parsed) {
     const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
+    if (!clean) {
+      return [
+        '⚪ Spark finished, but no final notes came back.',
+        '',
+        'Open the project preview or Mission board if you want to inspect the result.'
+      ].join('\n');
+    }
+    if (/^completed without a text response\.?$/i.test(clean)) {
+      return [
+        '⚪ Spark finished, but no final notes came back.',
+        '',
+        'Open the project preview or Mission board if you want to inspect the result.'
+      ].join('\n');
+    }
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
     if (looksStructured) {
       return [
@@ -1165,8 +1249,7 @@ export function formatProviderCompletionForTelegram(input: {
         'Review',
         `• ${provider} returned structured output I could not summarize cleanly.`,
         '',
-        'Move',
-        '• Open the canvas or Mission board for the full raw record.'
+        'Open the canvas or Mission board for the full raw record.'
       ].join('\n');
     }
     const projectPath = extractProjectPathFromText(input.response);
@@ -1176,12 +1259,21 @@ export function formatProviderCompletionForTelegram(input: {
     const shipped = extractSectionBullets(input.response, /^What shipped:/i, 4);
     const checks = extractSectionBullets(input.response, /^Verification passed:/i, 4);
     const lead = extractFreeformLeadSummary(input.response);
-    const lines = [voiceLine('completed', `${input.missionId}:${provider}:freeform`)];
-    if (lead) lines.push('', lead);
+    const completionKind = providerCompletionKind(null, clean);
+    const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
+    const failureLines = completionKind === 'failed' ? freeformFailureLines(input.response) : [];
+    if (failureLines.length > 0) {
+      lines.push('', 'What blocked it', ...failureLines.map((line) => `• ${line}`));
+    } else if (lead) {
+      lines.push('', lead);
+    }
+    if (completionKind === 'failed' && !openLink) {
+      lines.push('', 'The Mission board has the full trace if you want to inspect it.');
+    }
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
     } else if (projectPath && input.previewPending) {
-      lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+      lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
     }
     if (shipped.length > 0) {
       lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
@@ -1194,21 +1286,17 @@ export function formatProviderCompletionForTelegram(input: {
       }
     }
     if (openLink) lines.push('', nextPolishLine());
-    if (verbosity === 'verbose') {
-      lines.push('', `Mission: ${input.missionId}`);
-    }
     if (lines.length > 1) return lines.join('\n');
     return [
       `${provider} says:`,
       '',
-      clean,
-      '',
-      `Mission: ${input.missionId}`
+      clean
     ].join('\n').trim();
   }
 
   const status = stringField(parsed, 'status');
   const summary = stringField(parsed, 'summary') || stringField(parsed, 'message');
+  const completionKind = providerCompletionKind(status, [summary, input.response].filter(Boolean).join('\n'));
   const projectPath = stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
   const openLink = input.openLink !== undefined
     ? (input.openLink ? normalizePreviewLink(input.openLink, projectPath) : null)
@@ -1218,14 +1306,13 @@ export function formatProviderCompletionForTelegram(input: {
 
   if (verbosity === 'minimal') {
     return [
-      voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:minimal`),
+      voiceLine(completionKind, `${input.missionId}:${provider}:minimal`),
       summary ? clipText(summary, 240) : null,
-      openLink ? openProjectLines(openLink).join('\n') : null,
-      `Mission: ${input.missionId}`
+      openLink ? openProjectLines(openLink).join('\n') : null
     ].filter(Boolean).join('\n');
   }
 
-  const lines: string[] = [voiceLine(status && ['failed', 'error', 'blocked'].includes(status.toLowerCase()) ? 'failed' : 'completed', `${input.missionId}:${provider}:structured`)];
+  const lines: string[] = [voiceLine(completionKind, `${input.missionId}:${provider}:structured`)];
   if (summary) {
     lines.push('', clipText(summary, verbosity === 'verbose' ? 700 : 420));
   } else if (input.goal) {
@@ -1235,7 +1322,7 @@ export function formatProviderCompletionForTelegram(input: {
   if (openLink) {
     lines.push('', ...openProjectLines(openLink));
   } else if (projectPath && input.previewPending) {
-    lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+    lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
   }
 
   if (verification.length > 0) {
@@ -1250,16 +1337,10 @@ export function formatProviderCompletionForTelegram(input: {
     lines.push(...nextActions.slice(0, 4).map((item) => `• ${clipText(item, 180)}`));
   }
 
-  if (openLink && (!status || !['failed', 'error', 'blocked'].includes(status.toLowerCase()))) {
+  if (openLink && completionKind === 'completed') {
     lines.push('', nextPolishLine());
   }
 
-  if (verbosity === 'verbose') {
-    lines.push('', `Mission: ${input.missionId}`);
-  }
-  if (verbosity === 'verbose' && input.requestId) {
-    lines.push(`Request: ${input.requestId}`);
-  }
   return lines.join('\n');
 }
 
@@ -1335,18 +1416,9 @@ export function formatProgressMessageForTelegram(
     case 'mission_started':
       return compactTelegramBlocks(
         voiceLine('missionStarted', `${event.missionId}:started`),
-        [
-          'Spawned work',
-          '• Mission board',
-          '• Canvas planner',
-          '• Telegram relay updates'
-        ].join('\n'),
-        [
-          'Paired surfaces',
-          '• Builder planning',
-          '• Spawner / Mission Control'
-        ].join('\n'),
-        verbosity === 'normal' ? 'I will only ping when something useful changes.' : null,
+        verbosity === 'normal'
+          ? 'I will keep the noise low and only ping when something useful changes.'
+          : 'Builder and Spawner are attached behind the scenes.',
         missionReferenceLines(event.missionId, links).join('\n')
       );
     case 'dispatch_started':
@@ -1363,7 +1435,7 @@ export function formatProgressMessageForTelegram(
       if (!useful) return null;
       return compactTelegramBlocks(
         voiceLine('progress', `${event.missionId}:${event.taskId || taskLabel}:${useful}`),
-        `Focus: ${cleanTaskLabel(taskLabel)}`,
+        `Current focus: ${cleanTaskLabel(taskLabel)}`,
         useful
       );
     case 'mission_completed':
@@ -1568,12 +1640,16 @@ export function formatMissionHeartbeatForTelegram(input: {
 
   const lines: string[] = [];
   if (summary) {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', 'New signal:', summary);
+    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', `New signal: ${summary}`);
   } else {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`), '', 'No new checkpoint yet.');
+    lines.push(
+      voiceLine('heartbeat', `${input.missionId}:${taskLabel}`),
+      '',
+      'Nothing new worth interrupting you with yet.'
+    );
   }
 
-  lines.push('', 'Focus', `• ${taskLabel}`);
+  lines.push('', `Current focus: ${taskLabel}`);
 
   if (input.verbosity === 'verbose') {
     if (status && !['running', 'created'].includes(status.toLowerCase())) {
@@ -1583,9 +1659,6 @@ export function formatMissionHeartbeatForTelegram(input: {
     lines.push('', 'I will nudge you again when there is new signal.');
   }
 
-  if (input.verbosity === 'verbose') {
-    lines.push(`Mission: ${input.missionId}`);
-  }
   return lines.join('\n');
 }
 
@@ -1810,8 +1883,7 @@ function formatMissionLessonApprovalPrompt(approval: MissionLessonApproval): str
       ...approval.candidates.map((candidate, index) => `• ${index + 1}: ${candidate}`)
     ].join('\n'),
     [
-      'Move',
-      '• Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.'
+      'Reply with `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.'
     ].join('\n')
   );
 }
@@ -2046,14 +2118,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const alreadySuppressed = shouldSuppressMissionHandoff(event.missionId);
         markMissionRelayCancelled(event.missionId);
         if (!alreadySuppressed) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission cancelled.',
-              '',
-              `Mission: ${event.missionId}`,
-              'I will suppress any late handoff messages for this run.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'cancelled', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_cancelled')
           );
         }
@@ -2065,14 +2133,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const alreadyPaused = isMissionRelayPaused(event.missionId);
         markMissionRelayPaused(event.missionId);
         if (!alreadyPaused) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission paused.',
-              '',
-              `Mission: ${event.missionId}`,
-              'I will hold Telegram auto-handoffs until it resumes.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'paused', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_paused')
           );
         }
@@ -2084,14 +2148,10 @@ export async function startMissionRelay(bot: Telegraf): Promise<{ port: number }
         const wasPaused = isMissionRelayPaused(event.missionId);
         markMissionRelayResumed(event.missionId);
         if (wasPaused) {
+          const links = buildMissionSurfaceLinks(event.missionId, linkPreference, undefined, requestIdFromEvent(event));
           await bot.telegram.sendMessage(
             chatId,
-            [
-              'Mission resumed.',
-              '',
-              `Mission: ${event.missionId}`,
-              'Telegram handoffs are enabled again.'
-            ].join('\n'),
+            formatMissionRelayStateMessageForTelegram({ state: 'resumed', missionId: event.missionId, links }),
             missionRelayTraceExtra(subscription, event, 'mission_resumed')
           );
         }

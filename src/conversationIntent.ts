@@ -1066,7 +1066,7 @@ export function buildLocalSparkServiceReply(spawnerAvailable: boolean): string {
   ].join('\n');
 }
 
-export type SpawnerBoardNaturalIntent = 'board' | 'latest_on_kanban' | 'latest_provider' | 'latest_project_preview';
+export type SpawnerBoardNaturalIntent = 'board' | 'latest_on_kanban' | 'latest_provider' | 'latest_mission' | 'latest_project_preview' | 'latest_failure';
 
 export function parseSpawnerBoardNaturalIntent(text: string): SpawnerBoardNaturalIntent | null {
   const normalized = text.trim().toLowerCase();
@@ -1080,11 +1080,27 @@ export function parseSpawnerBoardNaturalIntent(text: string): SpawnerBoardNatura
   }
 
   if (
+    /^(?:what happened|what went wrong|why did it fail|why failed)$/i.test(normalized) ||
+    /\bwhy\b.*\b(?:latest|last|recent|newest)?\s*(?:spawner|mission|job|run|build)\b.*\bfail(?:ed|ure)?\b/.test(normalized) ||
+    /\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run|build)\b.*\bfail(?:ed|ure)?\b/.test(normalized)
+  ) {
+    return 'latest_failure';
+  }
+
+  if (
     /\b(?:which|what)\s+(?:llm|model|provider|agent)\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b/.test(normalized) ||
     /\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b.*\b(?:which|what)\s+(?:llm|model|provider|agent)\b/.test(normalized) ||
     /\b(?:who|what)\s+(?:took|handled|ran|accepted)\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b/.test(normalized)
   ) {
     return 'latest_provider';
+  }
+
+  if (
+    /\b(?:what|which)\s+(?:was|is)\s+(?:the\s+)?(?:latest|last|recent|newest)\s+(?:spawner\s+)?(?:mission|job|run)\b/.test(normalized) ||
+    /\b(?:what|which)\s+(?:mission|job|run)\s+(?:was|is)\s+(?:that|it|this|the\s+latest|the\s+last)\b/.test(normalized) ||
+    /\bwhat\s+was\s+the\s+mission\b/.test(normalized)
+  ) {
+    return 'latest_mission';
   }
 
   if (
@@ -1131,6 +1147,35 @@ function isPersistentMemoryQualityEvaluationRequest(normalized: string): boolean
     /\b(?:persistent\s+memory\s+quality|memory\s+quality|natural\s+recall|stale\s+context|current-state\s+priority|current\s+state\s+priority)\b/.test(normalized) &&
     /\b(?:evaluation\s+plan|test\s+natural\s+recall|evaluate|memory\s+sources?|source\s+explanation)\b/.test(normalized)
   );
+}
+
+export function isSparkWorkflowBugHuntRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  const qaLanguage = /\b(?:unit\s+tests?|qa|bug\s+hunt(?:er|ing)?|edge\s+cases?|regressions?|smoke\s+tests?|test\s+suite|comprehensive\s+tests?|trigger\s+bugs?|bug\s+hunter)\b/.test(normalized);
+  const sparkSurface = /\b(?:spawner|mission\s+control|mission\s+loop|telegram|relay|workflow|canvas|kanban|builder|route|routing)\b/.test(normalized);
+  return qaLanguage && sparkSurface;
+}
+
+export function renderSparkWorkflowBugHuntReply(_text: string): string {
+  return [
+    'Yes. I would treat this as a QA pass first, not a mission launch.',
+    '',
+    'Coverage',
+    '• route hijacks and no-execution boundaries',
+    '• duplicate “go” and pending-state leaks',
+    '• no-edit Spawner probes',
+    '• latest Kanban/provider truth',
+    '• Spawner-down cases with no fake mission id',
+    '• completion dedupe and Telegram composition clutter',
+    '',
+    'Move',
+    '• Add failing regressions, hotfix the boundary, run focused tests, then prove it live in Telegram.',
+    '',
+    'I will not start a mission from this wording.'
+  ].join('\n');
 }
 
 export function isDiagnosticsScanRequest(text: string): boolean {

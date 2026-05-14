@@ -583,6 +583,7 @@ export function buildClarificationMicrocopyPrompt(input: BuildClarificationMicro
     '- Keep recommendation under 18 words.',
     '- Keep steeringQuestion under 18 words.',
     '- Make the default concrete and project-specific.',
+    '- Preserve the project core: if the brief asks for reasoning, trust, memory, or verification, do not replace it with a generic maze or dashboard.',
     '- Do not mention accounts/login unless the project needs it.',
     '- Do not tell the user to say go. The wrapper handles that.',
     '- No emoji. No lists. No filler.',

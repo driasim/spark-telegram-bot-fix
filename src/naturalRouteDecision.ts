@@ -174,7 +174,9 @@ function buildIntentPayload(buildIntent: BuildIntent): Record<string, unknown> {
     projectName: buildIntent.projectName,
     hasProjectPath: Boolean(buildIntent.projectPath),
     buildMode: buildIntent.buildMode,
-    buildModeReason: buildIntent.buildModeReason
+    buildModeReason: buildIntent.buildModeReason,
+    buildLane: buildIntent.buildLane,
+    buildLaneReason: buildIntent.buildLaneReason
   };
 }
 

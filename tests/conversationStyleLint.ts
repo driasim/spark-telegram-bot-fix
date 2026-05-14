@@ -8,7 +8,9 @@ export type ConversationStyleIssueCode =
   | 'internal_jargon'
   | 'plan_dump'
   | 'generic_chatbox_voice'
-  | 'double_marker';
+  | 'double_marker'
+  | 'emoji_spam'
+  | 'report_card_voice';
 
 export type ConversationStyleIssue = {
   code: ConversationStyleIssueCode;
@@ -50,7 +52,10 @@ const GENERIC_CHATBOX_PATTERNS: RegExp[] = [
   /\bi'?m sorry,? but i (?:can'?t|cannot)\b/i
 ];
 
-const STATUS_ICON_PATTERN = /[✅⚠️🟢🟡🔴⚪]/u;
+const STATUS_ICON_PATTERN = /[✅⚠️🟢🟡🔴⚪🛠️✨]/u;
+const TELEGRAM_STATUS_ICON_GLOBAL = /✅|⚠️|🟢|🟡|🔴|⚪|🛠️|✨/gu;
+
+const REPORT_CARD_HEADING_PATTERN = /^(?:Mission|Provider|Move|Status|Result|Tasks|Relay|Title)$/im;
 
 function wordsIn(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -127,6 +132,15 @@ export function lintTelegramConversationStyle(
       pushOnce(issues, 'generic_chatbox_voice', 'Avoid generic support-chat phrasing; answer with context-aware Spark voice.');
       break;
     }
+  }
+
+  const emojiMatches = text.match(TELEGRAM_STATUS_ICON_GLOBAL) || [];
+  if (emojiMatches.length > 2) {
+    pushOnce(issues, 'emoji_spam', 'Use emoji as scanning affordance, not decoration on every row.');
+  }
+
+  if (REPORT_CARD_HEADING_PATTERN.test(text)) {
+    pushOnce(issues, 'report_card_voice', 'Avoid Mission/Provider/Move report-card headings in natural follow-ups.');
   }
 
   for (const line of text.split(/\r?\n/)) {

@@ -10,6 +10,7 @@ import {
   formatProgressMessageForTelegram,
   getTelegramRelayIdentity,
   formatProviderCompletionForTelegram,
+  formatMissionRelayStateMessageForTelegram,
   isCompletionDeliveryCachedForTests,
   isMissionRelayPaused,
   markMissionRelayCancelled,
@@ -98,6 +99,7 @@ test('keeps minimal structured provider summaries compact', () => {
   assert.doesNotMatch(message, /Files changed: 3/);
   assert.doesNotMatch(message, /src\/kanban\.ts/);
   assert.doesNotMatch(message, /Checks:/);
+  assert.doesNotMatch(message, /Mission: spark-minimal/);
 });
 
 test('keeps verbose completion summaries readable and non-console-like', () => {
@@ -122,6 +124,20 @@ test('keeps verbose completion summaries readable and non-console-like', () => {
   assert.match(message, /Quality checks passed \(3 checks\)\./);
   assert.doesNotMatch(message, /Verification commands run/);
   assert.doesNotMatch(message, /npm run|playwright|Changed files|README\.md/);
+  assert.doesNotMatch(message, /Mission: spark-verbose/);
+  assert.doesNotMatch(message, /Request: tg-build-verbose/);
+});
+
+test('freeform completion fallback does not repeat raw mission ids', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-freeform',
+    verbosity: 'verbose',
+    response: 'Finished the tiny single-file game and verified it opens from the preview.'
+  });
+
+  assert.match(message, /Finished the tiny single-file game/);
+  assert.doesNotMatch(message, /Mission: spark-freeform/);
 });
 
 test('formats structured provider failures without raw JSON noise', () => {
@@ -144,7 +160,7 @@ test('formats structured provider failures without raw JSON noise', () => {
     })
   });
 
-  assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
+  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
   assert.match(message, /final browser verification failed/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed/);
@@ -153,6 +169,28 @@ test('formats structured provider failures without raw JSON noise', () => {
   assert.doesNotMatch(message, /"status"/);
   assert.doesNotMatch(message, /execution_contract/);
   assert.doesNotMatch(message, /exact_commands/);
+});
+
+test('treats blocked freeform provider completions as mission failures', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-blocked-before-start',
+    requestId: 'tg-build-blocked',
+    verbosity: 'normal',
+    response: [
+      'Blocked before task start.',
+      'I could not load the mandatory H70 skills because http://127.0.0.1:3333 is unreachable.',
+      'Per the mission instructions, I did not create files.',
+      'The filesystem sandbox is read-only.'
+    ].join(' ')
+  });
+
+  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
+  assert.match(message, /Blocked before task start/);
+  assert.doesNotMatch(message, /\b(?:mandatory|required)\s+H70/i);
+  assert.doesNotMatch(message, /filesystem sandbox is read-only/i);
+  assert.doesNotMatch(message, /✨ Spark/);
+  assert.doesNotMatch(message, /shipped|result ready|wrapped this one/i);
 });
 
 test('warns cleanly when structured provider output is malformed', () => {
@@ -339,13 +377,35 @@ test('mission start update links the mission once through kanban', () => {
     'board'
   );
 
-  assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
-  assert.match(message || '', /Spawned work/);
-  assert.match(message || '', /Paired surfaces/);
-  assert.match(message || '', /only ping when something useful changes/);
+  assert.match(message || '', /(?:🛠️ Spark is on it|🛠️ The run is moving|🛠️ Spark picked it up|🛠️ We are underway)\./);
+  assert.match(message || '', /keep the noise low and only ping when something useful changes/);
   assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
+  assert.doesNotMatch(message || '', /^Spawned work$/m);
+  assert.doesNotMatch(message || '', /^Paired surfaces$/m);
   assert.doesNotMatch(message || '', /Canvas:/);
   assert.doesNotMatch(message || '', /\/missions/);
+});
+
+test('pause and resume relay messages avoid raw mission id clutter', () => {
+  const paused = formatMissionRelayStateMessageForTelegram({
+    state: 'paused',
+    missionId: 'spark-123',
+    links: buildMissionSurfaceLinks('spark-123', 'board')
+  });
+  const resumed = formatMissionRelayStateMessageForTelegram({
+    state: 'resumed',
+    missionId: 'spark-123',
+    links: buildMissionSurfaceLinks('spark-123', 'board')
+  });
+
+  assert.match(paused, /Run paused\./);
+  assert.match(paused, /I will hold Telegram handoffs until it resumes\./);
+  assert.match(paused, /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
+  assert.doesNotMatch(paused, /Mission: spark-123/);
+  assert.doesNotMatch(paused, /^Move$/m);
+  assert.match(resumed, /Run resumed\./);
+  assert.match(resumed, /Telegram handoffs are back on\./);
+  assert.doesNotMatch(resumed, /Mission: spark-123/);
 });
 
 test('suppresses late mission start after canvas tasks are already planned', () => {
@@ -396,9 +456,10 @@ test('verbose mission start does not paste the whole build brief', () => {
     'both'
   );
 
-  assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
+  assert.match(message || '', /(?:🛠️ Spark is on it|🛠️ The run is moving|🛠️ Spark picked it up|🛠️ We are underway)\./);
   assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
-  assert.match(message || '', /Paired surfaces/);
+  assert.match(message || '', /Builder and Spawner are attached behind the scenes\./);
+  assert.doesNotMatch(message || '', /^Paired surfaces$/m);
   assert.doesNotMatch(message || '', /Canvas:/);
   assert.doesNotMatch(message || '', /prd-tg-build-1/);
   assert.doesNotMatch(message || '', /Build this at/);
@@ -601,8 +662,8 @@ test('verbose progress turns useful relay summaries into readable Telegram updat
     'board'
   );
 
-  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)/);
-  assert.match(message || '', /Focus: Wire launch sequence/);
+  assert.match(message || '', /(?:🛠️ Spark has a real update|🛠️ The build has new signal|🛠️ A concrete change landed|🛠️ The run moved forward)/);
+  assert.match(message || '', /Current focus: Wire launch sequence/);
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /MissionControl/);
   assert.doesNotMatch(message || '', /spark-123/);
@@ -704,11 +765,13 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
-  assert.match(message, /New signal:/);
+  assert.match(message, /(?:still working|still with it|the run is still active|Spark is still on this)\./);
+  assert.doesNotMatch(message, /🛠️/);
+  assert.match(message, /New signal: reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
-  assert.match(message, /Focus\n• Review relay updates/);
+  assert.match(message, /Current focus: Review relay updates/);
   assert.match(message, /new signal/);
+  assert.doesNotMatch(message, /^Focus$/m);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
 });
@@ -729,9 +792,9 @@ test('suppresses low-signal mission heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /No new checkpoint yet/);
+  assert.match(message, /Nothing new worth interrupting you with yet\./);
   assert.doesNotMatch(message, /Elapsed:/);
-  assert.match(message, /Mission: spark-123/);
+  assert.doesNotMatch(message, /Mission: spark-123/);
   assert.doesNotMatch(message, /Z\.AI: Document launch path is running/);
 });
 
@@ -751,7 +814,7 @@ test('suppresses provider stopwatch heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /No new checkpoint yet/);
+  assert.match(message, /Nothing new worth interrupting you with yet\./);
   assert.doesNotMatch(message, /working through 4 task pack/);
   assert.doesNotMatch(message, /estimate adjusting/);
 });
@@ -945,7 +1008,7 @@ test('completion can withhold an unreachable hosted preview link', () => {
   });
 
   assert.match(message, /Built the cafe landing page\./);
-  assert.match(message, /Preview is still preparing\. Use the Mission board for now\./);
+  assert.match(message, /I do not have a preview link yet; use the Mission board for now\./);
   assert.doesNotMatch(message, /Open it here:/);
   assert.doesNotMatch(message, /\/preview\//);
 });

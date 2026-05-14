@@ -154,7 +154,7 @@ import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './auth
 import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
 import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
-import { parseBuildIntent } from './buildIntent';
+import { parseBuildIntent, type BuildLane } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
 import { queueRouteArbiterShadow } from './routeArbiter';
@@ -193,6 +193,7 @@ import {
   isGlobalAgentDoctrineRequest,
   isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
+  isSparkWorkflowBugHuntRequest,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isProjectImprovementRequest,
@@ -204,6 +205,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  renderSparkWorkflowBugHuntReply,
   builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
@@ -226,7 +228,12 @@ import { getTierForUser } from './userTier';
 import { acquireGatewayOwnership, releaseGatewayOwnership } from './gatewayOwnership';
 import { requireRelaySecret, resolveTelegramLaunchConfig } from './launchMode';
 import { renderSparkErrorReply } from './errorExplain';
-import { withHiddenWindows } from './hiddenProcess';
+import {
+  resolveWindowsCommand,
+  windowsCmdShimArgs,
+  windowsPowerShellShimArgs,
+  withHiddenWindows
+} from './hiddenProcess';
 import {
   normalizeModelProvider,
   normalizeModelRole,
@@ -286,9 +293,15 @@ function renderTelegramError(prefix: string, error: unknown): string {
 }
 
 async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> {
+  const resolvedCommand = resolveWindowsCommand('spark');
+  const [command, commandArgs] = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand)
+    ? [process.env.ComSpec || 'cmd.exe', windowsCmdShimArgs(resolvedCommand, args)]
+    : process.platform === 'win32' && /\.ps1$/i.test(resolvedCommand)
+      ? ['powershell.exe', windowsPowerShellShimArgs(resolvedCommand, args)]
+      : [resolvedCommand, args];
   const { stdout, stderr } = await execFileAsync(
-    'spark',
-    args,
+    command,
+    commandArgs,
     withHiddenWindows({
       timeout: timeoutMs,
       maxBuffer: 1024 * 1024,
@@ -721,7 +734,7 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
   const runnerSummary = renderSparkAccessCapabilityStatus(chatProfile, runnerPreflight);
   const runnerLine = runnerSummary.split('\n').find((line) => /^Runner:/i.test(line)) || 'Runner: not checked yet.';
   try {
-    const rawStatus = await runSparkCli(['access', 'status', '--level', '5', '--json'], 30_000);
+    const rawStatus = await runSparkCli(['access', 'status', '--json'], 30_000);
     const payload = JSON.parse(rawStatus) as Record<string, unknown>;
     const level5 = objectRecord(payload.level5);
     const stateMachine = objectRecord(payload.state_machine);
@@ -729,6 +742,9 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
     const requested = stateMachine.requested_access_level ?? payload.access_level ?? 'unknown';
     const activation = String(level5.activation_state || stateMachine.activation_state || 'unknown');
     const serviceEnabled = level5.service_enabled === true || stateMachine.service_can_operate_whole_computer === true;
+    const stateMachineWholeComputer = stateMachine.can_operate_whole_computer === true ||
+      stateMachine.effective_access_level === 5 ||
+      payload.effective_access_level === 5;
     const chatLevel = sparkAccessLevel(chatProfile);
     return [
       'Spark Access Status',
@@ -740,8 +756,10 @@ async function renderAuthoritativeSparkAccessStatus(chatId: string | number): Pr
       '',
       runnerLine,
       '',
-      serviceEnabled && chatProfile === 'operator'
+      serviceEnabled && chatProfile === 'operator' && stateMachineWholeComputer
         ? 'Verdict: whole-computer operator mode is active, with destructive/secret/publish safety checks still on.'
+        : serviceEnabled && chatProfile === 'operator'
+          ? `Verdict: chat is set to Level ${chatLevel} and Level 5 service guardrails are active, but plain CLI effective access is Level ${effective}. Treat whole-computer work as service-lane only until the execution route proves Level 5 for this turn.`
         : serviceEnabled
           ? `Verdict: Level 5 service guardrails are active, but this chat is set to Access level ${chatLevel}. Use /access 5 to enter operator mode, or /access 4 to return services to the workspace sandbox.`
         : `Verdict: chat is set to Level ${sparkAccessLevel(chatProfile)}, but whole-computer Level 5 is not active. Effective local work is Level ${effective}.`
@@ -970,14 +988,64 @@ function shouldAnswerMissionProvenanceQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
     /\b(?:did|whether|can\s+you\s+tell)\b.*\bmission\b.*\b(?:spawner|chat)\b/.test(normalized) ||
+    /\b(?:did|whether|can\s+you\s+tell)\b.*\bspawner\s+mission\b/.test(normalized) ||
+    /\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\bspawner\s+mission\b/.test(normalized) ||
     /\b(?:ran|run|routed)\s+through\s+spawner\b/.test(normalized) ||
     /\bjust\s+through\s+chat\b/.test(normalized)
   );
 }
 
+function isSpecificChatPromptMissionQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksMissionCreation = (
+    /\b(?:did|whether|can\s+you\s+tell|answer)\b.*\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\b(?:spawner\s+)?mission\b/.test(normalized) ||
+    /\b(?:create|created|start|started|spawn|spawned|launch|launched)\b.*\bspawner\s+mission\b/.test(normalized)
+  );
+  const specificPrompt = /\b(?:route[-\s]*gate|qa\s+prompt|last\s+(?:prompt|turn|message)|that\s+(?:prompt|turn|message)|previous\s+(?:prompt|turn|message))\b/.test(normalized) ||
+    /\b(?:last|previous|that)\s+['"`]?go['"`]?\b/.test(normalized);
+  return asksMissionCreation && specificPrompt;
+}
+
 async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<string> {
   const key = noEditProbeKey(ctx);
   const latestProbe = lastNoEditProbeMissions.get(key) || await readNoEditProbeMission(key).catch(() => null);
+  const recentMessages = await conversation.getRecentMessages(user, 12).catch(() => []);
+  const recentText = recentMessages.join('\n');
+  const messageText = ctx.message?.text || '';
+  if (isSpecificChatPromptMissionQuestion(messageText)) {
+    const normalizedQuestion = messageText.toLowerCase().replace(/\s+/g, ' ').trim();
+    const lastGoQuestion = /\b(?:last|previous|that)\s+['"`]?go['"`]?\b/.test(normalizedQuestion);
+    const routeGateEvidence = /\bRoute:\s*chat\s+QA\s*\/\s*route[-\s]*gate\b/i.test(recentText) ||
+      /\bno mission,\s*no setup,\s*no access change,\s*no repair\b/i.test(recentText);
+    const clearedGoEvidence = /\bnot seeing an active build or mission waiting\b/i.test(recentText) ||
+      /\bno build or mission started\b/i.test(recentText) ||
+      /\bno build.*mission started\b/i.test(recentText);
+    return [
+      routeGateEvidence
+        ? 'No. The route-gate QA prompt stayed in chat.'
+        : clearedGoEvidence
+          ? 'No. The last `go` stayed in chat.'
+          : lastGoQuestion
+            ? 'I do not see proof that the last `go` created a Spawner mission.'
+        : 'I do not see proof that the specific QA prompt created a mission.',
+      '',
+      'Evidence',
+      routeGateEvidence
+        ? '• The recent assistant reply classified it as chat QA / route-gate advisory.'
+        : clearedGoEvidence
+          ? '• The recent assistant reply said there was no active build or mission waiting.'
+        : '• The recent thread does not show a fresh mission id tied to that prompt.',
+      latestProbe
+        ? `• Latest recorded no-edit Spawner probe is \`${latestProbe.missionId}\` for \`${latestProbe.requestedPhrase}\`.`
+        : '• I do not have a recorded no-edit Spawner probe newer than that prompt.',
+      '',
+      routeGateEvidence
+        ? 'A chat route-gate answer should not count as Spawner execution unless Spark returns a fresh mission id for that exact turn.'
+        : lastGoQuestion
+          ? 'A chat `go` only counts as Spawner execution when Spark returns a fresh mission id for that exact turn.'
+          : 'A chat answer should not count as Spawner execution unless Spark returns a fresh mission id for that exact turn.'
+    ].join('\n');
+  }
   if (latestProbe) {
     return [
       'Yes. The latest no-edit probe was routed through Spawner, not just chat.',
@@ -986,8 +1054,6 @@ async function renderMissionProvenanceAnswer(ctx: any, user: any): Promise<strin
       'A plain chat answer would not have a Spawner mission id.'
     ].join('\n');
   }
-  const recentMessages = await conversation.getRecentMessages(user, 8).catch(() => []);
-  const recentText = recentMessages.join('\n');
   const missionId = recentText.match(/\bMission:\s*((?:spark|mission)-[A-Za-z0-9_-]+)/i)?.[1] ||
     recentText.match(/\b((?:spark|mission)-[0-9A-Za-z_-]{6,})\b/)?.[1];
   if (missionId) {
@@ -1437,8 +1503,27 @@ const RATE_LIMIT_MS = 1000; // 1 second between messages
 
 const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
 
+interface LatestCanvasPlanTask {
+  title: string;
+  skills: string[];
+}
+
+interface LatestCanvasPlan {
+  projectName: string;
+  taskCount: number | null;
+  tasks: LatestCanvasPlanTask[];
+  readyCanvasUrl: string;
+  recordedAt: string;
+}
+
+const latestCanvasPlans = new Map<string, LatestCanvasPlan>();
+
 function noEditProbeKey(ctx: any): string {
   return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
+}
+
+function canvasPlanKey(chatId: string | number | undefined, userId: string | number | undefined): string {
+  return `${chatId ?? 'unknown'}-${userId ?? 'unknown'}`;
 }
 
 // Pending clarification state — keyed by `${chatId}-${userId}`. In-memory
@@ -1450,6 +1535,8 @@ interface PendingClarification {
   projectPath: string | null;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  buildLane?: BuildLane;
+  buildLaneReason?: string;
   capabilityProposalPacket?: Record<string, unknown>;
   questions: string[];
   addedAssumptions: string[];
@@ -2289,6 +2376,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     ].join('\n'));
     return;
   }
+  const buildLane = pending.buildLane || buildLaneForMode(pending.buildMode);
+  const buildLaneReason = pending.buildLaneReason || 'Build lane inferred from build mode.';
   const accessRequirement: SparkAccessRequirement = sparkMissionNeedsOperatingSystemAccess(enrichedPrd, pending.projectPath)
     ? 'operating_system'
     : 'spawner_build';
@@ -2304,8 +2393,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     return;
   }
   const prdContent = pending.projectPath
-    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
-    : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\n\n${enrichedPrd}`;
+    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
+    : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
 
   try {
     const res = await axios.post(
@@ -2317,6 +2406,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         projectName: pending.projectName,
         buildMode: pending.buildMode,
         buildModeReason: pending.buildModeReason,
+        buildLane,
+        buildLaneReason,
         chatId: String(ctx.chat.id),
         userId: String(ctx.from.id),
         runnerCapability: runnerPreflight
@@ -2331,7 +2422,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         forceDispatch: true,
         ...(pending.capabilityProposalPacket ? { capabilityProposalPacket: pending.capabilityProposalPacket } : {}),
         missionId,
-        options: { includeSkills: true, includeMCPs: false }
+        options: prdBridgeOptionsForBuildLane(buildLane)
       },
       { timeout: 10000 }
     );
@@ -2355,21 +2446,24 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     const canvasUrl = projectCanvasUrl(publicSpawnerUrl, newRequestId, missionId);
     const kanbanUrl = missionBoardUrl(publicSpawnerUrl);
     await ctx.reply(formatBuildMissionQueuedReply({
-      lead: runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
+      lead: runWithDefaults ? 'Perfect, I will use the default direction.' : 'Got it, I will use that direction.',
       projectName: pending.projectName,
       buildMode: pending.buildMode,
+      buildLane,
       missionId,
       kanbanUrl
     }));
     startPrdCanvasReadyNotifier({
       chatId: Number(ctx.chat.id),
+      userId: Number(ctx.from.id),
       projectName: pending.projectName,
       requestId: newRequestId,
       missionId,
       spawnerUrl,
       publicSpawnerUrl,
       canvasUrl,
-      kanbanUrl
+      kanbanUrl,
+      buildLane
     });
   } catch (err) {
     await ctx.reply(renderSparkErrorReply(err instanceof Error ? err : new Error(String(err)), 'spawner', conversation.isAdmin(ctx.from)));
@@ -2378,6 +2472,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
 
 function startPrdCanvasReadyNotifier(args: {
   chatId: number;
+  userId: number;
   projectName: string;
   requestId: string;
   missionId: string;
@@ -2385,6 +2480,7 @@ function startPrdCanvasReadyNotifier(args: {
   publicSpawnerUrl: string;
   canvasUrl: string;
   kanbanUrl: string;
+  buildLane?: BuildLane;
 }): void {
   void (async () => {
     const started = Date.now();
@@ -2393,7 +2489,7 @@ function startPrdCanvasReadyNotifier(args: {
     const deadline = started + readyTimeoutMs + backendFallbackGraceMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
     const verbosity = await getTelegramRelayVerbosity(args.chatId).catch(() => 'normal' as const);
-    const heartbeatThresholds = verbosity === 'verbose' ? [120_000] : [];
+    const heartbeatThresholds = verbosity === 'verbose' && args.buildLane !== 'fast_direct' ? [120_000] : [];
     let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
@@ -2404,10 +2500,10 @@ function startPrdCanvasReadyNotifier(args: {
         const elapsedMs = Date.now() - started;
         if (heartbeatIndex < heartbeatThresholds.length && elapsedMs >= heartbeatThresholds[heartbeatIndex]) {
           const elapsedSec = Math.round(elapsedMs / 1000);
-          await bot.telegram.sendMessage(
-            args.chatId,
-            `Still working on ${args.projectName}. Spark is shaping the PRD and preparing the canvas (${elapsedSec}s elapsed).`
-          ).catch(() => {});
+          await bot.telegram.sendMessage(args.chatId, formatCanvasShapingHeartbeatSummary({
+            projectName: args.projectName,
+            elapsedSeconds: elapsedSec
+          })).catch(() => {});
           heartbeatIndex += 1;
         }
 
@@ -2430,6 +2526,12 @@ function startPrdCanvasReadyNotifier(args: {
               ? `${args.publicSpawnerUrl.replace(/\/+$/, '')}${queue.data.canvasUrl}`
               : args.canvasUrl;
             const elapsed = Math.round((Date.now() - started) / 1000);
+            rememberLatestCanvasPlan(args.chatId, args.userId, {
+              projectName: args.projectName,
+              taskCount: typeof taskCount === 'number' ? taskCount : null,
+              analysis: poll.data.result,
+              readyCanvasUrl
+            });
             await bot.telegram.sendMessage(args.chatId, formatCanvasReadySummary({
               projectName: args.projectName,
               taskCount,
@@ -2453,10 +2555,11 @@ function startPrdCanvasReadyNotifier(args: {
     if (shouldSuppressMissionHandoff(args.missionId)) {
       return;
     }
-    await bot.telegram.sendMessage(
-      args.chatId,
-      `Analysis is still running after ${Math.round(readyTimeoutMs / 1000)}s for ${args.projectName}. Mission: ${args.missionId}\nMission board: ${args.kanbanUrl}`
-    );
+    await bot.telegram.sendMessage(args.chatId, formatCanvasStillRunningSummary({
+      projectName: args.projectName,
+      elapsedSeconds: Math.round(readyTimeoutMs / 1000),
+      kanbanUrl: args.kanbanUrl
+    }));
   })();
 }
 
@@ -2699,33 +2802,63 @@ function telegramBlocks(...blocks: Array<string | null | undefined | false>): st
     .join('\n\n');
 }
 
+function sentenceWithPeriod(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+export function formatCanvasStillRunningSummary(args: {
+  projectName: string;
+  elapsedSeconds: number;
+  kanbanUrl: string;
+}): string {
+  return telegramBlocks(
+    `still preparing ${args.projectName}. It is taking a little longer than usual, and I will send the canvas when it is ready.`,
+    `Board: ${args.kanbanUrl}`
+  );
+}
+
+export function formatCanvasShapingHeartbeatSummary(args: {
+  projectName: string;
+  elapsedSeconds: number;
+}): string {
+  return telegramBlocks(
+    `still shaping ${args.projectName}.`,
+    'I will keep this quiet until the canvas is ready or something needs attention.'
+  );
+}
+
 function formatBuildMissionQueuedReply(input: {
   lead: string;
   projectName: string;
   buildMode: 'direct' | 'advanced_prd';
+  buildLane?: BuildLane;
   projectPath?: string | null;
   missionId: string;
   kanbanUrl: string;
 }): string {
-  const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
+  const modeText = input.buildLane === 'fast_direct'
+    ? 'fast build'
+    : input.buildMode === 'advanced_prd'
+      ? 'planning canvas'
+      : 'direct build';
   return telegramBlocks(
     input.lead,
-    [
-      'Spawned work',
-      `• ${input.projectName}`,
-      `• ${modeText}`,
-      '• Mission board'
-    ].join('\n'),
-    [
-      'Paired surfaces',
-      '• Builder planning',
-      '• Spawner / Mission Control',
-      '• Telegram relay updates'
-    ].join('\n'),
+    `🛠️ Setting up ${input.projectName} as a ${modeText}. Canvas next.`,
     input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
-    ['Mission board', `• ${input.kanbanUrl}`].join('\n'),
-    'I am shaping the task canvas now. I will share it when planning is ready.'
   );
+}
+
+function buildLaneForMode(buildMode: 'direct' | 'advanced_prd'): BuildLane {
+  return buildMode === 'advanced_prd' ? 'advanced_prd' : 'direct';
+}
+
+function prdBridgeOptionsForBuildLane(buildLane: BuildLane): { includeSkills: boolean; includeMCPs: boolean; fastLane?: boolean } {
+  if (buildLane === 'fast_direct') {
+    return { includeSkills: false, includeMCPs: false, fastLane: true };
+  }
+  return { includeSkills: true, includeMCPs: false };
 }
 
 function missionIdFromTelegramBuildRequest(requestId: string): string {
@@ -2997,20 +3130,33 @@ export function formatBuildClarificationReplyWithMicrocopy(
 ): string {
   const lower = `${projectName}\n${questions.join('\n')}\n${assumptions.join('\n')}`.toLowerCase();
   const isGame = /\b(game|maze|puzzle|arcade|player|score|level|win condition)\b/.test(lower);
+  const isReasoningGame =
+    isGame &&
+    /\b(reasoning|trust|claims?|verify|quarantine|memory|contradiction|confidence|logic)\b/.test(lower);
+  const explicitlyWantsMaze = /\bmaze\b/.test(lower);
   const isDashboard = /\b(dashboard|metric|analytics|monitor|report)\b/.test(lower);
-  const recommendation = microcopy?.recommendation || (isGame
-    ? 'browser-playable, keyboard controls, clear win/score loop, restart, and local best score'
+  const fallbackRecommendation = isReasoningGame
+    ? 'trust/verify/quarantine choices, scoring, explanations, and replayable reasoning rounds'
+    : isGame
+      ? 'browser-playable, keyboard controls, clear win/score loop, restart, and local best score'
     : isDashboard
       ? 'focused web dashboard, the key metrics first, seeded data if live data is not ready, and clean empty/error states'
-      : (assumptions[0]?.replace(/^Assume\s+/i, '').replace(/\.$/, '') || 'focused web v1 with a polished first screen and simple verification'));
+      : (assumptions[0]?.replace(/^Assume\s+/i, '').replace(/\.$/, '') || 'focused web v1 with a polished first screen and simple verification');
+  const microcopyRecommendation = microcopy?.recommendation || '';
+  const recommendation =
+    isReasoningGame &&
+    !explicitlyWantsMaze &&
+    /\bmaze\b/.test(microcopyRecommendation.toLowerCase())
+      ? fallbackRecommendation
+      : (microcopyRecommendation || fallbackRecommendation);
   const steerQuestion = microcopy?.steeringQuestion || questions[0] || (isGame
     ? 'What twist should make it fun?'
     : 'What is the one detail I should not guess?');
   return [
     `I can turn this into ${projectName}.`,
-    `Recommended starting point: ${recommendation}.`,
+    `Recommended starting point: ${sentenceWithPeriod(recommendation)}`,
     `Say "go" to start, or steer one thing first: ${steerQuestion}`
-  ].join('\n');
+  ].join('\n\n');
 }
 
 async function buildBuildClarificationReply(projectName: string, questions: string[], assumptions: string[]): Promise<string> {
@@ -3110,6 +3256,17 @@ function isDomainChipPendingCancel(text: string): boolean {
   return isNoExecutionBoundary(text) || /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
 }
 
+export function isDomainChipPendingDirection(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || normalized.length > 260) return false;
+  if (isDomainChipPendingStart(normalized) || isDomainChipPendingCancel(normalized)) return true;
+  if (/^(?:what|which|how|why|can|could|should|would|do|does|did|is|are|will)\b/.test(normalized)) return false;
+  if (/\b(?:test|tests|testing|unit\s+test|qa|bug\s+hunter|bug\s+hunt|edge\s+cases?|spawner|mission\s+control|workflow|prs?|publish|merge|ship)\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:names?|rationale|usage\s+angle|vibe|style|tone|output|outputs?|luxury|absurd|consumer|sci[-\s]*fi|surreal|weird|funny|serious|enterprise|developer|technical|visual|image|poster|prompt|prompts)\b/.test(normalized);
+}
+
 function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: string): string {
   if (isDomainChipPendingStart(text)) {
     return `${pending.prd}\n\n## Pre-build direction\n\nUse the default direction: surreal-but-usable outputs, short rationale, usage angle, and router-safe tests.`;
@@ -3132,6 +3289,10 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     pendingDomainChipBuilds.delete(key);
     await ctx.reply('No problem. I will hold off on creating that domain chip.');
     return true;
+  }
+
+  if (!isDomainChipPendingDirection(text)) {
+    return false;
   }
 
   pendingDomainChipBuilds.delete(key);
@@ -3228,6 +3389,11 @@ function isPendingClarificationFollowup(text: string): boolean {
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
 }
 
+function isBareExecutionStart(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  return /^(?:go|run|start|ship|do it|let'?s go|default|defaults|skip)[.! ]*$/i.test(normalized);
+}
+
 export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
   if (!pending) return false;
   const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
@@ -3311,30 +3477,87 @@ export function formatCanvasReadySummary(args: {
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
-  const taskRows = tasks
-    .map((task: any) => {
-      const title = typeof task?.title === 'string' ? task.title.trim() : '';
-      if (!title) return '';
-      const skills = Array.isArray(task?.skills)
-        ? task.skills.filter((skill: unknown): skill is string => typeof skill === 'string' && Boolean(skill.trim())).slice(0, 3)
-        : [];
-      return skills.length ? `${title} - skills: ${skills.join(', ')}` : title;
-    })
-    .filter(Boolean)
-    .slice(0, 3);
-  const lines = [
+  const rawTaskCount = typeof args.taskCount === 'number' ? args.taskCount : tasks.length;
+  const taskCount = Number.isFinite(rawTaskCount) ? rawTaskCount : 0;
+  const buildStepLine = taskCount > 0
+    ? `I queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'}, and Spark is moving into the build now.`
+    : 'Spark is moving into the build now.';
+  return telegramBlocks(
     `Canvas is ready for ${args.projectName}.`,
-    `${args.taskCount ?? tasks.length} build steps queued.`,
-  ];
-  if (taskRows.length > 0) {
-    lines.push('', 'Spawned tasks:');
-    taskRows.forEach((row: string) => lines.push(`• ${row}`));
-    if (tasks.length > taskRows.length) {
-      lines.push(`• +${tasks.length - taskRows.length} more`);
-    }
-  }
-  lines.push('', `Canvas: ${args.readyCanvasUrl}`, `Mission board: ${args.kanbanUrl}`, '', 'I will send the final handoff when it is built.');
-  return lines.join('\n');
+    buildStepLine,
+    ['Canvas', `• ${args.readyCanvasUrl}`].join('\n')
+  );
+}
+
+function taskTitleFromAnalysisTask(task: any): string | null {
+  const raw = task?.title || task?.name || task?.task || task?.description;
+  if (typeof raw !== 'string') return null;
+  const title = raw.replace(/\s+/g, ' ').trim();
+  return title || null;
+}
+
+function taskSkillsFromAnalysisTask(task: any): string[] {
+  const raw: unknown[] = Array.isArray(task?.skills) ? task.skills : [];
+  return raw
+    .filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
+    .map((skill) => skill.trim())
+    .slice(0, 4);
+}
+
+function canvasPlanTasksFromAnalysis(analysis: any): LatestCanvasPlanTask[] {
+  const tasks: unknown[] = Array.isArray(analysis?.tasks) ? analysis.tasks : [];
+  return tasks
+    .map((task: unknown) => {
+      const title = taskTitleFromAnalysisTask(task);
+      return title ? { title, skills: taskSkillsFromAnalysisTask(task) } : null;
+    })
+    .filter((task): task is LatestCanvasPlanTask => Boolean(task))
+    .slice(0, 8);
+}
+
+function rememberLatestCanvasPlan(chatId: string | number, userId: string | number, input: {
+  projectName: string;
+  taskCount: number | null;
+  analysis: any;
+  readyCanvasUrl: string;
+}): void {
+  latestCanvasPlans.set(canvasPlanKey(chatId, userId), {
+    projectName: input.projectName,
+    taskCount: input.taskCount,
+    tasks: canvasPlanTasksFromAnalysis(input.analysis),
+    readyCanvasUrl: input.readyCanvasUrl,
+    recordedAt: new Date().toISOString()
+  });
+}
+
+function isLatestCanvasPlanQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
+    || /\bfull plan\b/.test(normalized);
+  const asksTasksOrSkills = /\b(?:tasks?|steps?|skills?|paired skills?|queued|plan)\b/.test(normalized);
+  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|that|it|queued|full plan)\b/.test(normalized);
+  return asksPlanDetails && asksTasksOrSkills && anchoredToRecentCanvas;
+}
+
+export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
+  const taskLines = plan.tasks.length > 0
+    ? plan.tasks.map((task) => {
+        const skills = task.skills.length > 0 ? ` - ${task.skills.join(', ')}` : '';
+        return `• ${task.title}${skills}`;
+      })
+    : ['• The canvas is ready, but it did not return task rows to Telegram.'];
+
+  const count = plan.taskCount ?? plan.tasks.length;
+  return [
+    `The latest canvas is for ${plan.projectName}.`,
+    count > 0 ? `${count} build steps are queued.` : null,
+    '',
+    'Tasks',
+    ...taskLines,
+    '',
+    'Canvas',
+    `• ${plan.readyCanvasUrl}`
+  ].filter((line): line is string => line !== null).join('\n');
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -3566,7 +3789,10 @@ export async function handleRunCommand(
       buildIntent.projectName,
       buildIntent.projectPath,
       buildIntent.buildMode,
-      buildIntent.buildModeReason
+      buildIntent.buildModeReason,
+      undefined,
+      buildIntent.buildLane,
+      buildIntent.buildLaneReason
     );
     return null;
   }
@@ -3644,7 +3870,9 @@ export async function handleBuildIntent(
   projectPath: string | null,
   buildMode: 'direct' | 'advanced_prd',
   buildModeReason: string,
-  capabilityProposalPacket?: Record<string, unknown>
+  capabilityProposalPacket?: Record<string, unknown>,
+  buildLane: BuildLane = buildLaneForMode(buildMode),
+  buildLaneReason = 'Build lane inferred from build mode.'
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -3681,15 +3909,15 @@ export async function handleBuildIntent(
     traceRef,
     selectedRoute: 'spawner_prd_bridge',
     userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
-    reason: 'Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with shared trace.'
+    reason: `Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with ${buildLane} lane.`
   });
   if (!(await buildDispatchRouteConfidenceAllows({ ctx, accessRequirement, prd, requestId, traceRef, runnerPreflight }))) {
     return;
   }
 
   const prdContent = projectPath
-    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
-    : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\n\n${prd}`;
+    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
+    : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${prd}`;
 
   const tier = getTierForUser(ctx.from.id);
   try {
@@ -3702,6 +3930,8 @@ export async function handleBuildIntent(
         projectName,
         buildMode,
         buildModeReason,
+        buildLane,
+        buildLaneReason,
         chatId: String(chatId),
         userId: String(ctx.from.id),
         runnerCapability: runnerPreflight
@@ -3714,7 +3944,7 @@ export async function handleBuildIntent(
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),
-        options: { includeSkills: true, includeMCPs: false }
+        options: prdBridgeOptionsForBuildLane(buildLane)
       },
       localServiceTimeoutMs('SPARK_SPAWNER_PRD_WRITE_TIMEOUT_MS')
     );
@@ -3735,6 +3965,8 @@ export async function handleBuildIntent(
         projectPath,
         buildMode,
         buildModeReason,
+        buildLane,
+        buildLaneReason,
         capabilityProposalPacket,
         questions: res.data.openQuestions,
         addedAssumptions: res.data.addedAssumptions ?? [],
@@ -3765,9 +3997,10 @@ export async function handleBuildIntent(
     });
 
     await ctx.reply(formatBuildMissionQueuedReply({
-      lead: 'Got it. Spark picked up the build.',
+      lead: 'Got it. Spark is on it.',
       projectName,
       buildMode,
+      buildLane,
       projectPath,
       missionId,
       kanbanUrl
@@ -3792,13 +4025,15 @@ export async function handleBuildIntent(
 
     startPrdCanvasReadyNotifier({
       chatId,
+      userId: Number(ctx.from.id),
       projectName,
       requestId,
       missionId,
       spawnerUrl,
       publicSpawnerUrl,
       canvasUrl,
-      kanbanUrl
+      kanbanUrl,
+      buildLane
     });
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'spawner', conversation.isAdmin(ctx.from)));
@@ -4649,6 +4884,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isLatestCanvasPlanQuestion(text)) {
+    const latestPlan = latestCanvasPlans.get(canvasPlanKey(ctx.chat?.id, ctx.from?.id));
+    if (latestPlan) {
+      const reply = formatLatestCanvasPlanReply(latestPlan);
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      return;
+    }
+  }
+
   if (globalAgentDoctrineRequest) {
     const reply = formatGlobalAgentDoctrineRequestReply(text);
     await conversation.remember(user, text).catch(() => {});
@@ -4848,6 +5094,23 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_status_answer', [
+      {
+        source: 'spark_access_status',
+        role: 'access_truth',
+        freshness: 'fresh',
+        sourceRef: 'spark access status --json',
+        summary: 'Telegram answered access status from the Spark CLI access state and runner writability preflight.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   if (!earlyBuildIntent && isAccessHelpQuestion(text) && deterministicRouteAllowed('access.help', text)) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
@@ -4856,6 +5119,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+
+  if (!earlyBuildIntent && isSparkWorkflowBugHuntRequest(text)) {
+    const reply = renderSparkWorkflowBugHuntReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.qa_planning', 'spark-telegram-bot', 'plain_chat.qa_plan');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
   if (safeOperatorAction && deterministicRouteAllowed('operator.safe_action', text)) {
     await conversation.remember(user, text).catch(() => {});
@@ -5130,6 +5403,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
+      await conversation.remember(user, text).catch(() => {});
+      return;
+    }
+
     const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
     if (
       isProjectImprovementRequest(text, latestShippedProject) &&
@@ -5181,7 +5459,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         buildIntent.projectName,
         buildIntent.projectPath,
         buildIntent.buildMode,
-        buildIntent.buildModeReason
+        buildIntent.buildModeReason,
+        undefined,
+        buildIntent.buildLane,
+        buildIntent.buildLaneReason
       );
       return;
     }
@@ -5236,6 +5517,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
+    if (isBareExecutionStart(text)) {
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply('I am not seeing an active build or mission waiting from here. Give me the target again and I will route it fresh.');
+      return;
+    }
+
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
     if (missionUpdatePreference && deterministicRouteAllowed('mission_updates.preference', text)) {
       await conversation.remember(user, text).catch(() => {});
@@ -5283,10 +5570,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'
         ? await spawner.latestProviderSummary()
+        : spawnerBoardIntent === 'latest_mission'
+          ? await spawner.latestMissionSummary()
         : spawnerBoardIntent === 'latest_on_kanban'
           ? await spawner.latestKanbanSummary()
           : spawnerBoardIntent === 'latest_project_preview'
             ? await spawner.latestProjectPreview()
+            : spawnerBoardIntent === 'latest_failure'
+              ? await spawner.latestFailureSummary()
           : await spawner.board();
       await ctx.reply(result.success ? result.message : `Board failed: ${result.message}`);
       return;
