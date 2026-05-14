@@ -848,10 +848,10 @@ const VOICE_LINES = {
     '✨ Spark wrapped this one.'
   ],
   failed: [
-    '⚠️ This run needs attention.',
-    '⚠️ Something blocked the mission.',
-    '⚠️ The build hit a problem.',
-    '⚠️ Spark could not finish this run.'
+    '⚠️ That run hit a blocker.',
+    '⚠️ The build got blocked.',
+    '⚠️ Spark could not finish that one.',
+    '⚠️ This one needs a quick look.'
   ]
 } as const;
 
@@ -917,7 +917,7 @@ function freeformFailureLines(text: string): string[] {
     lines.push('A local service connection failed in the spawned lane.');
   }
   if (/\bunknown error\b/.test(normalized)) {
-    lines.push('The provider returned only unknown error.');
+    lines.push('The provider only gave me `unknown error`, so I do not want to guess.');
   }
   if (lines.length === 0 && providerCompletionLooksBlocked(text)) {
     lines.push('The provider reported a blocker before completion.');
@@ -1229,27 +1229,27 @@ export function formatProviderCompletionForTelegram(input: {
     const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
     if (!clean) {
       return [
-        '⚪ Spark finished, but no final notes came back.',
+        '⚪ Spark finished, but it did not send final notes back.',
         '',
-        'Open the project preview or Mission board if you want to inspect the result.'
+        'Open the preview or board if you want to inspect the result.'
       ].join('\n');
     }
     if (/^completed without a text response\.?$/i.test(clean)) {
       return [
-        '⚪ Spark finished, but no final notes came back.',
+        '⚪ Spark finished, but it did not send final notes back.',
         '',
-        'Open the project preview or Mission board if you want to inspect the result.'
+        'Open the preview or board if you want to inspect the result.'
       ].join('\n');
     }
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
     if (looksStructured) {
       return [
-        '⚠️ Spark finished, but the final payload needs review.',
+        '⚠️ Spark finished, but the final payload needs a look.',
         '',
         'Review',
         `• ${provider} returned structured output I could not summarize cleanly.`,
         '',
-        'Open the canvas or Mission board for the full raw record.'
+        'The canvas or board has the raw record.'
       ].join('\n');
     }
     const projectPath = extractProjectPathFromText(input.response);
@@ -1268,12 +1268,12 @@ export function formatProviderCompletionForTelegram(input: {
       lines.push('', lead);
     }
     if (completionKind === 'failed' && !openLink) {
-      lines.push('', 'The Mission board has the full trace if you want to inspect it.');
+      lines.push('', 'The board has the raw trace if you want to inspect it.');
     }
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
     } else if (projectPath && input.previewPending) {
-      lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
+      lines.push('', 'Preview is not ready yet. The board can show the run meanwhile.');
     }
     if (shipped.length > 0) {
       lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
@@ -1322,7 +1322,7 @@ export function formatProviderCompletionForTelegram(input: {
   if (openLink) {
     lines.push('', ...openProjectLines(openLink));
   } else if (projectPath && input.previewPending) {
-    lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
+    lines.push('', 'Preview is not ready yet. The board can show the run meanwhile.');
   }
 
   if (verification.length > 0) {

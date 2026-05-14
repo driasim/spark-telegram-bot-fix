@@ -235,9 +235,9 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
     verbosity: 'normal',
     response: 'unknown error'
   });
-  assert.match(unknownError, /(?:needs attention|blocked|problem|could not finish)/i);
+  assert.match(unknownError, /(?:hit a blocker|got blocked|could not finish that one|quick look)/i);
   assert.match(unknownError, /unknown error/i);
-  assert.match(unknownError, /The Mission board has the full trace if you want to inspect it\./);
+  assert.match(unknownError, /The board has the raw trace if you want to inspect it\./);
   assert.doesNotMatch(unknownError, /^Move$/m);
   assert.doesNotMatch(unknownError, /✨ Spark (?:shipped|finished|wrapped|has the result)/i);
   assert.doesNotMatch(unknownError, /Mission: mission-unknown-error/);
@@ -248,7 +248,7 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
     verbosity: 'normal',
     response: 'completed without a text response'
   });
-  assert.match(noText, /Spark finished, but no final notes came back\./);
+  assert.match(noText, /Spark finished, but it did not send final notes back\./);
   assert.doesNotMatch(noText, /Codex:\s*completed without a text response/i);
   assert.doesNotMatch(noText, /Mission: mission-empty/);
 });

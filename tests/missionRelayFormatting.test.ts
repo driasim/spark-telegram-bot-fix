@@ -160,7 +160,7 @@ test('formats structured provider failures without raw JSON noise', () => {
     })
   });
 
-  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
+  assert.match(message, /(?:⚠️ That run hit a blocker|⚠️ The build got blocked|⚠️ Spark could not finish that one|⚠️ This one needs a quick look)\./);
   assert.match(message, /final browser verification failed/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed/);
@@ -185,7 +185,7 @@ test('treats blocked freeform provider completions as mission failures', () => {
     ].join(' ')
   });
 
-  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
+  assert.match(message, /(?:⚠️ That run hit a blocker|⚠️ The build got blocked|⚠️ Spark could not finish that one|⚠️ This one needs a quick look)\./);
   assert.match(message, /Blocked before task start/);
   assert.doesNotMatch(message, /\b(?:mandatory|required)\s+H70/i);
   assert.doesNotMatch(message, /filesystem sandbox is read-only/i);
@@ -201,7 +201,7 @@ test('warns cleanly when structured provider output is malformed', () => {
     response: '{ "status": "completed", "summary": "half-written"'
   });
 
-  assert.match(message, /⚠️ Spark finished, but the final payload needs review\./);
+  assert.match(message, /⚠️ Spark finished, but the final payload needs a look\./);
   assert.match(message, /• Claude returned structured output I could not summarize cleanly\./);
   assert.doesNotMatch(message, /Mission: spark-bad-json/);
   assert.doesNotMatch(message, /"status"/);
@@ -1008,7 +1008,7 @@ test('completion can withhold an unreachable hosted preview link', () => {
   });
 
   assert.match(message, /Built the cafe landing page\./);
-  assert.match(message, /I do not have a preview link yet; use the Mission board for now\./);
+  assert.match(message, /Preview is not ready yet\. The board can show the run meanwhile\./);
   assert.doesNotMatch(message, /Open it here:/);
   assert.doesNotMatch(message, /\/preview\//);
 });
