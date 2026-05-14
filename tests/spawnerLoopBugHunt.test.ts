@@ -182,7 +182,9 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
 
   const heartbeat = formatCanvasShapingHeartbeatSummary({ projectName: 'Proof Orchard', elapsedSeconds: 120 });
   assert.match(heartbeat, /Still shaping Proof Orchard\./);
-  assert.match(heartbeat, /Status\n• Canvas prep has been running for 120s\./);
+  assert.match(heartbeat, /Canvas prep has been running for 120s, and I will send the link when planning is ready\./);
+  assert.doesNotMatch(heartbeat, /^Status$/m);
+  assert.doesNotMatch(heartbeat, /^Move$/m);
   assert.doesNotMatch(heartbeat, /Mission:/);
 
   const stillRunning = formatCanvasStillRunningSummary({
@@ -191,6 +193,9 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
     kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-123'
   });
   assert.match(stillRunning, /Canvas is still preparing for Proof Orchard\./);
+  assert.match(stillRunning, /It has been shaping for 240s/);
+  assert.doesNotMatch(stillRunning, /^Status$/m);
+  assert.doesNotMatch(stillRunning, /^Move$/m);
   assert.doesNotMatch(stillRunning, /^Mission:\s*mission-123/im);
 });
 
@@ -226,7 +231,8 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
   });
   assert.match(unknownError, /(?:needs attention|blocked|problem|could not finish)/i);
   assert.match(unknownError, /unknown error/i);
-  assert.match(unknownError, /Move\n• Open the Mission board for the full trace\./);
+  assert.match(unknownError, /The Mission board has the full trace if you want to inspect it\./);
+  assert.doesNotMatch(unknownError, /^Move$/m);
   assert.doesNotMatch(unknownError, /✨ Spark (?:shipped|finished|wrapped|has the result)/i);
   assert.doesNotMatch(unknownError, /Mission: mission-unknown-error/);
 
@@ -248,7 +254,8 @@ test('bug hunt: pause, resume, and cancel relay state messages stay compact', ()
       missionId: 'mission-state-noise',
       links: ['Mission board: http://127.0.0.1:3333/kanban?mission=mission-state-noise']
     });
-    assert.match(message, /Move\n• /);
+    assert.doesNotMatch(message, /^Move$/m);
+    assert.match(message, /(?:I will hold Telegram handoffs until it resumes|Telegram handoffs are back on|I will keep any late handoff messages quiet)/);
     assert.match(message, /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban/);
     assert.doesNotMatch(message, /^Mission:\s*mission-state-noise/im);
     assert.ok(message.split('\n').length <= 6, `State message too tall:\n${message}`);

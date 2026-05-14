@@ -2774,14 +2774,8 @@ export function formatCanvasStillRunningSummary(args: {
 }): string {
   return telegramBlocks(
     `Canvas is still preparing for ${args.projectName}.`,
-    [
-      'Status',
-      `• Analysis has been running for ${args.elapsedSeconds}s.`
-    ].join('\n'),
-    [
-      'Move',
-      '• I will send the canvas when it is ready.'
-    ].join('\n'),
+    `It has been shaping for ${args.elapsedSeconds}s, so I am keeping an eye on it instead of starting anything else.`,
+    'I will send the canvas when it is ready.',
     [
       'Mission board',
       `• ${args.kanbanUrl}`
@@ -2795,14 +2789,7 @@ export function formatCanvasShapingHeartbeatSummary(args: {
 }): string {
   return telegramBlocks(
     `Still shaping ${args.projectName}.`,
-    [
-      'Status',
-      `• Canvas prep has been running for ${args.elapsedSeconds}s.`
-    ].join('\n'),
-    [
-      'Move',
-      '• I will send the canvas link when planning is ready.'
-    ].join('\n')
+    `Canvas prep has been running for ${args.elapsedSeconds}s, and I will send the link when planning is ready.`
   );
 }
 
