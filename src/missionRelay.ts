@@ -503,13 +503,13 @@ export function formatMissionRelayStateMessageForTelegram(input: {
 }): string {
   const links = input.links || [];
   const movement = input.state === 'cancelled'
-    ? ['Run cancelled.', '• Late handoff messages will stay quiet for this run.']
+    ? ['Run cancelled.', 'I will keep any late handoff messages quiet for this one.']
     : input.state === 'paused'
-      ? ['Run paused.', '• Telegram auto-handoffs are held until it resumes.']
-      : ['Run resumed.', '• Telegram handoffs are enabled again.'];
+      ? ['Run paused.', 'I will hold Telegram handoffs until it resumes.']
+      : ['Run resumed.', 'Telegram handoffs are back on.'];
   return compactTelegramBlocks(
     movement[0],
-    ['Move', movement[1]].join('\n'),
+    movement[1],
     links.length > 0 ? links.join('\n') : null
   );
 }
@@ -1231,16 +1231,14 @@ export function formatProviderCompletionForTelegram(input: {
       return [
         '⚪ Spark finished, but no final notes came back.',
         '',
-        'Move',
-        '• Open the project preview or Mission board to inspect the result.'
+        'Open the project preview or Mission board if you want to inspect the result.'
       ].join('\n');
     }
     if (/^completed without a text response\.?$/i.test(clean)) {
       return [
         '⚪ Spark finished, but no final notes came back.',
         '',
-        'Move',
-        '• Open the project preview or Mission board to inspect the result.'
+        'Open the project preview or Mission board if you want to inspect the result.'
       ].join('\n');
     }
     const looksStructured = clean.trim().startsWith('{') || clean.trim().startsWith('[');
@@ -1251,8 +1249,7 @@ export function formatProviderCompletionForTelegram(input: {
         'Review',
         `• ${provider} returned structured output I could not summarize cleanly.`,
         '',
-        'Move',
-        '• Open the canvas or Mission board for the full raw record.'
+        'Open the canvas or Mission board for the full raw record.'
       ].join('\n');
     }
     const projectPath = extractProjectPathFromText(input.response);
@@ -1271,12 +1268,12 @@ export function formatProviderCompletionForTelegram(input: {
       lines.push('', lead);
     }
     if (completionKind === 'failed' && !openLink) {
-      lines.push('', 'Move', '• Open the Mission board for the full trace.');
+      lines.push('', 'The Mission board has the full trace if you want to inspect it.');
     }
     if (openLink) {
       lines.push('', ...openProjectLines(openLink));
     } else if (projectPath && input.previewPending) {
-      lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+      lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
     }
     if (shipped.length > 0) {
       lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
@@ -1325,7 +1322,7 @@ export function formatProviderCompletionForTelegram(input: {
   if (openLink) {
     lines.push('', ...openProjectLines(openLink));
   } else if (projectPath && input.previewPending) {
-    lines.push('', 'Preview is still preparing. Use the Mission board for now.');
+    lines.push('', 'I do not have a preview link yet; use the Mission board for now.');
   }
 
   if (verification.length > 0) {
@@ -1419,18 +1416,9 @@ export function formatProgressMessageForTelegram(
     case 'mission_started':
       return compactTelegramBlocks(
         voiceLine('missionStarted', `${event.missionId}:started`),
-        [
-          'Spawned work',
-          '• Mission board',
-          '• Canvas planner',
-          '• Telegram relay updates'
-        ].join('\n'),
-        [
-          'Paired surfaces',
-          '• Builder planning',
-          '• Spawner / Mission Control'
-        ].join('\n'),
-        verbosity === 'normal' ? 'I will only ping when something useful changes.' : null,
+        verbosity === 'normal'
+          ? 'I will keep the noise low and only ping when something useful changes.'
+          : 'Builder and Spawner are attached behind the scenes.',
         missionReferenceLines(event.missionId, links).join('\n')
       );
     case 'dispatch_started':
@@ -1447,7 +1435,7 @@ export function formatProgressMessageForTelegram(
       if (!useful) return null;
       return compactTelegramBlocks(
         voiceLine('progress', `${event.missionId}:${event.taskId || taskLabel}:${useful}`),
-        `Focus: ${cleanTaskLabel(taskLabel)}`,
+        `Current focus: ${cleanTaskLabel(taskLabel)}`,
         useful
       );
     case 'mission_completed':
@@ -1652,12 +1640,16 @@ export function formatMissionHeartbeatForTelegram(input: {
 
   const lines: string[] = [];
   if (summary) {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', 'New signal:', summary);
+    lines.push(voiceLine('heartbeat', `${input.missionId}:${summary}`), '', `New signal: ${summary}`);
   } else {
-    lines.push(voiceLine('heartbeat', `${input.missionId}:${taskLabel}`), '', 'No new checkpoint yet.');
+    lines.push(
+      voiceLine('heartbeat', `${input.missionId}:${taskLabel}`),
+      '',
+      'Nothing new worth interrupting you with yet.'
+    );
   }
 
-  lines.push('', 'Focus', `• ${taskLabel}`);
+  lines.push('', `Current focus: ${taskLabel}`);
 
   if (input.verbosity === 'verbose') {
     if (status && !['running', 'created'].includes(status.toLowerCase())) {
@@ -1891,8 +1883,7 @@ function formatMissionLessonApprovalPrompt(approval: MissionLessonApproval): str
       ...approval.candidates.map((candidate, index) => `• ${index + 1}: ${candidate}`)
     ].join('\n'),
     [
-      'Move',
-      '• Reply `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.'
+      'Reply with `/remember 1`, `/remember 2`, `/remember 3`, or `/remember <edited lesson>`.'
     ].join('\n')
   );
 }
