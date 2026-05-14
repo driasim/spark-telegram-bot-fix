@@ -153,7 +153,7 @@ import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './auth
 import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
 import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
-import { parseBuildIntent } from './buildIntent';
+import { parseBuildIntent, type BuildLane } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
 import { queueRouteArbiterShadow } from './routeArbiter';
@@ -1523,6 +1523,8 @@ interface PendingClarification {
   projectPath: string | null;
   buildMode: 'direct' | 'advanced_prd';
   buildModeReason: string;
+  buildLane?: BuildLane;
+  buildLaneReason?: string;
   capabilityProposalPacket?: Record<string, unknown>;
   questions: string[];
   addedAssumptions: string[];
@@ -2362,9 +2364,11 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     ].join('\n'));
     return;
   }
+  const buildLane = pending.buildLane || buildLaneForMode(pending.buildMode);
+  const buildLaneReason = pending.buildLaneReason || 'Build lane inferred from build mode.';
   const prdContent = pending.projectPath
-    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
-    : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\n\n${enrichedPrd}`;
+    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
+    : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
 
   try {
     const res = await axios.post(
@@ -2376,6 +2380,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         projectName: pending.projectName,
         buildMode: pending.buildMode,
         buildModeReason: pending.buildModeReason,
+        buildLane,
+        buildLaneReason,
         chatId: String(ctx.chat.id),
         userId: String(ctx.from.id),
         runnerCapability: runnerPreflight
@@ -2390,7 +2396,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         forceDispatch: true,
         ...(pending.capabilityProposalPacket ? { capabilityProposalPacket: pending.capabilityProposalPacket } : {}),
         missionId,
-        options: { includeSkills: true, includeMCPs: false }
+        options: prdBridgeOptionsForBuildLane(buildLane)
       },
       { timeout: 10000 }
     );
@@ -2417,6 +2423,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       lead: runWithDefaults ? 'Perfect, I will run with the default direction.' : 'Got it, I will use that direction.',
       projectName: pending.projectName,
       buildMode: pending.buildMode,
+      buildLane,
       missionId,
       kanbanUrl
     }));
@@ -2429,7 +2436,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       spawnerUrl,
       publicSpawnerUrl,
       canvasUrl,
-      kanbanUrl
+      kanbanUrl,
+      buildLane
     });
   } catch (err) {
     await ctx.reply(renderSparkErrorReply(err instanceof Error ? err : new Error(String(err)), 'spawner', conversation.isAdmin(ctx.from)));
@@ -2446,6 +2454,7 @@ function startPrdCanvasReadyNotifier(args: {
   publicSpawnerUrl: string;
   canvasUrl: string;
   kanbanUrl: string;
+  buildLane?: BuildLane;
 }): void {
   void (async () => {
     const started = Date.now();
@@ -2454,7 +2463,7 @@ function startPrdCanvasReadyNotifier(args: {
     const deadline = started + readyTimeoutMs + backendFallbackGraceMs;
     const resultUrl = `${args.spawnerUrl}/api/prd-bridge/result?requestId=${encodeURIComponent(args.requestId)}`;
     const verbosity = await getTelegramRelayVerbosity(args.chatId).catch(() => 'normal' as const);
-    const heartbeatThresholds = verbosity === 'verbose' ? [120_000] : [];
+    const heartbeatThresholds = verbosity === 'verbose' && args.buildLane !== 'fast_direct' ? [120_000] : [];
     let heartbeatIndex = 0;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 4000));
@@ -2797,16 +2806,32 @@ function formatBuildMissionQueuedReply(input: {
   lead: string;
   projectName: string;
   buildMode: 'direct' | 'advanced_prd';
+  buildLane?: BuildLane;
   projectPath?: string | null;
   missionId: string;
   kanbanUrl: string;
 }): string {
-  const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
+  const modeText = input.buildLane === 'fast_direct'
+    ? 'fast build'
+    : input.buildMode === 'advanced_prd'
+      ? 'planning canvas'
+      : 'direct build';
   return telegramBlocks(
     input.lead,
     `🛠️ I am setting up ${input.projectName} as a ${modeText}. I will send the canvas when planning is ready.`,
     input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
   );
+}
+
+function buildLaneForMode(buildMode: 'direct' | 'advanced_prd'): BuildLane {
+  return buildMode === 'advanced_prd' ? 'advanced_prd' : 'direct';
+}
+
+function prdBridgeOptionsForBuildLane(buildLane: BuildLane): { includeSkills: boolean; includeMCPs: boolean; fastLane?: boolean } {
+  if (buildLane === 'fast_direct') {
+    return { includeSkills: false, includeMCPs: false, fastLane: true };
+  }
+  return { includeSkills: true, includeMCPs: false };
 }
 
 function missionIdFromTelegramBuildRequest(requestId: string): string {
@@ -3558,7 +3583,10 @@ export async function handleRunCommand(
       buildIntent.projectName,
       buildIntent.projectPath,
       buildIntent.buildMode,
-      buildIntent.buildModeReason
+      buildIntent.buildModeReason,
+      undefined,
+      buildIntent.buildLane,
+      buildIntent.buildLaneReason
     );
     return null;
   }
@@ -3636,7 +3664,9 @@ export async function handleBuildIntent(
   projectPath: string | null,
   buildMode: 'direct' | 'advanced_prd',
   buildModeReason: string,
-  capabilityProposalPacket?: Record<string, unknown>
+  capabilityProposalPacket?: Record<string, unknown>,
+  buildLane: BuildLane = buildLaneForMode(buildMode),
+  buildLaneReason = 'Build lane inferred from build mode.'
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -3673,12 +3703,12 @@ export async function handleBuildIntent(
     traceRef,
     selectedRoute: 'spawner_prd_bridge',
     userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
-    reason: 'Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with shared trace.'
+    reason: `Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with ${buildLane} lane.`
   });
 
   const prdContent = projectPath
-    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
-    : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\n\n${prd}`;
+    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
+    : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${prd}`;
 
   const tier = getTierForUser(ctx.from.id);
   try {
@@ -3691,6 +3721,8 @@ export async function handleBuildIntent(
         projectName,
         buildMode,
         buildModeReason,
+        buildLane,
+        buildLaneReason,
         chatId: String(chatId),
         userId: String(ctx.from.id),
         runnerCapability: runnerPreflight
@@ -3703,7 +3735,7 @@ export async function handleBuildIntent(
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),
-        options: { includeSkills: true, includeMCPs: false }
+        options: prdBridgeOptionsForBuildLane(buildLane)
       },
       localServiceTimeoutMs('SPARK_SPAWNER_PRD_WRITE_TIMEOUT_MS')
     );
@@ -3724,6 +3756,8 @@ export async function handleBuildIntent(
         projectPath,
         buildMode,
         buildModeReason,
+        buildLane,
+        buildLaneReason,
         capabilityProposalPacket,
         questions: res.data.openQuestions,
         addedAssumptions: res.data.addedAssumptions ?? [],
@@ -3757,6 +3791,7 @@ export async function handleBuildIntent(
       lead: 'Got it. Spark picked up the build.',
       projectName,
       buildMode,
+      buildLane,
       projectPath,
       missionId,
       kanbanUrl
@@ -3788,7 +3823,8 @@ export async function handleBuildIntent(
       spawnerUrl,
       publicSpawnerUrl,
       canvasUrl,
-      kanbanUrl
+      kanbanUrl,
+      buildLane
     });
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'spawner', conversation.isAdmin(ctx.from)));
@@ -5214,7 +5250,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         buildIntent.projectName,
         buildIntent.projectPath,
         buildIntent.buildMode,
-        buildIntent.buildModeReason
+        buildIntent.buildModeReason,
+        undefined,
+        buildIntent.buildLane,
+        buildIntent.buildLaneReason
       );
       return;
     }

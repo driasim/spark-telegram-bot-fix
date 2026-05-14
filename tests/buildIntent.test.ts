@@ -32,6 +32,7 @@ test('promotes larger new projects to advanced PRD mode', () => {
   assert.ok(intent);
   assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\spark-advanced-probe');
   assert.equal(intent.buildMode, 'advanced_prd');
+  assert.equal(intent.buildLane, 'advanced_prd');
   assert.equal(intent.projectName, 'Spark Advanced Probe');
   assert.match(intent.prd, /^a vanilla-JS single-page web app called Spark Advanced Probe\./);
   assert.doesNotMatch(intent.prd, /^at C:\\Users\\USER\\Desktop/);
@@ -77,6 +78,16 @@ test('infers clean landing-page names from compact build prompts', () => {
   assert.ok(intent);
   assert.equal(intent.projectName, 'Cafe Landing Page');
   assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
+});
+
+test('routes tiny one-screen smoke pages through the fast direct lane', () => {
+  const intent = parseBuildIntent('Build a one-screen paragraph spacing smoke page with a save button and responsive checks.');
+
+  assert.ok(intent);
+  assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
+  assert.match(intent.buildLaneReason, /lightweight planning/i);
 });
 
 test('keeps constrained one-file static HTML prompts direct even when they say full app', () => {
@@ -86,6 +97,7 @@ test('keeps constrained one-file static HTML prompts direct even when they say f
 
   assert.ok(intent);
   assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
   assert.equal(intent.buildModeReason, 'User asked for a constrained one-file static HTML build.');
   assert.equal(intent.projectName, 'Spark relay is alive');
   assert.match(intent.prd, /index\.html/);
@@ -183,6 +195,17 @@ test('promotes mission-control canvas and kanban requests to advanced PRD mode',
   assert.equal(intent.buildMode, 'advanced_prd');
   assert.equal(intent.projectName, 'Relay Workshop');
   assert.match(intent.prd, /kanban board, canvas, Telegram updates/);
+});
+
+test('names audience-first platform briefs without dragging feature nouns into the title', () => {
+  const intent = parseBuildIntent(
+    'Build a platform for agents with auth, database, roles, analytics, Mission Control, and deployment planning.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Agent Platform');
+  assert.equal(intent.buildMode, 'advanced_prd');
+  assert.equal(intent.buildLane, 'advanced_prd');
 });
 
 test('does not turn exploratory conversation into an accidental build', () => {

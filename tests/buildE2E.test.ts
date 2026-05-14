@@ -105,6 +105,7 @@ async function callHandleBuildIntent(opts: {
 	prd: string;
 	projectName: string;
 	buildMode: 'direct' | 'advanced_prd';
+	buildLane?: 'fast_direct' | 'direct' | 'advanced_prd';
 }): Promise<void> {
 	process.env.SPARK_BOT_TEST_MODE = '1';
 	process.env.SPARK_CLARIFICATION_COPY_LLM = '0';
@@ -116,7 +117,7 @@ async function callHandleBuildIntent(opts: {
 	if (typeof indexModule.handleBuildIntent !== 'function') {
 		throw new Error('handleBuildIntent not exported from src/index.ts — export it for E2E testing');
 	}
-	await indexModule.handleBuildIntent(opts.ctx, opts.prd, opts.projectName, null, opts.buildMode, 'test');
+	await indexModule.handleBuildIntent(opts.ctx, opts.prd, opts.projectName, null, opts.buildMode, 'test', undefined, opts.buildLane);
 }
 
 async function run(): Promise<void> {
@@ -225,6 +226,42 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('fast build intent tells PRD bridge to skip heavyweight planning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId, autoAnalysis: { provider: 'deterministic-fast-lane', started: false } } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies);
+		await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a one-screen emoji ergonomics smoke page with saved favorites and responsive checks.',
+			projectName: 'One Screen Emoji Ergonomics Smoke Page',
+			buildMode: 'direct',
+			buildLane: 'fast_direct'
+		});
+
+		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
+		assert.ok(writeCall, 'expected POST to /api/prd-bridge/write');
+		assert.equal(writeCall!.body.buildLane, 'fast_direct');
+		assert.equal(writeCall!.body.options.fastLane, true);
+		assert.equal(writeCall!.body.options.includeSkills, false);
+		assert.match(writeCall!.body.content, /Build lane: fast_direct/);
+		assert.match(replies[0] || '', /as a fast build\./);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('local build intent does not enqueue when Telegram runner is read-only', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -304,11 +341,13 @@ async function run(): Promise<void> {
 			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
 			assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
 			assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-			assert.match(replies.join('\n'), /🛠️ I am setting up Cafe Landing Page as a direct build\./);
+			assert.match(replies.join('\n'), /🛠️ I am setting up Cafe Landing Page as a fast build\./);
 			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
 			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected build route to include PRD bridge call');
+		assert.equal(writeCall!.body.buildLane, 'fast_direct');
+		assert.equal(writeCall!.body.options.fastLane, true);
 		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
