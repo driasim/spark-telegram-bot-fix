@@ -256,6 +256,9 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
   assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
   assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
+  assert.equal(parseBuildIntent('No build or mission for now, just help me think through the QA plan.'), null);
+  assert.equal(parseBuildIntent('Do not start a build yet. Should normal prompts still work when H70 skills are mandatory?'), null);
+  assert.equal(parseBuildIntent('What edge cases should we test in Spawner routing and Telegram relay?'), null);
   assert.equal(
     parseBuildIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
     null
