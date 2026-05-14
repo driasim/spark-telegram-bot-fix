@@ -199,7 +199,7 @@ async function run(): Promise<void> {
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
 		assert.doesNotMatch(replies[0] || '', new RegExp(`Mission: ${missionId}`));
-		assert.match(replies[0] || '', /I am setting up saas-billing-test as a direct build\./);
+		assert.match(replies[0] || '', /🛠️ I am setting up saas-billing-test as a direct build\./);
 		assert.match(replies[0] || '', /I will send the canvas when planning is ready\./);
 		assert.doesNotMatch(replies[0] || '', /Spawned work/);
 		assert.doesNotMatch(replies[0] || '', /Paired surfaces/);
@@ -304,7 +304,7 @@ async function run(): Promise<void> {
 			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
 			assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
 			assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-			assert.match(replies.join('\n'), /I am setting up Cafe Landing Page as a direct build\./);
+			assert.match(replies.join('\n'), /🛠️ I am setting up Cafe Landing Page as a direct build\./);
 			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
 			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
@@ -447,7 +447,7 @@ async function run(): Promise<void> {
 			assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
 			assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 			assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
-			assert.match(replies[0] || '', /I am setting up terminal chef clock as a planning canvas\./);
+			assert.match(replies[0] || '', /🛠️ I am setting up terminal chef clock as a planning canvas\./);
 
 		restoreAxios();
 		restoreEnv();
@@ -762,7 +762,7 @@ async function run(): Promise<void> {
 			assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
 			assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
 			assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
-			assert.match(replies[0] || '', /I am setting up domain-chip-creates-weird-poster-prompts-from as a planning canvas\./);
+			assert.match(replies[0] || '', /🛠️ I am setting up domain-chip-creates-weird-poster-prompts-from as a planning canvas\./);
 			assert.doesNotMatch(replies[0] || '', /Canvas:/);
 			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
@@ -816,7 +816,7 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 			assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
 			assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
-			assert.match(replies[0] || '', /I am setting up Founder Signal Room as a planning canvas\./);
+			assert.match(replies[0] || '', /🛠️ I am setting up Founder Signal Room as a planning canvas\./);
 			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
 		restoreAxios();
@@ -964,7 +964,7 @@ async function run(): Promise<void> {
 			kanbanUrl: 'http://stub-spawner.test/kanban?mission=mission-test'
 		});
 
-		assert.match(reply, /Canvas is still preparing for Signal Maze\./);
+		assert.match(reply, /🛠️ Canvas is still preparing for Signal Maze\./);
 		assert.match(reply, /It has been shaping for 180s/);
 		assert.match(reply, /I will send the canvas when it is ready\./);
 		assert.match(reply, /Mission board\n• http:\/\/stub-spawner\.test\/kanban\?mission=mission-test/);
@@ -980,7 +980,7 @@ async function run(): Promise<void> {
 			elapsedSeconds: 120
 		});
 
-			assert.match(reply, /Still shaping Axiom Garden\./);
+			assert.match(reply, /🛠️ Still shaping Axiom Garden\./);
 			assert.match(reply, /Canvas prep has been running for 120s, and I will send the link when planning is ready\./);
 			assert.doesNotMatch(reply, /^Status$/m);
 			assert.doesNotMatch(reply, /^Move$/m);
@@ -1086,7 +1086,7 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
 			assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
 			assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
-			assert.match(replies.join('\n'), /I am setting up maze game as a planning canvas\./);
+			assert.match(replies.join('\n'), /🛠️ I am setting up maze game as a planning canvas\./);
 			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
 			assert.doesNotMatch(replies.join('\n'), /Canvas:/);
 			assert.doesNotMatch(replies.join('\n'), /Mission board/);
@@ -1361,7 +1361,7 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
 		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
 		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);
-			assert.match(replies.join('\n'), /I am setting up Memory Quality Dashboard as a planning canvas\./);
+			assert.match(replies.join('\n'), /🛠️ I am setting up Memory Quality Dashboard as a planning canvas\./);
 			assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
 
 		restoreAxios();

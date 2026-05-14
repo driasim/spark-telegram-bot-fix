@@ -812,10 +812,10 @@ function clipText(text: string, maxLength: number): string {
 
 const VOICE_LINES = {
   missionStarted: [
-    'Spark is on it.',
-    'The run is moving.',
-    'Spark picked it up.',
-    'We are underway.'
+    '🛠️ Spark is on it.',
+    '🛠️ The run is moving.',
+    '🛠️ Spark picked it up.',
+    '🛠️ We are underway.'
   ],
   taskStarted: [
     'Step {n} started',
@@ -830,16 +830,16 @@ const VOICE_LINES = {
     'Finished step {n}'
   ],
   progress: [
-    'Spark has a real update.',
-    'The build has new signal.',
-    'A concrete change landed.',
-    'The run moved forward.'
+    '🛠️ Spark has a real update.',
+    '🛠️ The build has new signal.',
+    '🛠️ A concrete change landed.',
+    '🛠️ The run moved forward.'
   ],
   heartbeat: [
-    'Still working.',
-    'Still with it.',
-    'The run is still active.',
-    'Spark is still on this.'
+    '🛠️ Still working.',
+    '🛠️ Still with it.',
+    '🛠️ The run is still active.',
+    '🛠️ Spark is still on this.'
   ],
   completed: [
     '✨ Spark shipped it.',
@@ -848,10 +848,10 @@ const VOICE_LINES = {
     '✨ Spark wrapped this one.'
   ],
   failed: [
-    'This run needs attention.',
-    'Something blocked the mission.',
-    'The build hit a problem.',
-    'Spark could not finish this run.'
+    '⚠️ This run needs attention.',
+    '⚠️ Something blocked the mission.',
+    '⚠️ The build hit a problem.',
+    '⚠️ Spark could not finish this run.'
   ]
 } as const;
 

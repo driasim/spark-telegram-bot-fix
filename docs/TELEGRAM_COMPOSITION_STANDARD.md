@@ -92,6 +92,19 @@ Move
 That shape is allowed only when the user asked for status, raw details, or a
 scan-friendly queue.
 
+## Emoji Ergonomics
+
+Use emoji as an affordance, not decoration.
+
+- Use at most one leading emoji on natural work-state lines.
+- Good defaults: 🛠️ for work starting or actively shaping, ✨ for completion,
+  ⚠️ for attention, and 🟢/🟡/🔴/⚪ for dense status cards.
+- Do not put emojis on every bullet.
+- Do not combine an emoji, a bullet, and a numbered marker on the same row.
+- If an emoji does not make the message easier to scan, leave it out.
+- Keep sensitive, safety, access, and failure explanations mostly plain unless
+  a warning icon helps the user notice the boundary.
+
 ## Default Layouts
 
 ### Natural Follow-Up

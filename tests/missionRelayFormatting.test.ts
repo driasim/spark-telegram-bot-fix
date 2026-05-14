@@ -160,7 +160,7 @@ test('formats structured provider failures without raw JSON noise', () => {
     })
   });
 
-  assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
+  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
   assert.match(message, /final browser verification failed/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.match(message, /Quality checks passed/);
@@ -185,7 +185,7 @@ test('treats blocked freeform provider completions as mission failures', () => {
     ].join(' ')
   });
 
-  assert.match(message, /(?:This run needs attention|Something blocked the mission|The build hit a problem|Spark could not finish this run)\./);
+  assert.match(message, /(?:⚠️ This run needs attention|⚠️ Something blocked the mission|⚠️ The build hit a problem|⚠️ Spark could not finish this run)\./);
   assert.match(message, /Blocked before task start/);
   assert.doesNotMatch(message, /\b(?:mandatory|required)\s+H70/i);
   assert.doesNotMatch(message, /filesystem sandbox is read-only/i);
@@ -377,7 +377,7 @@ test('mission start update links the mission once through kanban', () => {
     'board'
   );
 
-  assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
+  assert.match(message || '', /(?:🛠️ Spark is on it|🛠️ The run is moving|🛠️ Spark picked it up|🛠️ We are underway)\./);
   assert.match(message || '', /keep the noise low and only ping when something useful changes/);
   assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
   assert.doesNotMatch(message || '', /^Spawned work$/m);
@@ -456,7 +456,7 @@ test('verbose mission start does not paste the whole build brief', () => {
     'both'
   );
 
-  assert.match(message || '', /(?:Spark is on it|The run is moving|Spark picked it up|We are underway)\./);
+  assert.match(message || '', /(?:🛠️ Spark is on it|🛠️ The run is moving|🛠️ Spark picked it up|🛠️ We are underway)\./);
   assert.match(message || '', /Mission board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-123/);
   assert.match(message || '', /Builder and Spawner are attached behind the scenes\./);
   assert.doesNotMatch(message || '', /^Paired surfaces$/m);
@@ -662,7 +662,7 @@ test('verbose progress turns useful relay summaries into readable Telegram updat
     'board'
   );
 
-  assert.match(message || '', /(?:Spark has a real update|The build has new signal|A concrete change landed|The run moved forward)/);
+  assert.match(message || '', /(?:🛠️ Spark has a real update|🛠️ The build has new signal|🛠️ A concrete change landed|🛠️ The run moved forward)/);
   assert.match(message || '', /Current focus: Wire launch sequence/);
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /MissionControl/);
@@ -765,7 +765,7 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:Still working|Still with it|The run is still active|Spark is still on this)\./);
+  assert.match(message, /(?:🛠️ Still working|🛠️ Still with it|🛠️ The run is still active|🛠️ Spark is still on this)\./);
   assert.match(message, /New signal: reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /Current focus: Review relay updates/);
