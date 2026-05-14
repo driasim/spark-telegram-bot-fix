@@ -394,28 +394,35 @@ function formatLatestMissionTelegramSummary(entry: BoardEntry): string {
   const provider = providerNames(entry);
   const status = statusWord(entry.status);
   if (status === 'completed') {
-    return provider
-      ? `The latest build was ${title}. It finished, and ${provider} handled it.`
-      : `The latest build was ${title}. It finished.`;
+    const lines = [
+      provider
+        ? `${title} finished cleanly. ${provider} handled it.`
+        : `${title} finished cleanly.`
+    ];
+    const openLink = projectOpenLinkForEntry(entry);
+    if (openLink) {
+      lines.push('', 'Open it here:', openLink);
+    }
+    return lines.join('\n');
   }
   if (status === 'running') {
     return provider
-      ? `Spark is working on ${title} right now. ${provider} is handling it.`
-      : `Spark is working on ${title} right now.`;
+      ? `${title} is still running. ${provider} is handling it.`
+      : `${title} is still running.`;
   }
   if (status === 'failed') {
     return provider
-      ? `The latest build was ${title}. It failed while ${provider} was attached.`
-      : `The latest build was ${title}. It failed before a provider was reported.`;
+      ? `${title} did not make it through. ${provider} was attached.`
+      : `${title} did not make it through before a provider was reported.`;
   }
   if (status === 'paused') {
     return provider
-      ? `The latest build is ${title}. It is paused, with ${provider} attached.`
-      : `The latest build is ${title}. It is paused.`;
+      ? `${title} is paused. ${provider} is attached.`
+      : `${title} is paused.`;
   }
   return provider
-    ? `Spark has ${title} queued. ${provider} is attached, but it has not started yet.`
-    : `Spark has ${title} queued. No LLM has picked it up yet.`;
+    ? `${title} is queued. ${provider} is attached, but it has not started yet.`
+    : `${title} is queued. No LLM has picked it up yet.`;
 }
 
 function statusWord(status: string): string {

@@ -984,10 +984,12 @@ async function run(): Promise<void> {
 		});
 
 			assert.match(reply, /Canvas is ready for domain-chip-posters/);
-			assert.match(reply, /I queued 2 build steps, and Spark is moving into the build now\./);
+			assert.match(reply, /I queued 2 build steps\. Spark is moving into the build now\./);
 			assert.doesNotMatch(reply, /Spawned tasks/);
-			assert.doesNotMatch(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
-			assert.doesNotMatch(reply, /Validate router behavior/);
+			assert.match(reply, /Plan/);
+			assert.match(reply, /Chip manifest/);
+			assert.doesNotMatch(reply, /Chip manifest · runtime sync/);
+			assert.match(reply, /Router behavior/);
 			assert.doesNotMatch(reply, /195s/);
 			assert.doesNotMatch(reply, /Architecture:/);
 			assert.doesNotMatch(reply, /Tests\/checks/);

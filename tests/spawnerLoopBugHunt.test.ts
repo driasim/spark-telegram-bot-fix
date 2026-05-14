@@ -17,7 +17,9 @@ import {
   formatCanvasShapingHeartbeatSummary,
   formatCanvasStillRunningSummary,
   formatLatestCanvasPlanReply,
-  isDomainChipPendingDirection
+  isDomainChipPendingDirection,
+  isRouteConfidenceGateUnsupportedError,
+  routeConfidenceGateCompatibilityAllows
 } from '../src/index';
 
 function test(name: string, fn: () => void): void {
@@ -145,6 +147,7 @@ test('bug hunt: mission utility requests do not become project builds', () => {
   assert.equal(parseMissionUpdatePreferenceIntent('for missions only send start and end updates')?.verbosity, 'minimal');
   assert.equal(parseSpawnerBoardNaturalIntent('which LLM took the latest Spawner job?'), 'latest_provider');
   assert.equal(parseSpawnerBoardNaturalIntent('what was the mission?'), 'latest_mission');
+  assert.equal(parseSpawnerBoardNaturalIntent('what happened with the latest mission? keep it short and conversational.'), 'latest_mission');
   assert.equal(parseSpawnerBoardNaturalIntent('why did the latest mission fail?'), 'latest_failure');
 
   [
@@ -176,10 +179,31 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
   assert.doesNotMatch(canvasReady, /Spawned tasks/);
   assert.match(canvasReady, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(canvasReady, /Mission board/);
-  assert.match(canvasReady, /I queued 4 build steps, and Spark is moving into the build now\./);
+  assert.match(canvasReady, /I queued 4 build steps\. Spark is moving into the build now\./);
+  assert.match(canvasReady, /Plan\n• App shell · frontend/);
+  assert.match(canvasReady, /• Smoke notes/);
+  assert.doesNotMatch(canvasReady, /• Smoke notes · docs/);
+  assert.doesNotMatch(canvasReady, /• \+1 more/);
+  assert.match(canvasReady, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Pro can add 1 skill: docs/);
   assert.doesNotMatch(canvasReady, /Ask for tasks or skills if you want the full plan\./);
   assert.doesNotMatch(canvasReady, /^Mission:\s*mission-123/im);
   assert.doesNotMatch(canvasReady, /elapsed|trace|request/i);
+
+  const oneStepFastLane = formatCanvasReadySummary({
+    projectName: 'One Step Fast Smoke',
+    taskCount: 1,
+    elapsed: 4,
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p-fast&mission=mission-fast',
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-fast',
+    analysis: {
+      tasks: [
+        { title: 'Build and check the single-file static page', skills: ['frontend-engineer', 'accessibility', 'qa-engineering'] }
+      ]
+    }
+  });
+  assert.match(oneStepFastLane, /I queued 1 build step/);
+  assert.match(oneStepFastLane, /• Build \+ check static page · frontend/);
+  assert.doesNotMatch(oneStepFastLane, /\.\.\./);
 
   const heartbeat = formatCanvasShapingHeartbeatSummary({ projectName: 'Proof Orchard', elapsedSeconds: 120 });
   assert.match(heartbeat, /still shaping Proof Orchard\./);
@@ -205,10 +229,68 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
   assert.doesNotMatch(stillRunning, /^Mission:\s*mission-123/im);
 });
 
+test('bug hunt: canvas previews show every build step up to ten and collapse only long plans', () => {
+  const tenStepReply = formatCanvasReadySummary({
+    projectName: 'Ten Step App',
+    taskCount: 10,
+    elapsed: 20,
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p2&mission=mission-456',
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-456',
+    analysis: {
+      tasks: Array.from({ length: 10 }, (_, index) => ({
+        title: `Step ${index + 1}`,
+        skills: ['frontend-engineer']
+      }))
+    }
+  });
+  assert.match(tenStepReply, /• Step 1 · frontend/);
+  assert.match(tenStepReply, /• Step 10 · frontend/);
+  assert.doesNotMatch(tenStepReply, /• \+\d+ more/);
+
+  const twelveStepReply = formatCanvasReadySummary({
+    projectName: 'Twelve Step App',
+    taskCount: 12,
+    elapsed: 20,
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p3&mission=mission-789',
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-789',
+    analysis: {
+      tasks: Array.from({ length: 12 }, (_, index) => ({
+        title: `Step ${index + 1}`,
+        skills: ['frontend-engineer']
+      }))
+    }
+  });
+  assert.match(twelveStepReply, /• Step 10 · frontend/);
+  assert.doesNotMatch(twelveStepReply, /• Step 11 · frontend/);
+  assert.match(twelveStepReply, /• \+2 more/);
+});
+
+test('bug hunt: pro canvas previews can show pro skills without hiding base skills', () => {
+  const reply = formatCanvasReadySummary({
+    projectName: 'Pro Game',
+    taskCount: 2,
+    elapsed: 20,
+    tier: 'pro',
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p4&mission=mission-pro',
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-pro',
+    analysis: {
+      tasks: [
+        { title: 'Create the playable game shell', skills: ['frontend-engineer', 'game-development'] },
+        { title: 'Design the core play and reasoning loop', skills: ['game-design', 'puzzle-design'] }
+      ]
+    }
+  });
+  assert.match(reply, /• Playable shell · frontend/);
+  assert.match(reply, /• Core reasoning loop · game design/);
+  assert.match(reply, /Skills invoked\n• Active: 4 skills: frontend, game dev, game design, puzzle design/);
+  assert.doesNotMatch(reply, /Pro can add/);
+});
+
 test('bug hunt: canvas task details stay available as an explicit follow-up', () => {
   const reply = formatLatestCanvasPlanReply({
     projectName: 'Proof Orchard',
     taskCount: 4,
+    tier: 'base',
     readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p1&mission=mission-123',
     recordedAt: '2026-05-12T09:00:00.000Z',
     tasks: [
@@ -221,8 +303,11 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
 
   assert.match(reply, /The latest canvas is for Proof Orchard\./);
   assert.match(reply, /4 build steps are queued\./);
+  assert.match(reply, /Skill tier: base tier/);
   assert.match(reply, /Tasks\n• Create the app shell - frontend-engineer, ui-design/);
-  assert.match(reply, /• Write smoke notes - technical-writer/);
+  assert.match(reply, /• Write smoke notes/);
+  assert.doesNotMatch(reply, /• Write smoke notes - technical-writer/);
+  assert.match(reply, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Pro can add 1 skill: docs/);
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(reply, /^Mission:/im);
   assert.doesNotMatch(reply, /Mission board/);
@@ -251,6 +336,60 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
   assert.match(noText, /Spark finished, but it did not send final notes back\./);
   assert.doesNotMatch(noText, /Codex:\s*completed without a text response/i);
   assert.doesNotMatch(noText, /Mission: mission-empty/);
+});
+
+test('bug hunt: missing Builder route-confidence command degrades through local compatibility gate', () => {
+  assert.equal(
+    isRouteConfidenceGateUnsupportedError(
+      new Error("spark-intelligence self: error: argument self_command: invalid choice: 'route-confidence-gate'")
+    ),
+    true
+  );
+  assert.equal(
+    routeConfidenceGateCompatibilityAllows({
+      latestInstruction: 'allow_execution',
+      confirmationState: 'not_required',
+      spawnerAvailable: true,
+      runnerWritable: 'yes'
+    }),
+    true
+  );
+  assert.equal(
+    routeConfidenceGateCompatibilityAllows({
+      latestInstruction: 'no_execution',
+      confirmationState: 'not_required',
+      spawnerAvailable: true,
+      runnerWritable: 'yes'
+    }),
+    false
+  );
+  assert.equal(
+    routeConfidenceGateCompatibilityAllows({
+      latestInstruction: 'allow_execution',
+      confirmationState: 'missing',
+      spawnerAvailable: true,
+      runnerWritable: 'yes'
+    }),
+    false
+  );
+  assert.equal(
+    routeConfidenceGateCompatibilityAllows({
+      latestInstruction: 'allow_execution',
+      confirmationState: 'not_required',
+      spawnerAvailable: false,
+      runnerWritable: 'yes'
+    }),
+    false
+  );
+  assert.equal(
+    routeConfidenceGateCompatibilityAllows({
+      latestInstruction: 'allow_execution',
+      confirmationState: 'not_required',
+      spawnerAvailable: true,
+      runnerWritable: 'no'
+    }),
+    false
+  );
 });
 
 test('bug hunt: pause, resume, and cancel relay state messages stay compact', () => {

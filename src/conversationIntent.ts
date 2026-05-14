@@ -1088,6 +1088,12 @@ export function parseSpawnerBoardNaturalIntent(text: string): SpawnerBoardNatura
   }
 
   if (
+    /\bwhat\s+happened\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner\s+)?(?:mission|job|run|build)\b/.test(normalized)
+  ) {
+    return 'latest_mission';
+  }
+
+  if (
     /\b(?:which|what)\s+(?:llm|model|provider|agent)\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b/.test(normalized) ||
     /\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b.*\b(?:which|what)\s+(?:llm|model|provider|agent)\b/.test(normalized) ||
     /\b(?:who|what)\s+(?:took|handled|ran|accepted)\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b/.test(normalized)

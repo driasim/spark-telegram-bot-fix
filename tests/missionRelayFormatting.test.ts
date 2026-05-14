@@ -62,11 +62,11 @@ test('formats structured provider JSON as readable Telegram text', () => {
     })
   });
 
-  assert.match(message, /✨ Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /Implemented the requested static board/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
-  assert.match(message, /Quality checks passed/);
-  assert.match(message, /keep polishing/);
+  assert.match(message, /Checked it; the important checks passed\./);
+  assert.match(message, /(?:polish anything|tweak next|tune anything|adjusted)/);
   assert.doesNotMatch(message, /Files updated/);
   assert.doesNotMatch(message, /npm run|node --check|Get-ChildItem|Checks:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
@@ -94,7 +94,7 @@ test('keeps minimal structured provider summaries compact', () => {
     })
   });
 
-  assert.match(message, /✨ Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /Built the mission cards and canvas sync\./);
   assert.doesNotMatch(message, /Files changed: 3/);
   assert.doesNotMatch(message, /src\/kanban\.ts/);
@@ -118,10 +118,10 @@ test('keeps verbose completion summaries readable and non-console-like', () => {
     })
   });
 
-  assert.match(message, /Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /Built the dashboard and verified the main workflow/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
-  assert.match(message, /Quality checks passed \(3 checks\)\./);
+  assert.match(message, /Checked it; the app opened cleanly\./);
   assert.doesNotMatch(message, /Verification commands run/);
   assert.doesNotMatch(message, /npm run|playwright|Changed files|README\.md/);
   assert.doesNotMatch(message, /Mission: spark-verbose/);
@@ -163,7 +163,7 @@ test('formats structured provider failures without raw JSON noise', () => {
   assert.match(message, /(?:⚠️ That run hit a blocker|⚠️ The build got blocked|⚠️ Spark could not finish that one|⚠️ This one needs a quick look)\./);
   assert.match(message, /final browser verification failed/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
-  assert.match(message, /Quality checks passed/);
+  assert.match(message, /Some checks passed, but one still needs attention\./);
   assert.doesNotMatch(message, /Files updated/);
   assert.doesNotMatch(message, /npm run smoke/);
   assert.doesNotMatch(message, /"status"/);
@@ -216,7 +216,7 @@ test('uses neutral completion copy when there is no preview link', () => {
     response: 'NO_PREVIEW_LINK_OK'
   });
 
-  assert.match(message, /Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /NO_PREVIEW_LINK_OK/);
   assert.doesNotMatch(message, /Open it here:/);
   assert.doesNotMatch(message, /something you can open|build ready|finished the build/i);
@@ -236,7 +236,7 @@ test('strips hidden reasoning and relay plumbing from freeform provider results'
     ].join('\n')
   });
 
-  assert.match(message, /✨ Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /created the Kanban cards and synced the canvas/);
   assert.doesNotMatch(message, /private chain of thought/);
   assert.doesNotMatch(message, /curl -X POST/);
@@ -265,15 +265,33 @@ test('summarizes freeform Codex build output without dumping file links', () => 
     ].join('\n')
   });
 
-  assert.match(message, /✨ Spark/);
+  assert.match(message, /✨/);
   assert.match(message, /Shipped/);
   assert.match(message, /Full-viewport Three\.js orbital forge/);
-  assert.match(message, /Quality checks passed/);
+  assert.match(message, /Checked it; the app opened cleanly\./);
   assert.doesNotMatch(message, /Headless Chrome desktop\/mobile/);
   assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   assert.doesNotMatch(message, /\[index\.html\]/);
   assert.doesNotMatch(message, /<\/c\/Users/);
   assert.doesNotMatch(message, /Mission: mission-orbit/);
+});
+
+test('summarizes inline verification without leaking command text', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-inline-checks',
+    verbosity: 'normal',
+    response: [
+      'Built the one-screen smoke page.',
+      'Verification passed: - npm run build passed and generated dist/ - npm test passed: win path, failure path, mobile smoke.'
+    ].join('\n')
+  });
+
+  assert.match(message, /Built the one-screen smoke page\./);
+  assert.match(message, /\n\nChecked it; the build and smoke tests passed\./);
+  assert.doesNotMatch(message, /npm run build/);
+  assert.doesNotMatch(message, /generated dist/);
+  assert.doesNotMatch(message, /win path, failure path/);
 });
 
 test('supports human verbosity aliases', () => {
@@ -634,10 +652,101 @@ test('verbose task completion messages stay compact and human readable', () => {
     'board'
   );
 
-  assert.match(message || '', /Milestone complete/);
+  assert.match(message || '', /(?:finished localStorage and saved sprites|✨ finished localStorage and saved sprites|small win: finished localStorage and saved sprites|nice, finished localStorage and saved sprites)\./);
   assert.match(message || '', /localStorage and saved sprites/);
+  assert.doesNotMatch(message || '', /Milestone complete/);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
+});
+
+test('task completion updates rotate as natural one-line progress', () => {
+  const labels = [
+    'Create the app shell and project structure',
+    'Implement the core interaction and state',
+    'Polish the visual system and documentation',
+    'Verify the completed build'
+  ];
+
+  const messages = labels.map((label, index) => formatProgressMessageForTelegram(
+    {
+      type: 'task_completed',
+      missionId: 'spark-rotation',
+      taskId: `task-${index + 1}`,
+      taskName: label,
+      data: {}
+    },
+    {
+      missionId: 'spark-rotation',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-build-rotation',
+      goal: 'Build a tiny page.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  ) || '');
+
+  assert.match(messages[0], /created the app shell and project structure/);
+  assert.match(messages[1], /implemented the core interaction and state/);
+  assert.match(messages[2], /polished the visual system and documentation/);
+  assert.match(messages[3], /verified the completed build/);
+  assert.ok(messages.every((message) => !message.includes('\n')), messages.join('\n---\n'));
+  assert.ok(messages.every((message) => !/Milestone complete/.test(message)), messages.join('\n---\n'));
+  assert.ok(new Set(messages).size >= 2, messages.join('\n---\n'));
+  assert.equal(messages.filter((message) => message.startsWith('small win:')).length, 1, messages.join('\n---\n'));
+});
+
+test('fast-lane build-and-check completion reads like one natural action', () => {
+  const message = formatProgressMessageForTelegram(
+    {
+      type: 'task_completed',
+      missionId: 'spark-fast-lane',
+      taskId: 'task-1',
+      taskName: 'Build and check the single-file static page',
+      data: {}
+    },
+    {
+      missionId: 'spark-fast-lane',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-fast-lane',
+      goal: 'Build a tiny page.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  ) || '';
+
+  assert.match(message, /nice, built and checked the single file static page/);
+  assert.doesNotMatch(message, /^✨/);
+  assert.doesNotMatch(message, /built and check the/i);
+});
+
+test('fast-lane build-and-check progress avoids duplicate working-on blocks', () => {
+  const message = formatProgressMessageForTelegram(
+    {
+      type: 'progress',
+      missionId: 'spark-fast-lane-progress',
+      taskId: 'task-1',
+      taskName: 'Build and check the single-file static page',
+      message: 'Running the single-file checks now.',
+      data: {}
+    },
+    {
+      missionId: 'spark-fast-lane-progress',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-fast-lane-progress',
+      goal: 'Build a tiny page.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  ) || '';
+
+  assert.match(message, /Running the single-file checks now/);
+  assert.doesNotMatch(message, /Working on:/);
 });
 
 test('verbose progress turns useful relay summaries into readable Telegram updates', () => {
@@ -662,11 +771,69 @@ test('verbose progress turns useful relay summaries into readable Telegram updat
     'board'
   );
 
-  assert.match(message || '', /(?:🛠️ Spark has a real update|🛠️ The build has new signal|🛠️ A concrete change landed|🛠️ The run moved forward)/);
-  assert.match(message || '', /Current focus: Wire launch sequence/);
+  assert.match(message || '', /(?:small update|quick progress|a bit more progress|small win)\./);
+  assert.doesNotMatch(message || '', /this part moved/);
+  assert.doesNotMatch(message || '', /Spark has a real update|The build has new signal/);
+  assert.doesNotMatch(message || '', /Working on: Wire launch sequence/);
+  assert.doesNotMatch(message || '', /🛠️/);
   assert.match(message || '', /added persisted launch state/);
   assert.doesNotMatch(message || '', /MissionControl/);
   assert.doesNotMatch(message || '', /spark-123/);
+});
+
+test('verbose progress skips generic focus when the concrete change is clear', () => {
+  const message = formatProgressMessageForTelegram(
+    {
+      type: 'task_progress',
+      missionId: 'spark-static',
+      taskName: 'Create the app shell and project structure',
+      message: 'Static shell files are present and app.js syntax check passed.',
+      data: {}
+    },
+    {
+      missionId: 'spark-static',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-build-static',
+      goal: 'Build a tiny static page.',
+      createdAt: '2026-04-26T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  );
+
+  assert.match(message || '', /Static shell files are present/);
+  assert.doesNotMatch(message || '', /Working on: Create the app shell and project structure/);
+});
+
+test('neutralizes provider-prefixed no-text completion placeholders', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-empty-prefixed',
+    verbosity: 'normal',
+    response: 'Codex: completed without a text response'
+  });
+
+  assert.match(message, /The run finished, but it did not send useful final notes back\./);
+  assert.doesNotMatch(message, /Codex:\s*completed without a text response/i);
+  assert.doesNotMatch(message, /Mission: mission-empty-prefixed/);
+});
+
+test('provider no-text placeholder with preview link becomes a clean handoff', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-empty-linked',
+    verbosity: 'normal',
+    openLink: 'http://127.0.0.1:3333/preview/demo/index.html',
+    response: 'Codex: completed without a text response'
+  });
+
+  assert.match(message, /✨/);
+  assert.match(message, /Open it here:\nhttp:\/\/127\.0\.0\.1:3333\/preview\/demo\/index\.html/);
+  assert.match(message, /(?:polish anything|tweak next|tune anything|adjusted)/);
+  assert.doesNotMatch(message, /completed without a text response/i);
+  assert.doesNotMatch(message, /did not send useful final notes/i);
+  assert.doesNotMatch(message, /Mission: mission-empty-linked/);
 });
 
 test('suppresses internal skill and dispatch chatter', () => {
@@ -765,15 +932,36 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:still working|still with it|the run is still active|Spark is still on this)\./);
+  assert.match(message, /(?:still working|still with it|still moving|still shaping this)\./);
   assert.doesNotMatch(message, /🛠️/);
-  assert.match(message, /New signal: reviewing the telemetry relay and writing focused tests/);
+  assert.match(message, /What changed: reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
-  assert.match(message, /Current focus: Review relay updates/);
-  assert.match(message, /new signal/);
+  assert.doesNotMatch(message, /Working on: Review relay updates/);
+  assert.match(message, /something actually changes/);
   assert.doesNotMatch(message, /^Focus$/m);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
+});
+
+test('dedupes heartbeat summary when focus repeats the same work', () => {
+  const message = formatMissionHeartbeatForTelegram({
+    missionId: 'spark-dedupe',
+    goal: 'Build a tiny static app.',
+    taskLabel: 'the build',
+    elapsedMs: 180_000,
+    verbosity: 'normal',
+    snapshot: {
+      missionId: 'spark-dedupe',
+      status: 'running',
+      lastEventType: 'task_progress',
+      lastSummary: 'Creating the static app shell and direct-launch file structure.',
+      taskName: 'Create the app shell and project structure'
+    }
+  });
+
+  assert.match(message, /What changed: Creating the static app shell and direct-launch file structure\./);
+  assert.doesNotMatch(message, /Current focus:/);
+  assert.doesNotMatch(message, /Working on: Create the app shell and project structure/);
 });
 
 test('suppresses low-signal mission heartbeat summaries', () => {
@@ -792,10 +980,11 @@ test('suppresses low-signal mission heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /Nothing new worth interrupting you with yet\./);
+  assert.match(message, /I will only nudge you when something actually changes\./);
   assert.doesNotMatch(message, /Elapsed:/);
   assert.doesNotMatch(message, /Mission: spark-123/);
   assert.doesNotMatch(message, /Z\.AI: Document launch path is running/);
+  assert.doesNotMatch(message, /Working on:/);
 });
 
 test('suppresses provider stopwatch heartbeat summaries', () => {
@@ -814,9 +1003,10 @@ test('suppresses provider stopwatch heartbeat summaries', () => {
     }
   });
 
-  assert.match(message, /Nothing new worth interrupting you with yet\./);
+  assert.match(message, /I will only nudge you when something actually changes\./);
   assert.doesNotMatch(message, /working through 4 task pack/);
   assert.doesNotMatch(message, /estimate adjusting/);
+  assert.doesNotMatch(message, /Working on:/);
 });
 
 test('stops mission heartbeats for terminal or stale runs', () => {

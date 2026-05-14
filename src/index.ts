@@ -224,7 +224,7 @@ import {
 } from './naturalRouteLedger';
 import { getLatestShippedProjectContext } from './shippedProjectContext';
 import axios from 'axios';
-import { getTierForUser } from './userTier';
+import { describeTier, getTierForUser, type SkillTier } from './userTier';
 import { acquireGatewayOwnership, releaseGatewayOwnership } from './gatewayOwnership';
 import { requireRelaySecret, resolveTelegramLaunchConfig } from './launchMode';
 import { renderSparkErrorReply } from './errorExplain';
@@ -1512,6 +1512,7 @@ interface LatestCanvasPlan {
   projectName: string;
   taskCount: number | null;
   tasks: LatestCanvasPlanTask[];
+	tier: SkillTier;
   readyCanvasUrl: string;
   recordedAt: string;
 }
@@ -2463,7 +2464,8 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       publicSpawnerUrl,
       canvasUrl,
       kanbanUrl,
-      buildLane
+      buildLane,
+      tier
     });
   } catch (err) {
     await ctx.reply(renderSparkErrorReply(err instanceof Error ? err : new Error(String(err)), 'spawner', conversation.isAdmin(ctx.from)));
@@ -2477,10 +2479,11 @@ function startPrdCanvasReadyNotifier(args: {
   requestId: string;
   missionId: string;
   spawnerUrl: string;
-  publicSpawnerUrl: string;
-  canvasUrl: string;
-  kanbanUrl: string;
-  buildLane?: BuildLane;
+	publicSpawnerUrl: string;
+	canvasUrl: string;
+	kanbanUrl: string;
+	buildLane?: BuildLane;
+	tier?: SkillTier;
 }): void {
   void (async () => {
     const started = Date.now();
@@ -2530,6 +2533,7 @@ function startPrdCanvasReadyNotifier(args: {
               projectName: args.projectName,
               taskCount: typeof taskCount === 'number' ? taskCount : null,
               analysis: poll.data.result,
+              tier: args.tier || 'base',
               readyCanvasUrl
             });
             await bot.telegram.sendMessage(args.chatId, formatCanvasReadySummary({
@@ -2537,6 +2541,7 @@ function startPrdCanvasReadyNotifier(args: {
               taskCount,
               elapsed,
               analysis: poll.data.result,
+              tier: args.tier,
               readyCanvasUrl,
               kanbanUrl: args.kanbanUrl
             }));
@@ -3469,22 +3474,28 @@ function buildLatestAssistantOriginReply(currentText: string, pending: PendingCl
 }
 
 export function formatCanvasReadySummary(args: {
-  projectName: string;
-  taskCount: unknown;
-  elapsed: number;
-  analysis: any;
+	projectName: string;
+	taskCount: unknown;
+	elapsed: number;
+	analysis: any;
+	tier?: SkillTier;
   readyCanvasUrl: string;
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
+  const tier = args.tier || 'base';
   const rawTaskCount = typeof args.taskCount === 'number' ? args.taskCount : tasks.length;
   const taskCount = Number.isFinite(rawTaskCount) ? rawTaskCount : 0;
   const buildStepLine = taskCount > 0
-    ? `I queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'}, and Spark is moving into the build now.`
+    ? `I queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'}. Spark is moving into the build now.`
     : 'Spark is moving into the build now.';
+  const taskPreview = formatCanvasTaskPreview(tasks, tier);
+  const skillSummary = formatCanvasSkillSummary(tasks, tier);
   return telegramBlocks(
     `Canvas is ready for ${args.projectName}.`,
     buildStepLine,
+    taskPreview,
+    skillSummary,
     ['Canvas', `• ${args.readyCanvasUrl}`].join('\n')
   );
 }
@@ -3496,12 +3507,177 @@ function taskTitleFromAnalysisTask(task: any): string | null {
   return title || null;
 }
 
+function compactCanvasTaskTitle(title: string): string {
+	const normalized = title.trim().toLowerCase();
+	const shortTitles: Record<string, string> = {
+		'create the playable game shell': 'Playable shell',
+		'design the core play and reasoning loop': 'Core reasoning loop',
+		'add scoring, restart, and player feedback': 'Scoring and feedback',
+		'verify the playable loop': 'Playable-loop QA',
+		'create the app shell and project structure': 'App shell',
+		'create the app shell': 'App shell',
+		'implement the core interaction and state': 'Core interaction',
+		'implement reasoning rounds': 'Reasoning rounds',
+		'polish the visual system and documentation': 'Polish and docs',
+		'polish the visual system': 'Visual polish',
+		'write smoke notes': 'Smoke notes',
+		'build and check the single-file static page': 'Build + check static page',
+		'build and check the focused static page': 'Build + check static page',
+		'scaffold chip manifest and hooks': 'Chip manifest',
+		'validate router behavior': 'Router behavior',
+		'model the token and nft launch signals': 'Launch signals',
+		'build the launch decision dashboard': 'Decision dashboard',
+		'add scenario controls and warning states': 'Scenarios and warnings',
+		'verify launch dashboard quality': 'Launch-dashboard QA'
+	};
+	if (shortTitles[normalized]) return shortTitles[normalized];
+	if (title.length <= 42) return title;
+	return `${title.slice(0, 39).replace(/\s+\S*$/, '').trim()}...`;
+}
+
 function taskSkillsFromAnalysisTask(task: any): string[] {
-  const raw: unknown[] = Array.isArray(task?.skills) ? task.skills : [];
-  return raw
-    .filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
-    .map((skill) => skill.trim())
-    .slice(0, 4);
+	const raw: unknown[] = Array.isArray(task?.skills) ? task.skills : [];
+	return raw
+		.filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
+		.map((skill) => skill.trim())
+		.slice(0, 4);
+}
+
+const BASE_SKILL_IDS = new Set([
+	'accessibility',
+	'ai-observability',
+	'api-design',
+	'authentication-oauth',
+	'database-architect',
+	'data-pipeline',
+	'design-systems',
+	'devops',
+	'error-handling',
+	'forms-validation',
+	'frontend-engineer',
+	'llm-architect',
+	'observability',
+	'playwright-testing',
+	'prompt-engineer',
+	'queue-workers',
+	'rag-engineer',
+	'rate-limiting',
+	'react-patterns',
+	'redis-specialist',
+	'responsive-mobile-first',
+	'security-owasp',
+	'stripe-integration',
+	'structured-output',
+	'subscription-billing',
+	'testing-strategies',
+	'ui-design',
+	'ux-design',
+	'vector-specialist',
+	'webhook-processing',
+	'workflow-automation'
+]);
+
+const COMMON_PRO_SKILL_IDS = new Set([
+	'copywriting',
+	'data-dashboard-design',
+	'game-design',
+	'game-design-core',
+	'game-development',
+	'game-ui-design',
+	'level-design',
+	'nft-systems',
+	'player-onboarding',
+	'procedural-generation',
+	'product-analytics-engineering',
+	'product-strategy',
+	'puzzle-design',
+	'qa-engineering',
+	'risk-management-trading',
+	'state-management',
+	'technical-writer',
+	'tokenomics-design'
+]);
+
+function skillTierForDisplay(skill: string): SkillTier | 'unknown' {
+	const normalized = skill.trim().toLowerCase().replace(/[_\s]+/g, '-');
+	if (!normalized) return 'unknown';
+	if (BASE_SKILL_IDS.has(normalized)) return 'base';
+	if (COMMON_PRO_SKILL_IDS.has(normalized)) return 'pro';
+	return 'unknown';
+}
+
+function uniqueTaskSkills(tasks: any[]): string[] {
+	return [...new Set(tasks.flatMap((task) => taskSkillsFromAnalysisTask(task)))];
+}
+
+function readableSkillLabel(skill: string): string {
+	const normalized = skill.trim().toLowerCase().replace(/[_\s]+/g, '-');
+	const shortLabels: Record<string, string> = {
+		'frontend-engineer': 'frontend',
+		'game-development': 'game dev',
+		'game-design': 'game design',
+		'game-design-core': 'game loop',
+		'game-ui-design': 'game UI',
+		'responsive-mobile-first': 'mobile',
+		'state-management': 'state',
+		'player-onboarding': 'onboarding',
+		'qa-engineering': 'QA',
+		'testing-strategies': 'testing',
+		'technical-writer': 'docs',
+		'ui-design': 'UI design',
+		'accessibility': 'accessibility',
+		'procedural-generation': 'procedural',
+		'level-design': 'levels'
+	};
+	return shortLabels[normalized] || skill
+		.replace(/[-_]+/g, ' ')
+		.replace(/\bui\b/gi, 'UI')
+		.replace(/\bqa\b/gi, 'QA')
+		.trim();
+}
+
+function formatCanvasSkillSummary(tasks: any[], tier: SkillTier): string | null {
+	const skills = uniqueTaskSkills(tasks);
+	if (skills.length === 0) return null;
+	const base = skills.filter((skill) => skillTierForDisplay(skill) === 'base');
+	const pro = skills.filter((skill) => skillTierForDisplay(skill) === 'pro');
+	const activeSkills = tier === 'pro' ? [...base, ...pro] : base;
+	const rows: string[] = [];
+	if (activeSkills.length > 0) {
+		const previewLimit = tier === 'pro' ? 4 : 5;
+		const preview = activeSkills.slice(0, previewLimit).map(readableSkillLabel).join(', ');
+		const hiddenCount = Math.max(0, activeSkills.length - previewLimit);
+		rows.push(`• Active: ${activeSkills.length} ${activeSkills.length === 1 ? 'skill' : 'skills'}: ${preview}${hiddenCount > 0 ? `, +${hiddenCount} more` : ''}`);
+	}
+	if (tier === 'base' && pro.length > 0) {
+		const preview = pro.slice(0, 5).map(readableSkillLabel).join(', ');
+		rows.push(`• Pro can add ${pro.length} ${pro.length === 1 ? 'skill' : 'skills'}: ${preview}${pro.length > 5 ? `, +${pro.length - 5} more` : ''}`);
+	}
+	if (rows.length === 0) return null;
+	return ['Skills invoked', ...rows].join('\n');
+}
+
+function taskSkillsForTierDisplay(skills: string[], tier: SkillTier): string[] {
+	if (tier === 'pro') return skills;
+	return skills.filter((skill) => skillTierForDisplay(skill) === 'base');
+}
+
+function formatCanvasTaskPreview(tasks: any[], tier: SkillTier): string | null {
+	const rows = tasks
+		.map((task) => {
+			const title = taskTitleFromAnalysisTask(task);
+			if (!title) return null;
+			const skills = taskSkillsForTierDisplay(taskSkillsFromAnalysisTask(task), tier).slice(0, 1).map(readableSkillLabel);
+			const compactTitle = compactCanvasTaskTitle(title);
+			return skills.length > 0 ? `• ${compactTitle} · ${skills[0]}` : `• ${compactTitle}`;
+		})
+		.filter((row): row is string => Boolean(row))
+		.slice(0, 10);
+	if (rows.length === 0) return null;
+	const hiddenCount = Math.max(0, tasks.length - rows.length);
+	return ['Plan', ...rows, hiddenCount > 0 ? `• +${hiddenCount} more` : null]
+		.filter((row): row is string => Boolean(row))
+		.join('\n');
 }
 
 function canvasPlanTasksFromAnalysis(analysis: any): LatestCanvasPlanTask[] {
@@ -3519,12 +3695,14 @@ function rememberLatestCanvasPlan(chatId: string | number, userId: string | numb
   projectName: string;
   taskCount: number | null;
   analysis: any;
+	tier?: SkillTier;
   readyCanvasUrl: string;
 }): void {
   latestCanvasPlans.set(canvasPlanKey(chatId, userId), {
     projectName: input.projectName,
     taskCount: input.taskCount,
     tasks: canvasPlanTasksFromAnalysis(input.analysis),
+		tier: input.tier || 'base',
     readyCanvasUrl: input.readyCanvasUrl,
     recordedAt: new Date().toISOString()
   });
@@ -3542,22 +3720,26 @@ function isLatestCanvasPlanQuestion(text: string): boolean {
 export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
   const taskLines = plan.tasks.length > 0
     ? plan.tasks.map((task) => {
-        const skills = task.skills.length > 0 ? ` - ${task.skills.join(', ')}` : '';
+        const visibleSkills = taskSkillsForTierDisplay(task.skills, plan.tier);
+        const skills = visibleSkills.length > 0 ? ` - ${visibleSkills.join(', ')}` : '';
         return `• ${task.title}${skills}`;
       })
     : ['• The canvas is ready, but it did not return task rows to Telegram.'];
+	const skillSummary = formatCanvasSkillSummary(plan.tasks, plan.tier);
 
   const count = plan.taskCount ?? plan.tasks.length;
   return [
     `The latest canvas is for ${plan.projectName}.`,
     count > 0 ? `${count} build steps are queued.` : null,
+		`Skill tier: ${describeTier(plan.tier)}.`,
     '',
     'Tasks',
     ...taskLines,
+		skillSummary ? ['', skillSummary] : null,
     '',
     'Canvas',
     `• ${plan.readyCanvasUrl}`
-  ].filter((line): line is string => line !== null).join('\n');
+  ].flat().filter((line): line is string => line !== null).join('\n');
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -3654,13 +3836,14 @@ export async function buildDispatchRouteConfidenceAllows(input: {
   if (process.env.SPARK_BOT_TEST_MODE === '1') {
     return true;
   }
+  let spawnerAvailable = false;
+  const runnerWritable = input.runnerPreflight?.runnerWritable || 'unknown';
 
   try {
     const gateRunner = input.gateRunner || runBuilderRouteConfidenceGate;
-    const spawnerAvailable = input.spawnerAvailableProbe
+    spawnerAvailable = input.spawnerAvailableProbe
       ? await input.spawnerAvailableProbe()
       : await spawner.isAvailable().catch(() => false);
-    const runnerWritable = input.runnerPreflight?.runnerWritable || 'unknown';
     const routeCapabilityState = spawnerAvailable ? 'available' : 'unavailable';
     const routeRunnerState = runnerWritable === 'no' ? 'unavailable' : 'available';
     const authorityVerdict = {
@@ -3751,6 +3934,32 @@ export async function buildDispatchRouteConfidenceAllows(input: {
     ].join('\n'));
     return false;
   } catch (error) {
+    if (isRouteConfidenceGateUnsupportedError(error)) {
+      const allowedByLocalCompatibility = routeConfidenceGateCompatibilityAllows({
+        latestInstruction: input.latestInstruction || 'allow_execution',
+        confirmationState: input.confirmationState || 'not_required',
+        spawnerAvailable,
+        runnerWritable
+      });
+      recordRouteConfidenceDispatchOutcome({
+        route: 'spawner.build',
+        decision: allowedByLocalCompatibility ? 'act' : 'unavailable',
+        outcome: allowedByLocalCompatibility ? 'acted' : 'failed_closed',
+        requestId: input.requestId,
+        traceRef: input.traceRef,
+        policy: 'compat_builder_route_confidence_gate_missing'
+      });
+      if (allowedByLocalCompatibility) {
+        console.warn('[RouteConfidenceGate] Builder gate command is unavailable; using local compatibility gate for explicit build dispatch.');
+        return true;
+      }
+      await input.ctx.reply([
+        'I can shape the build, but I cannot prove the route gate from this Builder version yet.',
+        '',
+        'Try /diagnose, then ask again after Spark finishes syncing.'
+      ].join('\n'));
+      return false;
+    }
     recordRouteConfidenceDispatchOutcome({
       route: 'spawner.build',
       decision: 'unavailable',
@@ -3767,6 +3976,32 @@ export async function buildDispatchRouteConfidenceAllows(input: {
     ));
     return false;
   }
+}
+
+export function isRouteConfidenceGateUnsupportedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /\broute-confidence-gate\b/i.test(message) &&
+    (
+      /\binvalid choice\b/i.test(message) ||
+      /\bunrecognized arguments?\b/i.test(message) ||
+      /\bNo such command\b/i.test(message) ||
+      /\bunknown command\b/i.test(message)
+    )
+  );
+}
+
+export function routeConfidenceGateCompatibilityAllows(input: {
+  latestInstruction: 'allow_execution' | 'no_execution';
+  confirmationState: 'not_required' | 'confirmed' | 'missing';
+  spawnerAvailable: boolean;
+  runnerWritable: 'yes' | 'no' | 'unknown';
+}): boolean {
+  if (input.latestInstruction === 'no_execution') return false;
+  if (input.confirmationState === 'missing') return false;
+  if (!input.spawnerAvailable) return false;
+  if (input.runnerWritable === 'no') return false;
+  return true;
 }
 
 interface RunCommandOptions {
@@ -4033,7 +4268,8 @@ export async function handleBuildIntent(
       publicSpawnerUrl,
       canvasUrl,
       kanbanUrl,
-      buildLane
+      buildLane,
+      tier
     });
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'spawner', conversation.isAdmin(ctx.from)));
