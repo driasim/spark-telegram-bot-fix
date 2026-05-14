@@ -16,6 +16,7 @@ import {
   formatCanvasReadySummary,
   formatCanvasShapingHeartbeatSummary,
   formatCanvasStillRunningSummary,
+  formatLatestCanvasPlanReply,
   isDomainChipPendingDirection
 } from '../src/index';
 
@@ -172,9 +173,10 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
     }
   });
   assert.match(canvasReady, /Canvas is ready for Proof Orchard\./);
-  assert.match(canvasReady, /Spawned tasks/);
+  assert.doesNotMatch(canvasReady, /Spawned tasks/);
   assert.match(canvasReady, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
-  assert.match(canvasReady, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+  assert.doesNotMatch(canvasReady, /Mission board/);
+  assert.match(canvasReady, /Ask for tasks or skills if you want the full plan\./);
   assert.doesNotMatch(canvasReady, /^Mission:\s*mission-123/im);
   assert.doesNotMatch(canvasReady, /elapsed|trace|request/i);
 
@@ -190,6 +192,29 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
   });
   assert.match(stillRunning, /Canvas is still preparing for Proof Orchard\./);
   assert.doesNotMatch(stillRunning, /^Mission:\s*mission-123/im);
+});
+
+test('bug hunt: canvas task details stay available as an explicit follow-up', () => {
+  const reply = formatLatestCanvasPlanReply({
+    projectName: 'Proof Orchard',
+    taskCount: 4,
+    readyCanvasUrl: 'http://127.0.0.1:3333/canvas?pipeline=p1&mission=mission-123',
+    recordedAt: '2026-05-12T09:00:00.000Z',
+    tasks: [
+      { title: 'Create the app shell', skills: ['frontend-engineer', 'ui-design'] },
+      { title: 'Implement reasoning rounds', skills: ['frontend-engineer'] },
+      { title: 'Polish the visual system', skills: ['ui-design', 'accessibility'] },
+      { title: 'Write smoke notes', skills: ['technical-writer'] }
+    ]
+  });
+
+  assert.match(reply, /The latest canvas is for Proof Orchard\./);
+  assert.match(reply, /4 build steps are queued\./);
+  assert.match(reply, /Tasks\n• Create the app shell - frontend-engineer, ui-design/);
+  assert.match(reply, /• Write smoke notes - technical-writer/);
+  assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
+  assert.doesNotMatch(reply, /^Mission:/im);
+  assert.doesNotMatch(reply, /Mission board/);
 });
 
 test('bug hunt: provider completion does not make failures look shipped', () => {

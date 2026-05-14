@@ -199,11 +199,12 @@ async function run(): Promise<void> {
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
 		assert.doesNotMatch(replies[0] || '', new RegExp(`Mission: ${missionId}`));
-		assert.match(replies[0] || '', /Spawned work/);
-		assert.match(replies[0] || '', /Paired surfaces/);
+		assert.match(replies[0] || '', /I am setting up saas-billing-test as a direct build\./);
+		assert.match(replies[0] || '', /I will send the canvas when planning is ready\./);
+		assert.doesNotMatch(replies[0] || '', /Spawned work/);
+		assert.doesNotMatch(replies[0] || '', /Paired surfaces/);
 		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
-		assert.equal(((replies[0] || '').match(/Mission board/g) || []).length, 1);
+		assert.doesNotMatch(replies[0] || '', /Mission board/);
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
 			command: 'run',
@@ -300,12 +301,12 @@ async function run(): Promise<void> {
 			{ allowBuildIntent: true }
 		);
 
-		assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
-		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
-		assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
-		assert.match(replies.join('\n'), /Spawned work/);
-		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
-		assert.equal((replies.join('\n').match(/Mission board/g) || []).length, 1);
+			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
+			assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'expected /run build request to POST to /api/prd-bridge/write');
+			assert.ok(!captured.some((c) => c.url.includes('/api/spark/run')), 'build request should not use the simple Spark run API');
+			assert.match(replies.join('\n'), /I am setting up Cafe Landing Page as a direct build\./);
+			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected build route to include PRD bridge call');
 		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
@@ -443,10 +444,10 @@ async function run(): Promise<void> {
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected mixed preference/build prompt to POST to /api/prd-bridge/write');
-		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
-		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
-		assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
-		assert.match(replies[0] || '', /• terminal chef clock/);
+			assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
+			assert.equal(writeCall!.body.buildMode, 'advanced_prd');
+			assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
+			assert.match(replies[0] || '', /I am setting up terminal chef clock as a planning canvas\./);
 
 		restoreAxios();
 		restoreEnv();
@@ -758,11 +759,12 @@ async function run(): Promise<void> {
 		assert.match(writeCall!.body.content, /current Spark-compatible domain chip standards/);
 		assert.match(writeCall!.body.content, /CAPABILITY_PROPOSAL_STANDARD_V1/);
 		assert.equal(writeCall!.body.capabilityProposalPacket.schema_version, 'spark.capability_proposal.v1');
-		assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
-		assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
-		assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
-		assert.doesNotMatch(replies[0] || '', /Canvas:/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.equal(writeCall!.body.capabilityProposalPacket.implementation_route, 'domain_chip');
+			assert.equal(writeCall!.body.capabilityProposalPacket.capability_ledger_key, 'domain_chip:domain-chip-creates-weird-poster-prompts-from');
+			assert.match(writeCall!.body.capabilityProposalPacket.claim_boundary, /not proof/i);
+			assert.match(replies[0] || '', /I am setting up domain-chip-creates-weird-poster-prompts-from as a planning canvas\./);
+			assert.doesNotMatch(replies[0] || '', /Canvas:/);
+			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
 		restoreAxios();
 		restoreEnv();
@@ -812,10 +814,10 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.projectName, 'Founder Signal Room');
 		assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\founder-signal-room`/);
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
-		assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
-		assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
-		assert.match(replies[0] || '', /• Founder Signal Room/);
-		assert.match(replies[0] || '', /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
+			assert.doesNotMatch(replies.join('\n'), /Got it\. I have these options on the table/);
+			assert.doesNotMatch(replies.join('\n'), /Tell me which number/);
+			assert.match(replies[0] || '', /I am setting up Founder Signal Room as a planning canvas\./);
+			assert.doesNotMatch(replies[0] || '', /Mission board/);
 
 		restoreAxios();
 		restoreEnv();
@@ -940,17 +942,18 @@ async function run(): Promise<void> {
 			}
 		});
 
-		assert.match(reply, /Canvas is ready for domain-chip-posters/);
-		assert.match(reply, /2 build steps queued\./);
-		assert.match(reply, /Spawned tasks/);
-		assert.match(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
-		assert.match(reply, /Validate router behavior/);
-		assert.doesNotMatch(reply, /195s/);
-		assert.doesNotMatch(reply, /Architecture:/);
-		assert.doesNotMatch(reply, /Tests\/checks/);
-		assert.match(reply, /Canvas\n• http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
-		assert.match(reply, /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
-		assert.match(reply, /I will send the final handoff when it is built/);
+			assert.match(reply, /Canvas is ready for domain-chip-posters/);
+			assert.match(reply, /2 build steps queued\./);
+			assert.doesNotMatch(reply, /Spawned tasks/);
+			assert.doesNotMatch(reply, /Scaffold chip manifest and hooks - skills: runtime-sync/);
+			assert.doesNotMatch(reply, /Validate router behavior/);
+			assert.doesNotMatch(reply, /195s/);
+			assert.doesNotMatch(reply, /Architecture:/);
+			assert.doesNotMatch(reply, /Tests\/checks/);
+			assert.match(reply, /Canvas\n• http:\/\/stub-spawner\.test\/canvas\?pipeline=prd-test&mission=mission-test/);
+			assert.doesNotMatch(reply, /Mission board/);
+			assert.match(reply, /Ask for tasks or skills if you want the full plan\./);
+			assert.match(reply, /I will send the final handoff when it is built/);
 	});
 
 	await test('canvas still-running summary avoids raw mission id noise', async () => {
@@ -1078,12 +1081,12 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.missionId, clarifiedMissionId);
 		assert.equal(dispatchCall!.body.traceRef, `trace:spawner-prd:${clarifiedMissionId}`);
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
-		assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
-		assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
-		assert.match(replies.join('\n'), /Spawned work/);
-		assert.doesNotMatch(replies.join('\n'), /Canvas:/);
-		assert.match(replies.join('\n'), /Mission board\n• http:\/\/stub-spawner\.test\/kanban/);
-		assert.equal((replies.join('\n').match(/Mission board/g) || []).length, 1);
+			assert.match(replies.join('\n'), /Perfect, I will run with the default direction/);
+			assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
+			assert.match(replies.join('\n'), /I am setting up maze game as a planning canvas\./);
+			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
+			assert.doesNotMatch(replies.join('\n'), /Canvas:/);
+			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const registry = await readMissionRelayRegistry();
 		const subscription = registry.find((entry) => entry.missionId === clarifiedMissionId);
 		assert.ok(subscription, 'clarified PRD build mission should be registered for Telegram relay progress');
@@ -1355,8 +1358,8 @@ async function run(): Promise<void> {
 		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
 		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
 		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);
-		assert.match(replies.join('\n'), /• Memory Quality Dashboard/);
-		assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
+			assert.match(replies.join('\n'), /I am setting up Memory Quality Dashboard as a planning canvas\./);
+			assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
 
 		restoreAxios();
 		restoreEnv();

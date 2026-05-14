@@ -1491,8 +1491,27 @@ const RATE_LIMIT_MS = 1000; // 1 second between messages
 
 const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
 
+interface LatestCanvasPlanTask {
+  title: string;
+  skills: string[];
+}
+
+interface LatestCanvasPlan {
+  projectName: string;
+  taskCount: number | null;
+  tasks: LatestCanvasPlanTask[];
+  readyCanvasUrl: string;
+  recordedAt: string;
+}
+
+const latestCanvasPlans = new Map<string, LatestCanvasPlan>();
+
 function noEditProbeKey(ctx: any): string {
   return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
+}
+
+function canvasPlanKey(chatId: string | number | undefined, userId: string | number | undefined): string {
+  return `${chatId ?? 'unknown'}-${userId ?? 'unknown'}`;
 }
 
 // Pending clarification state — keyed by `${chatId}-${userId}`. In-memory
@@ -2403,6 +2422,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     }));
     startPrdCanvasReadyNotifier({
       chatId: Number(ctx.chat.id),
+      userId: Number(ctx.from.id),
       projectName: pending.projectName,
       requestId: newRequestId,
       missionId,
@@ -2418,6 +2438,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
 
 function startPrdCanvasReadyNotifier(args: {
   chatId: number;
+  userId: number;
   projectName: string;
   requestId: string;
   missionId: string;
@@ -2470,6 +2491,12 @@ function startPrdCanvasReadyNotifier(args: {
               ? `${args.publicSpawnerUrl.replace(/\/+$/, '')}${queue.data.canvasUrl}`
               : args.canvasUrl;
             const elapsed = Math.round((Date.now() - started) / 1000);
+            rememberLatestCanvasPlan(args.chatId, args.userId, {
+              projectName: args.projectName,
+              taskCount: typeof taskCount === 'number' ? taskCount : null,
+              analysis: poll.data.result,
+              readyCanvasUrl
+            });
             await bot.telegram.sendMessage(args.chatId, formatCanvasReadySummary({
               projectName: args.projectName,
               taskCount,
@@ -2790,20 +2817,9 @@ function formatBuildMissionQueuedReply(input: {
   const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
   return telegramBlocks(
     input.lead,
-    [
-      'Spawned work',
-      `• ${input.projectName}`,
-      `• ${modeText}`
-    ].join('\n'),
-    [
-      'Paired surfaces',
-      '• Builder planning',
-      '• Spawner / Mission Control',
-      '• Telegram relay updates'
-    ].join('\n'),
+    `I am setting up ${input.projectName} as a ${modeText}.`,
     input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
-    ['Mission board', `• ${input.kanbanUrl}`].join('\n'),
-    'I am shaping the task canvas now. I will share it when planning is ready.'
+    'I will send the canvas when planning is ready.'
   );
 }
 
@@ -3423,39 +3439,90 @@ export function formatCanvasReadySummary(args: {
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
-  const taskRows = tasks
-    .map((task: any) => {
-      const title = typeof task?.title === 'string' ? task.title.trim() : '';
-      if (!title) return '';
-      const skills = Array.isArray(task?.skills)
-        ? task.skills.filter((skill: unknown): skill is string => typeof skill === 'string' && Boolean(skill.trim())).slice(0, 3)
-        : [];
-      return skills.length ? `${title} - skills: ${skills.join(', ')}` : title;
-    })
-    .filter(Boolean)
-    .slice(0, 3);
   const lines = [
     `Canvas is ready for ${args.projectName}.`,
     `${args.taskCount ?? tasks.length} build steps queued.`,
   ];
-  if (taskRows.length > 0) {
-    lines.push('', 'Spawned tasks');
-    taskRows.forEach((row: string) => lines.push(`• ${row}`));
-    if (tasks.length > taskRows.length) {
-      lines.push(`• +${tasks.length - taskRows.length} more`);
-    }
-  }
   lines.push(
     '',
     'Canvas',
     `• ${args.readyCanvasUrl}`,
     '',
-    'Mission board',
-    `• ${args.kanbanUrl}`,
-    '',
+    'Ask for tasks or skills if you want the full plan.',
     'I will send the final handoff when it is built.'
   );
   return lines.join('\n');
+}
+
+function taskTitleFromAnalysisTask(task: any): string | null {
+  const raw = task?.title || task?.name || task?.task || task?.description;
+  if (typeof raw !== 'string') return null;
+  const title = raw.replace(/\s+/g, ' ').trim();
+  return title || null;
+}
+
+function taskSkillsFromAnalysisTask(task: any): string[] {
+  const raw: unknown[] = Array.isArray(task?.skills) ? task.skills : [];
+  return raw
+    .filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0)
+    .map((skill) => skill.trim())
+    .slice(0, 4);
+}
+
+function canvasPlanTasksFromAnalysis(analysis: any): LatestCanvasPlanTask[] {
+  const tasks: unknown[] = Array.isArray(analysis?.tasks) ? analysis.tasks : [];
+  return tasks
+    .map((task: unknown) => {
+      const title = taskTitleFromAnalysisTask(task);
+      return title ? { title, skills: taskSkillsFromAnalysisTask(task) } : null;
+    })
+    .filter((task): task is LatestCanvasPlanTask => Boolean(task))
+    .slice(0, 8);
+}
+
+function rememberLatestCanvasPlan(chatId: string | number, userId: string | number, input: {
+  projectName: string;
+  taskCount: number | null;
+  analysis: any;
+  readyCanvasUrl: string;
+}): void {
+  latestCanvasPlans.set(canvasPlanKey(chatId, userId), {
+    projectName: input.projectName,
+    taskCount: input.taskCount,
+    tasks: canvasPlanTasksFromAnalysis(input.analysis),
+    readyCanvasUrl: input.readyCanvasUrl,
+    recordedAt: new Date().toISOString()
+  });
+}
+
+function isLatestCanvasPlanQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
+    || /\bfull plan\b/.test(normalized);
+  const asksTasksOrSkills = /\b(?:tasks?|steps?|skills?|paired skills?|queued|plan)\b/.test(normalized);
+  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|that|it|queued|full plan)\b/.test(normalized);
+  return asksPlanDetails && asksTasksOrSkills && anchoredToRecentCanvas;
+}
+
+export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
+  const taskLines = plan.tasks.length > 0
+    ? plan.tasks.map((task) => {
+        const skills = task.skills.length > 0 ? ` - ${task.skills.join(', ')}` : '';
+        return `• ${task.title}${skills}`;
+      })
+    : ['• The canvas is ready, but it did not return task rows to Telegram.'];
+
+  const count = plan.taskCount ?? plan.tasks.length;
+  return [
+    `The latest canvas is for ${plan.projectName}.`,
+    count > 0 ? `${count} build steps are queued.` : null,
+    '',
+    'Tasks',
+    ...taskLines,
+    '',
+    'Canvas',
+    `• ${plan.readyCanvasUrl}`
+  ].filter((line): line is string => line !== null).join('\n');
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -3728,6 +3795,7 @@ export async function handleBuildIntent(
 
     startPrdCanvasReadyNotifier({
       chatId,
+      userId: Number(ctx.from.id),
       projectName,
       requestId,
       missionId,
@@ -4583,6 +4651,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await ctx.reply(latestOriginReply);
     await conversation.rememberAssistantReply(user, latestOriginReply).catch(() => {});
     return;
+  }
+
+  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isLatestCanvasPlanQuestion(text)) {
+    const latestPlan = latestCanvasPlans.get(canvasPlanKey(ctx.chat?.id, ctx.from?.id));
+    if (latestPlan) {
+      const reply = formatLatestCanvasPlanReply(latestPlan);
+      await conversation.remember(user, text).catch(() => {});
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      return;
+    }
   }
 
   if (globalAgentDoctrineRequest) {
