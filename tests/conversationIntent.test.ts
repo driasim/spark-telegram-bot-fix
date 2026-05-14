@@ -714,6 +714,16 @@ test('extracts natural creator mission requests for QA Operator benchmark work',
     parseNaturalCreatorMissionIntent('create a private benchmarked specialization path with an autoloop for AI security questionnaires')?.privacyMode,
     'local_only'
   );
+  const stagedPath = parseNaturalCreatorMissionIntent(
+    'stage a private benchmarked specialization path with a domain chip, benchmark pack, and autoloop policy for Telegram tool usage'
+  );
+  assert.equal(stagedPath?.privacyMode, 'local_only');
+  assert.equal(stagedPath?.riskLevel, 'medium');
+  assert.match(stagedPath?.brief || '', /creator-intent\.json/);
+  assert.match(stagedPath?.brief || '', /domain-chip\/, benchmark\/, specialization-path\/, autoloop\/policy\.json/);
+  assert.match(stagedPath?.brief || '', /before\/after gain/);
+  assert.match(stagedPath?.brief || '', /swarm\/contribution_packet\.json before any publish or share step/);
+  assert.match(stagedPath?.brief || '', /publication\.network_absorbable=false/);
 });
 
 test('keeps Memory Doctor and answer-audit requests out of stale creator context', () => {

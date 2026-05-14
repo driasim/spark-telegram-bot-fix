@@ -47,6 +47,17 @@ interface CreatorIntentPacket {
   risk_level?: CreatorRiskLevel;
 }
 
+interface CreatorCanonicalStatus {
+  verdict?: string;
+  evidence_tier?: string;
+}
+
+interface CreatorPublicationStatus {
+  publish_mode?: CreatorPrivacyMode;
+  swarm_shared_allowed?: boolean;
+  network_absorbable?: boolean;
+}
+
 interface CreatorMissionTrace {
   mission_id?: string;
   request_id?: string;
@@ -61,6 +72,8 @@ interface CreatorMissionTrace {
   blockers?: string[];
   tasks?: unknown[];
   intent_packet?: CreatorIntentPacket;
+  canonical?: CreatorCanonicalStatus;
+  publication?: CreatorPublicationStatus;
   links?: {
     canvas?: string;
     kanban?: string;
@@ -684,10 +697,39 @@ function formatCreatorArtifactLabel(value: string): string {
     specialization_path: 'specialization path',
     autoloop_policy: 'autoloop policy',
     tool_integration: 'Telegram/Spawner wiring',
-    swarm_publish_packet: 'Swarm review packet',
+    swarm_publish_packet: 'Swarm contribution packet',
+    swarm_contribution_packet: 'Swarm contribution packet',
     creator_report: 'creator report'
   };
   return labels[value] || value.replace(/_/g, ' ');
+}
+
+function creatorPlanOpening(seed: string): string {
+  const variants = [
+    'Creator plan ready. I staged the private path without starting it.',
+    'Private path staged. Nothing is running yet.',
+    'Creator plan is staged and waiting for your call.'
+  ];
+  const score = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return variants[score % variants.length];
+}
+
+function formatCreatorArtifactSummary(artifacts: string[] | undefined): string {
+  const usable = Array.isArray(artifacts) ? artifacts.filter((artifact) => artifact.trim()) : [];
+  if (usable.length === 0) return 'artifact plan pending';
+  return usable.slice(0, 6).map(formatCreatorArtifactLabel).join(', ');
+}
+
+function creatorEvidenceStandardLine(): string {
+  return 'creator intent, adapter map, artifact manifest, domain chip, benchmark pack, specialization path, autoloop policy, evidence ladder, creator mission status, swarm/contribution_packet.json';
+}
+
+function formatEvidenceTier(value: string | undefined): string {
+  return value?.trim() || 'not proven yet';
+}
+
+function formatNetworkAbsorbable(value: boolean | undefined): string {
+  return value === true ? 'true' : 'false';
 }
 
 function formatCreatorArtifactLines(artifacts: string[] | undefined): string[] {
@@ -740,25 +782,32 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
       : null;
   const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const domain = formatCreatorDomainLabel(intent.target_domain);
-  const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
-    ? trace.artifacts.slice(0, 6).map(formatArtifactLabel).join(', ')
-    : 'artifact plan pending';
+  const artifacts = formatCreatorArtifactSummary(trace.artifacts);
+  const evidenceTier = formatEvidenceTier(trace.canonical?.evidence_tier);
+  const networkAbsorbable = formatNetworkAbsorbable(trace.publication?.network_absorbable);
+  const verdict = trace.canonical?.verdict || 'staged';
 
   const lines = [
-    '🧩 Creator plan ready.',
+    `🧩 ${creatorPlanOpening(missionId + domain)}`,
     '',
-    'Build',
-    domain,
-    artifacts,
+    `Domain: ${domain}`,
+    `Boundary: ${formatCreatorPrivacy(trace.publication?.publish_mode || intent.privacy_mode)} / ${intent.risk_level || 'unknown'} risk. No execution or publishing happened from staging.`,
+    `Labs verdict: ${formatCreatorReadiness(verdict)}; evidence tier: ${formatCreatorReadiness(evidenceTier)}; network_absorbable=${networkAbsorbable}`,
     ...(taskCount !== null ? [`${taskCount} tasks queued`] : []),
-    `${intent.privacy_mode || 'local_only'} / ${intent.risk_level || 'unknown'} risk`,
+    '',
+    'Evidence',
+    `Staged: ${artifacts}`,
+    `Creator-run contract: ${creatorEvidenceStandardLine()}`,
+    'Capability gain needs baseline, candidate, held-out or trap evidence before Rec says the path made the agent better.',
     '',
     'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Board: ${kanbanUrl}`,
     '',
     'Next',
-    'say: run it'
+    'say: run it',
+    'say: status',
+    'say: validate it'
   ];
 
   return lines.join('\n');
@@ -783,18 +832,27 @@ export function formatCreatorMissionStatusSummary(
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
   const domain = formatCreatorDomainLabel(intent.target_domain);
   const statusIcon = blockers.length > 0 || issueCount > 0 ? '🟡' : creatorValidationIcon(latestRun?.status || trace.stage_status);
+  const evidenceTier = formatEvidenceTier(trace.canonical?.evidence_tier);
+  const networkAbsorbable = formatNetworkAbsorbable(trace.publication?.network_absorbable);
 
   return [
     `${statusIcon} ${domain} creator status.`,
     '',
     'State',
     `${formatCreatorReadiness(trace.stage_status)} at ${formatCreatorReadiness(trace.current_stage)}`,
-    `${formatCreatorReadiness(trace.publish_readiness)}`,
+    `Labs verdict: ${formatCreatorReadiness(trace.canonical?.verdict || trace.publish_readiness)}`,
+    `evidence tier: ${formatCreatorReadiness(evidenceTier)}; network_absorbable=${networkAbsorbable}`,
     latestRun
       ? `checks: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
       : 'checks: not run yet',
+    latestRun?.status === 'passed'
+      ? 'capability gain: validation passed; benchmark before/after evidence still decides the claim.'
+      : 'capability gain: not proven yet.',
     issueCount > 0 ? `${issueCount} manifest issue${issueCount === 1 ? '' : 's'}` : null,
     ...(blockers.length > 0 ? [`blocker: ${blockers[0]}`] : []),
+    '',
+    'Evidence',
+    `Creator-run contract: ${creatorEvidenceStandardLine()}`,
     '',
     'Workspace',
     `${artifactCount} artifact plan${artifactCount === 1 ? '' : 's'}`,
@@ -861,6 +919,11 @@ export function formatCreatorMissionValidationSummary(
     `${countValidationResults(run, 'failed')} failed`,
     `${countValidationResults(run, 'skipped')} skipped`,
     ...(failedOrSkipped.length > 0 ? ['', 'Needs attention', ...failedOrSkipped.map(formatValidationResultLine)] : []),
+    '',
+    'Ability',
+    status === 'passed'
+      ? 'The path can claim improvement only where the benchmark pack shows a before/after gain.'
+      : 'No higher-ability claim yet; fix the checks or rerun the benchmark pack first.',
     '',
     'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),

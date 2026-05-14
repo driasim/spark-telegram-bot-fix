@@ -242,6 +242,14 @@ async function run(): Promise<void> {
             privacy_mode: 'github_pr',
             risk_level: 'high'
           },
+          canonical: {
+            verdict: 'prototype',
+            evidence_tier: 'local_only'
+          },
+          publication: {
+            publish_mode: 'github_pr',
+            network_absorbable: false
+          },
           links: {
             canvas: '/canvas?pipeline=creator-tg-creator-1&mission=mission-creator-1'
           }
@@ -250,15 +258,22 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator plan ready/);
+    assert.match(message, /Creator plan ready|Private path staged|Creator plan is staged/);
     assert.doesNotMatch(message, /Scope/);
     assert.match(message, /Startup YC/);
-    assert.match(message, /github_pr \/ high risk/);
+    assert.match(message, /GitHub review \/ high risk/);
+    assert.match(message, /No execution or publishing happened from staging/);
+    assert.match(message, /Labs verdict: prototype; evidence tier: local only; network_absorbable=false/);
     assert.match(message, /domain chip, benchmark pack, autoloop policy/);
+    assert.match(message, /Creator-run contract: creator intent, adapter map, artifact manifest, domain chip, benchmark pack, specialization path, autoloop policy, evidence ladder, creator mission status, swarm\/contribution_packet\.json/);
+    assert.match(message, /baseline, candidate, held-out or trap evidence/);
     assert.match(message, /2 tasks queued/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
     assert.match(message, /say: run it/);
+    assert.match(message, /say: status/);
+    assert.match(message, /say: validate it/);
+    assert.doesNotMatch(message, /^mission-creator-1$/m);
     assert.doesNotMatch(message, /\/creator run mission-creator-1/);
     assert.doesNotMatch(message, /- Canvas:/);
   });
@@ -393,6 +408,13 @@ async function run(): Promise<void> {
             target_domain: 'Startup YC',
             privacy_mode: 'local_only',
             risk_level: 'medium'
+          },
+          canonical: {
+            verdict: 'blocked',
+            evidence_tier: 'local_only'
+          },
+          publication: {
+            network_absorbable: false
           }
         }
       },
@@ -402,10 +424,13 @@ async function run(): Promise<void> {
     assert.match(message, /Startup YC creator status/);
     assert.doesNotMatch(message, /Mission: mission-creator-1/);
     assert.match(message, /failed at validation failed/);
-    assert.match(message, /workspace prepared/);
+    assert.match(message, /Labs verdict: blocked/);
+    assert.match(message, /evidence tier: local only; network_absorbable=false/);
     assert.match(message, /checks: failed \(1 passed, 1 failed, 1 skipped\)/);
+    assert.match(message, /capability gain: not proven yet/);
     assert.match(message, /1 manifest issue/);
     assert.match(message, /blocker: One or more validation commands failed/);
+    assert.match(message, /Creator-run contract: creator intent, adapter map, artifact manifest/);
     assert.match(message, /2 artifact plans/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
@@ -489,6 +514,7 @@ async function run(): Promise<void> {
     assert.match(message, /1 failed/);
     assert.match(message, /Needs attention/);
     assert.match(message, /failed: startup-bench \(Validation command exited non-zero\)/);
+    assert.match(message, /No higher-ability claim yet/);
     assert.doesNotMatch(message, /python -m thestartupbench/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });

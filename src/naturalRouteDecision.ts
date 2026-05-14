@@ -258,7 +258,7 @@ export function decideNaturalRoute(
   const buildIntent = parsedBuildIntent && routeAllowed('spawner.build', normalized) ? parsedBuildIntent : null;
   const chipBrief = parseNaturalChipCreateIntent(normalized);
   const conversationalIdeation = shouldPreferConversationalIdeation(normalized);
-  const earlyCreatorMission = isReadoutOnlyFollowup(normalized) || conversationalIdeation
+  const earlyCreatorMission = isReadoutOnlyFollowup(normalized)
     ? null
     : parseNaturalCreatorMissionIntent(normalized, { recentMessages });
   if (isGlobalDoctrineLikeRequest(normalized)) {

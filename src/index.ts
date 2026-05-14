@@ -3061,13 +3061,14 @@ function pendingCreatorMissionKey(ctx: any): string {
 function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
-  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:creator\s+)?mission)?$/i.test(normalized)) {
+  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:(?:creator\s+)?mission|private\s+path|specialization\s+path|path|autoloop))?$/i.test(normalized)) {
     return 'run';
   }
-  if (/^(?:validate|check|verify|test)(?:\s+(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+  if (/^(?:validate|verify|test)(?:\s+(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?|the\s+autoloop|the\s+evidence|the\s+capability\s+gain))?$/i.test(normalized) ||
+    /^(?:run|start)\s+(?:validation|checks?|benchmarks?|benchmark\s+validation|the\s+checks?)(?:\s+(?:on|for)\s+(?:it|the\s+path|the\s+specialization\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
     return 'validate';
   }
-  if (/^(?:status|show status|what'?s happening|what happened|show me status|check status)(?:\s+(?:for\s+)?(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+  if (/^(?:status|show status|check|check status|what'?s happening|what happened|where are we|show me status|show me what improved|what improved|did it improve|is it better yet|prepare it for review)(?:\s+(?:for\s+)?(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
     return 'status';
   }
   return null;
@@ -3096,7 +3097,7 @@ export function parseNaturalCreatorMissionIntent(text: string): NaturalCreatorMi
     return null;
   }
 
-  const hasCreateVerb = /\b(?:create|build|make|plan|scaffold|generate|set up|spin up)\b/.test(normalized);
+  const hasCreateVerb = /\b(?:create|build|make|plan|stage|scaffold|generate|set up|spin up)\b/.test(normalized);
   if (!hasCreateVerb) return null;
 
   const artifactPatterns: Array<{ label: string; pattern: RegExp }> = [
@@ -3115,7 +3116,10 @@ export function parseNaturalCreatorMissionIntent(text: string): NaturalCreatorMi
     brief: [
       brief,
       '',
-      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, and Swarm review packet only when gates allow it.',
+      'Treat higher-intelligence, tool-usage, reasoning, or ability-gain claims as unproven until benchmark validation records a before/after gain.',
+      'Require explicit evidence for creator-intent.json, adapter-map.json, created-artifact-manifest.json, domain-chip/, benchmark/, specialization-path/, autoloop/policy.json, reports/evidence_ladder.md, reports/creator-mission-status.json, and swarm/contribution_packet.json before any publish or share step.',
+      'Keep publication.network_absorbable=false unless future promotion gates and explicit operator approval allow it.',
+      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review bundle only when gates allow it.',
       'Keep Telegram user-facing output natural and concise; keep detailed evidence in Workspace/Canvas/Kanban.'
     ].join('\n'),
     privacyMode: inferNaturalCreatorPrivacyMode(normalized),
@@ -4484,7 +4488,7 @@ bot.command('creator', async (ctx) => {
     return ctx.reply(CREATOR_USAGE);
   }
 
-  await ctx.reply('Planning creator mission...');
+  await ctx.reply('I will stage the creator mission first. No run or publishing yet.');
   await handleCreatorMissionPlan(ctx, parsed);
 });
 
@@ -5464,6 +5468,29 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
     return;
   }
+  const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
+  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
+    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
+      brief: earlyNaturalChipBrief,
+      prd: buildDomainChipPrd(earlyNaturalChipBrief),
+      projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
+      buildMode: mode.buildMode,
+      buildModeReason: mode.reason,
+      capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
+      timestamp: Date.now()
+    });
+    await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
+    return;
+  }
+  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
+  if (naturalCreatorIntent && deterministicRouteAllowed('creator.mission', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(`I will stage the ${naturalCreatorIntent.artifactLabel} privately first. No run or publishing yet.`);
+    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
+    return;
+  }
   if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
     console.log(`[ConversationIntent] early ideation route user=${ctx.from?.id} textLen=${text.length}`);
     await conversation.remember(user, text).catch(() => {});
@@ -5490,29 +5517,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       : llmResponse;
     await ctx.reply(response);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
-    return;
-  }
-  const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
-  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
-    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
-      brief: earlyNaturalChipBrief,
-      prd: buildDomainChipPrd(earlyNaturalChipBrief),
-      projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
-      buildMode: mode.buildMode,
-      buildModeReason: mode.reason,
-      capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
-      timestamp: Date.now()
-    });
-    await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
-    return;
-  }
-  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
-  if (naturalCreatorIntent && deterministicRouteAllowed('creator.mission', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
-    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);

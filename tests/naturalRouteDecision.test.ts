@@ -123,6 +123,21 @@ test('routes contextual creator-system follow-ups to Spawner creator missions', 
   assert.match(String(route.payload.brief), /Improve Spark QA Operator/);
 });
 
+test('routes private benchmarked specialization staging without execution', () => {
+  const route = decideNaturalRoute(
+    'stage a private benchmarked specialization path with a domain chip, benchmark pack, autoloop policy, validation, and Swarm contribution packet for Telegram tool usage'
+  );
+
+  assert.equal(route.route, 'creator.mission');
+  assert.equal(route.owner_system, 'spawner-ui');
+  assert.equal(route.requires_confirmation, true);
+  assert.equal(route.payload.privacyMode, 'local_only');
+  assert.equal(route.payload.riskLevel, 'medium');
+  assert.match(String(route.payload.brief), /benchmark pack/);
+  assert.match(String(route.payload.brief), /before\/after gain/);
+  assert.match(String(route.payload.brief), /network_absorbable=false/);
+});
+
 test('routes Memory Doctor and answer-audit wording to Builder despite stale creator context', () => {
   const context = {
     recentMessages: [

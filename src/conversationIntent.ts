@@ -477,6 +477,7 @@ export interface NaturalRecursiveCommandContext {
 }
 
 function normalizeCreatorMissionPrivacy(text: string): NaturalCreatorMissionIntent['privacyMode'] {
+  if (/\b(?:private|local|locally|workspace only|personal workspace)\b/i.test(text)) return 'local_only';
   if (/\b(?:github|pull\s+request|pr)\b/i.test(text)) return 'github_pr';
   if (/\b(?:swarm|network|shared|publish|public)\b/i.test(text)) return 'swarm_shared';
   return 'local_only';
@@ -505,7 +506,7 @@ function isContextualQaOperatorCreatorMission(text: string, contextText: string)
     /\b(?:spark\s+qa\s+operator|qa\s+operator|qa\s+tester|quality\s+tester|tester\s+for\s+spark|spark\s+tester)\b/i.test(contextText);
   if (!contextNamesQaOperator) return false;
   const currentAsksForCreatorWork =
-    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text);
+    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text);
   const currentNamesQaWork =
     /\b(?:benchmark|benchmarks|eval|evals|test\s+suite|qa|recursive|recursion|autoloop|specialization|path|creator|review|telegram|workspace|spawner|canvas|kanban)\b/i.test(text);
   return currentAsksForCreatorWork && currentNamesQaWork;
@@ -517,9 +518,20 @@ function isCreatorSystemMission(text: string): boolean {
     return false;
   }
   return (
-    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text) &&
-    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand)\b/i.test(text)
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+(?:review|contribution)\s+packet|review\s+packet)\b/i.test(text) &&
+    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand)\b/i.test(text)
   );
+}
+
+function hasCreatorRunArtifactSignature(text: string): boolean {
+  const signals = [
+    /\bbenchmark\s+pack\b|\bbenchmarks?\b|\bevals?\b/i,
+    /\bspeciali[sz]ation\s+path\b/i,
+    /\bautoloop(?:\s+policy)?\b|\bauto\s+loop\b/i,
+    /\bswarm\s+(?:contribution|review)\s+packet\b|\breview\s+packet\b/i,
+    /\bcreator\s+(?:mission|system|run)\b/i
+  ].filter((pattern) => pattern.test(text)).length;
+  return signals >= 2 || /\bfull\s+(?:creator\s+)?path\b/i.test(text);
 }
 
 function isAmbiguousCreatorFollowup(text: string): boolean {
@@ -538,8 +550,8 @@ function creatorContextText(context: NaturalCreatorMissionContext = {}): string 
 function isContextualCreatorSystemMission(text: string, contextText: string): boolean {
   if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
   return (
-    /\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text) &&
-    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+review\s+packet)\b/i.test(text)
+    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text) &&
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+(?:review|contribution)\s+packet|review\s+packet)\b/i.test(text)
   );
 }
 
@@ -563,7 +575,8 @@ function qaOperatorCreatorBrief(text: string): string {
     'Make Spark better at QA testing Spark-built products first, then only transfer lessons to user apps after evidence supports it.',
     `Focus areas: ${focus}.`,
     'Expand richer benchmark packs with visible cases, held-out cases, trap cases, scoring rubrics, and replayable evidence.',
-    'Use Spark creator-system standards: domain chip contract, benchmark pack, specialization path, autoloop policy, adapter map, validation ledger, local/private boundary, and Swarm review packet only when gates allow it.',
+    'Treat any higher-intelligence or tool-usage improvement claim as unproven until the benchmark pack shows a before/after gain and validation records the result.',
+    'Use Spark creator-system standards: creator intent, adapter map, domain chip, benchmark pack, specialization path, autoloop policy, evidence ladder, validation ledger, local/private boundary, and swarm/contribution_packet.json only when gates allow it.',
     'Keep Telegram replies concise and put detailed evidence, traces, screenshots, and benchmark artifacts in Workspace.'
   ].join(' ');
 }
@@ -577,7 +590,10 @@ function normalizeCreatorMissionBrief(text: string, contextText = ''): string {
   const briefParts = [
     normalized,
     contextText ? `Recent working context: ${contextText}` : '',
-    'Use Spark creator-system standards: creator intent packet, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review packet only when gates allow it.'
+    'Treat higher-intelligence, tool-usage, reasoning, or ability-gain claims as unproven until benchmark validation records a before/after gain.',
+    'Require explicit evidence for creator-intent.json, adapter-map.json, created-artifact-manifest.json, domain-chip/, benchmark/, specialization-path/, autoloop/policy.json, reports/evidence_ladder.md, reports/creator-mission-status.json, and swarm/contribution_packet.json before any publish or share step.',
+    'Keep publication.network_absorbable=false unless future promotion gates and explicit operator approval allow it.',
+    'Use Spark creator-system standards: creator intent packet, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review bundle only when gates allow it.'
   ];
   return briefParts.filter(Boolean).join(' ');
 }
@@ -586,12 +602,21 @@ export function parseNaturalCreatorMissionIntent(text: string, context: NaturalC
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
   if (isMemoryDoctorRequest(normalized)) return null;
-  if (shouldPreferConversationalIdeation(normalized)) return null;
+  if (isNoExecutionBoundary(normalized)) return null;
   const contextText = creatorContextText(context);
   const explicitQaOperatorMission = isQaOperatorCreatorMission(normalized);
   const contextualQaOperatorMission = isContextualQaOperatorCreatorMission(normalized, contextText);
   const contextualMission = isContextualCreatorSystemMission(normalized, contextText);
   if (!explicitQaOperatorMission && !contextualQaOperatorMission && !isCreatorSystemMission(normalized) && !contextualMission) return null;
+  if (
+    shouldPreferConversationalIdeation(normalized) &&
+    !explicitQaOperatorMission &&
+    !contextualQaOperatorMission &&
+    !contextualMission &&
+    !hasCreatorRunArtifactSignature(normalized)
+  ) {
+    return null;
+  }
   if (isAmbiguousCreatorFollowup(normalized) && !contextText) return null;
   if (/\b(?:show|list|status|report|trace|review)\b/i.test(normalized) && !/\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|improve|upgrade|expand)\b/i.test(normalized)) {
     return null;
