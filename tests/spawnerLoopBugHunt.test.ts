@@ -407,7 +407,8 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
     verbosity: 'normal',
     response: 'completed without a text response'
   });
-  assert.match(noText, /Spark finished, but it did not send final notes back\./);
+  assert.match(noText, /The run finished, but it did not send useful final notes back\./);
+  assert.match(noText, /Open the preview or board if you want to inspect what changed\./);
   assert.doesNotMatch(noText, /Codex:\s*completed without a text response/i);
   assert.doesNotMatch(noText, /Mission: mission-empty/);
 });

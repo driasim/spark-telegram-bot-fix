@@ -3651,7 +3651,11 @@ function formatCanvasSkillSummary(tasks: any[], tier: SkillTier): string | null 
 		: base;
 	const rows: string[] = [];
 	if (activeSkills.length > 0) {
-		const preview = activeSkills.map(readableSkillLabel).join(', ');
+		const preview = activeSkills
+			.map((skill) => activeSkills.length <= 4 && skill.trim().toLowerCase().replace(/[_\s]+/g, '-') === 'puzzle-design'
+				? 'puzzle design'
+				: readableSkillLabel(skill))
+			.join(', ');
 		rows.push(`• Active: ${activeSkills.length} ${activeSkills.length === 1 ? 'skill' : 'skills'}: ${preview}`);
 		rows.push(`• Skill tier: ${describeTier(tier)}`);
 	}
