@@ -202,6 +202,9 @@ test('does not turn exploratory conversation into an accidental build', () => {
   );
   assert.equal(parseBuildIntent('we were gonna build something do you remember what it was'), null);
   assert.equal(parseBuildIntent('what were we going to build?'), null);
+  assert.equal(parseBuildIntent('No build or mission for now, just help me think through the QA plan.'), null);
+  assert.equal(parseBuildIntent('Do not start a build yet. Should normal prompts still work when H70 skills are mandatory?'), null);
+  assert.equal(parseBuildIntent('What edge cases should we test in Spawner routing and Telegram relay?'), null);
   assert.equal(
     parseBuildIntent(
       'nice is there any other thing that would be healthy to build for updates/upgrades besides this or should this be the first major focus, and do you have a way to update yourself directly from here'

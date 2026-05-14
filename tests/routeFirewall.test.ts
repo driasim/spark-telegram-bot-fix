@@ -34,6 +34,26 @@ test('allows explicit project builds through the firewall', () => {
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('blocks no-execution boundaries from starting interruptive work', () => {
+  const prompt = 'No build or mission for now, just help me think through the QA plan.';
+  const routes: DeterministicRouteId[] = [
+    'spawner.build',
+    'spawner.default_build',
+    'spawner.contextual_mission',
+    'domain_chip.create',
+    'spark.self_improvement',
+    'diagnostics.scan',
+    'natural_run'
+  ];
+
+  for (const route of routes) {
+    const verdict = evaluateDeterministicRoute(route, prompt);
+    assert.equal(verdict.allow, false, route);
+    assert.equal(verdict.reason, 'no_execution_boundary', route);
+    assert.equal(verdict.confidence, 'blocked', route);
+  }
+});
+
 test('allows explicit memory updates even when they mention plans', () => {
   const verdict = evaluateDeterministicRoute(
     'memory.write',

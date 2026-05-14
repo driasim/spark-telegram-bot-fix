@@ -810,6 +810,8 @@ export function isNoExecutionBoundary(text: string): boolean {
   if (!normalized) return false;
   return [
     /^(?:no|nah|nope)(?:[,\s.!]+|$)/,
+    /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
+    /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
     /\b(?:no need|not needed|not now|not for now|maybe later|later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|start|run|launch|execute|ship|kick\s+off)\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:a\s+)?(?:mission|build|project|anything)\b/,
