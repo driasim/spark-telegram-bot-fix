@@ -1066,7 +1066,7 @@ export function buildLocalSparkServiceReply(spawnerAvailable: boolean): string {
   ].join('\n');
 }
 
-export type SpawnerBoardNaturalIntent = 'board' | 'latest_on_kanban' | 'latest_provider' | 'latest_project_preview' | 'latest_failure';
+export type SpawnerBoardNaturalIntent = 'board' | 'latest_on_kanban' | 'latest_provider' | 'latest_mission' | 'latest_project_preview' | 'latest_failure';
 
 export function parseSpawnerBoardNaturalIntent(text: string): SpawnerBoardNaturalIntent | null {
   const normalized = text.trim().toLowerCase();
@@ -1093,6 +1093,14 @@ export function parseSpawnerBoardNaturalIntent(text: string): SpawnerBoardNatura
     /\b(?:who|what)\s+(?:took|handled|ran|accepted)\b.*\b(?:latest|last|recent|newest)\b.*\b(?:spawner|mission|job|run)\b/.test(normalized)
   ) {
     return 'latest_provider';
+  }
+
+  if (
+    /\b(?:what|which)\s+(?:was|is)\s+(?:the\s+)?(?:latest|last|recent|newest)\s+(?:spawner\s+)?(?:mission|job|run)\b/.test(normalized) ||
+    /\b(?:what|which)\s+(?:mission|job|run)\s+(?:was|is)\s+(?:that|it|this|the\s+latest|the\s+last)\b/.test(normalized) ||
+    /\bwhat\s+was\s+the\s+mission\b/.test(normalized)
+  ) {
+    return 'latest_mission';
   }
 
   if (

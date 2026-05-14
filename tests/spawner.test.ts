@@ -717,8 +717,9 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /From the current Spawner board, Codex has the latest job right now\./);
-    assert.match(result.message, /Mission\n• Live smoke\n• running/);
+    assert.match(result.message, /From the current Spawner board, Codex is handling the latest job right now\./);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Live smoke/);
     assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /kanban\?mission=spark-live/);
     assert.doesNotMatch(result.message, /^Provider$/m);
@@ -756,12 +757,49 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /latest job has not reported an LLM provider yet/);
-    assert.match(result.message, /Mission\n• Token Launch Dashboard\n• queued/);
+    assert.match(result.message, /From the current Spawner board, no LLM has picked up the latest job yet\./);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Token Launch Dashboard/);
     assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /kanban\?mission=mission-canvas/);
     assert.doesNotMatch(result.message, /^Provider$/m);
     assert.doesNotMatch(result.message, /handled by: Preparing canvas/);
+  });
+
+  await test('latestMissionSummary answers follow-up title questions without provider clutter', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [
+            {
+              missionId: 'spark-done',
+              missionName: 'Telegram Golden Path Probe',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now).toISOString(),
+              providerResults: [{ providerId: 'codex', status: 'completed' }],
+              providerSummary: 'Codex: done'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestMissionSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /The latest Spawner mission was Telegram Golden Path Probe\. It completed\./);
+    assert.match(result.message, /Codex is the reported provider\./);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /spark-done/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Provider$/m);
   });
 
   await test('latestProviderSummary hides raw failed provider output', async () => {
@@ -793,8 +831,9 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /latest job failed after reaching Codex/);
-    assert.match(result.message, /Mission\n• Token Launch Dashboard\n• failed/);
+    assert.match(result.message, /From the current Spawner board, the latest job failed after reaching Codex\./);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Token Launch Dashboard/);
     assert.match(result.message, /Open the Mission board/);
     assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
     assert.doesNotMatch(result.message, /^Provider$/m);
@@ -872,8 +911,8 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Codex has the latest job right now/);
-    assert.match(result.message, /Mission\n• latest mission\n• running/);
+    assert.match(result.message, /Codex is handling the latest job right now/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
     assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /• mission-title-only-id/);
     assert.doesNotMatch(result.message, /^Mission:\s*mission-title-only-id/im);

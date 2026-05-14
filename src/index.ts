@@ -5257,6 +5257,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'
         ? await spawner.latestProviderSummary()
+        : spawnerBoardIntent === 'latest_mission'
+          ? await spawner.latestMissionSummary()
         : spawnerBoardIntent === 'latest_on_kanban'
           ? await spawner.latestKanbanSummary()
           : spawnerBoardIntent === 'latest_project_preview'

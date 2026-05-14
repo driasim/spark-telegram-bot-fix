@@ -143,6 +143,7 @@ test('bug hunt: mission utility requests do not become project builds', () => {
   assert.equal(parseMissionUpdatePreferenceIntent('include board and canvas links for missions')?.links, 'both');
   assert.equal(parseMissionUpdatePreferenceIntent('for missions only send start and end updates')?.verbosity, 'minimal');
   assert.equal(parseSpawnerBoardNaturalIntent('which LLM took the latest Spawner job?'), 'latest_provider');
+  assert.equal(parseSpawnerBoardNaturalIntent('what was the mission?'), 'latest_mission');
   assert.equal(parseSpawnerBoardNaturalIntent('why did the latest mission fail?'), 'latest_failure');
 
   [

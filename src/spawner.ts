@@ -384,6 +384,24 @@ function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
   return lines.join('\n');
 }
 
+function formatLatestMissionTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const provider = providerNames(entry);
+  const status = statusWord(entry.status);
+  const statusLine = status === 'completed'
+    ? 'It completed.'
+    : status === 'running'
+      ? 'It is running now.'
+      : status === 'failed'
+        ? 'It failed.'
+        : status === 'paused'
+          ? 'It is paused.'
+          : 'It is queued.';
+  return provider
+    ? `The latest Spawner mission was ${title}. ${statusLine} ${provider} is the reported provider.`
+    : `The latest Spawner mission was ${title}. ${statusLine}`;
+}
+
 function statusWord(status: string): string {
   if (status === 'completed') return 'completed';
   if (status === 'failed') return 'failed';
@@ -392,15 +410,18 @@ function statusWord(status: string): string {
   return 'queued';
 }
 
-function providerSummaryLead(provider: string | null, status: string): string {
+function providerSummarySentence(provider: string | null, status: string): string {
   if (!provider) {
+    if (status === 'queued') return 'From the current Spawner board, no LLM has picked up the latest job yet.';
+    if (status === 'failed') return 'From the current Spawner board, the latest job failed before an LLM provider was reported.';
+    if (status === 'paused') return 'From the current Spawner board, the latest job is paused before an LLM provider was reported.';
     return 'From the current Spawner board, the latest job has not reported an LLM provider yet.';
   }
   if (status === 'completed') {
-    return `From the current Spawner board, ${provider} handled the latest job.`;
+    return `From the current Spawner board, ${provider} handled the latest job, and it completed.`;
   }
   if (status === 'running') {
-    return `From the current Spawner board, ${provider} has the latest job right now.`;
+    return `From the current Spawner board, ${provider} is handling the latest job right now.`;
   }
   if (status === 'failed') {
     return `From the current Spawner board, the latest job failed after reaching ${provider}.`;
@@ -413,17 +434,12 @@ function providerSummaryLead(provider: string | null, status: string): string {
 
 function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   const provider = providerNames(entry);
-  const title = missionTitle(entry);
   const status = statusWord(entry.status);
   const needsInspectionLink = entry.status === 'failed' || entry.status === 'paused';
 
   if (!provider) {
     const lines = [
-      providerSummaryLead(null, status),
-      '',
-      'Mission',
-      `• ${title}`,
-      `• ${status}`
+      providerSummarySentence(null, status)
     ];
 
     if (needsInspectionLink) {
@@ -438,11 +454,7 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   }
 
   const lines = [
-    providerSummaryLead(provider, status),
-    '',
-    'Mission',
-    `• ${title}`,
-    `• ${status}`
+    providerSummarySentence(provider, status)
   ];
 
   if (entry.status === 'failed') {
@@ -1131,6 +1143,28 @@ export const spawner = {
       return {
         success: true,
         message: formatLatestProviderTelegramSummary(latest)
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.response?.data?.error || err.message
+      };
+    }
+  },
+
+  async latestMissionSummary(): Promise<{ success: boolean; message: string }> {
+    try {
+      const latest = latestBoardEntry(await fetchBoardSnapshot());
+      if (!latest) {
+        return {
+          success: true,
+          message: 'I do not see any Spawner missions on the current board yet.'
+        };
+      }
+
+      return {
+        success: true,
+        message: formatLatestMissionTelegramSummary(latest)
       };
     } catch (err: any) {
       return {
