@@ -366,30 +366,26 @@ function missionTitle(entry: BoardEntry): string {
   return entry.missionName || entry.taskName || 'latest mission';
 }
 
+function statusPhrase(status: string): string {
+  if (status === 'completed') return 'finished';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'is still running';
+  if (status === 'paused') return 'is paused';
+  return 'is waiting to start';
+}
+
+function boardInspectLine(): string {
+  return `Board: ${missionBoardUrl()}`;
+}
+
 function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
   const title = missionTitle(entry);
   const provider = providerNames(entry);
-  const lines = [
-    'The latest mission is visible on Kanban.',
-    '',
-    'Mission',
-    `• ${title}`,
-    `• ${statusWord(entry.status)}`
-  ];
+  const lines = [`The newest thing on the board is ${title}. It ${statusPhrase(statusWord(entry.status))}.`];
 
-  if (provider) {
-    lines.push(
-      '',
-      'Provider',
-      `• ${provider}`
-    );
-  }
+  if (provider) lines.push(`${provider} is attached to it.`);
 
-  lines.push(
-    '',
-    'Mission board',
-    `• ${missionBoardUrl()}`
-  );
+  lines.push('', boardInspectLine());
   return lines.join('\n');
 }
 
@@ -398,16 +394,16 @@ function formatLatestMissionTelegramSummary(entry: BoardEntry): string {
   const provider = providerNames(entry);
   const status = statusWord(entry.status);
   const statusLine = status === 'completed'
-    ? 'It completed.'
+    ? 'It finished.'
     : status === 'running'
-      ? 'It is running now.'
+      ? 'It is still running.'
       : status === 'failed'
         ? 'It failed.'
         : status === 'paused'
           ? 'It is paused.'
-          : 'It is queued.';
+          : 'It is waiting to start.';
   return provider
-    ? `The latest Spawner mission was ${title}. ${statusLine} ${provider} is the reported provider.`
+    ? `The latest Spawner mission was ${title}. ${statusLine} ${provider} is attached to it.`
     : `The latest Spawner mission was ${title}. ${statusLine}`;
 }
 
@@ -421,24 +417,24 @@ function statusWord(status: string): string {
 
 function providerSummarySentence(provider: string | null, status: string): string {
   if (!provider) {
-    if (status === 'queued') return 'From the current Spawner board, no LLM has picked up the latest job yet.';
-    if (status === 'failed') return 'From the current Spawner board, the latest job failed before an LLM provider was reported.';
-    if (status === 'paused') return 'From the current Spawner board, the latest job is paused before an LLM provider was reported.';
-    return 'From the current Spawner board, the latest job has not reported an LLM provider yet.';
+    if (status === 'queued') return 'No LLM has picked up the latest Spawner job yet.';
+    if (status === 'failed') return 'The latest Spawner job failed before it reported an LLM provider.';
+    if (status === 'paused') return 'The latest Spawner job is paused before any LLM provider was reported.';
+    return 'The latest Spawner job has not reported an LLM provider yet.';
   }
   if (status === 'completed') {
-    return `From the current Spawner board, ${provider} handled the latest job, and it completed.`;
+    return `${provider} took the latest Spawner job, and it finished.`;
   }
   if (status === 'running') {
-    return `From the current Spawner board, ${provider} is handling the latest job right now.`;
+    return `${provider} is on the latest Spawner job right now.`;
   }
   if (status === 'failed') {
-    return `From the current Spawner board, the latest job failed after reaching ${provider}.`;
+    return `The latest Spawner job reached ${provider}, then failed.`;
   }
   if (status === 'paused') {
-    return `From the current Spawner board, the latest job is paused with ${provider} reported.`;
+    return `The latest Spawner job is paused with ${provider} attached.`;
   }
-  return `From the current Spawner board, ${provider} is reported for the latest job.`;
+  return `${provider} is attached to the latest Spawner job.`;
 }
 
 function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
@@ -469,16 +465,14 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   if (entry.status === 'failed') {
     lines.push(
       '',
-      'Move',
-      '• Open the Mission board for the failure details.'
+      'The board has the failure details if you want the trace.'
     );
   }
 
   if (needsInspectionLink) {
     lines.push(
       '',
-      'Mission board',
-      `• ${missionBoardUrl()}`
+      boardInspectLine()
     );
   }
   return lines.join('\n');
