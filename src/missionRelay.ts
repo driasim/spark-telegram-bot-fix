@@ -844,8 +844,8 @@ const VOICE_LINES = {
   completed: [
     '✨ I got this one finished for you.',
     '✨ I got it done for you.',
-    '✨ done, it is ready to open.',
-    '✨ all set, the run is ready.'
+    '✨ done, this one came back clean.',
+    '✨ nice, this one is finished.'
   ],
   failed: [
     '⚠️ That run hit a blocker.',
@@ -1256,8 +1256,13 @@ function completedTaskPhrase(taskLabel: string): string {
   return `finished ${taskLabel}`;
 }
 
+function isProviderOnlyTaskLabel(taskLabel: string): boolean {
+  return /^(?:codex|claude|zai|z\.ai|glm|minimax|openai|gpt|provider)$/i.test(taskLabel.trim());
+}
+
 function formatTaskCompletedMessage(event: DeliverableRelayEvent): string {
   const taskLabel = cleanTaskLabel(event.taskName || event.taskId || 'Build step');
+  if (isProviderOnlyTaskLabel(taskLabel)) return '';
   const done = completedTaskPhrase(taskLabel);
   if (/^build\s+and\s+check\s+the\s+single[-\s]file\s+static\s+page$/i.test(taskLabel)) {
     return `nice, ${done}.`;
@@ -1504,7 +1509,7 @@ export function formatProgressMessageForTelegram(
     case 'task_started':
       return null;
     case 'task_completed':
-      return formatTaskCompletedMessage(event);
+      return formatTaskCompletedMessage(event) || null;
     case 'task_progress':
     case 'progress':
     case 'provider_feedback':

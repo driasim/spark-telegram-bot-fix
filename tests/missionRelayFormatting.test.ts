@@ -219,7 +219,7 @@ test('uses neutral completion copy when there is no preview link', () => {
   assert.match(message, /✨/);
   assert.match(message, /NO_PREVIEW_LINK_OK/);
   assert.doesNotMatch(message, /Open it here:/);
-  assert.doesNotMatch(message, /something you can open|build ready|finished the build/i);
+  assert.doesNotMatch(message, /something you can open|build ready|finished the build|ready to open|run is ready/i);
 });
 
 test('strips hidden reasoning and relay plumbing from freeform provider results', () => {
@@ -657,6 +657,31 @@ test('verbose task completion messages stay compact and human readable', () => {
   assert.doesNotMatch(message || '', /Milestone complete/);
   assert.doesNotMatch(message || '', /node-3/);
   assert.doesNotMatch(message || '', /MissionControl/);
+});
+
+test('suppresses provider-only task completion chatter after the final result', () => {
+  const message = formatProgressMessageForTelegram(
+    {
+      type: 'task_completed',
+      missionId: 'spark-no-edit',
+      taskId: 'codex',
+      taskName: 'codex',
+      source: 'codex',
+      data: { provider: 'codex' }
+    },
+    {
+      missionId: 'spark-no-edit',
+      chatId: '8319079055',
+      userId: '8319079055',
+      requestId: 'tg-no-edit',
+      goal: 'Run a no-edit Spawner proof.',
+      createdAt: '2026-05-14T00:00:00Z'
+    },
+    'verbose',
+    'board'
+  );
+
+  assert.equal(message, null);
 });
 
 test('task completion updates rotate as natural one-line progress', () => {
