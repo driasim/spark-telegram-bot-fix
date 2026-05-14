@@ -363,7 +363,7 @@ function isOperationalProbeMission(entry: BoardEntry): boolean {
 }
 
 function missionTitle(entry: BoardEntry): string {
-  return entry.missionName || entry.taskName || 'latest mission';
+  return entry.missionName || entry.taskName || entry.missionId || 'latest mission';
 }
 
 function statusPhrase(status: string): string {

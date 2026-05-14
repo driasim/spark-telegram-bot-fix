@@ -46,6 +46,7 @@ const originalEnv = {
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
+	SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH: process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -764,6 +765,7 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
 		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_BOT_TEST_MODE = '1';
 
 		const indexModule: any = await import('../src/index');
 		const prd = indexModule.buildDomainChipPrd('creates weird poster prompts from dream fragments');
@@ -1323,6 +1325,19 @@ async function run(): Promise<void> {
 			].join('\n')
 		);
 		chmodSync(sparkShim, 0o755);
+		writeFileSync(
+			path.join(binDir, 'spark.cmd'),
+			[
+				'@echo off',
+				'if "%~1"=="access" if "%~2"=="status" if "%~3"=="--json" if "%~4"=="" (',
+				`  type "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '""')}"`,
+				'  exit /b 0',
+				')',
+				'echo unexpected spark command: %* 1>&2',
+				'exit /b 1',
+				''
+			].join('\r\n')
+		);
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
@@ -1410,6 +1425,93 @@ async function run(): Promise<void> {
 			assert.doesNotMatch(replies.join('\n'), /• it after analyzing our systems deeply/);
 
 		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('build dispatch route confidence helper enforces act ask explain refuse and failures', async () => {
+		const indexModule: any = await import('../src/index');
+		process.env.SPARK_BOT_TEST_MODE = '0';
+		process.env.SPARK_TELEGRAM_ROUTE_CONFIDENCE_AUDIT_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'spark-rc-audit-')), 'audit.jsonl');
+
+		for (const decision of ['act', 'ask', 'explain', 'refuse'] as const) {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 701, replies);
+			let routeContext: any = null;
+			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
+				ctx,
+				accessRequirement: 'spawner_build',
+				prd: 'Create a local-only static proof page. Do not publish.',
+				requestId: `request-${decision}`,
+				traceRef: `trace-${decision}`,
+				runnerPreflight: null,
+				spawnerAvailableProbe: async () => true,
+				gateRunner: async (input: any) => {
+					routeContext = input.routeContext;
+					return {
+						payload: {
+							decision,
+							safe_reply_policy: decision === 'act' ? 'execute_with_trace' : 'test_policy',
+							human_next_action: 'test next action'
+						},
+						replyText: ''
+					};
+				}
+			});
+
+			assert.equal(allowed, decision === 'act');
+			assert.equal(routeContext.authority_verdict.schema_version, 'spark.authority_verdict.v1');
+			assert.equal(routeContext.authority_verdict.decision, 'allowed');
+			assert.equal(routeContext.capability_state, 'available');
+			assert.equal(routeContext.runner_state, 'available');
+			assert.equal(routeContext.data_boundary.exports_raw_prompt, false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'raw_prompt'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'chat_id'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'provider_output'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(routeContext, 'memory_body'), false);
+			if (decision !== 'act') {
+				assert.match(replies.join('\n'), /test next action/);
+			}
+		}
+
+		for (const label of ['timeout', 'malformed_json'] as const) {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 702, replies);
+			const allowed = await indexModule.buildDispatchRouteConfidenceAllows({
+				ctx,
+				accessRequirement: 'spawner_build',
+				prd: 'Create a local-only static proof page.',
+				requestId: `request-${label}`,
+				traceRef: `trace-${label}`,
+				runnerPreflight: null,
+				spawnerAvailableProbe: async () => true,
+				gateRunner: async () => {
+					throw new Error(label);
+				}
+			});
+			assert.equal(allowed, false);
+			assert.match(replies.join('\n'), /Spark could not reach the Builder memory path|builder/i);
+		}
+
+		const runnerReplies: string[] = [];
+		const runnerCtx = makeFakeCtx(8319079055, 8319079055, 703, runnerReplies);
+		let unavailableContext: any = null;
+		await indexModule.buildDispatchRouteConfidenceAllows({
+			ctx: runnerCtx,
+			accessRequirement: 'operating_system',
+			prd: 'Create a local file.',
+			requestId: 'request-runner-unavailable',
+			traceRef: 'trace-runner-unavailable',
+			runnerPreflight: { runnerWritable: 'no', runnerLabel: 'read-only', checkedAt: '2026-05-12T00:00:00Z' },
+			spawnerAvailableProbe: async () => false,
+			gateRunner: async (input: any) => {
+				unavailableContext = input.routeContext;
+				return { payload: { decision: 'ask', human_next_action: 'inspect runner' }, replyText: '' };
+			}
+		});
+		assert.equal(unavailableContext.capability_state, 'unavailable');
+		assert.equal(unavailableContext.runner_state, 'unavailable');
+		assert.match(runnerReplies.join('\n'), /inspect runner/);
+
 		restoreEnv();
 	});
 

@@ -175,6 +175,18 @@ export interface BuilderRouteProbeResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderRouteConfidenceGateInput {
+  intent?: string;
+  candidateRoute?: string;
+  routeContext?: Record<string, unknown>;
+  latestSpawnerJob?: Record<string, unknown>;
+}
+
+export interface BuilderRouteConfidenceGateResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderAocPreflightInput extends BuilderSelfAwarenessInput {
   requestId: string;
   traceRef: string;
@@ -395,6 +407,82 @@ function arrayValue(value: unknown): unknown[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+const ROUTE_CONTEXT_STRING_KEYS = new Set([
+  'latest_instruction',
+  'intent_clarity',
+  'route_fit',
+  'consequence_risk',
+  'permission_required',
+  'capability_state',
+  'runner_state',
+  'confirmation_state',
+  'reversibility',
+  'source_status',
+  'freshness',
+  'request_id',
+  'trace_ref',
+  'verification_command'
+]);
+
+const ROUTE_CONTEXT_ARRAY_KEYS = new Set(['joined_sources', 'missing_evidence', 'source_refs_redacted']);
+const ROUTE_CONTEXT_BOOLEAN_KEYS = new Set(['explicit_no_execution']);
+const ROUTE_CONTEXT_BOUNDARY_KEYS = new Set([
+  'exports_raw_prompt',
+  'exports_chat_id',
+  'exports_provider_output',
+  'exports_memory_body',
+  'exports_transcript_body',
+  'exports_audio',
+  'exports_env_value',
+  'exports_secret'
+]);
+const ROUTE_CONTEXT_AUTHORITY_KEYS = new Set([
+  'schema_version',
+  'decision',
+  'status',
+  'verdict',
+  'source_owner',
+  'source_owner_system',
+  'owner_system',
+  'action_family',
+  'action',
+  'route',
+  'permission_required',
+  'confirmation_state'
+]);
+
+export function sanitizeRouteConfidenceRouteContext(input: unknown): Record<string, unknown> {
+  const source = objectValue(input);
+  const out: Record<string, unknown> = {};
+  for (const key of ROUTE_CONTEXT_STRING_KEYS) {
+    const value = stringValue(source[key]);
+    if (value) out[key] = value;
+  }
+  for (const key of ROUTE_CONTEXT_BOOLEAN_KEYS) {
+    if (typeof source[key] === 'boolean') out[key] = source[key];
+  }
+  for (const key of ROUTE_CONTEXT_ARRAY_KEYS) {
+    const values = arrayValue(source[key]).map(stringValue).filter(Boolean).slice(0, 12);
+    if (values.length > 0) out[key] = values;
+  }
+  const boundary = objectValue(source.data_boundary);
+  const safeBoundary: Record<string, boolean> = {};
+  for (const key of ROUTE_CONTEXT_BOUNDARY_KEYS) {
+    if (typeof boundary[key] === 'boolean') safeBoundary[key] = boundary[key] as boolean;
+  }
+  if (Object.keys(safeBoundary).length > 0) out.data_boundary = safeBoundary;
+
+  const authority = objectValue(source.authority_verdict);
+  const safeAuthority: Record<string, string> = {};
+  for (const key of ROUTE_CONTEXT_AUTHORITY_KEYS) {
+    const value = stringValue(authority[key]);
+    if (value) safeAuthority[key] = value;
+  }
+  if (Object.keys(safeAuthority).length > 0) out.authority_verdict = safeAuthority;
+
+  return out;
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1709,6 +1797,111 @@ export function formatRouteProbeReply(payload: Record<string, unknown>): string 
   }
   lines.push('', 'Run /aoc to see how this changed Agent Operating Context.');
   return lines.join('\n');
+}
+
+export function formatRouteConfidenceGateReply(payload: unknown): string {
+  const root = objectValue(payload);
+  const decision = stringValue(root.decision) || 'explain';
+  const confidence = stringValue(root.confidence) || 'unknown';
+  const policy = stringValue(root.safe_reply_policy) || 'explain_missing';
+  const provider = stringValue(root.provider);
+  const model = stringValue(root.model);
+  const freshness = stringValue(root.freshness) || 'unknown';
+  const joinedSources = arrayValue(root.joined_sources).map(stringValue).filter(Boolean);
+  const missing = arrayValue(root.missing_evidence).map(stringValue).filter(Boolean);
+  const nextAction = stringValue(root.human_next_action) || 'Run /board or /diagnose, then ask again.';
+  const verification = stringValue(root.verification_command) || 'spark os trace --json';
+
+  if (policy === 'answer_live' && provider) {
+    return [
+      model
+        ? `Latest Spawner job used ${provider} / ${model}.`
+        : `Latest Spawner job used ${provider}.`,
+      '',
+      'Evidence',
+      `- Confidence: ${confidence}`,
+      `- Freshness: ${freshness}`,
+      `- Sources: ${joinedSources.length ? joinedSources.slice(0, 4).join(', ') : 'compiled Spark OS trace'}`,
+      '',
+      'Inspect',
+      `- ${verification}`
+    ].join('\n');
+  }
+
+  if (decision === 'refuse' || policy === 'refuse_privacy_violation') {
+    return [
+      'I cannot show that route evidence safely.',
+      '',
+      'Reason',
+      '- The route gate detected private or unsafe evidence in the answer boundary.',
+      '',
+      'Next',
+      `- ${nextAction}`
+    ].join('\n');
+  }
+
+  return [
+    'I cannot prove the latest Spawner provider yet.',
+    '',
+    'State',
+    `- Confidence: ${confidence}`,
+    `- Freshness: ${freshness}`,
+    missing.length ? `- Missing: ${missing.slice(0, 4).join(', ')}` : '- Missing: source-owned provider evidence',
+    '',
+    'Next',
+    `- ${nextAction}`,
+    '',
+    'Inspect',
+    `- ${verification}`
+  ].join('\n');
+}
+
+export async function runBuilderRouteConfidenceGate(
+  input: BuilderRouteConfidenceGateInput = {}
+): Promise<BuilderRouteConfidenceGateResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'route-confidence-gate',
+    '--home',
+    config.builderHome,
+    '--intent',
+    input.intent || 'status',
+    '--candidate-route',
+    input.candidateRoute || 'spawner.latest_job_provider',
+    '--json',
+  ];
+  if (input.latestSpawnerJob && Object.keys(input.latestSpawnerJob).length > 0) {
+    args.push('--latest-spawner-job-json', JSON.stringify(input.latestSpawnerJob));
+  }
+  if (input.routeContext && Object.keys(input.routeContext).length > 0) {
+    args.push('--route-context-json', JSON.stringify(sanitizeRouteConfidenceRouteContext(input.routeContext)));
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder route confidence gate returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatRouteConfidenceGateReply(payload),
+  };
 }
 
 export async function runBuilderRouteProbe(capabilityKey: string): Promise<BuilderRouteProbeResult> {
