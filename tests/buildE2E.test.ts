@@ -1029,10 +1029,12 @@ async function run(): Promise<void> {
 		assert.match(replies[0] || '', /I can turn this into maze game/);
 		assert.match(replies[0] || '', /Recommended starting point: browser-playable/);
 		assert.match(replies[0] || '', /Say "go" to start/);
+		assert.match(replies[0] || '', /maze game\.\n\nRecommended starting point:/);
+		assert.match(replies[0] || '', /local best score\.\n\nSay "go" to start/);
 		assert.match(replies[0] || '', /shifting walls/);
 		assert.doesNotMatch(replies[0] || '', /Brief is too thin/);
 		assert.doesNotMatch(replies[0] || '', /Default direction/);
-		assert.ok((replies[0] || '').split('\n').length <= 3, 'clarification reply should stay short');
+		assert.ok((replies[0] || '').split('\n').length <= 5, 'clarification reply should stay short with paragraph spacing');
 		assert.doesNotMatch(replies[0] || '', /Who is the first user/);
 
 		restoreAxios();

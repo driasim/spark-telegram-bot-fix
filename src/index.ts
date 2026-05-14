@@ -2773,9 +2773,7 @@ export function formatCanvasStillRunningSummary(args: {
   kanbanUrl: string;
 }): string {
   return telegramBlocks(
-    `🛠️ Canvas is still preparing for ${args.projectName}.`,
-    `It has been shaping for ${args.elapsedSeconds}s, so I am keeping an eye on it instead of starting anything else.`,
-    'I will send the canvas when it is ready.',
+    `🛠️ Canvas is still preparing for ${args.projectName}. It has been shaping for ${args.elapsedSeconds}s, so I am keeping an eye on it instead of starting anything else. I will send the canvas when it is ready.`,
     [
       'Mission board',
       `• ${args.kanbanUrl}`
@@ -2788,8 +2786,7 @@ export function formatCanvasShapingHeartbeatSummary(args: {
   elapsedSeconds: number;
 }): string {
   return telegramBlocks(
-    `🛠️ Still shaping ${args.projectName}.`,
-    `Canvas prep has been running for ${args.elapsedSeconds}s, and I will send the link when planning is ready.`
+    `🛠️ Still shaping ${args.projectName}. Canvas prep has been running for ${args.elapsedSeconds}s, and I will send the link when planning is ready.`
   );
 }
 
@@ -2804,9 +2801,8 @@ function formatBuildMissionQueuedReply(input: {
   const modeText = input.buildMode === 'advanced_prd' ? 'planning canvas' : 'direct build';
   return telegramBlocks(
     input.lead,
-    `🛠️ I am setting up ${input.projectName} as a ${modeText}.`,
+    `🛠️ I am setting up ${input.projectName} as a ${modeText}. I will send the canvas when planning is ready.`,
     input.projectPath ? ['Workspace', `• ${input.projectPath}`].join('\n') : null,
-    'I will send the canvas when planning is ready.'
   );
 }
 
@@ -3105,7 +3101,7 @@ export function formatBuildClarificationReplyWithMicrocopy(
     `I can turn this into ${projectName}.`,
     `Recommended starting point: ${recommendation}.`,
     `Say "go" to start, or steer one thing first: ${steerQuestion}`
-  ].join('\n');
+  ].join('\n\n');
 }
 
 async function buildBuildClarificationReply(projectName: string, questions: string[], assumptions: string[]): Promise<string> {

@@ -104,6 +104,9 @@ Use emoji as an affordance, not decoration.
 - If an emoji does not make the message easier to scan, leave it out.
 - Keep sensitive, safety, access, and failure explanations mostly plain unless
   a warning icon helps the user notice the boundary.
+- For simple work-start or still-working moments, prefer one emoji-led paragraph
+  over three small blocks. Example: "🛠️ I am setting up Relay Workshop as a
+  planning canvas. I will send the canvas when planning is ready."
 
 ## Default Layouts
 
