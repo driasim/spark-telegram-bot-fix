@@ -186,7 +186,7 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
   assert.match(canvasReady, /• Smoke notes/);
   assert.doesNotMatch(canvasReady, /• Smoke notes · docs/);
   assert.doesNotMatch(canvasReady, /• \+1 more/);
-  assert.match(canvasReady, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Pro can add 1 skill: docs/);
+  assert.match(canvasReady, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Skill tier: base tier \(30-skill starter loadout\)\n• Pro can add 1 skill: docs/);
   assert.doesNotMatch(canvasReady, /Ask for tasks or skills if you want the full plan\./);
   assert.doesNotMatch(canvasReady, /^Mission:\s*mission-123/im);
   assert.doesNotMatch(canvasReady, /elapsed|trace|request/i);
@@ -284,11 +284,11 @@ test('bug hunt: pro canvas previews can show pro skills without hiding base skil
   });
   assert.match(reply, /• Playable shell · frontend/);
   assert.match(reply, /• Core reasoning loop · game design/);
-  assert.match(reply, /Skills invoked\n• Active: 4 skills: frontend, game dev, game design, puzzle design/);
+  assert.match(reply, /Skills invoked\n• Active: 4 skills: frontend, game dev, game design, puzzle design\n• Skill tier: pro tier \(full spark-skill-graphs catalog\)/);
   assert.doesNotMatch(reply, /Pro can add/);
 });
 
-test('bug hunt: pro canvas skill summaries show up to ten skills before collapsing', () => {
+test('bug hunt: pro canvas skill summaries show the full skill stack', () => {
   const reply = formatCanvasReadySummary({
     projectName: 'H70 Orbit Proof',
     taskCount: 4,
@@ -320,8 +320,9 @@ test('bug hunt: pro canvas skill summaries show up to ten skills before collapsi
 
   assert.match(
     reply,
-    /Skills invoked\n• Active: 15 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels, \+5 more/
+    /Skills invoked\n• Active: 15 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels, state, onboarding, accessibility, QA, testing\n• Skill tier: pro tier \(full spark-skill-graphs catalog\)/
   );
+  assert.doesNotMatch(reply, /\+\d+ more/);
   assert.doesNotMatch(reply, /\+11 more/);
   assert.doesNotMatch(reply, /frontend, accessibility, testing, game dev, \+8 more/);
 });
@@ -343,11 +344,11 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
 
   assert.match(reply, /The latest canvas is for Proof Orchard\./);
   assert.match(reply, /4 build steps are queued\./);
-  assert.match(reply, /Skill tier: base tier/);
+  assert.doesNotMatch(reply, /\nSkill tier: base tier/);
   assert.match(reply, /Tasks\n• Create the app shell - frontend, UI design/);
   assert.match(reply, /• Write smoke notes/);
   assert.doesNotMatch(reply, /• Write smoke notes - technical-writer/);
-  assert.match(reply, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Pro can add 1 skill: docs/);
+  assert.match(reply, /Skills invoked\n• Active: 3 skills: frontend, UI design, accessibility\n• Skill tier: base tier \(30-skill starter loadout\)\n• Pro can add 1 skill: docs/);
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(reply, /^Mission:/im);
   assert.doesNotMatch(reply, /Mission board/);
@@ -381,7 +382,7 @@ test('bug hunt: latest canvas plan can be restored from persisted Spawner state 
   assert.match(reply, /The latest canvas is for H70 Orbit Proof\./);
   assert.match(reply, /2 build steps are queued\./);
   assert.match(reply, /• Create the playable game shell - frontend, Three\.js, game dev, game UI, mobile/);
-  assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels/);
+  assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels\n• Skill tier: pro tier \(full spark-skill-graphs catalog\)/);
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas\?pipeline=prd-tg-build-d9318b7927c7-1778771867119&mission=mission-1778771867119/);
   assert.doesNotMatch(reply, /I can turn this into/);
 });

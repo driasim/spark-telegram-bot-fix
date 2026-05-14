@@ -3651,15 +3651,13 @@ function formatCanvasSkillSummary(tasks: any[], tier: SkillTier): string | null 
 		: base;
 	const rows: string[] = [];
 	if (activeSkills.length > 0) {
-		const previewLimit = 10;
-		const preview = activeSkills.slice(0, previewLimit).map(readableSkillLabel).join(', ');
-		const hiddenCount = Math.max(0, activeSkills.length - previewLimit);
-		rows.push(`• Active: ${activeSkills.length} ${activeSkills.length === 1 ? 'skill' : 'skills'}: ${preview}${hiddenCount > 0 ? `, +${hiddenCount} more` : ''}`);
+		const preview = activeSkills.map(readableSkillLabel).join(', ');
+		rows.push(`• Active: ${activeSkills.length} ${activeSkills.length === 1 ? 'skill' : 'skills'}: ${preview}`);
+		rows.push(`• Skill tier: ${describeTier(tier)}`);
 	}
 	if (tier === 'base' && pro.length > 0) {
-		const previewLimit = 10;
-		const preview = pro.slice(0, previewLimit).map(readableSkillLabel).join(', ');
-		rows.push(`• Pro can add ${pro.length} ${pro.length === 1 ? 'skill' : 'skills'}: ${preview}${pro.length > previewLimit ? `, +${pro.length - previewLimit} more` : ''}`);
+		const preview = pro.map(readableSkillLabel).join(', ');
+		rows.push(`• Pro can add ${pro.length} ${pro.length === 1 ? 'skill' : 'skills'}: ${preview}`);
 	}
 	if (rows.length === 0) return null;
 	return ['Skills invoked', ...rows].join('\n');
@@ -3789,7 +3787,6 @@ export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
   return [
     `The latest canvas is for ${plan.projectName}.`,
     count > 0 ? `${count} build steps are queued.` : null,
-		`Skill tier: ${describeTier(plan.tier)}.`,
     '',
     'Tasks',
     ...taskLines,
