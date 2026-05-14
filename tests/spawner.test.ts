@@ -960,6 +960,40 @@ async function run(): Promise<void> {
     assert.doesNotMatch(result.message, /Result:/);
   });
 
+  await test('latestFailureSummary does not duplicate the board move as a blocker', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-generic-failure',
+              missionName: 'Axiom Garden',
+              status: 'failed',
+              lastEventType: 'provider_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Build shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: unknown error'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestFailureSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /What blocked it\n• Spawner recorded a provider failure\./);
+    assert.match(result.message, /Move\n• Open the Mission board for the full trace\./);
+    assert.equal((result.message.match(/full trace/g) || []).length, 1);
+  });
+
   await test('latestProjectPreview returns the shipped app link for root route builds', async () => {
     restoreAxios();
     const now = Date.now();
@@ -1027,7 +1061,7 @@ async function run(): Promise<void> {
     assert.match(result.message, /http:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
   });
 
-  await test('latestProjectPreview uses a clean board link when no app link is ready', async () => {
+  await test('latestProjectPreview does not treat a running mission as shipped', async () => {
     restoreAxios();
     const now = Date.now();
     (axios as any).get = async () => ({
@@ -1056,11 +1090,102 @@ async function run(): Promise<void> {
     const result = await spawner.latestProjectPreview();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /I found the latest mission, but I do not see a local app link yet/);
-    assert.match(result.message, /Mission\n• Reasoning Orchard\n• running/);
-    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.match(result.message, /I do not see a shipped app link yet\./);
+    assert.doesNotMatch(result.message, /Reasoning Orchard/);
+    assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /kanban\?mission=mission-no-preview/);
     assert.doesNotMatch(result.message, /^Latest:/im);
+  });
+
+  await test('latestProjectPreview treats shipped app as completed, not currently running', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-running-newer',
+              missionName: 'Current Composition Test',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Working',
+              taskName: 'Build current app',
+              providerSummary: 'Codex: working'
+            }
+          ],
+          paused: [],
+          completed: [
+            {
+              missionId: 'mission-completed-shipped',
+              missionName: 'Proof Orchard',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now - 60_000).toISOString(),
+              lastSummary: 'Done',
+              taskName: 'Ship app',
+              providerSummary: 'Codex: Replaced the root screen with Proof Orchard in src/routes/+page.svelte.'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Here is the latest shipped app/);
+    assert.match(result.message, /Proof Orchard/);
+    assert.doesNotMatch(result.message, /Current Composition Test/);
+    assert.doesNotMatch(result.message, /running/);
+  });
+
+  await test('latestProjectPreview reports missing app link from latest completed mission only', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-running-newer',
+              missionName: 'Current Composition Test',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Working',
+              taskName: 'Build current app',
+              providerSummary: 'Codex: working'
+            }
+          ],
+          paused: [],
+          completed: [
+            {
+              missionId: 'mission-completed-no-link',
+              missionName: 'Quiet Completed Mission',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now - 60_000).toISOString(),
+              lastSummary: 'Done',
+              taskName: 'Complete without preview',
+              providerSummary: 'Codex: completed without a local preview URL.'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /latest completed mission/);
+    assert.match(result.message, /Quiet Completed Mission/);
+    assert.doesNotMatch(result.message, /Current Composition Test/);
   });
 }
 

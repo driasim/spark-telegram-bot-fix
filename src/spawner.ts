@@ -492,7 +492,7 @@ function failureCauseLines(entry: BoardEntry): string[] {
     causes.push('Provider/auth access needs a fresh check.');
   }
 
-  return causes.length ? causes.slice(0, 3) : ['Spawner recorded a provider failure; open the board for the full trace.'];
+  return causes.length ? causes.slice(0, 3) : ['Spawner recorded a provider failure.'];
 }
 
 function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
@@ -1199,9 +1199,9 @@ export const spawner = {
   async latestProjectPreview(): Promise<{ success: boolean; message: string }> {
     try {
       const board = await fetchBoardSnapshot();
-      const candidates = [...board.completed, ...board.running];
-      candidates.sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
-      const latest = candidates.find((entry) => projectOpenLinkForEntry(entry)) || candidates[0];
+      const completed = [...board.completed]
+        .sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
+      const latest = completed.find((entry) => projectOpenLinkForEntry(entry)) || completed[0];
       if (!latest) {
         return {
           success: true,
@@ -1214,7 +1214,7 @@ export const spawner = {
         return {
           success: true,
           message: [
-            'I found the latest mission, but I do not see a local app link yet.',
+            'I found the latest completed mission, but I do not see a local app link yet.',
             '',
             'Mission',
             `• ${missionTitle(latest)}`,
