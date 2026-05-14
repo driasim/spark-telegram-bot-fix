@@ -392,32 +392,53 @@ function statusWord(status: string): string {
   return 'queued';
 }
 
+function providerSummaryLead(provider: string | null, status: string): string {
+  if (!provider) {
+    return 'From the current Spawner board, the latest job has not reported an LLM provider yet.';
+  }
+  if (status === 'completed') {
+    return `From the current Spawner board, ${provider} handled the latest job.`;
+  }
+  if (status === 'running') {
+    return `From the current Spawner board, ${provider} has the latest job right now.`;
+  }
+  if (status === 'failed') {
+    return `From the current Spawner board, the latest job failed after reaching ${provider}.`;
+  }
+  if (status === 'paused') {
+    return `From the current Spawner board, the latest job is paused with ${provider} reported.`;
+  }
+  return `From the current Spawner board, ${provider} is reported for the latest job.`;
+}
+
 function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
   const provider = providerNames(entry);
   const title = missionTitle(entry);
   const status = statusWord(entry.status);
+  const needsInspectionLink = entry.status === 'failed' || entry.status === 'paused';
 
   if (!provider) {
-    return [
-      'Latest Spawner job',
-      '',
-      'Provider',
-      '• not reported yet',
+    const lines = [
+      providerSummaryLead(null, status),
       '',
       'Mission',
       `• ${title}`,
-      `• ${status}`,
-      '',
-      'Mission board',
-      `• ${missionBoardUrl()}`
-    ].join('\n');
+      `• ${status}`
+    ];
+
+    if (needsInspectionLink) {
+      lines.push(
+        '',
+        'Mission board',
+        `• ${missionBoardUrl()}`
+      );
+    }
+
+    return lines.join('\n');
   }
 
   const lines = [
-    'Latest Spawner job',
-    '',
-    'Provider',
-    `• ${provider}`,
+    providerSummaryLead(provider, status),
     '',
     'Mission',
     `• ${title}`,
@@ -432,11 +453,13 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
     );
   }
 
-  lines.push(
-    '',
-    'Mission board',
-    `• ${missionBoardUrl()}`
-  );
+  if (needsInspectionLink) {
+    lines.push(
+      '',
+      'Mission board',
+      `• ${missionBoardUrl()}`
+    );
+  }
   return lines.join('\n');
 }
 

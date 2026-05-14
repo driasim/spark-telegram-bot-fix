@@ -717,11 +717,11 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Latest Spawner job/);
-    assert.match(result.message, /Provider\n• Codex/);
+    assert.match(result.message, /From the current Spawner board, Codex has the latest job right now\./);
     assert.match(result.message, /Mission\n• Live smoke\n• running/);
-    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /kanban\?mission=spark-live/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
     assert.doesNotMatch(result.message, /Mission: spark-live/);
     assert.doesNotMatch(result.message, /Result:/);
     assert.doesNotMatch(result.message, /spark-done/);
@@ -756,10 +756,11 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Provider\n• not reported yet/);
+    assert.match(result.message, /latest job has not reported an LLM provider yet/);
     assert.match(result.message, /Mission\n• Token Launch Dashboard\n• queued/);
-    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /kanban\?mission=mission-canvas/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
     assert.doesNotMatch(result.message, /handled by: Preparing canvas/);
   });
 
@@ -792,9 +793,11 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Provider\n• Codex/);
+    assert.match(result.message, /latest job failed after reaching Codex/);
     assert.match(result.message, /Mission\n• Token Launch Dashboard\n• failed/);
     assert.match(result.message, /Open the Mission board/);
+    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
     assert.doesNotMatch(result.message, /Blocked by the current execution environment/);
     assert.doesNotMatch(result.message, /http:\/\/127\.0\.0\.1:3333 is not running/);
     assert.doesNotMatch(result.message, /Result:/);
@@ -869,7 +872,9 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
+    assert.match(result.message, /Codex has the latest job right now/);
     assert.match(result.message, /Mission\n• latest mission\n• running/);
+    assert.doesNotMatch(result.message, /Mission board/);
     assert.doesNotMatch(result.message, /• mission-title-only-id/);
     assert.doesNotMatch(result.message, /^Mission:\s*mission-title-only-id/im);
   });
