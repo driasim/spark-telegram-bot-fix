@@ -393,18 +393,29 @@ function formatLatestMissionTelegramSummary(entry: BoardEntry): string {
   const title = missionTitle(entry);
   const provider = providerNames(entry);
   const status = statusWord(entry.status);
-  const statusLine = status === 'completed'
-    ? 'It finished.'
-    : status === 'running'
-      ? 'It is still running.'
-      : status === 'failed'
-        ? 'It failed.'
-        : status === 'paused'
-          ? 'It is paused.'
-          : 'It is waiting to start.';
+  if (status === 'completed') {
+    return provider
+      ? `The latest build was ${title}. It finished, and ${provider} handled it.`
+      : `The latest build was ${title}. It finished.`;
+  }
+  if (status === 'running') {
+    return provider
+      ? `Spark is working on ${title} right now. ${provider} is handling it.`
+      : `Spark is working on ${title} right now.`;
+  }
+  if (status === 'failed') {
+    return provider
+      ? `The latest build was ${title}. It failed while ${provider} was attached.`
+      : `The latest build was ${title}. It failed before a provider was reported.`;
+  }
+  if (status === 'paused') {
+    return provider
+      ? `The latest build is ${title}. It is paused, with ${provider} attached.`
+      : `The latest build is ${title}. It is paused.`;
+  }
   return provider
-    ? `The latest Spawner mission was ${title}. ${statusLine} ${provider} is attached to it.`
-    : `The latest Spawner mission was ${title}. ${statusLine}`;
+    ? `Spark has ${title} queued. ${provider} is attached, but it has not started yet.`
+    : `Spark has ${title} queued. No LLM has picked it up yet.`;
 }
 
 function statusWord(status: string): string {
