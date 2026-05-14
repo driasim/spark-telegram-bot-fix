@@ -765,7 +765,8 @@ test('formats mission heartbeat as useful work narration', () => {
     }
   });
 
-  assert.match(message, /(?:🛠️ Still working|🛠️ Still with it|🛠️ The run is still active|🛠️ Spark is still on this)\./);
+  assert.match(message, /(?:still working|still with it|the run is still active|Spark is still on this)\./);
+  assert.doesNotMatch(message, /🛠️/);
   assert.match(message, /New signal: reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /reviewing the telemetry relay and writing focused tests/);
   assert.match(message, /Current focus: Review relay updates/);

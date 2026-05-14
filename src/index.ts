@@ -2767,17 +2767,20 @@ function telegramBlocks(...blocks: Array<string | null | undefined | false>): st
     .join('\n\n');
 }
 
+function sentenceWithPeriod(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 export function formatCanvasStillRunningSummary(args: {
   projectName: string;
   elapsedSeconds: number;
   kanbanUrl: string;
 }): string {
   return telegramBlocks(
-    `🛠️ Canvas is still preparing for ${args.projectName}. It has been shaping for ${args.elapsedSeconds}s, so I am keeping an eye on it instead of starting anything else. I will send the canvas when it is ready.`,
-    [
-      'Mission board',
-      `• ${args.kanbanUrl}`
-    ].join('\n')
+    `still preparing ${args.projectName}. I will send the canvas when it is ready.`,
+    `Board: ${args.kanbanUrl}`
   );
 }
 
@@ -2786,7 +2789,7 @@ export function formatCanvasShapingHeartbeatSummary(args: {
   elapsedSeconds: number;
 }): string {
   return telegramBlocks(
-    `🛠️ Still shaping ${args.projectName}. Canvas prep has been running for ${args.elapsedSeconds}s, and I will send the link when planning is ready.`
+    `still shaping ${args.projectName}. I will send the canvas when it is ready.`
   );
 }
 
@@ -3099,7 +3102,7 @@ export function formatBuildClarificationReplyWithMicrocopy(
     : 'What is the one detail I should not guess?');
   return [
     `I can turn this into ${projectName}.`,
-    `Recommended starting point: ${recommendation}.`,
+    `Recommended starting point: ${sentenceWithPeriod(recommendation)}`,
     `Say "go" to start, or steer one thing first: ${steerQuestion}`
   ].join('\n\n');
 }

@@ -181,8 +181,10 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
   assert.doesNotMatch(canvasReady, /elapsed|trace|request/i);
 
   const heartbeat = formatCanvasShapingHeartbeatSummary({ projectName: 'Proof Orchard', elapsedSeconds: 120 });
-  assert.match(heartbeat, /🛠️ Still shaping Proof Orchard\./);
-  assert.match(heartbeat, /Canvas prep has been running for 120s, and I will send the link when planning is ready\./);
+  assert.match(heartbeat, /still shaping Proof Orchard\./);
+  assert.match(heartbeat, /I will send the canvas when it is ready\./);
+  assert.doesNotMatch(heartbeat, /🛠️/);
+  assert.doesNotMatch(heartbeat, /Canvas prep has been running/);
   assert.doesNotMatch(heartbeat, /^Status$/m);
   assert.doesNotMatch(heartbeat, /^Move$/m);
   assert.doesNotMatch(heartbeat, /Mission:/);
@@ -192,8 +194,10 @@ test('bug hunt: Telegram composition keeps mission ids and telemetry mostly behi
     elapsedSeconds: 240,
     kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-123'
   });
-  assert.match(stillRunning, /🛠️ Canvas is still preparing for Proof Orchard\./);
-  assert.match(stillRunning, /It has been shaping for 240s/);
+  assert.match(stillRunning, /still preparing Proof Orchard\./);
+  assert.match(stillRunning, /I will send the canvas when it is ready\./);
+  assert.doesNotMatch(stillRunning, /🛠️/);
+  assert.doesNotMatch(stillRunning, /It has been shaping/);
   assert.doesNotMatch(stillRunning, /^Status$/m);
   assert.doesNotMatch(stillRunning, /^Move$/m);
   assert.doesNotMatch(stillRunning, /^Mission:\s*mission-123/im);

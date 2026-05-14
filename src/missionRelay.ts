@@ -836,10 +836,10 @@ const VOICE_LINES = {
     '🛠️ The run moved forward.'
   ],
   heartbeat: [
-    '🛠️ Still working.',
-    '🛠️ Still with it.',
-    '🛠️ The run is still active.',
-    '🛠️ Spark is still on this.'
+    'still working.',
+    'still with it.',
+    'the run is still active.',
+    'Spark is still on this.'
   ],
   completed: [
     '✨ Spark shipped it.',

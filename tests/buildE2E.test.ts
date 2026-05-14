@@ -964,10 +964,12 @@ async function run(): Promise<void> {
 			kanbanUrl: 'http://stub-spawner.test/kanban?mission=mission-test'
 		});
 
-		assert.match(reply, /🛠️ Canvas is still preparing for Signal Maze\./);
-		assert.match(reply, /It has been shaping for 180s/);
+		assert.match(reply, /still preparing Signal Maze\./);
 		assert.match(reply, /I will send the canvas when it is ready\./);
-		assert.match(reply, /Mission board\n• http:\/\/stub-spawner\.test\/kanban\?mission=mission-test/);
+		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-test/);
+		assert.doesNotMatch(reply, /Mission board\n•/);
+		assert.doesNotMatch(reply, /🛠️/);
+		assert.doesNotMatch(reply, /It has been shaping/);
 		assert.doesNotMatch(reply, /^Status$/m);
 		assert.doesNotMatch(reply, /^Move$/m);
 		assert.doesNotMatch(reply, /Mission: mission-test/);
@@ -980,8 +982,10 @@ async function run(): Promise<void> {
 			elapsedSeconds: 120
 		});
 
-			assert.match(reply, /🛠️ Still shaping Axiom Garden\./);
-			assert.match(reply, /Canvas prep has been running for 120s, and I will send the link when planning is ready\./);
+			assert.match(reply, /still shaping Axiom Garden\./);
+			assert.match(reply, /I will send the canvas when it is ready\./);
+			assert.doesNotMatch(reply, /🛠️/);
+			assert.doesNotMatch(reply, /Canvas prep has been running/);
 			assert.doesNotMatch(reply, /^Status$/m);
 			assert.doesNotMatch(reply, /^Move$/m);
 			assert.doesNotMatch(reply, /Still working on/);
