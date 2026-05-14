@@ -353,6 +353,15 @@ function projectOpenLinkForEntry(entry: BoardEntry): string | null {
     || (rootRouteLooksLikeProject(text) ? PROJECT_PREVIEW_URL.replace(/\/+$/, '') : null);
 }
 
+function isOperationalProbeMission(entry: BoardEntry): boolean {
+  const title = missionTitle(entry);
+  const text = providerResultText(entry);
+  return /\btelegram\s+golden\s+path\s+probe\b/i.test(title)
+    || /\bno[-\s]*edit\s+spawner\s+probe\b/i.test(title)
+    || /\bgolden[-\s]*path\s+health\s+probe\b/i.test(text)
+    || /\breply\s+with\s+exactly\b[\s\S]{0,140}\bdo\s+not\s+edit\s+files\b/i.test(text);
+}
+
 function missionTitle(entry: BoardEntry): string {
   return entry.missionName || entry.taskName || 'latest mission';
 }
@@ -497,20 +506,14 @@ function failureCauseLines(entry: BoardEntry): string[] {
 
 function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
   const title = missionTitle(entry);
+  const causes = failureCauseLines(entry);
   return [
-    'Latest mission needs attention.',
+    `That run did not make it through. It was ${title}.`,
     '',
-    'Mission',
-    `• ${title}`,
-    `• ${statusWord(entry.status)}`,
+    causes.length === 1 ? 'The blocker I can prove:' : 'The blockers I can prove:',
+    ...causes.map((line) => `• ${line}`),
     '',
-    'What blocked it',
-    ...failureCauseLines(entry).map((line) => `• ${line}`),
-    '',
-    'Move',
-    '• Open the Mission board for the full trace.',
-    '',
-    'Mission board',
+    'Full trace',
     `• ${missionBoardUrl()}`
   ].join('\n');
 }
@@ -1201,7 +1204,8 @@ export const spawner = {
       const board = await fetchBoardSnapshot();
       const completed = [...board.completed]
         .sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
-      const latest = completed.find((entry) => projectOpenLinkForEntry(entry)) || completed[0];
+      const shippedCandidates = completed.filter((entry) => !isOperationalProbeMission(entry));
+      const latest = shippedCandidates.find((entry) => projectOpenLinkForEntry(entry)) || shippedCandidates[0];
       if (!latest) {
         return {
           success: true,
@@ -1214,11 +1218,9 @@ export const spawner = {
         return {
           success: true,
           message: [
-            'I found the latest completed mission, but I do not see a local app link yet.',
+            `I found the latest app-like completed run: ${missionTitle(latest)}.`,
             '',
-            'Mission',
-            `• ${missionTitle(latest)}`,
-            `• ${statusWord(latest.status)}`,
+            'I do not see a local preview link attached yet, so the board is the best place to inspect it.',
             '',
             'Mission board',
             `• ${missionBoardUrl()}`
