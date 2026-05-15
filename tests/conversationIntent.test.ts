@@ -908,6 +908,27 @@ test('extracts natural recursive commands for QA Operator loops', () => {
     }
   );
   assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('compare baseline vs candidate for Startup YC, do not run anything'),
+    {
+      rawCommand: 'compare startup-yc',
+      reason: 'Natural-language request to compare Startup YC benchmark movement.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the benchmark-backed evidence for Startup YC'),
+    {
+      rawCommand: 'evidence startup-yc',
+      reason: 'Natural-language request for Startup YC benchmark evidence.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the benchmark-backed evidence for Startup YC, do not run anything'),
+    {
+      rawCommand: 'evidence startup-yc',
+      reason: 'Natural-language request for Startup YC benchmark evidence.'
+    }
+  );
+  assert.deepEqual(
     parseNaturalRecursiveCommandIntent('create a local insight packet for Startup YC, do not publish it'),
     {
       rawCommand: 'package startup-yc',
@@ -940,8 +961,8 @@ test('extracts contextual recursive commands from conversational follow-ups', ()
   assert.deepEqual(
     parseNaturalRecursiveCommandIntent('show the receipts', qaContext),
     {
-      rawCommand: 'trace path:spark-qa-operator',
-      reason: 'Natural-language request to trace Spark QA Operator.'
+      rawCommand: 'evidence spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator benchmark evidence.'
     }
   );
   assert.deepEqual(
@@ -968,8 +989,8 @@ test('extracts contextual recursive commands from conversational follow-ups', ()
   assert.deepEqual(
     parseNaturalRecursiveCommandIntent('compare baseline vs candidate', qaContext),
     {
-      rawCommand: 'status spark-qa-operator',
-      reason: 'Natural-language request for Spark QA Operator proof-backed loop status.'
+      rawCommand: 'compare spark-qa-operator',
+      reason: 'Natural-language request to compare Spark QA Operator benchmark movement.'
     }
   );
   assert.deepEqual(
@@ -1005,8 +1026,8 @@ test('extracts contextual recursive commands from conversational follow-ups', ()
   assert.deepEqual(
     parseNaturalRecursiveCommandIntent('show me proof', qaContext),
     {
-      rawCommand: 'trace path:spark-qa-operator',
-      reason: 'Natural-language request to trace Spark QA Operator.'
+      rawCommand: 'evidence spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator benchmark evidence.'
     }
   );
   assert.deepEqual(

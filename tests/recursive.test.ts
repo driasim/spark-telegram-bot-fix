@@ -23,6 +23,8 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationLoopComparison,
+  renderSpecializationLoopEvidence,
   renderSpecializationLoopInsights,
   renderSpecializationLoopPackage,
   renderSpecializationLoopStatus,
@@ -782,6 +784,39 @@ test('renders specialization loop insights from the latest path session', () => 
   assert.match(reply, /held-out\/trap checks/);
   assert.doesNotMatch(reply, /summary\.json/);
   assert.doesNotMatch(reply, /C:\\paths/);
+});
+
+test('renders specialization loop compare and evidence from session insights', () => {
+  const insights = {
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    completedRounds: 20,
+    requestedRounds: 20,
+    keptRounds: 2,
+    revertedRounds: 18,
+    startScore: 0.6337,
+    currentScore: 0.6453,
+    bestScore: 0.6453,
+    keptCandidateSummaries: [
+      'YC doctrine stack (3 packets across 3 sub-doctrines): primary=Make something people want. (packet make_something_people_want).'
+    ],
+    sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop\\summary.json'
+  };
+
+  const compare = renderSpecializationLoopComparison(insights);
+  assert.match(compare, /Startup YC moved up a little/);
+  assert.match(compare, /baseline 0\.6337/);
+  assert.match(compare, /active 0\.6453 \(\+0\.0116\)/);
+  assert.match(compare, /2 kept, 18 reverted/);
+  assert.doesNotMatch(compare, /summary\.json/);
+
+  const evidence = renderSpecializationLoopEvidence(insights);
+  assert.match(evidence, /benchmark-backed evidence for a small active gain/);
+  assert.match(evidence, /20\/20 rounds completed/);
+  assert.match(evidence, /Make something people want/);
+  assert.match(evidence, /not a final intelligence claim/);
+  assert.doesNotMatch(evidence, /C:\\paths/);
 });
 
 test('renders natural specialization loop status conversationally', () => {

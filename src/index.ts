@@ -77,6 +77,8 @@ import {
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
+  renderSpecializationLoopComparison,
+  renderSpecializationLoopEvidence,
   renderSpecializationLoopStatus,
   renderSpecializationLoopInsights,
   renderSpecializationLoopPackage,
@@ -4730,7 +4732,10 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (target.kind !== 'path') {
         return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
       }
-      return ctx.reply(renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target)));
+      const insights = await readSpecializationPathLoopInsights(target);
+      return ctx.reply(parsed.action === 'compare'
+        ? renderSpecializationLoopComparison(insights)
+        : renderSpecializationLoopEvidence(insights));
     }
 
     if (parsed.action === 'package') {

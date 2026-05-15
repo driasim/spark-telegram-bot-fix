@@ -1634,6 +1634,84 @@ export function renderSpecializationLoopInsights(insights: SpecializationLoopIns
   return lines.join('\n');
 }
 
+function formatSignedDelta(value: number): string {
+  const formatted = formatNumber(Math.abs(value));
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return '0';
+}
+
+export function renderSpecializationLoopComparison(insights: SpecializationLoopInsights): string {
+  const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
+  if (!insights.ok) {
+    return `I could not compare the latest ${label} loop yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
+  }
+
+  const start = typeof insights.startScore === 'number' ? insights.startScore : null;
+  const current = typeof insights.currentScore === 'number' ? insights.currentScore : null;
+  const best = typeof insights.bestScore === 'number' ? insights.bestScore : current;
+  const delta = typeof start === 'number' && typeof current === 'number' ? current - start : null;
+  const improved = typeof delta === 'number' && delta > 0.0001;
+  const headline = improved
+    ? `${label} moved up a little in the latest benchmark loop. I would still keep the claim modest.`
+    : `${label} did not show a clear active-score gain in the latest benchmark loop.`;
+
+  const lines = [
+    headline,
+    '',
+    'Compare',
+  ];
+  if (typeof start === 'number') lines.push(`• baseline ${formatNumber(start)}`);
+  if (typeof current === 'number') lines.push(`• active ${formatNumber(current)}${typeof delta === 'number' ? ` (${formatSignedDelta(delta)})` : ''}`);
+  if (typeof best === 'number' && best !== current) lines.push(`• best seen ${formatNumber(best)}`);
+  lines.push(
+    '',
+    'Loop',
+    `• ${insights.completedRounds ?? 0}/${insights.requestedRounds ?? insights.completedRounds ?? 0} rounds`,
+    `• ${insights.keptRounds ?? 0} kept, ${insights.revertedRounds ?? 0} reverted`,
+    '',
+    'Move',
+    `• ${improved ? 'Attach held-out/trap checks before promoting this as a reusable specialization upgrade.' : 'Try a narrower candidate and inspect the weak benchmark lanes before another long run.'}`
+  );
+  return lines.join('\n');
+}
+
+export function renderSpecializationLoopEvidence(insights: SpecializationLoopInsights): string {
+  const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
+  if (!insights.ok) {
+    return `I could not read the latest ${label} evidence yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
+  }
+
+  const kept = (insights.keptCandidateSummaries || [])
+    .map(compactCandidateSummary)
+    .filter(Boolean)
+    .slice(0, 5);
+  const hasGain = typeof insights.startScore === 'number' &&
+    typeof insights.currentScore === 'number' &&
+    insights.currentScore > insights.startScore + 0.0001;
+  const lines = [
+    hasGain
+      ? `${label} has benchmark-backed evidence for a small active gain.`
+      : `${label} has loop evidence, but not enough for an improvement claim yet.`,
+    '',
+    'Evidence',
+    `• ${insights.completedRounds ?? 0}/${insights.requestedRounds ?? insights.completedRounds ?? 0} rounds completed`,
+    `• ${insights.keptRounds ?? 0} candidate${(insights.keptRounds ?? 0) === 1 ? '' : 's'} kept`,
+    `• ${insights.revertedRounds ?? 0} candidate${(insights.revertedRounds ?? 0) === 1 ? '' : 's'} reverted`,
+  ];
+
+  if (kept.length > 0) {
+    lines.push('', 'What stuck', ...kept.map((item) => `• ${ensureSentence(item)}`));
+  }
+
+  lines.push(
+    '',
+    'Boundary',
+    `• ${hasGain ? 'Good signal, not a final intelligence claim until held-out/trap checks pass.' : 'Useful run history, but not proof of improvement yet.'}`
+  );
+  return lines.join('\n');
+}
+
 export function renderSpecializationLoopPackage(result: SpecializationLoopPackageResult): string {
   const packet = result.packet || {};
   const pathInfo = packet.path || {};

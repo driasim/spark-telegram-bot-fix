@@ -808,8 +808,8 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
     };
   }
 
-  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs?)\b/i.test(normalized) ||
-      /\b(?:what|which)\s+(?:loops?|runs?)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
+  if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs)\b/i.test(normalized) ||
+      /\b(?:what|which)\s+(?:loops?|runs)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
     return {
       rawCommand: 'sessions',
       reason: 'Natural-language request to list recursive loops.'
@@ -856,7 +856,21 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
     };
   }
 
-  if (/\b(?:trace|timeline|recent\s+movement|what\s+happened|show\s+the\s+evidence|show\s+evidence|show\s+the\s+receipts|receipts|audit\s+trail|proof|show\s+me\s+proof|show\s+the\s+trail|behind\s+the\s+scenes|what\s+went\s+on|what\s+did\s+it\s+do)\b/i.test(normalized)) {
+  if (target.chipKey && /\b(?:compare\s+baseline|baseline\s+vs\s+candidate|compare\s+.*(?:candidate|baseline|score|scores)|score\s+movement)\b/i.test(normalized)) {
+    return {
+      rawCommand: `compare ${target.chipKey}`,
+      reason: `Natural-language request to compare ${target.label} benchmark movement.`
+    };
+  }
+
+  if (target.chipKey && /\b(?:show\s+the\s+evidence|show\s+evidence|show\s+the\s+receipts|receipts|proof|show\s+me\s+proof|benchmark-backed\s+evidence|evidence\s+packet)\b/i.test(normalized)) {
+    return {
+      rawCommand: `evidence ${target.chipKey}`,
+      reason: `Natural-language request for ${target.label} benchmark evidence.`
+    };
+  }
+
+  if (/\b(?:trace|timeline|recent\s+movement|what\s+happened|audit\s+trail|show\s+the\s+trail|behind\s+the\s+scenes|what\s+went\s+on|what\s+did\s+it\s+do|show\s+the\s+receipts|receipts|proof|show\s+me\s+proof)\b/i.test(normalized)) {
     return {
       rawCommand: `trace ${target.pathId}`,
       reason: `Natural-language request to trace ${target.label}.`
@@ -870,14 +884,14 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
     };
   }
 
-  if (target.chipKey && /\b(?:status|score|scores|what\s+changed|what'?s\s+the\s+signal|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|compare\s+baseline|baseline\s+vs\s+candidate|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
+  if (target.chipKey && /\b(?:status|score|scores|what\s+changed|what'?s\s+the\s+signal|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
     return {
       rawCommand: `status ${target.chipKey}`,
       reason: `Natural-language request for ${target.label} proof-backed loop status.`
     };
   }
 
-  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|compare\s+baseline|baseline\s+vs\s+candidate|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
+  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
     return {
       rawCommand: `report ${target.pathId}`,
       reason: `Natural-language request for ${target.label} recursive report.`
