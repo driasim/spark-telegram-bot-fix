@@ -24,8 +24,8 @@ capabilities = [
 ]
 
 [needs]
-modules = ["spark-intelligence-builder", "spawner-ui", "spark-voice-comms"]
-capabilities = ["spark.runtime", "mission.execution", "voice.speak", "voice.transcribe"]
+modules = ["spark-intelligence-builder", "spawner-ui"]
+capabilities = ["spark.runtime", "mission.execution"]
 secrets = [
   "telegram.bot_token",
   "telegram.admin_ids",
@@ -114,5 +114,4 @@ owns = [
 depends_on = [
   "spark-intelligence-builder",
   "spawner-ui",
-  "spark-voice-comms",
 ]
