@@ -273,12 +273,13 @@ async function loadBuilderAttachmentSnapshot(config: PathLoopConfig): Promise<an
 
 export async function resolveRecursiveStartTarget(targetKey: string): Promise<RecursiveStartTarget> {
   if (!targetKey) return { kind: 'chip', key: targetKey };
+  const localPathTarget = resolveLocalSpecializationPathTarget(targetKey);
   try {
     const classified = classifyBuilderAttachmentTargetFromSnapshot(await loadBuilderAttachmentSnapshot(resolveConfig()), targetKey);
-    if (classified.kind === 'path') return classified;
-    return resolveLocalSpecializationPathTarget(targetKey) || classified;
+    if (classified.kind === 'path') return localPathTarget || classified;
+    return localPathTarget || classified;
   } catch {
-    return resolveLocalSpecializationPathTarget(targetKey) || { kind: 'chip', key: targetKey };
+    return localPathTarget || { kind: 'chip', key: targetKey };
   }
 }
 
