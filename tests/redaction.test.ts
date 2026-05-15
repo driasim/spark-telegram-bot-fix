@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { maskSecret, redactForLog, redactText } from '../src/redaction';
+import { maskSecret, redactForLog, redactIdentifier, redactText } from '../src/redaction';
 
 const openAiKeyFixture = `sk-${'abcdefghijklmnopqrstuvwxyz'}123456`;
 const telegramTokenFixture = ['1234567890', 'AA' + 'B'.repeat(34)].join(':');
@@ -47,4 +47,12 @@ test('redacts Error values for logs', () => {
   const error = new Error(`failed with ZAI_API_KEY=${openAiKeyFixture}`);
   const rendered = String(redactForLog(error));
   assert(!rendered.includes('abcdefghijklmnopqrstuvwxyz123456'));
+});
+
+test('redacts stable Telegram identifiers without raw IDs', () => {
+  const ref = redactIdentifier(8319079055, 'user');
+  assert.match(ref, /^user_[a-f0-9]{16}$/);
+  assert.equal(redactIdentifier(8319079055, 'user'), ref);
+  assert(!ref.includes('8319079055'));
+  assert.equal(redactIdentifier(null, 'user'), 'unknown');
 });
