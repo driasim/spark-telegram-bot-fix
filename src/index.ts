@@ -41,7 +41,7 @@ import {
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
-import { installConsoleRedaction, redactText } from './redaction';
+import { installConsoleRedaction, redactIdentifier, redactText } from './redaction';
 import { readJsonFile } from './jsonState';
 import {
   formatCreatorMissionExecutionSummary,
@@ -1384,7 +1384,11 @@ type NodeOutboundTraceContext = {
 };
 
 function chatRef(chatId: unknown): string {
-  return `chat_${createHash('sha256').update(String(chatId ?? '')).digest('hex').slice(0, 16)}`;
+  return redactIdentifier(String(chatId ?? ''), 'chat');
+}
+
+function userRef(userId: unknown): string {
+  return redactIdentifier(String(userId ?? ''), 'user');
 }
 
 function extractOutboundTraceContext(extra: unknown): NodeOutboundTraceContext | null {
@@ -1479,8 +1483,10 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     ts: new Date().toISOString(),
     event: 'final_answer_checked',
     outcome: 'suppressed_builder_reply',
-    chat_id: String(input.chatId ?? ''),
-    user_id: String(input.userId ?? ''),
+    chat_id_present: String(input.chatId ?? '').trim().length > 0,
+    user_id_present: String(input.userId ?? '').trim().length > 0,
+    chat_ref: chatRef(input.chatId),
+    user_ref: userRef(input.userId),
     suppression_reason: input.suppressionReason,
     builder_routing_decision: input.builderRoutingDecision || '',
     builder_bridge_mode: input.builderBridgeMode || '',
@@ -1794,7 +1800,7 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
   await safeSendChatAction(ctx, 'typing');
   try {
     const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
-    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
+    console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
     if (
       builderReply.used &&
       builderReply.bridgeMode !== 'bridge_error' &&
@@ -1927,8 +1933,8 @@ bot.start(async (ctx) => {
       session: onboardingSession,
       replied: true,
       ts: new Date().toISOString(),
-      chat_id: String(ctx.chat?.id ?? ''),
-      user_id: String(user.id ?? ''),
+      chat_id: chatRef(ctx.chat?.id),
+      user_id: userRef(user.id),
       profile: process.env.SPARK_TELEGRAM_PROFILE || 'default'
     }).catch((error) => {
       console.warn('[Onboarding] failed to write first-message event:', error);
@@ -2746,7 +2752,7 @@ bot.command('insights', async (ctx) => {
 // deferred dashboard placeholder; voice is a Builder/chip capability now.
 bot.command('voice', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
-  console.log(`[Voice] /voice command received user=${ctx.from?.id || 'unknown'} chat_type=${ctx.chat?.type || 'unknown'}`);
+  console.log(`[Voice] /voice command received user=${userRef(ctx.from?.id)} chat_type=${ctx.chat?.type || 'unknown'}`);
   try {
     const routed = await replyViaBuilder(ctx, ctx.message?.text || '/voice');
     if (routed) {
@@ -4778,7 +4784,7 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
 
     if (parsed.action === 'approve' || parsed.action === 'defer' || parsed.action === 'reject' || parsed.action === 'more-eval') {
       if (!parsed.id) return ctx.reply(`Usage: /recursive ${parsed.action} <id> <rationale>`);
-      const actor = `telegram:${ctx.from?.id ?? 'unknown'}`;
+      const actor = `telegram:${userRef(ctx.from?.id)}`;
       const decision = await recordRecursiveDecision({
         id: parsed.id,
         action: parsed.action,
@@ -5666,7 +5672,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
-    console.log(`[ConversationIntent] early ideation route user=${ctx.from?.id} textLen=${text.length}`);
+    console.log(`[ConversationIntent] early ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
     await safeSendChatAction(ctx, 'typing');
@@ -5909,7 +5915,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (buildIntent) {
-      console.log(`[BuildIntent] route user=${ctx.from?.id} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
+      console.log(`[BuildIntent] route user=${userRef(ctx.from?.id)} project=${JSON.stringify(buildIntent.projectName).slice(0, 80)}`);
       const accessPreference = parseNaturalAccessChangeIntent(text);
       const normalizedAccessPreference = accessPreference ? normalizeSparkAccessProfile(accessPreference) : null;
       if (normalizedAccessPreference) {
@@ -6118,7 +6124,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (isExplicitContextualBuildRequest(text) && deterministicRouteAllowed('spawner.contextual_improvement', text)) {
       const improvementGoal = buildContextualImprovementGoal(text, contextualTurns);
       if (improvementGoal) {
-        console.log(`[ConversationIntent] inferred contextual improvement mission user=${ctx.from?.id} textLen=${text.length}`);
+        console.log(`[ConversationIntent] inferred contextual improvement mission user=${userRef(ctx.from?.id)} textLen=${text.length}`);
         await conversation.remember(user, text).catch(() => {});
         const missionId = await handleRunCommand(ctx, improvementGoal, [missionDefaultProvider()], undefined, {
           missionName: 'Spark Diagnostic Agent Integration'
@@ -6146,7 +6152,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const inferredMission = inferMissionFromRecentContext(text, recentMessages);
     if (inferredMission && deterministicRouteAllowed('spawner.contextual_mission', text)) {
-      console.log(`[ConversationIntent] inferred mission from follow-up user=${ctx.from?.id} textLen=${text.length}`);
+      console.log(`[ConversationIntent] inferred mission from follow-up user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       await conversation.remember(user, text).catch(() => {});
       const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
         missionName: inferredMission.missionName
@@ -6160,7 +6166,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
 
     if (shouldPreferConversationalIdeation(text)) {
-      console.log(`[ConversationIntent] ideation route user=${ctx.from?.id} textLen=${text.length}`);
+      console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       await safeSendChatAction(ctx, 'typing');
       if (isShortResolvedListPick(text, conversationFrame)) {
         const fastReply = buildSelectedListFastReply(conversationFrame);
@@ -6232,7 +6238,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
       }
     }
-    console.log(`[Bridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
+    console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
       if (memoryDoctorEvidenceTurns.length > 0 && isMemoryDoctorBridgeDetourReply(builderReply.responseText)) {
         const fallback = renderMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns);
@@ -6343,7 +6349,7 @@ export async function handleImageMessage(ctx: any): Promise<void> {
           await conversation.getRecentMessages(user, 6).catch(() => [])
         );
     const builderReply = await runBuilderTelegramBridge(bridgeUpdate);
-    console.log(`[ImageBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
+    console.log(`[ImageBridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText) {
       await ctx.reply(builderReply.responseText);
@@ -6386,13 +6392,13 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
     const voiceTiming = builderReply.voiceTiming && Object.keys(builderReply.voiceTiming).length
       ? ` voiceTiming=${JSON.stringify(builderReply.voiceTiming)}`
       : '';
-    console.log(`[VoiceBridge] user=${ctx.from?.id} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}${voiceTiming}`);
+    console.log(`[VoiceBridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}${voiceTiming}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && (builderReply.responseText || builderReply.voiceMedia)) {
       await deliverBuilderReply(ctx, builderReply);
       const deliveredAt = Date.now();
       console.log(
-        `[VoiceBridgeTiming] user=${ctx.from?.id} remember_ms=${rememberedAt - startedAt} media_ms=${mediaReadyAt - rememberedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
+        `[VoiceBridgeTiming] user=${userRef(ctx.from?.id)} remember_ms=${rememberedAt - startedAt} media_ms=${mediaReadyAt - rememberedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
       );
       if (builderReply.responseText) {
         await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});

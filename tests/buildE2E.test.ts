@@ -726,6 +726,13 @@ async function run(): Promise<void> {
 			assert.equal(record.request_id, 'req-final-gate');
 			assert.equal(record.trace_ref, 'trace:req-final-gate');
 			assert.equal(record.builder_reply_preview, 'Noted: saved.');
+			assert.equal(record.chat_id_present, true);
+			assert.equal(record.user_id_present, true);
+			assert.match(record.chat_ref, /^chat_[a-f0-9]{16}$/);
+			assert.match(record.user_ref, /^user_[a-f0-9]{16}$/);
+			assert.equal(Object.prototype.hasOwnProperty.call(record, 'chat_id'), false);
+			assert.equal(Object.prototype.hasOwnProperty.call(record, 'user_id'), false);
+			assert.doesNotMatch(auditText, new RegExp(String(testUserId)));
 			assert.deepEqual(replies, ['Local fallback response.']);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
 const TELEGRAM_BOT_TOKEN = /\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g;
 const GENERIC_TOKEN_PATTERNS = [
@@ -67,6 +69,19 @@ export function redactForLog(value: unknown): unknown {
     }
   }
   return value;
+}
+
+export function redactIdentifier(value: string | number | null | undefined, prefix = 'id'): string {
+  const text = String(value ?? '').trim();
+  if (!text || text === 'unknown') {
+    return 'unknown';
+  }
+  const safePrefix = String(prefix || 'id').replace(/[^A-Za-z0-9_]/g, '_') || 'id';
+  if (new RegExp(`^${safePrefix}_[a-f0-9]{16}$`, 'i').test(text)) {
+    return text;
+  }
+  const digest = createHash('sha256').update(text).digest('hex').slice(0, 16);
+  return `${safePrefix}_${digest}`;
 }
 
 export function installConsoleRedaction(): void {

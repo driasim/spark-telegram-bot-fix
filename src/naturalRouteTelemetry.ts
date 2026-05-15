@@ -1,4 +1,5 @@
 import type { NaturalRouteDecision } from './naturalRouteDecision';
+import { redactIdentifier } from './redaction';
 
 export type NaturalRouteTelemetryPhase = 'shadow' | 'probe' | 'execute';
 
@@ -40,8 +41,8 @@ export function naturalRouteTelemetryLine(input: NaturalRouteTelemetryInput): st
     `signals=${safeList(decision.matched_signals)}`,
     `blocked=${safeList(decision.blocked_by)}`,
     `profile=${safeField(input.profile)}`,
-    `user=${safeField(input.userId)}`,
-    `chat=${safeField(input.chatId)}`,
+    `user=${redactIdentifier(input.userId, 'user')}`,
+    `chat=${redactIdentifier(input.chatId, 'chat')}`,
     `chat_type=${safeField(input.chatType)}`,
     `admin=${safeField(Boolean(input.admin))}`,
     input.executedRoute ? `executed=${safeField(input.executedRoute)}` : null,
