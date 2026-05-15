@@ -140,6 +140,31 @@ test('freeform completion fallback does not repeat raw mission ids', () => {
   assert.doesNotMatch(message, /Mission: spark-freeform/);
 });
 
+test('completion summaries hide raw Spawner mission ids from no-edit smoke handoffs', () => {
+  const freeform = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-1778835482267',
+    verbosity: 'normal',
+    response: 'Codex: PUBLISHING_MACHINE_SMOKE_OK\n\nMission: spark-1778835482267'
+  });
+  const structured = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'spark-1778835482267',
+    verbosity: 'normal',
+    response: JSON.stringify({
+      status: 'completed',
+      summary: 'Codex: PUBLISHING_MACHINE_SMOKE_OK\n\nMission: spark-1778835482267'
+    })
+  });
+
+  assert.match(freeform, /PUBLISHING_MACHINE_SMOKE_OK/);
+  assert.match(structured, /PUBLISHING_MACHINE_SMOKE_OK/);
+  assert.doesNotMatch(freeform, /Mission: spark-1778835482267/);
+  assert.doesNotMatch(structured, /Mission: spark-1778835482267/);
+  assert.doesNotMatch(freeform, /spark-1778835482267/);
+  assert.doesNotMatch(structured, /spark-1778835482267/);
+});
+
 test('formats structured provider failures without raw JSON noise', () => {
   const message = formatProviderCompletionForTelegram({
     providerLabel: 'codex',
