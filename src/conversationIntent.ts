@@ -477,6 +477,8 @@ export interface NaturalRecursiveCommandContext {
 }
 
 function normalizeCreatorMissionPrivacy(text: string): NaturalCreatorMissionIntent['privacyMode'] {
+  if (/\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:publish|share|ship|deploy)\b/i.test(text)) return 'local_only';
+  if (/\b(?:no|not)\s+(?:publish|sharing|share|deploy)(?:ing)?\s+(?:yet|for\s+now|right\s+now)\b/i.test(text)) return 'local_only';
   if (/\b(?:private|local|locally|workspace only|personal workspace)\b/i.test(text)) return 'local_only';
   if (/\b(?:github|pull\s+request|pr)\b/i.test(text)) return 'github_pr';
   if (/\b(?:swarm|network|shared|publish|public)\b/i.test(text)) return 'swarm_shared';
@@ -487,7 +489,7 @@ function normalizeCreatorMissionRisk(text: string): NaturalCreatorMissionIntent[
   if (/\b(?:public|network|publish|production|secret|token|auth|payment|financial|trading|delete|destructive)\b/i.test(text)) {
     return 'high';
   }
-  if (/\b(?:recursive|autoloop|specialization|benchmark|swarm|creator|qa|test|validator|review)\b/i.test(text)) {
+  if (/\b(?:recursive|autoloop|specialization|benchmark|swarm|creator|qa|test|validator|review|loop|template|insight|domain[-\s]*chip)\b/i.test(text)) {
     return 'medium';
   }
   return 'low';
@@ -514,12 +516,12 @@ function isContextualQaOperatorCreatorMission(text: string, contextText: string)
 
 function isCreatorSystemMission(text: string): boolean {
   if (/^\s*\//.test(text)) return false;
-  if (/\b(?:what|why|how)\s+(?:is|are|does|do)\b/i.test(text) && !/\b(?:create|build|make|prepare|wire|connect|improve|run)\b/i.test(text)) {
+  if (/\b(?:what|why|how)\s+(?:is|are|does|do)\b/i.test(text) && !/\b(?:create|build|make|prepare|wire|connect|improve|run|stage|attach|add|update|package|link|turn)\b/i.test(text)) {
     return false;
   }
   return (
-    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+(?:review|contribution)\s+packet|review\s+packet)\b/i.test(text) &&
-    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand)\b/i.test(text)
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|speciali[sz]ation\s+path|autoloop(?:\s+policy)?|auto\s+loop|swarm\s+(?:review|contribution)\s+packet|shareable\s+insight\s+packet|insight\s+packet|review\s+packet|reusable\s+template|loop\s+template|speciali[sz]ation\s+template)\b/i.test(text) &&
+    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|attach|add|update|package|link|turn)\b/i.test(text)
   );
 }
 
@@ -528,10 +530,30 @@ function hasCreatorRunArtifactSignature(text: string): boolean {
     /\bbenchmark\s+pack\b|\bbenchmarks?\b|\bevals?\b/i,
     /\bspeciali[sz]ation\s+path\b/i,
     /\bautoloop(?:\s+policy)?\b|\bauto\s+loop\b/i,
-    /\bswarm\s+(?:contribution|review)\s+packet\b|\breview\s+packet\b/i,
+    /\bswarm\s+(?:contribution|review)\s+packet\b|\bshareable\s+insight\s+packet\b|\binsight\s+packet\b|\breview\s+packet\b/i,
+    /\breusable\s+template\b|\bloop\s+template\b|\bspecialization\s+template\b/i,
     /\bcreator\s+(?:mission|system|run)\b/i
   ].filter((pattern) => pattern.test(text)).length;
   return signals >= 2 || /\bfull\s+(?:creator\s+)?path\b/i.test(text);
+}
+
+function isCreatorMissionStageOnlyRequest(text: string): boolean {
+  const asksForCreatorPlan =
+    /\b(?:create|build|make|plan|stage|scaffold|generate|set up|prepare|attach|add|update|package|link|turn)\b/i.test(text) &&
+    /\b(?:creator\s+(?:mission|system|run)|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|speciali[sz]ation\s+path|autoloop(?:\s+policy)?|auto\s+loop|swarm\s+(?:review|contribution)\s+packet|shareable\s+insight\s+packet|insight\s+packet|review\s+packet|reusable\s+template|loop\s+template|speciali[sz]ation\s+template)\b/i.test(text);
+  if (!asksForCreatorPlan) return false;
+
+  const blocksRunOrPublish =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|kick\s+off|publish|share|ship|deploy)\b/i.test(text) ||
+    /\b(?:no|not)\s+(?:run|publish|sharing|share|execution|launch|deploy)(?:ing)?\s+(?:yet|for\s+now|right\s+now)\b/i.test(text) ||
+    /\bstage\s+only\b/i.test(text);
+  if (!blocksRunOrPublish) return false;
+
+  const blocksPlanning =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|plan|stage|scaffold|generate|prepare|add|attach|update|package|link|turn)\b/i.test(text) ||
+    /\b(?:help\s+me\s+)?(?:think\s+through|brainstorm|discuss|talk\s+through|chat\s+about)\b/i.test(text) ||
+    /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/i.test(text);
+  return !blocksPlanning;
 }
 
 function isAmbiguousCreatorFollowup(text: string): boolean {
@@ -550,8 +572,8 @@ function creatorContextText(context: NaturalCreatorMissionContext = {}): string 
 function isContextualCreatorSystemMission(text: string, contextText: string): boolean {
   if (!contextText || !isAmbiguousCreatorFollowup(text)) return false;
   return (
-    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn)\b/i.test(text) &&
-    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+(?:review|contribution)\s+packet|review\s+packet)\b/i.test(text)
+    /\b(?:create|build|make|prepare|plan|stage|scaffold|generate|wire|connect|standardize|improve|upgrade|expand|turn|add|attach|update|package|link)\b/i.test(text) &&
+    /\b(?:creator\s+mission|creator\s+system|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|specialization\s+path|autoloop(?:\s+policy)?|swarm\s+(?:review|contribution)\s+packet|shareable\s+insight\s+packet|insight\s+packet|review\s+packet|reusable\s+template|loop\s+template|specialization\s+template)\b/i.test(text)
   );
 }
 
@@ -602,32 +624,38 @@ export function parseNaturalCreatorMissionIntent(text: string, context: NaturalC
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
   if (isMemoryDoctorRequest(normalized)) return null;
-  if (isNoExecutionBoundary(normalized)) return null;
+  if (isNoExecutionBoundary(normalized) && !isCreatorMissionStageOnlyRequest(normalized)) return null;
   const contextText = creatorContextText(context);
   const explicitQaOperatorMission = isQaOperatorCreatorMission(normalized);
   const contextualQaOperatorMission = isContextualQaOperatorCreatorMission(normalized, contextText);
+  const explicitCreatorSystemMission = isCreatorSystemMission(normalized);
   const contextualMission = isContextualCreatorSystemMission(normalized, contextText);
-  if (!explicitQaOperatorMission && !contextualQaOperatorMission && !isCreatorSystemMission(normalized) && !contextualMission) return null;
+  if (!explicitQaOperatorMission && !contextualQaOperatorMission && !explicitCreatorSystemMission && !contextualMission) return null;
   if (
     shouldPreferConversationalIdeation(normalized) &&
     !explicitQaOperatorMission &&
     !contextualQaOperatorMission &&
+    !explicitCreatorSystemMission &&
     !contextualMission &&
     !hasCreatorRunArtifactSignature(normalized)
   ) {
     return null;
   }
-  if (isAmbiguousCreatorFollowup(normalized) && !contextText) return null;
-  if (/\b(?:show|list|status|report|trace|review)\b/i.test(normalized) && !/\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|improve|upgrade|expand)\b/i.test(normalized)) {
+  const namesConcreteCreatorTarget = /\b(?:startup[-\s]+yc|spark\s+qa\s+operator|qa\s+operator|domain[-\s]+chip[-\s]+creator)\b/i.test(normalized);
+  if (isAmbiguousCreatorFollowup(normalized) && !contextText && !explicitQaOperatorMission && !(explicitCreatorSystemMission && namesConcreteCreatorTarget)) return null;
+  if (/\b(?:show|list|status|report|trace|review)\b/i.test(normalized) && !/\b(?:create|build|make|prepare|plan|scaffold|generate|wire|connect|improve|upgrade|expand|stage|add|attach|update|package|link|turn)\b/i.test(normalized)) {
     return null;
   }
 
-  const privacyMode = normalizeCreatorMissionPrivacy(normalized);
+  const stageOnly = isCreatorMissionStageOnlyRequest(normalized);
+  const privacyMode = stageOnly
+    ? 'local_only'
+    : normalizeCreatorMissionPrivacy(normalized);
   const qaOperator = explicitQaOperatorMission || contextualQaOperatorMission;
   return {
     brief: normalizeCreatorMissionBrief(normalized, contextualMission || contextualQaOperatorMission ? contextText : ''),
     privacyMode,
-    riskLevel: privacyMode === 'swarm_shared' ? 'high' : normalizeCreatorMissionRisk(normalized),
+    riskLevel: stageOnly ? 'medium' : privacyMode === 'swarm_shared' ? 'high' : normalizeCreatorMissionRisk(normalized),
     reason: qaOperator
       ? 'Spark QA Operator creator work needs benchmark packs, held-out checks, autoloop policy, and private Workspace evidence before any network sharing.'
       : 'Creator-system work needs artifact manifests, benchmark gates, rollback notes, and review boundaries.'
@@ -706,7 +734,7 @@ function dynamicNaturalRecursiveTarget(text: string, targets: NaturalRecursiveCo
 }
 
 function hasRecursiveContextSignal(text: string): boolean {
-  return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(text);
+  return /\b(?:\/recursive|recursive|recursion|recursions|autoloop|loop|round|benchmark|compare|baseline|candidate|evidence|proof|receipts|held[-\s]?out|trap|template|packet|score|trace|review|decisions?|workspace|path:[A-Za-z0-9:_-]+|path_builder_chip_|path_benchmark_|path_domain_)\b/i.test(text);
 }
 
 function knownNaturalRecursiveTarget(text: string): NaturalRecursiveCommandTarget | null {
@@ -735,6 +763,21 @@ function knownNaturalRecursiveTarget(text: string): NaturalRecursiveCommandTarge
   return null;
 }
 
+function newestContextualNaturalRecursiveTarget(
+  recentMessages: string[],
+  targets: NaturalRecursiveCommandTarget[] | undefined
+): NaturalRecursiveCommandTarget | null {
+  for (const message of recentMessages.slice(-8).reverse()) {
+    const trimmed = message.trim();
+    if (!trimmed || !hasRecursiveContextSignal(trimmed)) continue;
+    const known = knownNaturalRecursiveTarget(trimmed);
+    if (known) return known;
+    const dynamic = dynamicNaturalRecursiveTarget(trimmed, targets);
+    if (dynamic) return dynamic;
+  }
+  return null;
+}
+
 function naturalRecursiveTarget(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandTarget | null {
   const direct = knownNaturalRecursiveTarget(text);
   if (direct) return direct;
@@ -742,15 +785,15 @@ function naturalRecursiveTarget(text: string, context: NaturalRecursiveCommandCo
   if (dynamicDirect) return dynamicDirect;
 
   const normalized = text.replace(/\s+/g, ' ').trim();
-  const canUseContext = /\b(?:it|this|that|same|again|another|more|current|latest|loop|round|pass|iteration|report|readout|summary|status|trace|timeline|evidence|proof|trail|receipts|review|approve|approval|decisions?|blockers?|weakest|weak\s+spot|signal|changed|land|short\s+version|vibe|how'?s|how\s+is|where\s+are\s+we|where\s+did\s+we\s+land|keep\s+going|continue|keep\s+pushing|push\s+it|my\s+call|calls?\s+for\s+me|needs\s+me)\b/i.test(normalized);
+  const canUseContext = /\b(?:it|this|that|same|again|another|more|current|latest|loop|round|pass|iteration|benchmark|benchmarks|baseline|candidate|compare|held[-\s]?out|trap|report|readout|summary|status|trace|timeline|evidence|proof|trail|receipts|review|approve|approval|decisions?|blockers?|weakest|weak\s+spot|signal|changed|improved|improvement|got\s+better|became\s+better|package|packet|template|land|short\s+version|vibe|how'?s|how\s+is|where\s+are\s+we|where\s+did\s+we\s+land|keep\s+going|continue|keep\s+pushing|push\s+it|my\s+call|calls?\s+for\s+me|needs\s+me)\b/i.test(normalized);
   if (!canUseContext) return null;
 
-  const recent = (context.recentMessages || [])
+  const recentMessages = (context.recentMessages || [])
     .filter(Boolean)
-    .slice(-8)
-    .join('\n');
+    .slice(-8);
+  const recent = recentMessages.join('\n');
   if (!recent || !hasRecursiveContextSignal(recent)) return null;
-  return knownNaturalRecursiveTarget(recent) || dynamicNaturalRecursiveTarget(recent, context.targets);
+  return newestContextualNaturalRecursiveTarget(recentMessages, context.targets);
 }
 
 export function parseNaturalRecursiveCommandIntent(text: string, context: NaturalRecursiveCommandContext = {}): NaturalRecursiveCommandIntent | null {
@@ -775,11 +818,29 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
   const target = naturalRecursiveTarget(normalized, context);
   if (!target) return null;
 
+  const asksForLocalPackage =
+    /\b(?:package|save|prepare|create|make|turn)\b.*\b(?:insight\s+packet|evidence\s+packet|proof\s+packet|review\s+packet|reusable\s+template|loop\s+template|speciali[sz]ation\s+template)\b/i.test(normalized) ||
+    /\b(?:package|save|prepare)\b.*\b(?:evidence|proof|receipts)\b/i.test(normalized);
+  const blocksPackage = /\b(?:do\s+not|don't|dont|no)\s+(?:package|save|prepare|create|make)\b/i.test(normalized);
+  const blocksPublish = /\b(?:do\s+not|don't|dont|without|no)\b.{0,30}\b(?:publish|send|share)\b/i.test(normalized);
+  const asksToPublish = /\b(?:publish|send|share)\b/i.test(normalized) &&
+    !blocksPublish;
+  if (target.chipKey && asksForLocalPackage && !blocksPackage && !asksToPublish) {
+    return {
+      rawCommand: `package ${target.chipKey}`,
+      reason: `Natural-language request to package ${target.label} loop evidence locally.`
+    };
+  }
+
   if (/\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:recursive|recursion|loop|round|iteration)\b/i.test(normalized) ||
       /\b(?:start|run|kick\s+off|launch|do)\b.*\b(?:qa\s+tester|qa\s+operator|startup[-\s]+yc|domain[-\s]+chip[-\s]+creator)\b/i.test(normalized) ||
       /\b(?:improve|make\s+better)\b.*\b(?:qa\s+tester|qa\s+operator)\b.*\b(?:round|loop|iteration)\b/i.test(normalized) ||
+      /\b(?:run|start)\s+(?:the\s+)?(?:baseline\s+)?benchmarks?\b/i.test(normalized) ||
+      /\b(?:run|start)\s+(?:the\s+)?candidate\s+benchmarks?\b/i.test(normalized) ||
+      /\b(?:apply|try|test)\s+(?:the\s+)?(?:improvement\s+)?candidate\b/i.test(normalized) ||
       /\b(?:run|start|do|try)\s+(?:another|one\s+more|a|one|same)\s+(?:round|pass|iteration|loop)\b/i.test(normalized) ||
       /\b(?:keep\s+going|continue|iterate\s+again|let\s+it\s+cook|keep\s+pushing|push\s+it\s+further|send\s+it\s+again|give\s+it\s+another\s+pass|one\s+more\s+pass)\b/i.test(normalized)) {
+    if (isNoExecutionBoundary(normalized)) return null;
     if (!target.chipKey) return null;
     return {
       rawCommand: `start ${target.chipKey} rounds ${naturalRoundCount(normalized)}`,
@@ -801,7 +862,14 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
     };
   }
 
-  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next)\b/i.test(normalized)) {
+  if (target.chipKey && /\b(?:status|score|scores|what\s+changed|what'?s\s+the\s+signal|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|compare\s+baseline|baseline\s+vs\s+candidate|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
+    return {
+      rawCommand: `status ${target.chipKey}`,
+      reason: `Natural-language request for ${target.label} proof-backed loop status.`
+    };
+  }
+
+  if (/\b(?:report|status|score|scores|result|results|doing|health|how'?s|how\s+is|how\s+did\s+(?:that|it)\s+go|readout|summary|short\s+version|where\s+are\s+we|where\s+did\s+we\s+land|what\s+changed|what'?s\s+the\s+signal|what'?s\s+the\s+vibe|state\s+of\s+it|what\s+should\s+.*improve\s+next|weakest|weak\s+spot|what\s+is\s+next|what'?s\s+next|whether\s+.*improv\w*|did\s+.*improv\w*|got\s+better|became\s+better|compare\s+baseline|baseline\s+vs\s+candidate|held[-\s]?out|trap\s+tests?|candidate\s+benchmark)\b/i.test(normalized)) {
     return {
       rawCommand: `report ${target.pathId}`,
       reason: `Natural-language request for ${target.label} recursive report.`
@@ -829,7 +897,7 @@ export function isNoExecutionBoundary(text: string): boolean {
     /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
     /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
     /\b(?:no need|not needed|not now|not for now|maybe later|later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|ship|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|publish|share|ship|deploy|kick\s+off)\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|the\s+mission|the\s+build|the\s+project|it|this|that)\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:(?:a|another)\s+)?(?:mission|build|project)\b/,

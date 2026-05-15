@@ -82,6 +82,15 @@ test('routes contextual recursive report follow-ups from hot recent turns', () =
   assert.equal(route.requires_confirmation, false);
 });
 
+test('routes recursive proof questions to status packets instead of reports', () => {
+  const route = decideNaturalRoute('did Startup YC improve?');
+
+  assert.equal(route.route, 'recursive.status');
+  assert.equal(route.owner_system, 'spark-telegram-bot');
+  assert.equal(route.payload.rawCommand, 'status startup-yc');
+  assert.equal(route.requires_confirmation, false);
+});
+
 test('marks recursive starts as confirmation-worthy protected actions', () => {
   const route = decideNaturalRoute('run another round', {
     recentMessages: [
@@ -236,6 +245,76 @@ test('keeps update-upgrade strategy questions out of build missions', () => {
     assert.notEqual(route.route, 'spawner.contextual_mission', prompt);
     assert.notEqual(route.route, 'spawner.pending_clarification', prompt);
   }
+});
+
+test('routes specialization loop proof and candidate follow-ups from active path context', () => {
+  const context = {
+    recentMessages: [
+      'We are shaping a Startup YC specialization path with domain chip, benchmark pack, autoloop, and shareable insight packet.',
+      'Startup YC recursive loop is the active specialization path.'
+    ]
+  };
+
+  const applyCandidate = decideNaturalRoute('apply the improvement candidate', context);
+  const runCandidateBenchmark = decideNaturalRoute('run the candidate benchmark', context);
+  const compare = decideNaturalRoute('compare baseline vs candidate', context);
+  const heldOut = decideNaturalRoute('check held-out and trap tests', context);
+  const template = decideNaturalRoute('turn this proven loop into a reusable template', context);
+  const privateTemplate = decideNaturalRoute('turn this proven loop into a reusable template. Do not run or publish it.', context);
+  const privateTemplateFromCompareContext = decideNaturalRoute(
+    'turn this proven loop into a reusable template. Do not run or publish it.',
+    { recentMessages: ['compare baseline vs candidate for Startup YC. Do not run anything.'] }
+  );
+  const privateTemplateFromMixedContext = decideNaturalRoute(
+    'turn this proven loop into a reusable template. Do not run or publish it.',
+    {
+      recentMessages: [
+        'We are working on Spark QA Operator and path:spark-qa-operator.',
+        'The QA tester should improve Telegram and Workspace reports.',
+        'compare baseline vs candidate for Startup YC. Do not run anything.',
+        'Startup YC has benchmark-backed improvement evidence. Mean scenario score moved from 0.6803 to 0.7003.'
+      ]
+    }
+  );
+  const updateChip = decideNaturalRoute('create or update the domain chip', context);
+
+  assert.equal(applyCandidate.route, 'recursive.start');
+  assert.equal(applyCandidate.requires_confirmation, true);
+  assert.match(String(applyCandidate.payload.rawCommand), /start startup-yc rounds 1/);
+
+  assert.equal(runCandidateBenchmark.route, 'recursive.start');
+  assert.equal(runCandidateBenchmark.requires_confirmation, true);
+  assert.match(String(runCandidateBenchmark.payload.rawCommand), /start startup-yc rounds 1/);
+
+  assert.equal(compare.route, 'recursive.status');
+  assert.equal(compare.requires_confirmation, false);
+
+  assert.equal(heldOut.route, 'recursive.status');
+  assert.equal(heldOut.requires_confirmation, false);
+
+  assert.equal(template.route, 'recursive.package');
+  assert.equal(template.owner_system, 'spark-telegram-bot');
+  assert.equal(template.requires_confirmation, false);
+  assert.equal(template.payload.rawCommand, 'package startup-yc');
+
+  assert.equal(privateTemplate.route, 'recursive.package');
+  assert.equal(privateTemplate.owner_system, 'spark-telegram-bot');
+  assert.equal(privateTemplate.requires_confirmation, false);
+  assert.equal(privateTemplate.payload.rawCommand, 'package startup-yc');
+
+  assert.equal(privateTemplateFromCompareContext.route, 'recursive.package');
+  assert.equal(privateTemplateFromCompareContext.owner_system, 'spark-telegram-bot');
+  assert.equal(privateTemplateFromCompareContext.requires_confirmation, false);
+  assert.equal(privateTemplateFromCompareContext.payload.rawCommand, 'package startup-yc');
+
+  assert.equal(privateTemplateFromMixedContext.route, 'recursive.package');
+  assert.equal(privateTemplateFromMixedContext.owner_system, 'spark-telegram-bot');
+  assert.equal(privateTemplateFromMixedContext.requires_confirmation, false);
+  assert.equal(privateTemplateFromMixedContext.payload.rawCommand, 'package startup-yc');
+
+  assert.equal(updateChip.route, 'creator.mission');
+  assert.equal(updateChip.owner_system, 'spawner-ui');
+  assert.match(String(updateChip.payload.brief), /domain chip/i);
 });
 
 test('keeps route/access/sandbox design talk out of deterministic build and access actions', () => {

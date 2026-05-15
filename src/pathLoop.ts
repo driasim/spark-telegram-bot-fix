@@ -41,6 +41,93 @@ export interface PathLoopResult {
   error?: string;
 }
 
+export interface SpecializationLoopStatus {
+  schemaVersion?: string;
+  schemaId?: string;
+  loopId?: string | null;
+  pathId?: string | null;
+  pathKey: string;
+  pathLabel?: string | null;
+  domainChipId?: string | null;
+  benchmarkPackId?: string | null;
+  stage?: string | null;
+  status?: string | null;
+  evidenceState?: string | null;
+  heldOutStatus?: string | null;
+  trapStatus?: string | null;
+  decision?: 'improved' | 'held_steady' | 'regressed' | 'unproven' | string | null;
+  claimBoundary?: string | null;
+  nextMove?: string | null;
+  rounds?: {
+    completed?: number;
+    requested?: number;
+    kept?: number;
+    reverted?: number;
+    stopReason?: string | null;
+  } | null;
+  comparison?: {
+    scoreMetric?: string;
+    baselineScore?: number;
+    candidateScore?: number;
+    delta?: number;
+    decision?: string;
+  } | null;
+  rawArtifactRefs?: Record<string, unknown>;
+  workspaceLinks?: Record<string, unknown>;
+  updatedAt?: string | null;
+  ok?: boolean;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+}
+
+export interface SpecializationLoopPackageResult {
+  ok: boolean;
+  pathKey: string;
+  packagePath?: string | null;
+  packet?: {
+    packetId?: string | null;
+    path?: {
+      pathId?: string | null;
+      pathKey?: string | null;
+      pathLabel?: string | null;
+    } | null;
+    claim?: {
+      decision?: string | null;
+      evidenceState?: string | null;
+      state?: string | null;
+      claimBoundary?: string | null;
+      nextMove?: string | null;
+    } | null;
+    benchmark?: {
+      benchmarkPackId?: string | null;
+      comparison?: {
+        scoreMetric?: string;
+        baselineScore?: number;
+        candidateScore?: number;
+        delta?: number;
+        decision?: string;
+      } | null;
+      heldOutStatus?: string | null;
+      trapStatus?: string | null;
+    } | null;
+    reusableTemplateCandidate?: {
+      eligible?: boolean;
+      reason?: string | null;
+    } | null;
+    publication?: {
+      state?: string | null;
+      published?: boolean;
+      networkAbsorbable?: boolean;
+      boundary?: string | null;
+    } | null;
+  } | null;
+  status?: SpecializationLoopStatus | null;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+}
+
 interface PathLoopConfig {
   pythonCommand: string;
   builderRepo: string;
@@ -212,6 +299,36 @@ export function buildSpecializationPathAutoloopBridgeArgs(input: {
   return args;
 }
 
+export function buildSpecializationPathStatusBridgeArgs(input: {
+  pathKey: string;
+  repoRoot: string;
+}): string[] {
+  return [
+    '-m',
+    'spark_swarm_bridge.cli',
+    'specialization-path',
+    'status',
+    input.pathKey,
+    input.repoRoot,
+    '--json',
+  ];
+}
+
+export function buildSpecializationPathPackageBridgeArgs(input: {
+  pathKey: string;
+  repoRoot: string;
+}): string[] {
+  return [
+    '-m',
+    'spark_swarm_bridge.cli',
+    'specialization-path',
+    'package',
+    input.pathKey,
+    input.repoRoot,
+    '--json',
+  ];
+}
+
 function parseLabeledLine(stdout: string, label: string): string | null {
   const pattern = new RegExp(`^${label}:\\s*(.+)$`, 'im');
   return stdout.match(pattern)?.[1]?.trim() || null;
@@ -351,5 +468,147 @@ export async function runSpecializationPathAutoloop(
       error: message ? `${message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path autoloop failed',
       workspaceSynced: Boolean(sync?.workspaceId && sync?.apiUrl && sync?.accessToken),
     });
+  }
+}
+
+export async function readSpecializationPathLoopStatus(
+  target: RecursiveStartTarget
+): Promise<SpecializationLoopStatus> {
+  const pathKey = target.key;
+  const repoRoot = target.repoRoot;
+  if (!pathKey) return { ok: false, pathKey, error: 'empty specialization path key' };
+  if (!repoRoot) return { ok: false, pathKey, error: `specialization path ${pathKey} has no attached repo root` };
+
+  const config = resolveConfig();
+  const cwd = bridgeCwd(config);
+  const src = bridgeSrc(config);
+  if (!existsSync(cwd) || !existsSync(src)) {
+    return { ok: false, pathKey, error: 'Specialization path status needs the local Spark Swarm bridge.' };
+  }
+
+  const args = buildSpecializationPathStatusBridgeArgs({ pathKey, repoRoot });
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
+  const pythonPathEntries = [src];
+  const startupBenchSrc = path.join(config.startupBenchRepo, 'src');
+  const specializationPathSrc = path.join(repoRoot, 'src');
+  if (existsSync(startupBenchSrc)) pythonPathEntries.push(startupBenchSrc);
+  if (existsSync(specializationPathSrc)) pythonPathEntries.push(specializationPathSrc);
+  if (env.PYTHONPATH) pythonPathEntries.push(env.PYTHONPATH);
+  env.PYTHONPATH = pythonPathEntries.join(path.delimiter);
+  env.SPARK_SWARM_STATE_DIR = path.join(config.swarmRuntimeRoot, '.state');
+  env[specializationRepoEnvVar(pathKey)] = repoRoot;
+  if (existsSync(config.startupBenchRepo)) env.SPARK_STARTUP_BENCH_REPO = config.startupBenchRepo;
+
+  try {
+    const { stdout, stderr } = await execFileAsync(config.pythonCommand, args, withHiddenWindows({
+      cwd,
+      timeout: 60000,
+      env,
+      maxBuffer: 10 * 1024 * 1024,
+    }));
+    const parsed = JSON.parse(stdout);
+    return {
+      ok: true,
+      ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      pathKey,
+      stdout,
+      stderr,
+    };
+  } catch (err: any) {
+    const stdout = redactText(typeof err?.stdout === 'string' ? err.stdout : '');
+    const stderr = redactText(typeof err?.stderr === 'string' ? err.stderr : '');
+    const message = redactText(err?.message ? String(err.message) : '');
+    try {
+      const parsed = JSON.parse(stdout);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ok: true,
+          ...parsed,
+          pathKey,
+          stdout,
+          stderr,
+        };
+      }
+    } catch {
+      // Fall through to the unavailable-status reply below.
+    }
+    return {
+      ok: false,
+      pathKey,
+      stdout,
+      stderr,
+      error: message ? `${message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path status failed',
+    };
+  }
+}
+
+export async function packageSpecializationPathLoop(
+  target: RecursiveStartTarget
+): Promise<SpecializationLoopPackageResult> {
+  const pathKey = target.key;
+  const repoRoot = target.repoRoot;
+  if (!pathKey) return { ok: false, pathKey, error: 'empty specialization path key' };
+  if (!repoRoot) return { ok: false, pathKey, error: `specialization path ${pathKey} has no attached repo root` };
+
+  const config = resolveConfig();
+  const cwd = bridgeCwd(config);
+  const src = bridgeSrc(config);
+  if (!existsSync(cwd) || !existsSync(src)) {
+    return { ok: false, pathKey, error: 'Specialization path packaging needs the local Spark Swarm bridge.' };
+  }
+
+  const args = buildSpecializationPathPackageBridgeArgs({ pathKey, repoRoot });
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
+  const pythonPathEntries = [src];
+  const startupBenchSrc = path.join(config.startupBenchRepo, 'src');
+  const specializationPathSrc = path.join(repoRoot, 'src');
+  if (existsSync(startupBenchSrc)) pythonPathEntries.push(startupBenchSrc);
+  if (existsSync(specializationPathSrc)) pythonPathEntries.push(specializationPathSrc);
+  if (env.PYTHONPATH) pythonPathEntries.push(env.PYTHONPATH);
+  env.PYTHONPATH = pythonPathEntries.join(path.delimiter);
+  env.SPARK_SWARM_STATE_DIR = path.join(config.swarmRuntimeRoot, '.state');
+  env[specializationRepoEnvVar(pathKey)] = repoRoot;
+  if (existsSync(config.startupBenchRepo)) env.SPARK_STARTUP_BENCH_REPO = config.startupBenchRepo;
+
+  try {
+    const { stdout, stderr } = await execFileAsync(config.pythonCommand, args, withHiddenWindows({
+      cwd,
+      timeout: 60000,
+      env,
+      maxBuffer: 10 * 1024 * 1024,
+    }));
+    const parsed = JSON.parse(stdout);
+    return {
+      ok: Boolean(parsed?.ok),
+      ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      pathKey,
+      stdout,
+      stderr,
+    };
+  } catch (err: any) {
+    const stdout = redactText(typeof err?.stdout === 'string' ? err.stdout : '');
+    const stderr = redactText(typeof err?.stderr === 'string' ? err.stderr : '');
+    const message = redactText(err?.message ? String(err.message) : '');
+    try {
+      const parsed = JSON.parse(stdout);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ok: Boolean(parsed.ok),
+          ...parsed,
+          pathKey,
+          stdout,
+          stderr,
+        };
+      }
+    } catch {
+      // Fall through to the unavailable-package reply below.
+    }
+    return {
+      ok: false,
+      pathKey,
+      stdout,
+      stderr,
+      error: message ? `${message}${stderr ? ': ' + stderr.slice(-400) : ''}` : 'specialization path packaging failed',
+    };
   }
 }

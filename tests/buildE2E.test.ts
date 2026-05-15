@@ -765,6 +765,73 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('natural recursive proof questions execute status path before Builder fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079055;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalResolve = pathLoop.resolveRecursiveStartTarget;
+		const originalRead = pathLoop.readSpecializationPathLoopStatus;
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let bridgeCalls = 0;
+		(pathLoop as any).resolveRecursiveStartTarget = async () => ({
+			kind: 'path',
+			key: 'startup-yc',
+			repoRoot: '/tmp/specialization-path-startup-yc'
+		});
+		(pathLoop as any).readSpecializationPathLoopStatus = async () => ({
+			pathKey: 'startup-yc',
+			pathLabel: 'Startup YC',
+			stage: 'ready',
+			status: 'ready',
+			evidenceState: 'missing_benchmark_round',
+			decision: 'unproven',
+			heldOutStatus: 'not_configured',
+			trapStatus: 'not_configured',
+			rounds: { completed: 0, requested: 0 },
+			claimBoundary: 'No completed benchmark round has been recorded yet.',
+			nextMove: 'Run a baseline/autoloop round before claiming improvement.'
+		});
+		(builderBridge as any).runBuilderTelegramBridge = async () => {
+			bridgeCalls += 1;
+			return {
+				used: true,
+				responseText: 'Builder should not answer this recursive proof question.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'researcher_advisory'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5661, replies);
+			ctx.message.text = 'did Startup YC improve?';
+			(ctx as any).update = { update_id: 5661, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.equal(bridgeCalls, 0);
+			assert.match(reply, /Startup YC is not proven improved yet/);
+			assert.match(reply, /No completed benchmark round/);
+			assert.doesNotMatch(reply, /Builder should not answer/);
+			assert.doesNotMatch(reply, /(^|\n)(State|Proof checks|Boundary|Move)\n/);
+		} finally {
+			(pathLoop as any).resolveRecursiveStartTarget = originalResolve;
+			(pathLoop as any).readSpecializationPathLoopStatus = originalRead;
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('domain chip creation can use the build PRD bridge contract', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -914,6 +981,53 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('creator-loop domain chip follow-up stays on creator mission route', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/creator/mission')) {
+				return {
+					data: {
+						ok: true,
+						missionId: 'mission-creator-startup-yc',
+						taskCount: 8,
+						canvasUrl: 'http://127.0.0.1:3333/canvas?mission=mission-creator-startup-yc'
+					}
+				};
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		await conversationModule.conversation.remember(
+			{ id: 8319079055, username: 'cem' },
+			'We are shaping a Startup YC specialization path with domain chip, benchmark pack, autoloop, and shareable insight packet.'
+		);
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 563, replies);
+		ctx.message.text = 'create or update the domain chip';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.ok(captured.some((c) => c.url.includes('/api/creator/mission')), 'creator-loop domain chip follow-up should stage creator mission');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'creator-loop domain chip follow-up should not start a standalone chip build');
+		assert.doesNotMatch(replies.join('\n'), /I can build this as domain-chip/i);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -958,13 +1072,128 @@ async function run(): Promise<void> {
 		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'actual domain-chip direction should still dispatch pending chip');
 		assert.match(replies.join('\n'), /use that direction and start domain-chip-/i);
 
-		restoreAxios();
-		restoreEnv();
-	});
+			restoreAxios();
+			restoreEnv();
+		});
 
-	await test('canvas ready summary stays readable and includes canvas link', async () => {
-		const indexModule: any = await import('../src/index');
-		const reply = indexModule.formatCanvasReadySummary({
+		await test('creator loop template package route is not stolen by creator/schedule/chat fallbacks', async () => {
+			restoreAxios();
+			const testUserId = 8319079055;
+			process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+			process.env.BOT_DEFAULT_TIER = 'base';
+			process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+			process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+			process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+			process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+			process.env.SPARK_BOT_TEST_MODE = '1';
+
+			const captured: CapturedCall[] = [];
+			(axios as any).post = async (url: string, body: any) => {
+				captured.push({ url, body });
+				return { data: { success: true } };
+			};
+			(axios as any).get = async () => ({ data: { pending: false } });
+
+			const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
+			const originalResolve = pathLoop.resolveRecursiveStartTarget;
+			const originalPackage = pathLoop.packageSpecializationPathLoop;
+			const originalRun = pathLoop.runSpecializationPathAutoloop;
+			let packageCalls = 0;
+			let runCalls = 0;
+			(pathLoop as any).resolveRecursiveStartTarget = async (targetKey: string) => {
+				assert.equal(targetKey, 'startup-yc');
+				return {
+					kind: 'path',
+					key: 'startup-yc',
+					repoRoot: '/tmp/specialization-path-startup-yc'
+				};
+			};
+			(pathLoop as any).packageSpecializationPathLoop = async (target: any) => {
+				packageCalls += 1;
+				assert.equal(target.key, 'startup-yc');
+				return {
+					ok: true,
+					pathKey: 'startup-yc',
+					packagePath: '/tmp/private/startup-yc-insight.json',
+					packet: {
+						path: {
+							pathKey: 'startup-yc',
+							pathLabel: 'Startup YC'
+						},
+						claim: {
+							decision: 'improved',
+							state: 'benchmark_backed_candidate',
+							nextMove: 'Review the packet privately before any wider reuse.'
+						},
+						benchmark: {
+							comparison: {
+								scoreMetric: 'mean_scenario_score',
+								baselineScore: 0.6803,
+								candidateScore: 0.7003,
+								delta: 0.02,
+								decision: 'kept'
+							},
+							heldOutStatus: 'passed',
+							trapStatus: 'passed'
+						},
+						reusableTemplateCandidate: {
+							eligible: true
+						},
+						publication: {
+							state: 'local_private',
+							published: false,
+							networkAbsorbable: false
+						}
+					}
+				};
+			};
+			(pathLoop as any).runSpecializationPathAutoloop = async () => {
+				runCalls += 1;
+				throw new Error('template package route must not run the loop');
+			};
+
+			const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+			await conversationModule.conversation.remember(
+				{ id: testUserId, username: 'cem' },
+				'We are working on Spark QA Operator and path:spark-qa-operator.'
+			);
+			await conversationModule.conversation.remember(
+				{ id: testUserId, username: 'cem' },
+				'compare baseline vs candidate for Startup YC. Do not run anything.'
+			);
+
+			try {
+				const replies: string[] = [];
+				const ctx = makeFakeCtx(testUserId, testUserId, 565, replies);
+				ctx.message.text = 'turn this proven loop into a reusable template. Do not run or publish it.';
+				const indexModule: any = await import('../src/index');
+
+				await indexModule.handleTextMessage(ctx);
+
+				const reply = replies.join('\n');
+				assert.equal(packageCalls, 1);
+				assert.equal(runCalls, 0);
+				assert.ok(!captured.some((c) => c.url.includes('/api/creator/mission')), 'template request should not stage a creator mission');
+				assert.ok(!captured.some((c) => c.url.includes('/api/scheduled')), 'template request should not be treated as schedule work');
+				assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'template request should not start a build');
+				assert.match(reply, /I packaged Startup YC's proof locally/);
+				assert.match(reply, /Nothing was published or shared/);
+				assert.match(reply, /ready for private template review/);
+				assert.doesNotMatch(reply, /No run or publishing yet/);
+				assert.doesNotMatch(reply, /Intent creator path/i);
+				assert.doesNotMatch(reply, /I caught 'schedule'|Show what's scheduled|Which\?/i);
+			} finally {
+				(pathLoop as any).resolveRecursiveStartTarget = originalResolve;
+				(pathLoop as any).packageSpecializationPathLoop = originalPackage;
+				(pathLoop as any).runSpecializationPathAutoloop = originalRun;
+				restoreAxios();
+				restoreEnv();
+			}
+		});
+
+		await test('canvas ready summary stays readable and includes canvas link', async () => {
+			const indexModule: any = await import('../src/index');
+			const reply = indexModule.formatCanvasReadySummary({
 			projectName: 'domain-chip-posters',
 			taskCount: 2,
 			elapsed: 195,

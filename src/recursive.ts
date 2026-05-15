@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { LoopResult } from './chipLoop';
-import type { PathLoopResult } from './pathLoop';
+import type { PathLoopResult, SpecializationLoopPackageResult, SpecializationLoopStatus } from './pathLoop';
 import { redactText } from './redaction';
 
 export type RecursiveDecision = 'approve_local' | 'defer' | 'reject' | 'request_more_eval';
@@ -599,6 +599,10 @@ export function parseRecursiveCommand(raw: string): RecursiveCommand | null {
   }
   if (
     action === 'session' ||
+    action === 'status' ||
+    action === 'compare' ||
+    action === 'evidence' ||
+    action === 'package' ||
     action === 'report' ||
     action === 'review' ||
     action === 'promote' ||
@@ -1482,6 +1486,153 @@ export function renderSpecializationPathLoopCompletion(result: PathLoopResult): 
   return lines.join('\n');
 }
 
+function loopDecisionIcon(decision: string | null | undefined): string {
+  if (decision === 'improved') return '🟢';
+  if (decision === 'regressed') return '🔴';
+  if (decision === 'held_steady') return '⚪';
+  return '🟡';
+}
+
+function friendlyLoopDecision(decision: string | null | undefined): string {
+  if (decision === 'improved') return 'has benchmark-backed improvement evidence';
+  if (decision === 'regressed') return 'has regression evidence';
+  if (decision === 'held_steady') return 'held steady';
+  return 'is not proven improved yet';
+}
+
+export function renderSpecializationLoopStatus(
+  status: SpecializationLoopStatus,
+  options: { style?: 'card' | 'conversational' } = {}
+): string {
+  const label = status.pathLabel || labelFromKey(status.pathKey || 'specialization path');
+  if (status.ok === false) {
+    return [
+      `⚠️ I could not read ${label} loop status yet.`,
+      '',
+      'Why',
+      `• ${status.error || 'status packet unavailable'}`,
+    ].join('\n');
+  }
+
+  const decision = status.decision || 'unproven';
+  const comparison = status.comparison;
+  const rounds = status.rounds;
+  const metricLine = comparison && typeof comparison.baselineScore === 'number' && typeof comparison.candidateScore === 'number'
+    ? `${formatMetricLabel(comparison.scoreMetric || 'score')} ${formatNumber(comparison.baselineScore)} → ${formatNumber(comparison.candidateScore)}`
+    : null;
+  const heldOut = status.heldOutStatus ? labelFromKey(status.heldOutStatus) : null;
+  const trap = status.trapStatus ? labelFromKey(status.trapStatus) : null;
+
+  if (options.style === 'conversational') {
+    const scorePhrase = comparison && typeof comparison.baselineScore === 'number' && typeof comparison.candidateScore === 'number'
+      ? ` ${sentenceCaseFirst(formatMetricLabel(comparison.scoreMetric || 'score'))} moved from ${formatNumber(comparison.baselineScore)} to ${formatNumber(comparison.candidateScore)}.`
+      : '';
+    const proofPhrase = heldOut || trap
+      ? /not configured/i.test(heldOut || '') && /not configured/i.test(trap || '')
+        ? ' Held-out and trap checks are not configured yet.'
+        : /passed/i.test(heldOut || '') && /passed/i.test(trap || '')
+          ? ' Held-out and trap checks both passed.'
+          : ` Held-out is ${heldOut || 'unknown'}, and trap is ${trap || 'unknown'}.`
+      : '';
+    const nextMove = status.nextMove
+      ? ` I'd ${ensureSentence(status.nextMove).replace(/\.$/, '').replace(/^(Run|Review|Complete|Try|Keep|Inspect|Package)\b/, (match) => match.toLowerCase())}.`
+      : '';
+
+    if (decision === 'improved') {
+      return `${label} has benchmark-backed improvement evidence.${scorePhrase}${proofPhrase}${nextMove}`.trim();
+    }
+    if (decision === 'regressed') {
+      return `${label} looks regressed from the current evidence.${scorePhrase}${proofPhrase}${nextMove}`.trim();
+    }
+    if (decision === 'held_steady') {
+      return `${label} held steady in the latest proof I can read.${scorePhrase}${proofPhrase}${nextMove}`.trim();
+    }
+
+    const missing = status.claimBoundary
+      ? ensureSentence(status.claimBoundary)
+      : 'I do not have the completed baseline, candidate, comparison, and held-out/trap proof yet.';
+    return `${label} is not proven improved yet. ${missing}${proofPhrase} I would not call it better from this evidence yet.${nextMove}`.trim();
+  }
+
+  const lines = [
+    `${loopDecisionIcon(decision)} ${label} ${friendlyLoopDecision(decision)}.`,
+    '',
+    'State',
+    `• ${labelFromKey(status.stage || 'unknown')}`,
+    `• evidence: ${labelFromKey(status.evidenceState || 'unknown')}`,
+  ];
+  if (rounds && (typeof rounds.completed === 'number' || typeof rounds.requested === 'number')) {
+    lines.push(`• rounds: ${rounds.completed ?? 0}/${rounds.requested ?? rounds.completed ?? 0}`);
+  }
+  if (metricLine) lines.push('', 'Score', `• ${metricLine}`);
+  if (status.heldOutStatus || status.trapStatus) {
+    lines.push(
+      '',
+      'Proof checks',
+      `• held-out: ${labelFromKey(status.heldOutStatus || 'unknown')}`,
+      `• trap: ${labelFromKey(status.trapStatus || 'unknown')}`
+    );
+  }
+  if (status.claimBoundary) {
+    lines.push('', 'Boundary', `• ${ensureSentence(status.claimBoundary)}`);
+  }
+  if (status.nextMove) {
+    lines.push('', 'Move', `• ${ensureSentence(status.nextMove)}`);
+  }
+  return lines.join('\n');
+}
+
+export function renderSpecializationLoopPackage(result: SpecializationLoopPackageResult): string {
+  const packet = result.packet || {};
+  const pathInfo = packet.path || {};
+  const claim = packet.claim || {};
+  const benchmark = packet.benchmark || {};
+  const publication = packet.publication || {};
+  const reusable = packet.reusableTemplateCandidate || {};
+  const label = pathInfo.pathLabel || labelFromKey(pathInfo.pathKey || result.pathKey || 'specialization path');
+
+  if (!result.ok) {
+    return [
+      `⚠️ I could not package ${label} yet.`,
+      '',
+      'Why',
+      `• ${result.error || 'local package command did not return a saved packet'}`,
+    ].join('\n');
+  }
+
+  const comparison = benchmark.comparison;
+  const metricLine = comparison && typeof comparison.baselineScore === 'number' && typeof comparison.candidateScore === 'number'
+    ? `${formatMetricLabel(comparison.scoreMetric || 'score')} ${formatNumber(comparison.baselineScore)} → ${formatNumber(comparison.candidateScore)}`
+    : null;
+  const decision = String(claim.decision || 'unproven');
+  const claimState = String(claim.state || '');
+  const isBenchmarkBacked = decision === 'improved' && claimState === 'benchmark_backed_candidate';
+  const heldOut = labelFromKey(benchmark.heldOutStatus || 'unknown').toLowerCase();
+  const trap = labelFromKey(benchmark.trapStatus || 'unknown').toLowerCase();
+  const proofCheckLine = benchmark.heldOutStatus || benchmark.trapStatus
+    ? heldOut === 'passed' && trap === 'passed'
+      ? 'with held-out and trap checks both passed'
+      : `with held-out ${heldOut}, trap ${trap}`
+    : null;
+  const proofBits = [
+    isBenchmarkBacked ? 'benchmark-backed improvement' : labelFromKey(decision),
+    metricLine,
+    proofCheckLine
+  ].filter(Boolean);
+  const templateLine = reusable.eligible
+    ? 'It is ready for private template review.'
+    : 'I would keep it private until the proof is complete.';
+  const boundary = publication.published
+    ? 'It is marked published, so review the packet before sharing it further.'
+    : 'Nothing was published or shared.';
+  const nextMove = claim.nextMove ? ` ${ensureSentence(claim.nextMove)}` : '';
+  return [
+    `✨ I packaged ${label}'s ${isBenchmarkBacked ? 'proof' : 'current evidence'} locally. ${boundary}`,
+    '',
+    `${sentenceCaseFirst(proofBits.join(': ').replace(': with ', ', with '))}. ${templateLine}${nextMove}`,
+  ].join('\n');
+}
+
 export function renderRecursiveArtifactSyncCompletion(result: RecursiveWorkspaceSyncResult): string {
   const lines = [
     `${result.synced ? '🟢' : '🟡'} Recursive artifact sync finished.`,
@@ -1541,6 +1692,10 @@ export function renderRecursiveHelp(): string {
     '',
     'Start here:',
     '/recursive sessions - recent loops and next action',
+    '/recursive status <path> - proof-backed loop state',
+    '/recursive compare <path> - baseline vs candidate evidence',
+    '/recursive evidence <path> - latest proof readout',
+    '/recursive package <path> - save a local/private insight packet',
     '/recursive report <id> - readable result summary',
     '/recursive start <targetKey> rounds <n> - run a local Builder chip loop',
     '',
