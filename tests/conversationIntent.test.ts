@@ -47,6 +47,7 @@ import {
   isMissionExecutionConfirmation,
   isMemoryAcknowledgementReply,
   isMemoryDoctorRequest,
+  isNoExecutionBoundary,
   isLowInformationLlmReply,
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
@@ -112,6 +113,14 @@ test('detects execution confirmation without treating every reply as a mission',
   assert.equal(isMissionExecutionConfirmation('sure'), false);
   assert.equal(isMissionExecutionConfirmation('sounds good'), false);
   assert.equal(isMissionExecutionConfirmation('what do you think about this?'), false);
+});
+
+test('detects no-execution boundaries before pending builds can launch', () => {
+  assert.equal(isNoExecutionBoundary('no need we can talk here'), true);
+  assert.equal(isNoExecutionBoundary('do not start a mission; just explain the failure class'), true);
+  assert.equal(isNoExecutionBoundary('not now, maybe later'), true);
+  assert.equal(isNoExecutionBoundary('we can discuss here for now'), true);
+  assert.equal(isNoExecutionBoundary('go ahead and build it'), false);
 });
 
 test('infers Spark bug-recognition mission from recent planning context', () => {
@@ -277,6 +286,10 @@ test('routes natural Spawner board questions to board reads', () => {
   assert.equal(parseSpawnerBoardNaturalIntent('show me the current Spawner/Kanban board'), 'board');
   assert.equal(parseSpawnerBoardNaturalIntent('did the latest canvas run show up on kanban?'), 'latest_on_kanban');
   assert.equal(parseSpawnerBoardNaturalIntent('which LLM took the latest Spawner job?'), 'latest_provider');
+  assert.equal(parseSpawnerBoardNaturalIntent('what was the mission?'), 'latest_mission');
+  assert.equal(parseSpawnerBoardNaturalIntent('which mission was that?'), 'latest_mission');
+  assert.equal(parseSpawnerBoardNaturalIntent('what happened'), 'latest_failure');
+  assert.equal(parseSpawnerBoardNaturalIntent('why did the latest mission fail?'), 'latest_failure');
   assert.equal(parseSpawnerBoardNaturalIntent('no the localhost for the beauty centre'), 'latest_project_preview');
   assert.equal(isLocalSparkServiceRequest('no the localhost for the beauty centre', 'Completed Spawner mission spark-123'), false);
   assert.equal(
@@ -701,6 +714,33 @@ test('extracts natural creator mission requests for QA Operator benchmark work',
     parseNaturalCreatorMissionIntent('create a private benchmarked specialization path with an autoloop for AI security questionnaires')?.privacyMode,
     'local_only'
   );
+  const stagedPath = parseNaturalCreatorMissionIntent(
+    'stage a private benchmarked specialization path with a domain chip, benchmark pack, and autoloop policy for Telegram tool usage'
+  );
+  assert.equal(stagedPath?.privacyMode, 'local_only');
+  assert.equal(stagedPath?.riskLevel, 'medium');
+  assert.match(stagedPath?.brief || '', /creator-intent\.json/);
+  assert.match(stagedPath?.brief || '', /domain-chip\/, benchmark\/, specialization-path\/, autoloop\/policy\.json/);
+  assert.match(stagedPath?.brief || '', /before\/after gain/);
+  assert.match(stagedPath?.brief || '', /swarm\/contribution_packet\.json before any publish or share step/);
+  assert.match(stagedPath?.brief || '', /publication\.network_absorbable=false/);
+
+  const stageOnlyPath = parseNaturalCreatorMissionIntent(
+    'stage a Startup YC specialization path with a domain chip, benchmark pack, autoloop policy, and Telegram flow. Do not run it or publish it yet.'
+  );
+  assert.equal(stageOnlyPath?.privacyMode, 'local_only');
+  assert.equal(stageOnlyPath?.riskLevel, 'medium');
+  assert.match(stageOnlyPath?.brief || '', /Startup YC specialization path/i);
+  assert.match(stageOnlyPath?.brief || '', /before\/after gain/);
+  assert.match(stageOnlyPath?.brief || '', /network_absorbable=false/);
+
+  const localInsightPacket = parseNaturalCreatorMissionIntent(
+    'create a shareable insight packet for Startup YC. Do not publish it.'
+  );
+  assert.equal(localInsightPacket?.privacyMode, 'local_only');
+  assert.equal(localInsightPacket?.riskLevel, 'medium');
+  assert.match(localInsightPacket?.brief || '', /shareable insight packet/i);
+  assert.match(localInsightPacket?.brief || '', /network_absorbable=false/);
 });
 
 test('keeps Memory Doctor and answer-audit requests out of stale creator context', () => {
@@ -854,6 +894,48 @@ test('extracts natural recursive commands for QA Operator loops', () => {
     }
   );
   assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('did Startup YC improve?'),
+    {
+      rawCommand: 'status startup-yc',
+      reason: 'Natural-language request for Startup YC proof-backed loop status.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('what did the 20-round Startup YC loop learn? use benchmark-backed evidence, not raw logs.'),
+    {
+      rawCommand: 'report startup-yc',
+      reason: 'Natural-language request for Startup YC loop insights.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('compare baseline vs candidate for Startup YC, do not run anything'),
+    {
+      rawCommand: 'compare startup-yc',
+      reason: 'Natural-language request to compare Startup YC benchmark movement.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the benchmark-backed evidence for Startup YC'),
+    {
+      rawCommand: 'evidence startup-yc',
+      reason: 'Natural-language request for Startup YC benchmark evidence.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('show the benchmark-backed evidence for Startup YC, do not run anything'),
+    {
+      rawCommand: 'evidence startup-yc',
+      reason: 'Natural-language request for Startup YC benchmark evidence.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('create a local insight packet for Startup YC, do not publish it'),
+    {
+      rawCommand: 'package startup-yc',
+      reason: 'Natural-language request to package Startup YC loop evidence locally.'
+    }
+  );
+  assert.deepEqual(
     parseNaturalRecursiveCommandIntent('show recursive loops'),
     {
       rawCommand: 'sessions',
@@ -879,8 +961,8 @@ test('extracts contextual recursive commands from conversational follow-ups', ()
   assert.deepEqual(
     parseNaturalRecursiveCommandIntent('show the receipts', qaContext),
     {
-      rawCommand: 'trace path:spark-qa-operator',
-      reason: 'Natural-language request to trace Spark QA Operator.'
+      rawCommand: 'evidence spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator benchmark evidence.'
     }
   );
   assert.deepEqual(
@@ -905,10 +987,47 @@ test('extracts contextual recursive commands from conversational follow-ups', ()
     }
   );
   assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('compare baseline vs candidate', qaContext),
+    {
+      rawCommand: 'compare spark-qa-operator',
+      reason: 'Natural-language request to compare Spark QA Operator benchmark movement.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('package the evidence locally', qaContext),
+    {
+      rawCommand: 'package spark-qa-operator',
+      reason: 'Natural-language request to package Spark QA Operator loop evidence locally.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('turn this proven loop into a reusable template. Do not run or publish it.', {
+      recentMessages: ['compare baseline vs candidate for Startup YC. Do not run anything.']
+    }),
+    {
+      rawCommand: 'package startup-yc',
+      reason: 'Natural-language request to package Startup YC loop evidence locally.'
+    }
+  );
+  assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('turn this proven loop into a reusable template. Do not run or publish it.', {
+      recentMessages: [
+        'We are working on Spark QA Operator and path:spark-qa-operator.',
+        'The QA tester should improve Telegram and Workspace reports.',
+        'compare baseline vs candidate for Startup YC. Do not run anything.',
+        'Startup YC has benchmark-backed improvement evidence. Mean scenario score moved from 0.6803 to 0.7003.'
+      ]
+    }),
+    {
+      rawCommand: 'package startup-yc',
+      reason: 'Natural-language request to package Startup YC loop evidence locally.'
+    }
+  );
+  assert.deepEqual(
     parseNaturalRecursiveCommandIntent('show me proof', qaContext),
     {
-      rawCommand: 'trace path:spark-qa-operator',
-      reason: 'Natural-language request to trace Spark QA Operator.'
+      rawCommand: 'evidence spark-qa-operator',
+      reason: 'Natural-language request for Spark QA Operator benchmark evidence.'
     }
   );
   assert.deepEqual(
@@ -1434,6 +1553,8 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('please switch Spark access to full access'), 'full access');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 4'), '4');
   assert.equal(parseNaturalAccessChangeIntent('raise my access to level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('access level 5'), '5');
+  assert.equal(parseNaturalAccessChangeIntent('Spark access five'), '5');
   assert.equal(parseNaturalAccessChangeIntent('switch my access to operator'), 'operator');
   assert.equal(parseNaturalAccessChangeIntent('lower my access to two'), '2');
   assert.equal(parseNaturalAccessChangeIntent('what is my access level?'), null);

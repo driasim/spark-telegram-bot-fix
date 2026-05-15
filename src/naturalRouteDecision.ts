@@ -150,6 +150,19 @@ function isReadoutOnlyFollowup(text: string): boolean {
   return asksForReadout && !asksForAction;
 }
 
+function isCreatorLoopDomainChipPhrase(text: string, recentCreatorLoopContext: boolean): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!/\bdomain[-\s]*chip\b/.test(normalized)) return false;
+  if (/\b(?:speciali[sz]ation\s+path|benchmark|autoloop|creator\s+(?:mission|system|run)|startup[-\s]+yc|path|loop|evidence)\b/.test(normalized)) {
+    return true;
+  }
+  if (!recentCreatorLoopContext) return false;
+  return (
+    /\b(?:create|build|make|plan|stage|scaffold|generate|set up|spin up|prepare|add|attach|update|package|link|turn)\s+(?:or\s+\w+\s+)?(?:the|this|that|same|current|latest)\s+domain[-\s]*chip\b/.test(normalized) ||
+    /\b(?:create|build|make|plan|stage|scaffold|generate|set up|spin up|prepare|add|attach|update|package|link|turn)\s+or\s+\w+\s+the\s+domain[-\s]*chip\b/.test(normalized)
+  );
+}
+
 function isGlobalDoctrineLikeRequest(text: string): boolean {
   return isGlobalAgentDoctrineRequest(text) || (
     /\b(?:all|every|each)\s+(?:spark\s+)?agents?\b|\bglobally\b|\bsystem-wide\b/i.test(text) &&
@@ -174,7 +187,9 @@ function buildIntentPayload(buildIntent: BuildIntent): Record<string, unknown> {
     projectName: buildIntent.projectName,
     hasProjectPath: Boolean(buildIntent.projectPath),
     buildMode: buildIntent.buildMode,
-    buildModeReason: buildIntent.buildModeReason
+    buildModeReason: buildIntent.buildModeReason,
+    buildLane: buildIntent.buildLane,
+    buildLaneReason: buildIntent.buildLaneReason
   };
 }
 
@@ -256,9 +271,18 @@ export function decideNaturalRoute(
   const buildIntent = parsedBuildIntent && routeAllowed('spawner.build', normalized) ? parsedBuildIntent : null;
   const chipBrief = parseNaturalChipCreateIntent(normalized);
   const conversationalIdeation = shouldPreferConversationalIdeation(normalized);
-  const earlyCreatorMission = isReadoutOnlyFollowup(normalized) || conversationalIdeation
+  const earlyCreatorMission = isReadoutOnlyFollowup(normalized)
     ? null
     : parseNaturalCreatorMissionIntent(normalized, { recentMessages });
+  const recentCreatorLoopContext = recentMessages.some((message) => (
+    /\b(?:creator\s+(?:mission|system|run)|speciali[sz]ation\s+path|benchmark\s+pack|autoloop|startup[-\s]+yc|domain[-\s]*chip.*(?:path|benchmark|autoloop)|recursive\s+loop)\b/i.test(message)
+  ));
+  const contextualDomainChipArtifact =
+    /\bdomain[-\s]*chip\b/i.test(normalized) &&
+    isCreatorLoopDomainChipPhrase(normalized, recentCreatorLoopContext);
+  const creatorArtifactBundle =
+    contextualDomainChipArtifact ||
+    /\b(?:benchmark\s+pack|benchmarks?|evals?|evaluation\s+pack|test\s+suite|speciali[sz]ation\s+path|autoloop(?:\s+policy)?|auto\s+loop|swarm\s+(?:review|contribution)\s+packet|shareable\s+insight\s+packet|insight\s+packet|review\s+packet|reusable\s+template|loop\s+template|specialization\s+template)\b/i.test(normalized);
   if (isGlobalDoctrineLikeRequest(normalized)) {
     return decision({
       route: 'agent_doctrine.global_blocked',
@@ -290,7 +314,7 @@ export function decideNaturalRoute(
       requires_confirmation: true
     });
   }
-  if (chipBrief) {
+  if (chipBrief && (!earlyCreatorMission || !creatorArtifactBundle)) {
     if (!routeAllowed('domain_chip.create', normalized)) return routeBlockedByFirewall(normalized, 'domain_chip.create');
     return decision({
       route: 'domain_chip.create',

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
@@ -13,6 +15,11 @@ import { renderSparkErrorReply } from '../src/errorExplain';
 import { buildSparkChatSystemPrompt } from '../src/llm';
 import { renderModelRecommendations, renderModelStatus } from '../src/modelSwitch';
 import { sanitizeAndSplitTelegramText, sanitizeOutbound } from '../src/outboundSanitize';
+import {
+  formatBuildClarificationReplyWithMicrocopy,
+  formatCanvasShapingHeartbeatSummary,
+  formatCanvasStillRunningSummary
+} from '../src/index';
 import {
   renderSparkAccessBriefStatus,
   renderSparkAccessChangeConfirmation,
@@ -56,6 +63,40 @@ test('launch prompt keeps conversation style bounded away from memory authority'
   assert.match(prompt, /Style hints are turn guidance, not durable memory/);
   assert.match(prompt, /Use Spark module names only when the user asks/);
   assert.match(prompt, /Do not offer to scaffold/);
+});
+
+test('repo carries the Telegram composition standard as mergeable product guidance', () => {
+  const standard = readFileSync(path.join(__dirname, '..', 'docs', 'TELEGRAM_COMPOSITION_STANDARD.md'), 'utf8');
+
+  assert.match(standard, /Telegram should answer only four things/);
+  assert.match(standard, /What happened\?/);
+  assert.match(standard, /Use dotted bullets/);
+  assert.match(standard, /Do not combine icons with bullets/);
+  assert.match(standard, /Put raw evidence behind Workspace, Decisions, Canvas, Board, logs, or trace links/);
+  assert.match(standard, /Does it sound like Spark helping a person/);
+});
+
+test('repo carries a readability ergonomics and vibe rubric', () => {
+  const standard = readFileSync(path.join(__dirname, '..', 'docs', 'TELEGRAM_COMPOSITION_STANDARD.md'), 'utf8');
+
+  assert.match(standard, /## Composition Rubric/);
+  assert.match(standard, /### Readability/);
+  assert.match(standard, /### Ergonomics/);
+  assert.match(standard, /### Vibe/);
+  assert.match(standard, /five seconds/);
+  assert.match(standard, /one useful next move/);
+  assert.match(standard, /capable teammate/);
+  assert.match(standard, /at least 2/);
+});
+
+test('system prompt includes the Telegram composition standard for dense replies', () => {
+  const prompt = buildSparkChatSystemPrompt('', '');
+
+  assert.match(prompt, /answer four things only/);
+  assert.match(prompt, /Use one clear headline/);
+  assert.match(prompt, /dotted bullets/);
+  assert.match(prompt, /Do not combine icons with bullets or numbering/);
+  assert.match(prompt, /Prefer one useful next move/);
 });
 
 test('launch cold memory context remains supporting, filtered, and bounded', () => {
@@ -171,6 +212,55 @@ test('launch conversation style lint catches common drift shapes', () => {
     'Certainly! Here is a helpful response. How may I assist you today?'
   );
   assert.equal(chatbox.has('generic_chatbox_voice'), true);
+
+  const doubleMarked = issueCodes('- ✅ Spark Live is ready.');
+  assert.equal(doubleMarked.has('double_marker'), true);
+
+  const numberedIcon = issueCodes('✅ 1. latest run improved');
+  assert.equal(numberedIcon.has('double_marker'), true);
+
+  const emojiSpam = issueCodes('🛠️ Starting.\n\n✨ Ready.\n\n⚠️ Check.\n\n✅ Done.');
+  assert.equal(emojiSpam.has('emoji_spam'), true);
+
+  const reportCard = issueCodes('Provider\n• Codex\n\nMission\n• Token Launch Dashboard\n\nMove\n• Open the board');
+  assert.equal(reportCard.has('report_card_voice'), true);
+});
+
+test('launch natural work replies pass the readability ergonomics vibe bar', () => {
+  const clarification = formatBuildClarificationReplyWithMicrocopy(
+    'Paragraph Spacing Smoke Page',
+    ['Should it compare spacing presets side by side or adjust one paragraph stack live?'],
+    ['Assume it should be a tiny one-screen tool with one slider.'],
+    {
+      recommendation: 'Build a single responsive page to tune paragraph spacing with sample text and saved presets.',
+      steeringQuestion: 'Should it compare spacing presets side by side or adjust one paragraph stack live?'
+    }
+  );
+  const heartbeat = formatCanvasShapingHeartbeatSummary({
+    projectName: 'Paragraph Spacing Smoke Page',
+    elapsedSeconds: 120
+  });
+  const stillRunning = formatCanvasStillRunningSummary({
+    projectName: 'Paragraph Spacing Smoke Page',
+    elapsedSeconds: 180,
+    kanbanUrl: 'http://127.0.0.1:3333/kanban?mission=mission-rubric'
+  });
+
+  for (const reply of [clarification, heartbeat, stillRunning]) {
+    assert.deepEqual(lintTelegramConversationStyle(reply), [], reply);
+    assert.doesNotMatch(reply, /^Mission$/m);
+    assert.doesNotMatch(reply, /^Provider$/m);
+    assert.doesNotMatch(reply, /^Move$/m);
+    assert.doesNotMatch(reply, /How may I assist|Certainly!|As an AI/i);
+    assert.ok((reply.match(/✅|⚠️|🟢|🟡|🔴|⚪|🛠️|✨/gu) || []).length <= 1);
+  }
+
+  assert.match(clarification, /Page\.\n\nRecommended starting point:/);
+  assert.match(clarification, /presets\.\n\nSay "go" to start/);
+  assert.match(heartbeat, /^still shaping Paragraph Spacing Smoke Page\.\n\nI will keep this quiet until the canvas is ready or something needs attention\./m);
+  assert.match(stillRunning, /^still preparing Paragraph Spacing Smoke Page\. It is taking a little longer than usual, and I will send the canvas when it is ready\./m);
+  assert.doesNotMatch(heartbeat, /🛠️|Canvas prep has been running/);
+  assert.doesNotMatch(stillRunning, /🛠️|It has been shaping/);
 });
 
 test('launch real Telegram formatter outputs pass safety lint', () => {

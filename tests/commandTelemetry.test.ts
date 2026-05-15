@@ -21,10 +21,8 @@ test('renders redacted command telemetry without message text', () => {
     chatType: 'private'
   });
 
-  assert.equal(
-    line,
-    '[Command] command=/diagnose phase=replied profile=spark-agi user=8319079055 chat=8319079055 chat_type=private'
-  );
+  assert.match(line, /^\[Command\] command=\/diagnose phase=replied profile=spark-agi user=user_[a-f0-9]{16} chat=chat_[a-f0-9]{16} chat_type=private$/);
+  assert.doesNotMatch(line, /8319079055/);
 });
 
 test('normalizes missing and spaced fields', () => {

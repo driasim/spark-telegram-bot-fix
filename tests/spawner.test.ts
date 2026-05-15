@@ -74,6 +74,7 @@ async function run(): Promise<void> {
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',
+      traceRef: 'trace:telegram-run:tg-req-1',
       providers: ['codex', 'claude'],
       promptMode: 'orchestrator'
     });
@@ -89,6 +90,7 @@ async function run(): Promise<void> {
       chatId: '123',
       userId: '456',
       requestId: 'tg-req-1',
+      traceRef: 'trace:telegram-run:tg-req-1',
       telegramRelay: { port: 8799, profile: 'spark-agi' },
       providers: ['codex', 'claude'],
       promptMode: 'orchestrator'
@@ -240,6 +242,14 @@ async function run(): Promise<void> {
             privacy_mode: 'github_pr',
             risk_level: 'high'
           },
+          canonical: {
+            verdict: 'prototype',
+            evidence_tier: 'local_only'
+          },
+          publication: {
+            publish_mode: 'github_pr',
+            network_absorbable: false
+          },
           links: {
             canvas: '/canvas?pipeline=creator-tg-creator-1&mission=mission-creator-1'
           }
@@ -248,17 +258,61 @@ async function run(): Promise<void> {
       'http://spawner.test/'
     );
 
-    assert.match(message, /Creator plan ready/);
+    assert.match(message, /Creator plan ready|Private path staged|Creator plan is staged/);
     assert.doesNotMatch(message, /Scope/);
     assert.match(message, /Startup YC/);
-    assert.match(message, /github_pr \/ high risk/);
+    assert.match(message, /GitHub review \/ high risk/);
+    assert.match(message, /No execution or publishing happened from staging/);
+    assert.match(message, /Labs verdict: prototype; evidence tier: local only; network_absorbable=false/);
     assert.match(message, /domain chip, benchmark pack, autoloop policy/);
+    assert.match(message, /Creator-run contract: creator intent, adapter map, artifact manifest, domain chip, benchmark pack, specialization path, autoloop policy, evidence ladder, creator mission status, swarm\/contribution_packet\.json/);
+    assert.match(message, /baseline, candidate, held-out or trap evidence/);
     assert.match(message, /2 tasks queued/);
     assert.match(message, /Canvas: http:\/\/spawner\.test\/canvas\?pipeline=creator-tg-creator-1&mission=mission-creator-1/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
     assert.match(message, /say: run it/);
+    assert.match(message, /say: status/);
+    assert.match(message, /say: validate it/);
+    assert.doesNotMatch(message, /^mission-creator-1$/m);
     assert.doesNotMatch(message, /\/creator run mission-creator-1/);
     assert.doesNotMatch(message, /- Canvas:/);
+  });
+
+  await test('formatCreatorMissionSummary hides raw scoped links for read-only creator plans', async () => {
+    const message = formatCreatorMissionSummary(
+      {
+        success: true,
+        missionId: 'mission-creator-stage-only',
+        requestId: 'tg-creator-secret-chat-1778846344340',
+        trace: {
+          mission_id: 'mission-creator-stage-only',
+          request_id: 'tg-creator-secret-chat-1778846344340',
+          execution_policy: 'read_only',
+          artifacts: ['domain_chip', 'benchmark_pack', 'specialization_path'],
+          tasks: [{ id: 'creator-intent-plan' }, { id: 'benchmark-pack' }],
+          intent_packet: {
+            target_domain: 'Startup YC',
+            privacy_mode: 'local_only',
+            risk_level: 'medium'
+          },
+          links: {
+            canvas: 'http://spawner.test/canvas?pipeline=creator-tg-creator-secret-chat-1778846344340&mission=mission-creator-stage-only',
+            kanban: 'http://spawner.test/kanban?mission=mission-creator-stage-only'
+          }
+        }
+      },
+      'http://spawner.test/'
+    );
+
+    assert.match(message, /2 tasks staged/);
+    assert.match(message, /^Canvas: http:\/\/spawner\.test\/canvas$/m);
+    assert.match(message, /^Board: http:\/\/spawner\.test\/kanban$/m);
+    assert.match(message, /say: status/);
+    assert.match(message, /say: revise the plan/);
+    assert.doesNotMatch(message, /secret-chat/);
+    assert.doesNotMatch(message, /mission-creator-stage-only/);
+    assert.doesNotMatch(message, /say: run it/);
+    assert.doesNotMatch(message, /say: validate it/);
   });
 
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {
@@ -391,6 +445,13 @@ async function run(): Promise<void> {
             target_domain: 'Startup YC',
             privacy_mode: 'local_only',
             risk_level: 'medium'
+          },
+          canonical: {
+            verdict: 'blocked',
+            evidence_tier: 'local_only'
+          },
+          publication: {
+            network_absorbable: false
           }
         }
       },
@@ -400,10 +461,13 @@ async function run(): Promise<void> {
     assert.match(message, /Startup YC creator status/);
     assert.doesNotMatch(message, /Mission: mission-creator-1/);
     assert.match(message, /failed at validation failed/);
-    assert.match(message, /workspace prepared/);
+    assert.match(message, /Labs verdict: blocked/);
+    assert.match(message, /evidence tier: local only; network_absorbable=false/);
     assert.match(message, /checks: failed \(1 passed, 1 failed, 1 skipped\)/);
+    assert.match(message, /capability gain: not proven yet/);
     assert.match(message, /1 manifest issue/);
     assert.match(message, /blocker: One or more validation commands failed/);
+    assert.match(message, /Creator-run contract: creator intent, adapter map, artifact manifest/);
     assert.match(message, /2 artifact plans/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
@@ -487,6 +551,7 @@ async function run(): Promise<void> {
     assert.match(message, /1 failed/);
     assert.match(message, /Needs attention/);
     assert.match(message, /failed: startup-bench \(Validation command exited non-zero\)/);
+    assert.match(message, /No higher-ability claim yet/);
     assert.doesNotMatch(message, /python -m thestartupbench/);
     assert.match(message, /Board: http:\/\/spawner\.test\/kanban\?mission=mission-creator-1/);
   });
@@ -591,11 +656,13 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Running: 1/);
-    assert.match(result.message, /- spark-fresh \| Build canvas sync/);
+    assert.match(result.message, /Spawner board/);
+    assert.match(result.message, /• running: 1/);
+    assert.match(result.message, /• Build canvas sync/);
     assert.doesNotMatch(result.message, /spark-stale/);
-    assert.match(result.message, /Completed: 1/);
-    assert.match(result.message, /- spark-done/);
+    assert.match(result.message, /• completed: 1/);
+    assert.match(result.message, /Mission board\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /^-\s+/m);
   });
 
   await test('board tolerates malformed board buckets from Spawner', async () => {
@@ -615,9 +682,9 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Running: 0/);
-    assert.match(result.message, /Paused: 0/);
-    assert.match(result.message, /Completed: 0/);
+    assert.match(result.message, /• running: 0/);
+    assert.match(result.message, /• paused: 0/);
+    assert.match(result.message, /• completed: 0/);
   });
 
   await test('latestKanbanSummary reports the newest board-visible mission', async () => {
@@ -662,12 +729,16 @@ async function run(): Promise<void> {
     const result = await spawner.latestKanbanSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /latest mission is visible on Kanban/);
+    assert.match(result.message, /newest thing on the board is Fresh canvas mission\. It finished\./);
     assert.doesNotMatch(result.message, /^Yes,/);
-    assert.match(result.message, /Mission: mission-newer/);
-    assert.match(result.message, /Tasks: Render page, Write README/);
-    assert.match(result.message, /Provider: Codex/);
-    assert.match(result.message, /Relay: spark-agi:8789/);
+    assert.match(result.message, /Codex is attached to it\./);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /kanban\?mission=mission-newer/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+    assert.doesNotMatch(result.message, /^Mission:\s*mission-newer/im);
+    assert.doesNotMatch(result.message, /^Tasks:/im);
+    assert.doesNotMatch(result.message, /^Relay:/im);
     assert.doesNotMatch(result.message, /mission-older/);
   });
 
@@ -710,9 +781,289 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /handled by: Codex/);
-    assert.match(result.message, /Mission: spark-live/);
+    assert.match(result.message, /Codex is on the latest Spawner job right now\./);
+    assert.doesNotMatch(result.message, /From the current Spawner board/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Live smoke/);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /kanban\?mission=spark-live/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+    assert.doesNotMatch(result.message, /Mission: spark-live/);
+    assert.doesNotMatch(result.message, /Result:/);
     assert.doesNotMatch(result.message, /spark-done/);
+  });
+
+  await test('latestProviderSummary does not mistake canvas preparation for an LLM provider', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [],
+          created: [
+            {
+              missionId: 'mission-canvas',
+              missionName: 'Token Launch Dashboard',
+              status: 'created',
+              lastEventType: 'mission_created',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Preparing canvas',
+              providerResults: [],
+              providerSummary: ''
+            }
+          ]
+        }
+      }
+    });
+
+    const result = await spawner.latestProviderSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /No LLM has picked up the latest Spawner job yet\./);
+    assert.doesNotMatch(result.message, /From the current Spawner board/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Token Launch Dashboard/);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /kanban\?mission=mission-canvas/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+    assert.doesNotMatch(result.message, /handled by: Preparing canvas/);
+  });
+
+  await test('latestMissionSummary answers follow-up title questions without provider clutter', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [
+            {
+              missionId: 'spark-done',
+              missionName: 'Telegram Golden Path Probe',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now).toISOString(),
+              providerResults: [{ providerId: 'codex', status: 'completed' }],
+              providerSummary: 'Codex: done'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestMissionSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Telegram Golden Path Probe finished cleanly\. Codex handled it\./);
+    assert.doesNotMatch(result.message, /attached to it\./);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /spark-done/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+  });
+
+  await test('latestProviderSummary hides raw failed provider output', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-failed',
+              missionName: 'Token Launch Dashboard',
+              status: 'failed',
+              lastEventType: 'mission_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Create app shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: Blocked by the current execution environment. http://127.0.0.1:3333 is not running and patch was rejected because the workspace is read-only.'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProviderSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /The latest Spawner job reached Codex, then failed\./);
+    assert.doesNotMatch(result.message, /From the current Spawner board/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Token Launch Dashboard/);
+    assert.match(result.message, /The board has the failure details if you want the trace\./);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+    assert.doesNotMatch(result.message, /Blocked by the current execution environment/);
+    assert.doesNotMatch(result.message, /http:\/\/127\.0\.0\.1:3333 is not running/);
+    assert.doesNotMatch(result.message, /Result:/);
+  });
+
+  await test('latestKanbanSummary uses polished Telegram composition instead of raw mission rows', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-kanban-latest',
+              missionName: 'Recursive Sage Reasoning Game',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Implement reasoning rounds',
+              providerResults: [{ providerId: 'codex', status: 'running' }],
+              providerSummary: 'Codex: Working on the game loop.'
+            }
+          ],
+          paused: [],
+          completed: [],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestKanbanSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /newest thing on the board is Recursive Sage Reasoning Game\. It is still running\./);
+    assert.match(result.message, /Codex is attached to it\./);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /kanban\?mission=mission-kanban-latest/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Provider$/m);
+    assert.doesNotMatch(result.message, /^Mission:\s*mission-kanban-latest/im);
+    assert.doesNotMatch(result.message, /^Status:\s*running/im);
+    assert.doesNotMatch(result.message, /^Title:/im);
+    assert.doesNotMatch(result.message, /^Tasks:/im);
+    assert.doesNotMatch(result.message, /^Result:/im);
+  });
+
+  await test('latestProviderSummary avoids using raw mission ids as the visible title', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-title-only-id',
+              status: 'running',
+              lastEventType: 'mission_started',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: null,
+              providerResults: [{ providerId: 'codex', status: 'running' }],
+              providerSummary: 'Codex: Running.'
+            }
+          ],
+          paused: [],
+          completed: [],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProviderSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Codex is on the latest Spawner job right now/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /• mission-title-only-id/);
+    assert.doesNotMatch(result.message, /^Mission:\s*mission-title-only-id/im);
+  });
+
+  await test('latestFailureSummary explains concrete blockers without raw dumps', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-game',
+              missionName: 'Recursive Sage Maze Game',
+              status: 'failed',
+              lastEventType: 'mission_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Create app shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: Blocked before implementation. The required H70 skill API is unavailable: curl http://127.0.0.1:3333/api/h70-skills/frontend-engineer fails with connection refused. The workspace is read-only: touch .codex_write_probe fails with Operation not permitted.'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestFailureSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /That run did not make it through\. It was Recursive Sage Maze Game\./);
+    assert.match(result.message, /Skill API was unreachable from the spawned Codex lane/);
+    assert.match(result.message, /spawned workspace was read-only/);
+    assert.match(result.message, /Full trace\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.doesNotMatch(result.message, /kanban\?mission=mission-game/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Move$/m);
+    assert.doesNotMatch(result.message, /\b(?:mandatory|required)\s+H70/i);
+    assert.doesNotMatch(result.message, /Access Level/i);
+    assert.doesNotMatch(result.message, /curl http:\/\/127\.0\.0\.1:3333\/api\/h70-skills/);
+    assert.doesNotMatch(result.message, /Operation not permitted/);
+    assert.doesNotMatch(result.message, /Result:/);
+  });
+
+  await test('latestFailureSummary does not duplicate the board move as a blocker', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [],
+          failed: [
+            {
+              missionId: 'mission-generic-failure',
+              missionName: 'Axiom Garden',
+              status: 'failed',
+              lastEventType: 'provider_failed',
+              lastUpdated: new Date(now).toISOString(),
+              taskName: 'Build shell',
+              providerResults: [{ providerId: 'codex', status: 'failed' }],
+              providerSummary: 'Codex: unknown error'
+            }
+          ],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestFailureSummary();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /That run did not make it through\. It was Axiom Garden\./);
+    assert.match(result.message, /The blocker I can prove:\n• Spawner recorded a provider failure\./);
+    assert.match(result.message, /Full trace\n• http:\/\/127\.0\.0\.1:3333\/kanban/);
+    assert.equal((result.message.match(/full trace/gi) || []).length, 1);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /^Move$/m);
   });
 
   await test('latestProjectPreview returns the shipped app link for root route builds', async () => {
@@ -780,6 +1131,215 @@ async function run(): Promise<void> {
 
     assert.equal(result.success, true);
     assert.match(result.message, /http:\/\/127\.0\.0\.1:3333\/preview\/[A-Za-z0-9_-]+\/index\.html/);
+  });
+
+  await test('latestProjectPreview does not treat a running mission as shipped', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-no-preview',
+              missionName: 'Reasoning Orchard',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Working',
+              taskName: 'Build game loop',
+              providerSummary: 'Codex: working'
+            }
+          ],
+          paused: [],
+          completed: [],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /I do not see a shipped app link yet\./);
+    assert.doesNotMatch(result.message, /Reasoning Orchard/);
+    assert.doesNotMatch(result.message, /Mission board/);
+    assert.doesNotMatch(result.message, /kanban\?mission=mission-no-preview/);
+    assert.doesNotMatch(result.message, /^Latest:/im);
+  });
+
+  await test('latestProjectPreview treats shipped app as completed, not currently running', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-running-newer',
+              missionName: 'Current Composition Test',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Working',
+              taskName: 'Build current app',
+              providerSummary: 'Codex: working'
+            }
+          ],
+          paused: [],
+          completed: [
+            {
+              missionId: 'mission-completed-shipped',
+              missionName: 'Proof Orchard',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now - 60_000).toISOString(),
+              lastSummary: 'Done',
+              taskName: 'Ship app',
+              providerSummary: 'Codex: Replaced the root screen with Proof Orchard in src/routes/+page.svelte.'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Here is the latest shipped app/);
+    assert.match(result.message, /Proof Orchard/);
+    assert.doesNotMatch(result.message, /Current Composition Test/);
+    assert.doesNotMatch(result.message, /running/);
+  });
+
+  await test('latestProjectPreview skips no-edit golden path probes when choosing shipped apps', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [
+            {
+              missionId: 'spark-golden-path-probe',
+              missionName: 'Telegram Golden Path Probe',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Codex: SPARK_QA_NO_EDIT_OK',
+              taskName: 'Reply with exactly: SPARK_QA_NO_EDIT_OK',
+              providerSummary: 'Codex: SPARK_QA_NO_EDIT_OK'
+            },
+            {
+              missionId: 'mission-completed-shipped',
+              missionName: 'Proof Orchard',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now - 60_000).toISOString(),
+              lastSummary: 'Done',
+              taskName: 'Ship app',
+              providerSummary: 'Codex: Replaced the root screen with Proof Orchard in src/routes/+page.svelte.'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /Here is the latest shipped app/);
+    assert.match(result.message, /Proof Orchard/);
+    assert.doesNotMatch(result.message, /Telegram Golden Path Probe/);
+    assert.doesNotMatch(result.message, /SPARK_QA_NO_EDIT_OK/);
+  });
+
+  await test('latestProjectPreview does not present only golden path probes as shipped apps', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [],
+          completed: [
+            {
+              missionId: 'spark-golden-path-probe',
+              missionName: 'Telegram Golden Path Probe',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Codex: GOLDEN_PATH_OK',
+              taskName: 'Reply with exactly: GOLDEN_PATH_OK',
+              providerSummary: 'Codex: GOLDEN_PATH_OK'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /I do not see a shipped app link yet\./);
+    assert.doesNotMatch(result.message, /Telegram Golden Path Probe/);
+    assert.doesNotMatch(result.message, /Mission board/);
+  });
+
+  await test('latestProjectPreview reports missing app link from latest completed mission only', async () => {
+    restoreAxios();
+    const now = Date.now();
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'mission-running-newer',
+              missionName: 'Current Composition Test',
+              status: 'running',
+              lastEventType: 'task_progress',
+              lastUpdated: new Date(now).toISOString(),
+              lastSummary: 'Working',
+              taskName: 'Build current app',
+              providerSummary: 'Codex: working'
+            }
+          ],
+          paused: [],
+          completed: [
+            {
+              missionId: 'mission-completed-no-link',
+              missionName: 'Quiet Completed Mission',
+              status: 'completed',
+              lastEventType: 'mission_completed',
+              lastUpdated: new Date(now - 60_000).toISOString(),
+              lastSummary: 'Done',
+              taskName: 'Complete without preview',
+              providerSummary: 'Codex: completed without a local preview URL.'
+            }
+          ],
+          failed: [],
+          created: []
+        }
+      }
+    });
+
+    const result = await spawner.latestProjectPreview();
+
+    assert.equal(result.success, true);
+    assert.match(result.message, /latest app-like completed run: Quiet Completed Mission/);
+    assert.match(result.message, /I do not see a local preview link attached yet/);
+    assert.match(result.message, /Quiet Completed Mission/);
+    assert.doesNotMatch(result.message, /Current Composition Test/);
+    assert.doesNotMatch(result.message, /^Mission$/m);
+    assert.doesNotMatch(result.message, /• completed/);
   });
 }
 

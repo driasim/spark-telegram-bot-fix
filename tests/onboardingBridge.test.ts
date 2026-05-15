@@ -42,6 +42,12 @@ void (async () => {
     assert.equal(parsed.event, 'telegram_first_message');
     assert.equal(parsed.session, 'ember-4821');
     assert.equal(parsed.replied, true);
+    assert.equal(parsed.chat_id_present, true);
+    assert.equal(parsed.user_id_present, true);
+    assert.match(parsed.chat_ref, /^chat_[a-f0-9]{16}$/);
+    assert.match(parsed.user_ref, /^user_[a-f0-9]{16}$/);
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, 'chat_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, 'user_id'), false);
   });
 })();
 

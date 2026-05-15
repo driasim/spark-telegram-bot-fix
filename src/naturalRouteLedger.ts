@@ -6,6 +6,7 @@ import {
 } from './naturalRouteDecision';
 import { resolveStatePath } from './jsonState';
 import { naturalRouteExecutionOutcome } from './naturalRouteTelemetry';
+import { redactIdentifier } from './redaction';
 
 export type NaturalRouteExecutionDelivery = 'selected' | 'delivered' | 'failed' | 'unknown';
 
@@ -75,8 +76,8 @@ export function createNaturalRouteExecutionRecord(input: NaturalRouteExecutionRe
     schema_version: 'spark.nlp.route_execution.v1',
     recorded_at: (input.now || new Date()).toISOString(),
     profile: safeScalar(input.profile),
-    user_id: safeScalar(input.userId),
-    chat_id: safeScalar(input.chatId),
+    user_id: redactIdentifier(input.userId, 'user'),
+    chat_id: redactIdentifier(input.chatId, 'chat'),
     chat_type: safeScalar(input.chatType),
     admin: Boolean(input.admin),
     shadow_route: safeScalar(input.decision.route),

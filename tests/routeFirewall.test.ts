@@ -79,6 +79,17 @@ test('allows explicit repo and docs research even when the topic is routing arch
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('allows reusable loop template staging while run and publish are blocked', () => {
+  const verdict = evaluateDeterministicRoute(
+    'creator.mission',
+    'turn this proven loop into a reusable template. Do not run or publish it.'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'creator_mission_plan_only');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
 test('uses the firewall as a broad route-arbitration smoke matrix', () => {
   const cases: Array<{
     name: string;
@@ -116,6 +127,13 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       reason: 'plain_chat_protected'
     },
     {
+      name: 'bug-hunt QA is chat, not pending domain chip execution',
+      route: 'domain_chip.pending',
+      prompt: 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow',
+      allow: false,
+      reason: 'plain_chat_protected'
+    },
+    {
       name: 'explicit project still builds',
       route: 'spawner.build',
       prompt: 'Build a private local-first dashboard for memory reports. It should show stale context, source labels, and review queues.',
@@ -141,6 +159,20 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       prompt: 'ask claude to review this plan',
       allow: true,
       reason: 'explicit_provider_run'
+    },
+    {
+      name: 'canvas plan lookup is chat, not a new build',
+      route: 'spawner.build',
+      prompt: 'For QA, show the latest canvas plan and skills for the H70 Orbit Proof build. Do not start anything new.',
+      allow: false,
+      reason: 'no_execution_boundary'
+    },
+    {
+      name: 'no build or mission boundary blocks build route',
+      route: 'spawner.build',
+      prompt: 'No build or mission for now, just help me think through the QA plan.',
+      allow: false,
+      reason: 'no_execution_boundary'
     }
   ];
 

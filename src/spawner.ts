@@ -19,6 +19,7 @@ interface RunGoalInput {
   chatId: string;
   userId: string;
   requestId: string;
+  traceRef?: string;
   tier?: SkillTier;
   providers?: string[];
   promptMode?: 'simple' | 'orchestrator';
@@ -38,12 +39,24 @@ interface CreatorMissionInput {
   missionId?: string;
   privacyMode?: CreatorPrivacyMode;
   riskLevel?: CreatorRiskLevel;
+  executionPolicy?: 'manual_run' | 'read_only';
 }
 
 interface CreatorIntentPacket {
   target_domain?: string;
   privacy_mode?: CreatorPrivacyMode;
   risk_level?: CreatorRiskLevel;
+}
+
+interface CreatorCanonicalStatus {
+  verdict?: string;
+  evidence_tier?: string;
+}
+
+interface CreatorPublicationStatus {
+  publish_mode?: CreatorPrivacyMode;
+  swarm_shared_allowed?: boolean;
+  network_absorbable?: boolean;
 }
 
 interface CreatorMissionTrace {
@@ -56,10 +69,13 @@ interface CreatorMissionTrace {
   validation_runs?: CreatorValidationRun[];
   current_stage?: string;
   stage_status?: string;
+  execution_policy?: string;
   publish_readiness?: string;
   blockers?: string[];
   tasks?: unknown[];
   intent_packet?: CreatorIntentPacket;
+  canonical?: CreatorCanonicalStatus;
+  publication?: CreatorPublicationStatus;
   links?: {
     canvas?: string;
     kanban?: string;
@@ -253,7 +269,34 @@ function latestBoardEntry(board: BoardSnapshot): BoardEntry | null {
   return entries[0] || null;
 }
 
-function providerNames(entry: BoardEntry): string {
+function latestFailureEntry(board: BoardSnapshot): BoardEntry | null {
+  const entries = [
+    ...board.failed,
+    ...board.running,
+    ...board.completed,
+    ...board.created
+  ];
+  entries.sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
+  return entries.find((entry) => entry.status === 'failed' || entry.lastEventType === 'mission_failed') || null;
+}
+
+function isKnownProviderLabel(value: string | null | undefined): value is string {
+  if (!value?.trim()) return false;
+  const normalized = value.trim().toLowerCase();
+  return Boolean(PROVIDER_LABELS[normalized]) || [
+    'codex',
+    'claude',
+    'zai',
+    'openai',
+    'openrouter',
+    'minimax',
+    'ollama',
+    'lmstudio',
+    'huggingface'
+  ].includes(normalized);
+}
+
+function providerNames(entry: BoardEntry): string | null {
   const names = (entry.providerResults || [])
     .map((provider) => provider.providerId)
     .filter((name): name is string => Boolean(name?.trim()));
@@ -263,7 +306,9 @@ function providerNames(entry: BoardEntry): string {
   }
 
   const summaryPrefix = entry.providerSummary?.match(/^([^:]+):/)?.[1]?.trim();
-  return formatProviderLabel(summaryPrefix || entry.taskName || 'unknown');
+  if (isKnownProviderLabel(summaryPrefix)) return formatProviderLabel(summaryPrefix);
+  if (isKnownProviderLabel(entry.taskName)) return formatProviderLabel(entry.taskName);
+  return null;
 }
 
 function formatProviderLabel(providerId: string): string {
@@ -323,35 +368,253 @@ function projectOpenLinkForEntry(entry: BoardEntry): string | null {
     || (rootRouteLooksLikeProject(text) ? PROJECT_PREVIEW_URL.replace(/\/+$/, '') : null);
 }
 
-function formatLatestMission(entry: BoardEntry): string[] {
-  const title = entry.missionName || entry.taskName || 'Unnamed mission';
-  const tasks = entry.taskNames && entry.taskNames.length > 0
-    ? entry.taskNames.slice(0, 3).join(', ')
-    : entry.taskName || null;
+function isOperationalProbeMission(entry: BoardEntry): boolean {
+  const title = missionTitle(entry);
+  const text = providerResultText(entry);
+  return /\btelegram\s+golden\s+path\s+probe\b/i.test(title)
+    || /\bno[-\s]*edit\s+spawner\s+probe\b/i.test(title)
+    || /\bgolden[-\s]*path\s+health\s+probe\b/i.test(text)
+    || /\breply\s+with\s+exactly\b[\s\S]{0,140}\bdo\s+not\s+edit\s+files\b/i.test(text);
+}
+
+function missionTitle(entry: BoardEntry): string {
+  return entry.missionName || entry.taskName || entry.missionId || 'latest mission';
+}
+
+function statusPhrase(status: string): string {
+  if (status === 'completed') return 'finished';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'is still running';
+  if (status === 'paused') return 'is paused';
+  return 'is waiting to start';
+}
+
+function boardInspectLine(): string {
+  return `Board: ${missionBoardUrl()}`;
+}
+
+function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const provider = providerNames(entry);
+  const lines = [`The newest thing on the board is ${title}. It ${statusPhrase(statusWord(entry.status))}.`];
+
+  if (provider) lines.push(`${provider} is attached to it.`);
+
+  lines.push('', boardInspectLine());
+  return lines.join('\n');
+}
+
+function formatLatestMissionTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const provider = providerNames(entry);
+  const status = statusWord(entry.status);
+  if (status === 'completed') {
+    const lines = [
+      provider
+        ? `${title} finished cleanly. ${provider} handled it.`
+        : `${title} finished cleanly.`
+    ];
+    const openLink = projectOpenLinkForEntry(entry);
+    if (openLink) {
+      lines.push('', 'Open it here:', openLink);
+    }
+    return lines.join('\n');
+  }
+  if (status === 'running') {
+    return provider
+      ? `${title} is still running. ${provider} is handling it.`
+      : `${title} is still running.`;
+  }
+  if (status === 'failed') {
+    return provider
+      ? `${title} did not make it through. ${provider} was attached.`
+      : `${title} did not make it through before a provider was reported.`;
+  }
+  if (status === 'paused') {
+    return provider
+      ? `${title} is paused. ${provider} is attached.`
+      : `${title} is paused.`;
+  }
+  return provider
+    ? `${title} is queued. ${provider} is attached, but it has not started yet.`
+    : `${title} is queued. No LLM has picked it up yet.`;
+}
+
+function statusWord(status: string): string {
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'running') return 'running';
+  if (status === 'paused') return 'paused';
+  return 'queued';
+}
+
+function providerSummarySentence(provider: string | null, status: string): string {
+  if (!provider) {
+    if (status === 'queued') return 'No LLM has picked up the latest Spawner job yet.';
+    if (status === 'failed') return 'The latest Spawner job failed before it reported an LLM provider.';
+    if (status === 'paused') return 'The latest Spawner job is paused before any LLM provider was reported.';
+    return 'The latest Spawner job has not reported an LLM provider yet.';
+  }
+  if (status === 'completed') {
+    return `${provider} took the latest Spawner job, and it finished.`;
+  }
+  if (status === 'running') {
+    return `${provider} is on the latest Spawner job right now.`;
+  }
+  if (status === 'failed') {
+    return `The latest Spawner job reached ${provider}, then failed.`;
+  }
+  if (status === 'paused') {
+    return `The latest Spawner job is paused with ${provider} attached.`;
+  }
+  return `${provider} is attached to the latest Spawner job.`;
+}
+
+function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
+  const provider = providerNames(entry);
+  const status = statusWord(entry.status);
+  const needsInspectionLink = entry.status === 'failed' || entry.status === 'paused';
+
+  if (!provider) {
+    const lines = [
+      providerSummarySentence(null, status)
+    ];
+
+    if (needsInspectionLink) {
+      lines.push(
+        '',
+        'Mission board',
+        `• ${missionBoardUrl()}`
+      );
+    }
+
+    return lines.join('\n');
+  }
+
   const lines = [
-    `Mission: ${entry.missionId}`,
-    `Status: ${entry.status}`,
-    `Title: ${title}`
+    providerSummarySentence(provider, status)
   ];
 
-  if (tasks) lines.push(`Tasks: ${tasks}`);
-  lines.push(`Provider: ${providerNames(entry)}`);
-  if (entry.telegramRelay?.profile || entry.telegramRelay?.port) {
-    const target = [entry.telegramRelay.profile, entry.telegramRelay.port ? `:${entry.telegramRelay.port}` : '']
-      .filter(Boolean)
-      .join('');
-    lines.push(`Relay: ${target}`);
+  if (entry.status === 'failed') {
+    lines.push(
+      '',
+      'The board has the failure details if you want the trace.'
+    );
   }
-  if (entry.providerSummary) lines.push(`Result: ${entry.providerSummary}`);
-  return lines;
+
+  if (needsInspectionLink) {
+    lines.push(
+      '',
+      boardInspectLine()
+    );
+  }
+  return lines.join('\n');
+}
+
+function failureCauseLines(entry: BoardEntry): string[] {
+  const text = providerResultText(entry).toLowerCase();
+  const causes: string[] = [];
+
+  if (/\bh70\b|\bskill api\b|\bapi\/h70-skills\b/.test(text)) {
+    causes.push('Skill API was unreachable from the spawned Codex lane.');
+  }
+  if (/\bread[-\s]*only\b|\boperation not permitted\b|\bpatch was rejected\b|\bwrite probe\b|\bwrite(?:able|ability)?\b.*\bfailed\b/.test(text)) {
+    causes.push('The spawned workspace was read-only.');
+  }
+  if (/\bconnection refused\b|\beconnrefused\b|\bfailed to connect\b/.test(text)) {
+    causes.push('A local service connection failed inside the spawned lane.');
+  }
+  if (/\bauth\b|\boauth\b|\bunauthorized\b|\bforbidden\b|\b401\b|\b403\b/.test(text)) {
+    causes.push('Provider/auth access needs a fresh check.');
+  }
+
+  return causes.length ? causes.slice(0, 3) : ['Spawner recorded a provider failure.'];
+}
+
+function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
+  const title = missionTitle(entry);
+  const causes = failureCauseLines(entry);
+  return [
+    `That run did not make it through. It was ${title}.`,
+    '',
+    causes.length === 1 ? 'The blocker I can prove:' : 'The blockers I can prove:',
+    ...causes.map((line) => `• ${line}`),
+    '',
+    'Full trace',
+    `• ${missionBoardUrl()}`
+  ].join('\n');
+}
+
+function formatBoardTelegramSummary(board: BoardSnapshot): string {
+  const counts = {
+    running: board.running.length,
+    paused: board.paused.length,
+    completed: board.completed.length,
+    failed: board.failed.length,
+    queued: board.created.length
+  };
+  const latest = latestBoardEntry(board);
+  const lines = [
+    'Spawner board',
+    '',
+    'Counts',
+    `• running: ${counts.running}`,
+    `• paused: ${counts.paused}`,
+    `• completed: ${counts.completed}`,
+    `• failed: ${counts.failed}`,
+    `• queued: ${counts.queued}`
+  ];
+
+  const active = board.running[0] || board.paused[0] || board.created[0] || null;
+  if (active) {
+    lines.push(
+      '',
+      'Active',
+      `• ${missionTitle(active)}`,
+      `• ${statusWord(active.status)}`
+    );
+    const activeProvider = providerNames(active);
+    if (activeProvider) {
+      lines.push(`• provider: ${activeProvider}`);
+    }
+  }
+
+  if (latest && latest !== active) {
+    lines.push(
+      '',
+      'Latest',
+      `• ${missionTitle(latest)}`,
+      `• ${statusWord(latest.status)}`
+    );
+    const provider = providerNames(latest);
+    if (provider) {
+      lines.push(`• provider: ${provider}`);
+    }
+  }
+
+  lines.push(
+    '',
+    'Mission board',
+    `• ${missionBoardUrl()}`
+  );
+
+  return lines.join('\n');
 }
 
 function spawnerPublicUrl(): string {
   return resolveSpawnerPublicUrl().replace(/\/+$/, '');
 }
 
+function missionBoardUrl(): string {
+  return `${spawnerPublicUrl()}/kanban`;
+}
+
 function creatorMissionKanbanUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
   return `${baseUrl.replace(/\/+$/, '')}/kanban?mission=${encodeURIComponent(missionId)}`;
+}
+
+function creatorWorkspaceUrl(surface: 'canvas' | 'kanban', baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${surface}`;
 }
 
 function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUrl()): string | undefined {
@@ -440,10 +703,39 @@ function formatCreatorArtifactLabel(value: string): string {
     specialization_path: 'specialization path',
     autoloop_policy: 'autoloop policy',
     tool_integration: 'Telegram/Spawner wiring',
-    swarm_publish_packet: 'Swarm review packet',
+    swarm_publish_packet: 'Swarm contribution packet',
+    swarm_contribution_packet: 'Swarm contribution packet',
     creator_report: 'creator report'
   };
   return labels[value] || value.replace(/_/g, ' ');
+}
+
+function creatorPlanOpening(seed: string): string {
+  const variants = [
+    'Creator plan ready. I staged the private path without starting it.',
+    'Private path staged. Nothing is running yet.',
+    'Creator plan is staged and waiting for your call.'
+  ];
+  const score = seed.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return variants[score % variants.length];
+}
+
+function formatCreatorArtifactSummary(artifacts: string[] | undefined): string {
+  const usable = Array.isArray(artifacts) ? artifacts.filter((artifact) => artifact.trim()) : [];
+  if (usable.length === 0) return 'artifact plan pending';
+  return usable.slice(0, 6).map(formatCreatorArtifactLabel).join(', ');
+}
+
+function creatorEvidenceStandardLine(): string {
+  return 'creator intent, adapter map, artifact manifest, domain chip, benchmark pack, specialization path, autoloop policy, evidence ladder, creator mission status, swarm/contribution_packet.json';
+}
+
+function formatEvidenceTier(value: string | undefined): string {
+  return value?.trim() || 'not proven yet';
+}
+
+function formatNetworkAbsorbable(value: boolean | undefined): string {
+  return value === true ? 'true' : 'false';
 }
 
 function formatCreatorArtifactLines(artifacts: string[] | undefined): string[] {
@@ -488,33 +780,43 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const trace = result.trace || {};
   const intent = trace.intent_packet || {};
   const missionId = result.missionId || trace.mission_id || 'unknown';
-  const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
+  const readOnly = trace.execution_policy === 'read_only';
+  const kanbanUrl = readOnly
+    ? creatorWorkspaceUrl('kanban', baseUrl)
+    : trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const taskCount = typeof result.taskCount === 'number'
     ? result.taskCount
     : Array.isArray(trace.tasks)
       ? trace.tasks.length
       : null;
-  const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
+  const canvasUrl = readOnly ? creatorWorkspaceUrl('canvas', baseUrl) : absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const domain = formatCreatorDomainLabel(intent.target_domain);
-  const artifacts = Array.isArray(trace.artifacts) && trace.artifacts.length > 0
-    ? trace.artifacts.slice(0, 6).map(formatArtifactLabel).join(', ')
-    : 'artifact plan pending';
+  const artifacts = formatCreatorArtifactSummary(trace.artifacts);
+  const evidenceTier = formatEvidenceTier(trace.canonical?.evidence_tier);
+  const networkAbsorbable = formatNetworkAbsorbable(trace.publication?.network_absorbable);
+  const verdict = trace.canonical?.verdict || 'staged';
 
   const lines = [
-    '🧩 Creator plan ready.',
+    `🧩 ${creatorPlanOpening(missionId + domain)}`,
     '',
-    'Build',
-    domain,
-    artifacts,
-    ...(taskCount !== null ? [`${taskCount} tasks queued`] : []),
-    `${intent.privacy_mode || 'local_only'} / ${intent.risk_level || 'unknown'} risk`,
+    `Domain: ${domain}`,
+    `Boundary: ${formatCreatorPrivacy(trace.publication?.publish_mode || intent.privacy_mode)} / ${intent.risk_level || 'unknown'} risk. No execution or publishing happened from staging.`,
+    `Labs verdict: ${formatCreatorReadiness(verdict)}; evidence tier: ${formatCreatorReadiness(evidenceTier)}; network_absorbable=${networkAbsorbable}`,
+    ...(taskCount !== null ? [`${taskCount} tasks ${readOnly ? 'staged' : 'queued'}`] : []),
+    '',
+    'Evidence',
+    `Staged: ${artifacts}`,
+    `Creator-run contract: ${creatorEvidenceStandardLine()}`,
+    'Capability gain needs baseline, candidate, held-out or trap evidence before Rec says the path made the agent better.',
     '',
     'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Board: ${kanbanUrl}`,
     '',
     'Next',
-    'say: run it'
+    ...(readOnly
+      ? ['say: status', 'say: revise the plan']
+      : ['say: run it', 'say: status', 'say: validate it'])
   ];
 
   return lines.join('\n');
@@ -539,18 +841,27 @@ export function formatCreatorMissionStatusSummary(
   const issueCount = Array.isArray(trace.artifact_manifest_validation_issues) ? trace.artifact_manifest_validation_issues.length : 0;
   const domain = formatCreatorDomainLabel(intent.target_domain);
   const statusIcon = blockers.length > 0 || issueCount > 0 ? '🟡' : creatorValidationIcon(latestRun?.status || trace.stage_status);
+  const evidenceTier = formatEvidenceTier(trace.canonical?.evidence_tier);
+  const networkAbsorbable = formatNetworkAbsorbable(trace.publication?.network_absorbable);
 
   return [
     `${statusIcon} ${domain} creator status.`,
     '',
     'State',
     `${formatCreatorReadiness(trace.stage_status)} at ${formatCreatorReadiness(trace.current_stage)}`,
-    `${formatCreatorReadiness(trace.publish_readiness)}`,
+    `Labs verdict: ${formatCreatorReadiness(trace.canonical?.verdict || trace.publish_readiness)}`,
+    `evidence tier: ${formatCreatorReadiness(evidenceTier)}; network_absorbable=${networkAbsorbable}`,
     latestRun
       ? `checks: ${latestRun.status || 'unknown'} (${countValidationResults(latestRun, 'passed')} passed, ${countValidationResults(latestRun, 'failed')} failed, ${countValidationResults(latestRun, 'skipped')} skipped)`
       : 'checks: not run yet',
+    latestRun?.status === 'passed'
+      ? 'capability gain: validation passed; benchmark before/after evidence still decides the claim.'
+      : 'capability gain: not proven yet.',
     issueCount > 0 ? `${issueCount} manifest issue${issueCount === 1 ? '' : 's'}` : null,
     ...(blockers.length > 0 ? [`blocker: ${blockers[0]}`] : []),
+    '',
+    'Evidence',
+    `Creator-run contract: ${creatorEvidenceStandardLine()}`,
     '',
     'Workspace',
     `${artifactCount} artifact plan${artifactCount === 1 ? '' : 's'}`,
@@ -618,6 +929,11 @@ export function formatCreatorMissionValidationSummary(
     `${countValidationResults(run, 'skipped')} skipped`,
     ...(failedOrSkipped.length > 0 ? ['', 'Needs attention', ...failedOrSkipped.map(formatValidationResultLine)] : []),
     '',
+    'Ability',
+    status === 'passed'
+      ? 'The path can claim improvement only where the benchmark pack shows a before/after gain.'
+      : 'No higher-ability claim yet; fix the checks or rerun the benchmark pack first.',
+    '',
     'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),
     `Board: ${kanbanUrl}`
@@ -645,6 +961,7 @@ export const spawner = {
           chatId: input.chatId,
           userId: input.userId,
           requestId: input.requestId,
+          ...(input.traceRef ? { traceRef: input.traceRef } : {}),
           telegramRelay: relay,
           ...(input.tier ? { tier: input.tier } : {}),
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
@@ -677,7 +994,8 @@ export const spawner = {
           ...(input.requestId ? { requestId: input.requestId } : {}),
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.privacyMode ? { privacyMode: input.privacyMode } : {}),
-          ...(input.riskLevel ? { riskLevel: input.riskLevel } : {})
+          ...(input.riskLevel ? { riskLevel: input.riskLevel } : {}),
+          ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {})
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_TIMEOUT_MS')
       );
@@ -866,32 +1184,9 @@ export const spawner = {
   async board(): Promise<{ success: boolean; message: string }> {
     try {
       const board = await fetchBoardSnapshot();
-      const sections: Array<[string, BoardEntry[]]> = [
-        ['Running', board.running],
-        ['Paused', board.paused],
-        ['Completed', board.completed],
-        ['Failed', board.failed],
-        ['Created', board.created]
-      ];
-
-      const lines = ['Spawner Board'];
-      for (const [label, entries] of sections) {
-        lines.push('');
-        lines.push(`${label}: ${entries.length}`);
-        if (entries.length === 0) {
-          lines.push('- none');
-          continue;
-        }
-
-        for (const entry of entries.slice(0, 5)) {
-          const task = entry.taskName ? ` | ${entry.taskName}` : '';
-          lines.push(`- ${entry.missionId}${task}`);
-        }
-      }
-
       return {
         success: true,
-        message: lines.join('\n')
+        message: formatBoardTelegramSummary(board)
       };
     } catch (err: any) {
       return {
@@ -913,11 +1208,7 @@ export const spawner = {
 
       return {
         success: true,
-        message: [
-          'The latest mission is visible on Kanban.',
-          '',
-          ...formatLatestMission(latest)
-        ].join('\n')
+        message: formatLatestKanbanTelegramSummary(latest)
       };
     } catch (err: any) {
       return {
@@ -939,11 +1230,51 @@ export const spawner = {
 
       return {
         success: true,
-        message: [
-          `The latest Spawner job was handled by: ${providerNames(latest)}`,
-          '',
-          ...formatLatestMission(latest)
-        ].join('\n')
+        message: formatLatestProviderTelegramSummary(latest)
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.response?.data?.error || err.message
+      };
+    }
+  },
+
+  async latestMissionSummary(): Promise<{ success: boolean; message: string }> {
+    try {
+      const latest = latestBoardEntry(await fetchBoardSnapshot());
+      if (!latest) {
+        return {
+          success: true,
+          message: 'I do not see any Spawner missions on the current board yet.'
+        };
+      }
+
+      return {
+        success: true,
+        message: formatLatestMissionTelegramSummary(latest)
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.response?.data?.error || err.message
+      };
+    }
+  },
+
+  async latestFailureSummary(): Promise<{ success: boolean; message: string }> {
+    try {
+      const latest = latestFailureEntry(await fetchBoardSnapshot());
+      if (!latest) {
+        return {
+          success: true,
+          message: 'I do not see a failed Spawner mission in the current board.'
+        };
+      }
+
+      return {
+        success: true,
+        message: formatLatestFailureTelegramSummary(latest)
       };
     } catch (err: any) {
       return {
@@ -956,9 +1287,10 @@ export const spawner = {
   async latestProjectPreview(): Promise<{ success: boolean; message: string }> {
     try {
       const board = await fetchBoardSnapshot();
-      const candidates = [...board.completed, ...board.running];
-      candidates.sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
-      const latest = candidates.find((entry) => projectOpenLinkForEntry(entry)) || candidates[0];
+      const completed = [...board.completed]
+        .sort((a, b) => Date.parse(b.lastUpdated || '') - Date.parse(a.lastUpdated || ''));
+      const shippedCandidates = completed.filter((entry) => !isOperationalProbeMission(entry));
+      const latest = shippedCandidates.find((entry) => projectOpenLinkForEntry(entry)) || shippedCandidates[0];
       if (!latest) {
         return {
           success: true,
@@ -971,10 +1303,12 @@ export const spawner = {
         return {
           success: true,
           message: [
-            'I found the latest mission, but I do not see a local app link in the handoff yet.',
+            `I found the latest app-like completed run: ${missionTitle(latest)}.`,
             '',
-            `Latest: ${latest.missionName || latest.taskName || latest.missionId}`,
-            `Mission board: ${spawnerPublicUrl()}/kanban?mission=${encodeURIComponent(latest.missionId)}`
+            'I do not see a local preview link attached yet, so the board is the best place to inspect it.',
+            '',
+            'Mission board',
+            `• ${missionBoardUrl()}`
           ].join('\n')
         };
       }

@@ -56,7 +56,7 @@ List recursive loops:
 
 `show recursive loops`
 
-Prepare a private review packet:
+Prepare a private review bundle:
 
 `prepare the QA tester for review`
 
@@ -108,7 +108,7 @@ Spark should plan the creator mission from the recent working context. Without a
 - Benchmark pack: `spark-qa-operator-bench`
 - Specialization path and autoloop policy: `specialization-path-spark-qa-operator`
 - Telegram integration: `spark-telegram-bot`
-- Swarm review packet: `spark-swarm`
+- Swarm contribution packet: `swarm/contribution_packet.json` inside the local creator-run bundle
 
 ## Telegram Message Shape
 
@@ -127,10 +127,11 @@ Workspace keeps the heavy detail:
 - candidate diffs
 - keep/revert reasons
 - validation ledgers
-- Swarm review packet readiness
+- evidence tier and `network_absorbable=false` publication boundary
+- Swarm contribution packet readiness
 
 ## Promotion Rule
 
 Never call a QA mutation improved unless it beats the benchmark gate or passes an explicit held-out/transfer gate. Reverted and flat rounds are successful safety behavior when evidence does not improve.
 
-Swarm packets may be prepared locally, but network sharing stays blocked until validation and review gates pass.
+Swarm contribution packets may be prepared locally, but `network_absorbable` stays false until validation, privacy, rollback, publication, product-runtime review, and explicit operator approval gates pass.

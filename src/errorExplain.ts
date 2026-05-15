@@ -116,6 +116,24 @@ export function explainSparkError(error: unknown, context: SparkErrorContext = '
   }
 
   if (
+    lower.includes('read-only') ||
+    lower.includes('operation not permitted') ||
+    lower.includes('permission denied') ||
+    lower.includes('apply_patch rejected') ||
+    lower.includes('patch was rejected') ||
+    lower.includes('cannot write') ||
+    lower.includes('not writable')
+  ) {
+    return {
+      category: 'runner_read_only',
+      userLine: 'The action may be allowed, but this runner or workspace cannot write right now.',
+      detail,
+      check: 'Check the current runner writability and whether the requested path is inside a writable Spark workspace.',
+      repair: 'Route the work through a writable Spark/Spawner/Codex lane, or run /access_setup and restart Spark if this local lane should be writable.'
+    };
+  }
+
+  if (
     lower.includes('timed out') ||
     lower.includes('promise timed') ||
     lower.includes('command timed')
@@ -143,6 +161,7 @@ export function explainSparkError(error: unknown, context: SparkErrorContext = '
   if (
     lower.includes('econnrefused') ||
     lower.includes('connection refused') ||
+    lower.includes('failed to connect') ||
     lower.includes('fetch failed') ||
     lower.includes('enotfound') ||
     lower.includes('etimedout') ||
@@ -151,7 +170,7 @@ export function explainSparkError(error: unknown, context: SparkErrorContext = '
     lower.includes('network error')
   ) {
     if (context === 'spawner' || lower.includes('3333') || lower.includes('5173') || lower.includes('8788')) {
-      if (lower.includes('econnrefused') || lower.includes('connection refused')) {
+      if (lower.includes('econnrefused') || lower.includes('connection refused') || lower.includes('failed to connect')) {
         return {
           category: 'spawner_offline',
           userLine: 'Mission Control is not reachable right now.',

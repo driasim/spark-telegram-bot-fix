@@ -1,3 +1,5 @@
+import { redactIdentifier } from './redaction';
+
 export type TelegramCommandTelemetryPhase = 'received' | 'replied' | 'failed';
 
 export interface TelegramCommandTelemetryInput {
@@ -21,8 +23,8 @@ export function telegramCommandTelemetryLine(input: TelegramCommandTelemetryInpu
     `command=${safeField(input.command)}`,
     `phase=${safeField(input.phase)}`,
     `profile=${safeField(input.profile)}`,
-    `user=${safeField(input.userId)}`,
-    `chat=${safeField(input.chatId)}`,
+    `user=${redactIdentifier(input.userId, 'user')}`,
+    `chat=${redactIdentifier(input.chatId, 'chat')}`,
     `chat_type=${safeField(input.chatType)}`
   ];
   if (input.errorName) {

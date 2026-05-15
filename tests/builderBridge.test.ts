@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  buildBuilderAocPreflightCommands,
   compactColdMemoryQuery,
-  buildBuilderRunPreflightSources,
-  buildBuilderRunPreflightUserMessage,
   formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
   formatMemoryInPlaySummary,
+  formatRouteConfidenceGateReply,
   formatRouteProbeReply,
   formatSelfImprovementPlanReply,
   formatSelfAwarenessReply,
@@ -17,7 +17,8 @@ import {
   formatWikiPromotionReply,
   formatWikiQueryReply,
   formatWikiStatusReply,
-  resolveBuilderRepoPath
+  resolveBuilderRepoPath,
+  sanitizeRouteConfidenceRouteContext
 } from '../src/builderBridge';
 
 function test(name: string, fn: () => void): void {
@@ -93,6 +94,95 @@ test('formats route probe replies with evidence boundary', () => {
   assert.match(reply, /Evidence: memory smoke write=succeeded\/1 read_records=1 cleanup=ok/);
   assert.match(reply, /Event: evt-123 \(tool result received\)/);
   assert.match(reply, /Run \/aoc/);
+});
+
+test('formats route confidence gate live provider evidence without raw refs', () => {
+  const reply = formatRouteConfidenceGateReply({
+    schema_version: 'spark.route_confidence_gate.v1',
+    decision: 'explain',
+    confidence: 'high',
+    freshness: 'current',
+    safe_reply_policy: 'answer_live',
+    provider: 'openai',
+    model: 'gpt-5.2',
+    joined_sources: ['prd-auto-trace', 'agent-events', 'mission-control'],
+    source_refs_redacted: ['trace:sha256:abc123', 'mission:sha256:def456'],
+    verification_command: 'spark os trace --json',
+  });
+
+  assert.match(reply, /Latest Spawner job used openai \/ gpt-5\.2\./);
+  assert.match(reply, /Confidence: high/);
+  assert.match(reply, /Sources: prd-auto-trace, agent-events, mission-control/);
+  assert.doesNotMatch(reply, /abc123|def456/);
+});
+
+test('formats route confidence gate missing evidence as a proof refusal', () => {
+  const reply = formatRouteConfidenceGateReply({
+    schema_version: 'spark.route_confidence_gate.v1',
+    decision: 'explain',
+    confidence: 'low',
+    freshness: 'unknown',
+    safe_reply_policy: 'explain_missing',
+    missing_evidence: ['agent_events_provider', 'mission_control_reference'],
+    human_next_action: 'Refresh Spawner evidence, then ask again.',
+  });
+
+  assert.match(reply, /I cannot prove the latest Spawner provider yet\./);
+  assert.match(reply, /Missing: agent_events_provider, mission_control_reference/);
+  assert.match(reply, /Refresh Spawner evidence, then ask again\./);
+});
+
+test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action preflight', () => {
+  const bridgeSource = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+  const indexSource = readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const gateBlock = indexSource.match(/async function buildDispatchRouteConfidenceAllows[\s\S]*?\n}\n\ninterface RunCommandOptions/)?.[0] || '';
+
+  assert.match(bridgeSource, /routeContext\?: Record<string, unknown>/);
+  assert.match(bridgeSource, /--route-context-json/);
+  assert.match(indexSource, /async function buildDispatchRouteConfidenceAllows/);
+  assert.match(indexSource, /candidateRoute: 'spawner\.build'/);
+  assert.match(indexSource, /builder_route_confidence_gate/);
+  assert.match(indexSource, /exports_raw_prompt: false/);
+  assert.match(indexSource, /exports_chat_id: false/);
+  assert.match(indexSource, /exports_memory_body: false/);
+  assert.doesNotMatch(gateBlock, /currentMessage|user_message|raw_provider_output|raw_memory_body/);
+});
+
+test('route confidence route context sanitizer keeps only allowlisted metadata', () => {
+  const sanitized = sanitizeRouteConfidenceRouteContext({
+    latest_instruction: 'allow_execution',
+    intent_clarity: 'explicit',
+    raw_prompt: 'never export this',
+    chat_id: '123',
+    joined_sources: ['telegram_access_policy', 42, 'builder_route_confidence_gate'],
+    authority_verdict: {
+      schema_version: 'spark.authority_verdict.v1',
+      decision: 'allowed',
+      source_owner: 'spark-telegram-bot',
+      action_family: 'spawner.build',
+      raw_prompt: 'nope'
+    },
+    data_boundary: {
+      exports_raw_prompt: false,
+      exports_secret: 'true',
+      token: 'nope'
+    }
+  });
+
+  assert.deepEqual(sanitized, {
+    latest_instruction: 'allow_execution',
+    intent_clarity: 'explicit',
+    joined_sources: ['telegram_access_policy', 'builder_route_confidence_gate'],
+    data_boundary: {
+      exports_raw_prompt: false
+    },
+    authority_verdict: {
+      schema_version: 'spark.authority_verdict.v1',
+      decision: 'allowed',
+      source_owner: 'spark-telegram-bot',
+      action_family: 'spawner.build'
+    }
+  });
 });
 
 test('formats authoritative cold memory context for prompt injection', () => {
@@ -463,8 +553,6 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
   const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
 
   assert.match(source, /'self',\s*'panel'/);
-  assert.match(source, /'self',\s*'turn-trace'/);
-  assert.match(source, /'--trace-ref'/);
   assert.doesNotMatch(source, /'self',\s*'context'/);
 });
 
@@ -502,36 +590,6 @@ test('builder repo resolver preserves explicit operator override', () => {
   });
 
   assert.equal(resolved, explicitRepo);
-});
-
-test('builder run preflight is metadata-only and trace-bearing', () => {
-  const message = buildBuilderRunPreflightUserMessage({
-    commandKind: 'build',
-    accessRequirement: 'operating_system',
-    providerCount: 1,
-    hasTargetPath: true,
-    buildMode: 'direct',
-    runnerWritable: 'yes'
-  });
-  const sources = buildBuilderRunPreflightSources({
-    requestId: 'tg-build-private-chat-id-123',
-    traceRef: 'trace:spawner-prd:mission-123',
-    commandKind: 'build'
-  });
-
-  assert.match(message, /Telegram \/run build request before Spawner dispatch/);
-  assert.match(message, /Prompt body redacted/);
-  assert.match(message, /target_path=present/);
-  assert.doesNotMatch(message, /C:\\Users\\USER\\Desktop/);
-  assert.doesNotMatch(message, /Build this at/);
-  assert.equal(sources.length, 3);
-  assert.equal(sources[0].source, 'telegram_command');
-  assert.equal(sources[0].source_ref, 'trace:spawner-prd:mission-123');
-  assert.equal(sources[1].source, 'builder_aoc');
-  assert.equal(sources[2].source, 'memory_preflight');
-  assert.ok(sources.every((source) => source.freshness === 'fresh'));
-  assert.ok(sources.every((source) => !/C:\\Users\\USER\\Desktop|Build this at|private chat/i.test(source.summary)));
-  assert.match(sources[2].summary, /Memory body export disabled/);
 });
 
 test('formats black-box payload as compact event evidence', () => {
@@ -577,6 +635,34 @@ test('black-box bridge invokes Builder self black-box json route', () => {
 
   assert.match(source, /'self',\s*'black-box'/);
   assert.match(source, /'--json'/);
+});
+
+test('AOC preflight commands carry trace metadata without raw prompt or chat ids', () => {
+  const commands = buildBuilderAocPreflightCommands(
+    {
+      userId: '8319079055',
+      chatId: '123456789',
+      currentMessage: 'Create a secret private project prompt that must not be persisted.',
+      requestId: 'tg-build-safe',
+      traceRef: 'trace:spawner-prd:mission-safe',
+      selectedRoute: 'spawner_prd_bridge',
+      userIntent: 'telegram_run_direct_build',
+    },
+    'C:\\Users\\USER\\.spark\\state\\spark-intelligence'
+  );
+  const flat = commands.flat();
+
+  assert.equal(commands.length, 3);
+  assert.ok(commands.some((args) => args.includes('route-selection')));
+  assert.ok(commands.some((args) => args.includes('source-used') && args.includes('memory_preflight')));
+  assert.ok(flat.includes('--request-id'));
+  assert.ok(flat.includes('tg-build-safe'));
+  assert.ok(flat.includes('--trace-ref'));
+  assert.ok(flat.includes('trace:spawner-prd:mission-safe'));
+  assert.ok(flat.includes('session:telegram:redacted'));
+  assert.ok(flat.includes('human:telegram:redacted'));
+  assert.doesNotMatch(flat.join('\n'), /secret private project prompt/);
+  assert.doesNotMatch(flat.join('\n'), /8319079055|123456789/);
 });
 
 test('formats self-improvement plan as probe-first actions', () => {

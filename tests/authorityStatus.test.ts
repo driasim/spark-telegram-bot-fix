@@ -76,14 +76,12 @@ async function main(): Promise<void> {
     assert.equal(summary.telegramProfileCount, 5);
     assert.equal(summary.configuredTelegramProfileCount, 1);
     assert.equal(summary.browserApprovalRequiredHookCount, 5);
-    assert.equal(summary.verdictCount, 0);
     assert.match(reply, /Authority view has gated actions/);
     assert.match(reply, /Access L4; lane spark_workspace/);
     assert.match(reply, /5 Telegram access profiles; 5 Spawner lanes/);
     assert.match(reply, /5 browser approvals from 20 hooks/);
-    assert.match(reply, /Trace verdicts: 0; verdicts none yet; actions none yet/);
     assert.match(reply, /This is evidence, not permission/);
-    assert.match(reply, /Full evidence: `spark os authority --json` and `spark os trace --json`/);
+    assert.match(reply, /Full evidence: `spark os authority --json`/);
     assert.doesNotMatch(reply, /C:\/private/);
     assert.doesNotMatch(reply, /secret detail/);
     assert.doesNotMatch(reply, /secret_path/);
@@ -111,25 +109,13 @@ async function main(): Promise<void> {
   await test('reads authority view from compiled system map directory', async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'spark-authority-status-'));
     const viewPath = path.join(root, 'authority-view.json');
-    const tracePath = path.join(root, 'trace-index.json');
     writeFileSync(viewPath, JSON.stringify(authorityView), 'utf-8');
-    writeFileSync(tracePath, JSON.stringify({
-      authority_verdicts: {
-        verdict_count: 2,
-        verdict_counts: { blocked: 1, allowed: 1 },
-        action_family_counts: { mission_execution: 2 },
-        items: [{ request_id: 'request_id:redacted:abc', trace_ref: 'trace_ref:redacted:def' }]
-      }
-    }), 'utf-8');
 
-    const summary = await readAuthorityStatusSummary(viewPath, tracePath);
+    const summary = await readAuthorityStatusSummary(viewPath);
 
     assert.equal(summary.present, true);
     assert.equal(summary.spawnerLaneCount, 5);
     assert.equal(summary.publicationChecksRequired, 3);
-    assert.equal(summary.verdictCount, 2);
-    assert.equal(summary.verdictCounts.blocked, 1);
-    assert.equal(summary.verdictActionFamilies.mission_execution, 2);
   });
 
   await test('missing authority view gives compile prompt', async () => {

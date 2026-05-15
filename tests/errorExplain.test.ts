@@ -32,6 +32,15 @@ test('explains local service network failures', () => {
   assert.match(explanation.repair, /spark start spawner-ui/);
 });
 
+test('labels plain Spawner connect failures as unreachable instead of unknown mission failure', () => {
+  const reply = renderSparkErrorReply(new Error('Failed to connect to 127.0.0.1 port 3333'), 'spawner', true);
+
+  assert.match(reply, /Mission Control.*(?:not reachable|could not reach)|Spark could not reach Mission Control/i);
+  assert.match(reply, /spark start spawner-ui|spark verify --onboarding/);
+  assert.doesNotMatch(reply, /mission failed/i);
+  assert.doesNotMatch(reply, /unknown error/i);
+});
+
 test('explains slow Spawner handoffs separately from offline Spawner', () => {
   const reply = renderSparkErrorReply(new Error('ECONNABORTED - timeout of 10000ms exceeded'), 'spawner', true);
 
@@ -39,6 +48,16 @@ test('explains slow Spawner handoffs separately from offline Spawner', () => {
   assert.match(reply, /retry/);
   assert.match(reply, /spark restart spawner-ui/);
   assert.match(reply, /Spark spawner failure: spawner_slow/);
+});
+
+test('explains read-only execution as runner capability, not access permission', () => {
+  const reply = renderSparkErrorReply(new Error('Operation not permitted: workspace is read-only and apply_patch rejected writes'), 'mission', true);
+
+  assert.match(reply, /runner|workspace|writable route|write/i);
+  assert.match(reply, /read-only|cannot write|blocked/i);
+  assert.doesNotMatch(reply, /Access Level/i);
+  assert.doesNotMatch(reply, /provider authentication/i);
+  assert.doesNotMatch(reply, /Telegram configuration problem/i);
 });
 
 test('does not mislabel Telegram handler timeouts as Telegram config', () => {

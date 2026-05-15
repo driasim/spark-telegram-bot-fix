@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { redactIdentifier } from './redaction';
 
 export interface TelegramFirstMessageEvent {
   event: 'telegram_first_message';
@@ -23,7 +24,15 @@ export function extractStartSession(text: unknown): string | null {
 }
 
 export async function recordTelegramFirstMessage(event: TelegramFirstMessageEvent, eventPath = onboardingEventPath()): Promise<void> {
+  const { chat_id: chatId, user_id: userId, ...rest } = event;
+  const record = {
+    ...rest,
+    chat_id_present: String(chatId ?? '').trim().length > 0,
+    user_id_present: String(userId ?? '').trim().length > 0,
+    chat_ref: redactIdentifier(chatId, 'chat'),
+    user_ref: redactIdentifier(userId, 'user')
+  };
   await mkdir(path.dirname(eventPath), { recursive: true });
-  await appendFile(eventPath, `${JSON.stringify(event)}\n`, 'utf-8');
+  await appendFile(eventPath, `${JSON.stringify(record)}\n`, 'utf-8');
 }
 

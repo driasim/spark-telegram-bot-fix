@@ -235,20 +235,23 @@ async function main(): Promise<void> {
     assert.doesNotMatch(level5Prompt, /Restart Spark/);
   });
 
-  await test('slash access setter uses compact confirmation instead of full help', async () => {
+  await test('slash access setter uses authoritative status and compact confirmation', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
     const accessCommand = indexSource.match(/bot\.command\('access', async \(ctx\) => \{[\s\S]*?\n\}\);/);
     assert.ok(accessCommand, 'expected /access command handler to exist');
-    assert.match(accessCommand[0], /renderSparkAccessStatus\(current\)/);
+    assert.match(accessCommand[0], /renderAuthoritativeSparkAccessStatus\(ctx\.chat\.id\)/);
     assert.match(accessCommand[0], /applySparkAccessProfileChange\(ctx, next\)/);
     assert.match(accessCommand[0], /current === 'operator'/);
-    assert.match(indexSource, /renderSparkAccessBriefStatus\('operator', await probeTelegramRunnerWritability\(\)\)/);
+    assert.match(indexSource, /renderLevel5ActivationAnswer\(ctx\.chat\.id\)/);
     assert.doesNotMatch(accessCommand[0], /ctx\.reply\(renderSparkAccessStatus\(next\)\)/);
     assert.match(indexSource, /renderSparkAccessChangeConfirmation\(profile\)/);
     assert.match(indexSource, /renderSparkAccessChangeSummary\(profile, await probeTelegramRunnerWritability\(\)\)/);
     assert.match(indexSource, /renderSparkAccessLevel5ConfirmationPrompt\(\), buildSparkAccessLevel5ConfirmKeyboard\(\)/);
     assert.match(indexSource, /bot\.action\(\/\^spark_access_level:operator:confirm/);
     assert.match(indexSource, /I prepared the local guardrails\./);
+    assert.match(indexSource, /isLevel5ServiceEnabled/);
+    assert.match(indexSource, /runSparkAccessActionDetailed\('level5_disable'\)/);
+    assert.match(indexSource, /I also disabled Level 5 service guardrails/);
     assert.match(indexSource, /bot\.command\('access_setup'/);
     assert.match(indexSource, /bot\.command\('docker_doctor'/);
     assert.match(indexSource, /bot\.command\('docker_smoke'/);
@@ -264,6 +267,110 @@ async function main(): Promise<void> {
     assert.match(llmSource, /activated from \/access 5 with one Confirm button/);
     assert.match(llmSource, /legacy\/admin alias/);
     assert.doesNotMatch(renderSparkAccessStatus('operator'), /\/level5_setup/);
+  });
+
+  await test('natural state-sensitive chat is grounded by fresh runtime truth', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    assert.match(indexSource, /function runtimeTruthSignals/);
+    assert.match(indexSource, /shouldAnswerAuthoritativeRuntimeStatus/);
+    assert.match(indexSource, /renderAuthoritativeSparkLiveStateAnswer/);
+    assert.match(indexSource, /shouldAnswerAuthoritativeAccessCapability/);
+    assert.match(indexSource, /renderAuthoritativeSparkEditCapabilityAnswer/);
+    assert.match(indexSource, /shouldAnswerRuntimeTruthPriority/);
+    assert.match(indexSource, /renderRuntimeTruthPriorityAnswer/);
+    assert.match(indexSource, /shouldAnswerSparkRiskProfile/);
+    assert.match(indexSource, /renderAuthoritativeSparkRiskProfileAnswer/);
+    assert.match(indexSource, /shouldAnswerRestartSurvivalQuestion/);
+    assert.match(indexSource, /renderRestartSurvivalAnswer/);
+    assert.match(indexSource, /shouldAnswerRestartNeededQuestion/);
+    assert.match(indexSource, /renderRestartNeededAnswer/);
+    assert.match(indexSource, /shouldAnswerMissionProvenanceQuestion/);
+    assert.match(indexSource, /renderMissionProvenanceAnswer/);
+    assert.match(indexSource, /shouldAnswerMemoryRuntimeSeparation/);
+    assert.match(indexSource, /renderMemoryRuntimeSeparationAnswer/);
+    assert.match(indexSource, /buildFreshRuntimeTruthContext\(text, ctx\.chat\.id\)/);
+    assert.match(indexSource, /recordTelegramSourceUsedEvidence/);
+    assert.match(indexSource, /runtimeTruthSourceEvidence/);
+    assert.match(indexSource, /runBuilderSourceUsed/);
+    assert.match(indexSource, /selectedRoute/);
+    assert.match(indexSource, /telegram_live_state_answer/);
+    assert.match(indexSource, /telegram_fresh_runtime_context/);
+    assert.match(indexSource, /source: 'current_diagnostics'/);
+    assert.match(indexSource, /source: 'runner_preflight'/);
+    assert.match(indexSource, /source: 'mission_trace'/);
+    assert.match(indexSource, /current\\s\+\(\?:live\\s\+\)\?\(\?:state\|status\)\\s\+of\\s\+spark/);
+    assert.match(indexSource, /runSparkCli\(\['live', 'status'\]/);
+    assert.match(indexSource, /runSparkCli\(\['providers', 'status'\]/);
+    assert.match(indexSource, /runSparkCli\(\['verify', '--deep'\]/);
+    assert.match(indexSource, /ephemeral, not memory/);
+    assert.match(indexSource, /higher priority than older memory, persona, or generic access doctrine/);
+    assert.match(indexSource, /const hasFreshRuntimeTruth = Boolean\(freshRuntimeTruthContext\)/);
+    assert.match(indexSource, /if \(!hasFreshRuntimeTruth\) \{[\s\S]*?runBuilderTelegramBridge/);
+    assert.match(indexSource, /Authoritative current-state context for this answer/);
+    assert.match(indexSource, /highest-priority source for current state/);
+    assert.match(indexSource, /const reply = await renderAuthoritativeSparkLiveStateAnswer\(\{ rawDetails: shouldShowRawSparkLiveDetails\(text\) \}\);[\s\S]*?await ctx\.reply\(reply\);/);
+    assert.match(indexSource, /Live loop/);
+    assert.match(indexSource, /Spawner: \$\{summary\.spawnerOk \? 'reachable' : 'needs attention'\}/);
+    assert.match(indexSource, /Telegram: \$\{summary\.telegramOk \? 'polling' : 'needs attention'\}/);
+    assert.match(indexSource, /Mission Control: \$\{summary\.liveReady \? 'ready' : 'not fully ready'\}/);
+    assert.match(indexSource, /Raw proof/);
+    assert.match(indexSource, /shouldShowRawSparkLiveDetails/);
+    assert.match(indexSource, /replace\(\/\\n\{3,\}\/g, '\\n\\n'\)\.trim\(\)/);
+    assert.doesNotMatch(indexSource, /System Status\\n\\n/);
+    const liveSummaryFn = indexSource.match(/function renderSparkLiveSummary[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldShowRawSparkLiveDetails/);
+    assert.ok(liveSummaryFn, 'expected live summary formatter to exist');
+    assert.doesNotMatch(liveSummaryFn[0], /Fresh check:/);
+    assert.match(indexSource, /const reply = await renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\);[\s\S]*?await ctx\.reply\(reply\);/);
+    assert.match(indexSource, /fresh `spark live status` says Spawner is up/);
+    assert.match(indexSource, /Current Spark risk profile:/);
+    assert.match(indexSource, /No restart needed\. Restarting now would mostly add churn\./);
+    assert.match(indexSource, /Memory can change recall\/history/);
+    assert.match(indexSource, /A plain chat answer would not have a Spawner mission id/);
+    assert.match(indexSource, /failed to record \$\{item\.source\} for \$\{selectedRoute\}/);
+    assert.doesNotMatch(indexSource, /isLevel5ActivationStatusQuestion/);
+    assert.doesNotMatch(indexSource, /if \(!earlyBuildIntent && isAccessStatusQuestion\(text\)[\s\S]{0,180}return;/);
+  });
+
+  await test('Telegram fresh runtime answers record Builder source-used evidence', async () => {
+    const bridgeSource = await readFile(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+
+    assert.match(bridgeSource, /export interface BuilderSourceUsedInput/);
+    assert.match(bridgeSource, /export async function runBuilderSourceUsed/);
+    assert.match(bridgeSource, /'self',\s*'source-used'/);
+    assert.match(bridgeSource, /liveState\?: Record<string, unknown>/);
+    assert.match(bridgeSource, /--live-state-json/);
+    assert.match(bridgeSource, /--freshness/);
+    assert.match(bridgeSource, /--source-ref/);
+    assert.match(bridgeSource, /--selected-route/);
+    assert.match(bridgeSource, /function sourceLedgerLabel/);
+    assert.match(bridgeSource, /sourceLedgerLabel\(input\.userIntent \|\| input\.selectedRoute, 'telegram_source_used_evidence'\)/);
+    assert.match(bridgeSource, /'session:telegram:redacted'/);
+    assert.match(bridgeSource, /'human:telegram:redacted'/);
+    assert.doesNotMatch(bridgeSource, /source-used'[\s\S]{0,900}session:telegram:\$\{String\(input\.chatId\)/);
+    assert.match(bridgeSource, /eventId: String\(payload\.event_id \|\| ''\)/);
+
+    assert.match(indexSource, /runBuilderSourceUsed\(\{/);
+    assert.match(indexSource, /currentMessage: selectedRoute/);
+    assert.match(indexSource, /userIntent: selectedRoute/);
+    assert.doesNotMatch(indexSource, /runBuilderSourceUsed\(\{[\s\S]{0,500}userIntent: currentMessage/);
+    assert.match(indexSource, /selectedRoute,\r?\n\s*confidence/);
+    assert.match(indexSource, /telegram_status_command/);
+    assert.match(indexSource, /telegram_spark_risk_profile_answer/);
+    assert.match(indexSource, /telegram_restart_survival_answer/);
+    assert.match(indexSource, /telegram_mission_provenance_answer/);
+    assert.match(indexSource, /async function buildAocLiveState/);
+    assert.match(indexSource, /source: 'telegram_runtime_probe'/);
+    assert.match(indexSource, /liveState,/);
+  });
+
+  await test('no-edit Spawner probes honor the requested exact reply', async () => {
+    const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+    assert.match(indexSource, /function extractNoEditMissionReplyPhrase/);
+    assert.match(indexSource, /const replyPhrase = extractNoEditMissionReplyPhrase\(text\)/);
+    assert.match(indexSource, /Reply with exactly: \$\{replyPhrase\}/);
+    assert.doesNotMatch(indexSource, /Reply with exactly: GOLDEN_PATH_OK\. Do not edit files/);
+    assert.match(indexSource, /requested exact reply: \$\{replyPhrase\}/);
   });
 
   await test('gates Spawner command side doors by access level', async () => {

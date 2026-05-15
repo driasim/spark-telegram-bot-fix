@@ -26,6 +26,15 @@ function processOutputText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function sourceLedgerLabel(value: unknown, fallback: string): string {
+  const text = String(value || '').trim();
+  if (!text) {
+    return fallback;
+  }
+  const label = text.replace(/[^a-zA-Z0-9_.:-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 96);
+  return label || fallback;
+}
+
 type BuilderBridgeMode = 'auto' | 'off' | 'required';
 
 interface BuilderBridgeConfig {
@@ -125,6 +134,7 @@ export interface BuilderAgentOperatingContextInput extends BuilderSelfAwarenessI
   sparkAccessLevel?: number | string;
   runnerWritable?: 'yes' | 'no' | 'unknown';
   runnerLabel?: string;
+  liveState?: Record<string, unknown>;
 }
 
 export interface BuilderAgentOperatingContextResult {
@@ -141,9 +151,54 @@ export interface BuilderAgentBlackBoxResult {
   payload: Record<string, unknown>;
 }
 
+export interface BuilderSourceUsedInput extends BuilderSelfAwarenessInput {
+  source: string;
+  role?: string;
+  freshness?: 'fresh' | 'stale' | 'contradicted' | 'unknown' | 'live_probed';
+  sourceRef?: string;
+  summary?: string;
+  userIntent?: string;
+  selectedRoute?: string;
+  confidence?: string;
+  requestId?: string;
+  traceRef?: string;
+  actorId?: string;
+}
+
+export interface BuilderSourceUsedResult {
+  eventId: string;
+  payload: Record<string, unknown>;
+}
+
 export interface BuilderRouteProbeResult {
   replyText: string;
   payload: Record<string, unknown>;
+}
+
+export interface BuilderRouteConfidenceGateInput {
+  intent?: string;
+  candidateRoute?: string;
+  routeContext?: Record<string, unknown>;
+  latestSpawnerJob?: Record<string, unknown>;
+}
+
+export interface BuilderRouteConfidenceGateResult {
+  replyText: string;
+  payload: Record<string, unknown>;
+}
+
+export interface BuilderAocPreflightInput extends BuilderSelfAwarenessInput {
+  requestId: string;
+  traceRef: string;
+  selectedRoute: string;
+  userIntent: string;
+  confidence?: string;
+  reason?: string;
+}
+
+export interface BuilderAocPreflightResult {
+  recorded: boolean;
+  payloads: Record<string, unknown>[];
 }
 
 export interface BuilderWikiStatusResult {
@@ -352,6 +407,82 @@ function arrayValue(value: unknown): unknown[] {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+const ROUTE_CONTEXT_STRING_KEYS = new Set([
+  'latest_instruction',
+  'intent_clarity',
+  'route_fit',
+  'consequence_risk',
+  'permission_required',
+  'capability_state',
+  'runner_state',
+  'confirmation_state',
+  'reversibility',
+  'source_status',
+  'freshness',
+  'request_id',
+  'trace_ref',
+  'verification_command'
+]);
+
+const ROUTE_CONTEXT_ARRAY_KEYS = new Set(['joined_sources', 'missing_evidence', 'source_refs_redacted']);
+const ROUTE_CONTEXT_BOOLEAN_KEYS = new Set(['explicit_no_execution']);
+const ROUTE_CONTEXT_BOUNDARY_KEYS = new Set([
+  'exports_raw_prompt',
+  'exports_chat_id',
+  'exports_provider_output',
+  'exports_memory_body',
+  'exports_transcript_body',
+  'exports_audio',
+  'exports_env_value',
+  'exports_secret'
+]);
+const ROUTE_CONTEXT_AUTHORITY_KEYS = new Set([
+  'schema_version',
+  'decision',
+  'status',
+  'verdict',
+  'source_owner',
+  'source_owner_system',
+  'owner_system',
+  'action_family',
+  'action',
+  'route',
+  'permission_required',
+  'confirmation_state'
+]);
+
+export function sanitizeRouteConfidenceRouteContext(input: unknown): Record<string, unknown> {
+  const source = objectValue(input);
+  const out: Record<string, unknown> = {};
+  for (const key of ROUTE_CONTEXT_STRING_KEYS) {
+    const value = stringValue(source[key]);
+    if (value) out[key] = value;
+  }
+  for (const key of ROUTE_CONTEXT_BOOLEAN_KEYS) {
+    if (typeof source[key] === 'boolean') out[key] = source[key];
+  }
+  for (const key of ROUTE_CONTEXT_ARRAY_KEYS) {
+    const values = arrayValue(source[key]).map(stringValue).filter(Boolean).slice(0, 12);
+    if (values.length > 0) out[key] = values;
+  }
+  const boundary = objectValue(source.data_boundary);
+  const safeBoundary: Record<string, boolean> = {};
+  for (const key of ROUTE_CONTEXT_BOUNDARY_KEYS) {
+    if (typeof boundary[key] === 'boolean') safeBoundary[key] = boundary[key] as boolean;
+  }
+  if (Object.keys(safeBoundary).length > 0) out.data_boundary = safeBoundary;
+
+  const authority = objectValue(source.authority_verdict);
+  const safeAuthority: Record<string, string> = {};
+  for (const key of ROUTE_CONTEXT_AUTHORITY_KEYS) {
+    const value = stringValue(authority[key]);
+    if (value) safeAuthority[key] = value;
+  }
+  if (Object.keys(safeAuthority).length > 0) out.authority_verdict = safeAuthority;
+
+  return out;
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1456,6 +1587,9 @@ export async function runBuilderAgentOperatingContext(
   if (runnerLabel) {
     args.push('--runner-label', runnerLabel);
   }
+  if (input.liveState && Object.keys(input.liveState).length > 0) {
+    args.push('--live-state-json', JSON.stringify(input.liveState));
+  }
 
   const { stdout, stderr } = await execFileAsync(
     config.pythonCommand,
@@ -1472,6 +1606,71 @@ export async function runBuilderAgentOperatingContext(
     throw new Error(`Builder agent operating panel returned empty stdout. stderr=${redactText(stderr.trim())}`);
   }
   return { replyText: trimmedStdout };
+}
+
+export async function runBuilderSourceUsed(input: BuilderSourceUsedInput): Promise<BuilderSourceUsedResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'source-used',
+    input.source,
+    '--home',
+    config.builderHome,
+    '--role',
+    input.role || 'supporting_evidence',
+    '--freshness',
+    input.freshness || 'unknown',
+    '--user-intent',
+    sourceLedgerLabel(input.userIntent || input.selectedRoute, 'telegram_source_used_evidence'),
+    '--selected-route',
+    input.selectedRoute || '',
+    '--confidence',
+    input.confidence || '',
+    '--session-id',
+    'session:telegram:redacted',
+    '--human-id',
+    'human:telegram:redacted',
+    '--actor-id',
+    input.actorId || 'spark-telegram-bot',
+    '--json',
+  ];
+  if (input.sourceRef) {
+    args.push('--source-ref', input.sourceRef);
+  }
+  if (input.summary) {
+    args.push('--summary', input.summary);
+  }
+  if (input.requestId) {
+    args.push('--request-id', input.requestId);
+  }
+  if (input.traceRef) {
+    args.push('--trace-ref', input.traceRef);
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder source-used recorder returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    eventId: String(payload.event_id || ''),
+    payload,
+  };
 }
 
 export function formatAgentBlackBoxReply(payload: unknown): string {
@@ -1600,6 +1799,111 @@ export function formatRouteProbeReply(payload: Record<string, unknown>): string 
   return lines.join('\n');
 }
 
+export function formatRouteConfidenceGateReply(payload: unknown): string {
+  const root = objectValue(payload);
+  const decision = stringValue(root.decision) || 'explain';
+  const confidence = stringValue(root.confidence) || 'unknown';
+  const policy = stringValue(root.safe_reply_policy) || 'explain_missing';
+  const provider = stringValue(root.provider);
+  const model = stringValue(root.model);
+  const freshness = stringValue(root.freshness) || 'unknown';
+  const joinedSources = arrayValue(root.joined_sources).map(stringValue).filter(Boolean);
+  const missing = arrayValue(root.missing_evidence).map(stringValue).filter(Boolean);
+  const nextAction = stringValue(root.human_next_action) || 'Run /board or /diagnose, then ask again.';
+  const verification = stringValue(root.verification_command) || 'spark os trace --json';
+
+  if (policy === 'answer_live' && provider) {
+    return [
+      model
+        ? `Latest Spawner job used ${provider} / ${model}.`
+        : `Latest Spawner job used ${provider}.`,
+      '',
+      'Evidence',
+      `- Confidence: ${confidence}`,
+      `- Freshness: ${freshness}`,
+      `- Sources: ${joinedSources.length ? joinedSources.slice(0, 4).join(', ') : 'compiled Spark OS trace'}`,
+      '',
+      'Inspect',
+      `- ${verification}`
+    ].join('\n');
+  }
+
+  if (decision === 'refuse' || policy === 'refuse_privacy_violation') {
+    return [
+      'I cannot show that route evidence safely.',
+      '',
+      'Reason',
+      '- The route gate detected private or unsafe evidence in the answer boundary.',
+      '',
+      'Next',
+      `- ${nextAction}`
+    ].join('\n');
+  }
+
+  return [
+    'I cannot prove the latest Spawner provider yet.',
+    '',
+    'State',
+    `- Confidence: ${confidence}`,
+    `- Freshness: ${freshness}`,
+    missing.length ? `- Missing: ${missing.slice(0, 4).join(', ')}` : '- Missing: source-owned provider evidence',
+    '',
+    'Next',
+    `- ${nextAction}`,
+    '',
+    'Inspect',
+    `- ${verification}`
+  ].join('\n');
+}
+
+export async function runBuilderRouteConfidenceGate(
+  input: BuilderRouteConfidenceGateInput = {}
+): Promise<BuilderRouteConfidenceGateResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const args = [
+    'self',
+    'route-confidence-gate',
+    '--home',
+    config.builderHome,
+    '--intent',
+    input.intent || 'status',
+    '--candidate-route',
+    input.candidateRoute || 'spawner.latest_job_provider',
+    '--json',
+  ];
+  if (input.latestSpawnerJob && Object.keys(input.latestSpawnerJob).length > 0) {
+    args.push('--latest-spawner-job-json', JSON.stringify(input.latestSpawnerJob));
+  }
+  if (input.routeContext && Object.keys(input.routeContext).length > 0) {
+    args.push('--route-context-json', JSON.stringify(sanitizeRouteConfidenceRouteContext(input.routeContext)));
+  }
+
+  const { stdout, stderr } = await execFileAsync(
+    config.pythonCommand,
+    pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+    withHiddenWindows({
+      cwd: config.builderRepo,
+      env: pythonSourceEnv(config),
+      timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+      maxBuffer: 1024 * 1024,
+    })
+  );
+  const trimmedStdout = stdout.trim();
+  if (!trimmedStdout) {
+    throw new Error(`Builder route confidence gate returned empty stdout. stderr=${redactText(stderr.trim())}`);
+  }
+  const payload = JSON.parse(trimmedStdout) as Record<string, unknown>;
+  return {
+    payload,
+    replyText: formatRouteConfidenceGateReply(payload),
+  };
+}
+
 export async function runBuilderRouteProbe(capabilityKey: string): Promise<BuilderRouteProbeResult> {
   const config = resolveBridgeConfig();
   const bridgeAvailable = await ensureBridgeAvailable(config);
@@ -1655,6 +1959,120 @@ export async function runBuilderRouteProbe(capabilityKey: string): Promise<Build
     payload,
     replyText: formatRouteProbeReply(payload),
   };
+}
+
+function sanitizedPreflightLabel(value: unknown, fallback: string): string {
+  const text = String(value || '').trim().toLowerCase().replace(/[^a-z0-9:_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return text || fallback;
+}
+
+export function buildBuilderAocPreflightCommands(
+  input: BuilderAocPreflightInput,
+  builderHome: string
+): string[][] {
+  const selectedRoute = sanitizedPreflightLabel(input.selectedRoute, 'spawner_prd_bridge');
+  const userIntent = sanitizedPreflightLabel(input.userIntent, 'telegram_run_request');
+  const requestId = String(input.requestId || '').trim();
+  const traceRef = String(input.traceRef || '').trim();
+  const confidence = sanitizedPreflightLabel(input.confidence || 'high', 'high');
+  const reason = String(input.reason || 'Telegram access preflight passed; dispatching to Spawner with shared trace.').trim();
+  const common = [
+    '--home',
+    builderHome,
+    '--request-id',
+    requestId,
+    '--trace-ref',
+    traceRef,
+    '--session-id',
+    'session:telegram:redacted',
+    '--human-id',
+    'human:telegram:redacted',
+    '--actor-id',
+    'telegram_aoc_preflight',
+    '--json',
+  ];
+  return [
+    [
+      'self',
+      'route-selection',
+      selectedRoute,
+      '--user-intent',
+      userIntent,
+      '--confidence',
+      confidence,
+      '--reason',
+      reason,
+      ...common,
+    ],
+    [
+      'self',
+      'source-used',
+      'telegram_authority_preflight',
+      '--role',
+      'dispatch_gate',
+      '--freshness',
+      'live_probed',
+      '--source-ref',
+      `telegram:/run:${requestId}`,
+      '--summary',
+      'Telegram access gate passed before Spawner dispatch; chat and user ids are redacted.',
+      '--user-intent',
+      userIntent,
+      '--selected-route',
+      selectedRoute,
+      '--confidence',
+      confidence,
+      ...common,
+    ],
+    [
+      'self',
+      'source-used',
+      'memory_preflight',
+      '--role',
+      'memory_boundary',
+      '--freshness',
+      'live_probed',
+      '--source-ref',
+      `builder:aoc-preflight:${requestId}`,
+      '--summary',
+      'Memory preflight recorded as metadata only; memory bodies stay inside Builder.',
+      '--user-intent',
+      userIntent,
+      '--selected-route',
+      selectedRoute,
+      '--confidence',
+      confidence,
+      ...common,
+    ],
+  ];
+}
+
+export async function runBuilderAocPreflight(input: BuilderAocPreflightInput): Promise<BuilderAocPreflightResult> {
+  const config = resolveBridgeConfig();
+  const bridgeAvailable = await ensureBridgeAvailable(config);
+  if (!bridgeAvailable) {
+    throw new Error(`Builder bridge unavailable. repo=${config.builderRepo} home=${config.builderHome}`);
+  }
+
+  const payloads: Record<string, unknown>[] = [];
+  for (const args of buildBuilderAocPreflightCommands(input, config.builderHome)) {
+    const { stdout, stderr } = await execFileAsync(
+      config.pythonCommand,
+      pythonModuleInvocation(config, 'spark_intelligence.cli', args),
+      withHiddenWindows({
+        cwd: config.builderRepo,
+        env: pythonSourceEnv(config),
+        timeout: selfAwarenessBridgeTimeoutMs(process.env, config.timeoutMs),
+        maxBuffer: 1024 * 1024,
+      })
+    );
+    const trimmedStdout = stdout.trim();
+    if (!trimmedStdout) {
+      throw new Error(`Builder AOC preflight returned empty stdout. stderr=${redactText(stderr.trim())}`);
+    }
+    payloads.push(JSON.parse(trimmedStdout) as Record<string, unknown>);
+  }
+  return { recorded: payloads.length > 0, payloads };
 }
 
 export async function runBuilderWikiStatus(input: { refresh?: boolean } = {}): Promise<BuilderWikiStatusResult> {

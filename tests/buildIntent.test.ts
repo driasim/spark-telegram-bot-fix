@@ -32,6 +32,7 @@ test('promotes larger new projects to advanced PRD mode', () => {
   assert.ok(intent);
   assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\spark-advanced-probe');
   assert.equal(intent.buildMode, 'advanced_prd');
+  assert.equal(intent.buildLane, 'advanced_prd');
   assert.equal(intent.projectName, 'Spark Advanced Probe');
   assert.match(intent.prd, /^a vanilla-JS single-page web app called Spark Advanced Probe\./);
   assert.doesNotMatch(intent.prd, /^at C:\\Users\\USER\\Desktop/);
@@ -49,12 +50,44 @@ test('parses conversational immediate new-project build requests', () => {
   assert.match(intent.prd, /new project called the Game of Ascension/);
 });
 
+test('names agent-chosen game prompts from the actual game intent', () => {
+  const intent = parseBuildIntent(
+    "what would you wanna build here as a game that you'd wanna play Rec, let's build something for you"
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Recursive Sage Maze Game');
+  assert.notEqual(intent.projectName, 'Here As A Game');
+  assert.match(intent.prd, /browser-playable game chosen for Recursive Sage/i);
+  assert.match(intent.prd, /shifting maze game/i);
+});
+
+test('preserves colon subtitles in explicit project names', () => {
+  const intent = parseBuildIntent(
+    'Build a small browser game called Recursive Sage: Signal Maze. Make it playable in one static HTML file.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Recursive Sage: Signal Maze');
+  assert.match(intent.prd, /one static HTML file/i);
+});
+
 test('infers clean landing-page names from compact build prompts', () => {
   const intent = parseBuildIntent('Build a tiny static landing page for a cafe with a menu section.');
 
   assert.ok(intent);
   assert.equal(intent.projectName, 'Cafe Landing Page');
   assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
+});
+
+test('routes tiny one-screen smoke pages through the fast direct lane', () => {
+  const intent = parseBuildIntent('Build a one-screen paragraph spacing smoke page with a save button and responsive checks.');
+
+  assert.ok(intent);
+  assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
+  assert.match(intent.buildLaneReason, /lightweight planning/i);
 });
 
 test('extracts clean names from Telegram direct-build game prompts', () => {
@@ -95,6 +128,7 @@ test('keeps constrained one-file static HTML prompts direct even when they say f
 
   assert.ok(intent);
   assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'fast_direct');
   assert.equal(intent.buildModeReason, 'User asked for a constrained one-file static HTML build.');
   assert.equal(intent.projectName, 'Spark relay is alive');
   assert.match(intent.prd, /index\.html/);
@@ -194,6 +228,17 @@ test('promotes mission-control canvas and kanban requests to advanced PRD mode',
   assert.match(intent.prd, /kanban board, canvas, Telegram updates/);
 });
 
+test('names audience-first platform briefs without dragging feature nouns into the title', () => {
+  const intent = parseBuildIntent(
+    'Build a platform for agents with auth, database, roles, analytics, Mission Control, and deployment planning.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Agent Platform');
+  assert.equal(intent.buildMode, 'advanced_prd');
+  assert.equal(intent.buildLane, 'advanced_prd');
+});
+
 test('does not turn exploratory conversation into an accidental build', () => {
   const intent = parseBuildIntent(
     'can you help me think through whether we should build a mission control dashboard before we touch the canvas?'
@@ -242,14 +287,26 @@ test('does not turn exploratory conversation into an accidental build', () => {
   assert.equal(parseBuildIntent('what else would be healthy to build for updates/upgrades besides the ledger'), null);
   assert.equal(parseBuildIntent("what would you wanna be building now that's missing"), null);
   assert.equal(parseBuildIntent('besides these anything else before we start building these'), null);
+  assert.equal(parseBuildIntent('No build or mission for now, just help me think through the QA plan.'), null);
+  assert.equal(parseBuildIntent('Do not start a build yet. Should normal prompts still work when H70 skills are mandatory?'), null);
+  assert.equal(parseBuildIntent('What edge cases should we test in Spawner routing and Telegram relay?'), null);
   assert.equal(
     parseBuildIntent('I want to create a new advanced domain chip with Spark. Help me shape the chip first before creating it.'),
     null
   );
+  assert.equal(
+    parseBuildIntent(
+      'yeah buybacks not for now actually, maybe later, i think we can earn it back from NFTs, if we do sell the NFTs via token, and create a nice structure for it to get hype right after the launch.'
+    ),
+    null
+  );
+  assert.equal(parseBuildIntent('create a clean structure for the launch hype'), null);
+  assert.equal(parseBuildIntent('make a better framework for the NFT sale conversation'), null);
   assert.ok(parseBuildIntent('make a daily report dashboard for investors'));
   assert.ok(parseBuildIntent('Build a private local-first dashboard for memory reports'));
   assert.ok(parseBuildIntent('Build a Spark memory dashboard.'));
   assert.ok(parseBuildIntent('Build a tool for Spark users to manage reminders.'));
+  assert.ok(parseBuildIntent('Build an NFT launch planner app with sections for hype ideas and token sale timing.'));
 });
 
 test('infers a compact product name for long conceptual build briefs', () => {

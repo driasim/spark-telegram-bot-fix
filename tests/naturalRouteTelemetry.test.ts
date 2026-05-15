@@ -28,10 +28,11 @@ test('renders redacted route telemetry without raw text or payload content', () 
     admin: true
   });
 
-  assert.equal(
+  assert.match(
     line,
-    '[NaturalRoute] phase=shadow route=memory.write owner=spark-intelligence-builder confidence=explicit context=latest_message confirm=false signals=plain_chat_memory_directive blocked=none profile=spark_agi user=8319079055 chat=8319079055 chat_type=private admin=true'
+    /^\[NaturalRoute\] phase=shadow route=memory\.write owner=spark-intelligence-builder confidence=explicit context=latest_message confirm=false signals=plain_chat_memory_directive blocked=none profile=spark_agi user=user_[a-f0-9]{16} chat=chat_[a-f0-9]{16} chat_type=private admin=true$/
   );
+  assert.doesNotMatch(line, /8319079055/);
   assert.doesNotMatch(line, /concise|Telegram replies|prefer/i);
 });
 
@@ -68,6 +69,7 @@ test('renders redacted execution comparison telemetry', () => {
   assert.match(line, /route=spawner\.build/);
   assert.match(line, /executed=spawner\.build/);
   assert.match(line, /outcome=matched/);
+  assert.doesNotMatch(line, /8319079055/);
   assert.doesNotMatch(line, /tiny timer app|spark-timer/i);
 });
 

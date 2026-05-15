@@ -183,14 +183,14 @@ function inferDashboardPurposeName(prd: string): string | null {
 }
 
 function inferQuotedHeadingProjectName(prd: string): string | null {
-	const headingMatch = prd.match(
-		/\b(?:big\s+|large\s+|hero\s+)?(?:heading|headline|title|h1)\b(?:\s+(?:that\s+)?(?:says|reads|called|named))?\s*[:\-]?\s*["']([^"']{3,80})["']/i
-	);
+  const headingMatch = prd.match(
+    /\b(?:big\s+|large\s+|hero\s+)?(?:heading|headline|title|h1)\b(?:\s+(?:that\s+)?(?:says|reads|called|named))?\s*[:\-]?\s*["']([^"']{3,80})["']/i
+  );
   if (!headingMatch) return null;
   return headingMatch[1]
     .replace(/\s+/g, ' ')
     .trim()
-		.replace(/[.!?]+$/, '');
+    .replace(/[.!?]+$/, '');
 }
 
 function inferExplicitProjectName(prd: string): string | null {
@@ -348,11 +348,12 @@ function inferBuildMode(text: string, prd: string, projectPath: string | null): 
 }
 
 function inferBuildLane(
-  _text: string,
-  _prd: string,
-  _projectPath: string | null,
+  text: string,
+  prd: string,
+  projectPath: string | null,
   buildMode: BuildMode
 ): { lane: BuildLane; reason: string } {
+  const lower = `${text}\n${prd}`.toLowerCase();
   if (buildMode === 'advanced_prd') {
     return {
       lane: 'advanced_prd',
@@ -360,9 +361,32 @@ function inferBuildLane(
     };
   }
 
+  const explicitFast = /\b(?:fast\s+lane|fast\s+build|quick\s+build|quickly|finish\s+fast|tiny|small|one[-\s]*screen|single[-\s]*screen|smoke\s+(?:page|test|check|app)|one[-\s]*file|single[-\s]*file)\b/.test(lower);
+  const staticSurface = /\b(?:static|vanilla[-\s]*js|html|css|javascript|no\s+build\s+step|page|landing\s+page)\b/.test(lower);
+  const canvasBuildScope = /\b(?:game|browser\s+game|canvas|sprite|paddle|score|timer|levels?|enemy|player|physics|collision|animation|keyboard|mouse|touch)\b/.test(lower);
+  const heavyScope = canvasBuildScope || /\b(?:advanced\s+prd|prd|platform|system|mission\s+control|kanban|canvas|auth|oauth|login|database|backend|api|integration|multi[-\s]*tenant|payments?|stripe|deploy|production|real[-\s]*time|websocket|mobile\s+app|desktop\s+app)\b/.test(lower);
+  const featureWords = (lower.match(/\b(?:filters?|charts?|dashboard|analytics|localstorage|persistence|editor|roles?|workflow|alerts?|calendar|export|import|collaboration|admin)\b/g) || []).length;
+  const requestedFiles = (lower.match(/\b[\w.-]+\.(?:html|css|js|ts|tsx|jsx|json|md|py|svelte|vue|go|rs)\b/g) || []).length;
+
+  if (!heavyScope && (isConstrainedStaticSingleFileBuild(text) || (explicitFast && (staticSurface || featureWords <= 3) && requestedFiles <= 4))) {
+    return {
+      lane: 'fast_direct',
+      reason: 'Tiny or smoke-test build; use lightweight planning and avoid the full PRD canvas pass.'
+    };
+  }
+
+  if (projectPath && requestedFiles >= 4 && featureWords >= 4) {
+    return {
+      lane: 'direct',
+      reason: 'Direct build lane selected: concrete files and enough feature scope for the normal canvas handoff.'
+    };
+  }
+
   return {
     lane: 'direct',
-    reason: 'Direct build lane selected: keep the normal PRD/canvas handoff while using direct execution.'
+    reason: canvasBuildScope
+      ? 'Direct build lane selected: keep the normal PRD/canvas handoff for interactive builds.'
+      : 'Direct build lane selected: small explicit build with normal planning depth.'
   };
 }
 
