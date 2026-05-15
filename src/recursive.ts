@@ -1500,6 +1500,10 @@ function friendlyLoopDecision(decision: string | null | undefined): string {
   return 'is not proven improved yet';
 }
 
+function friendlyProofStatus(value: string | null | undefined): string {
+  return String(value || 'unknown').replace(/[_-]+/g, ' ').trim().toLowerCase() || 'unknown';
+}
+
 export function renderSpecializationLoopStatus(
   status: SpecializationLoopStatus,
   options: { style?: 'card' | 'conversational' } = {}
@@ -1641,73 +1645,94 @@ function formatSignedDelta(value: number): string {
   return '0';
 }
 
-export function renderSpecializationLoopComparison(insights: SpecializationLoopInsights): string {
-  const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
-  if (!insights.ok) {
-    return `I could not compare the latest ${label} loop yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
+function numericComparison(status: SpecializationLoopStatus): {
+  baseline: number | null;
+  candidate: number | null;
+  delta: number | null;
+  metric: string;
+} {
+  const comparison = status.comparison || {};
+  const baseline = typeof comparison.baselineScore === 'number' ? comparison.baselineScore : null;
+  const candidate = typeof comparison.candidateScore === 'number' ? comparison.candidateScore : null;
+  const delta = typeof comparison.delta === 'number'
+    ? comparison.delta
+    : typeof baseline === 'number' && typeof candidate === 'number'
+      ? candidate - baseline
+      : null;
+  return {
+    baseline,
+    candidate,
+    delta,
+    metric: formatMetricLabel(comparison.scoreMetric || 'score')
+  };
+}
+
+export function renderSpecializationLoopComparison(status: SpecializationLoopStatus): string {
+  const label = status.pathLabel || labelFromKey(status.pathKey || 'specialization path');
+  if (status.ok === false) {
+    return `I could not compare the latest ${label} loop yet. ${ensureSentence(status.error || 'Status packet unavailable.')}`;
   }
 
-  const start = typeof insights.startScore === 'number' ? insights.startScore : null;
-  const current = typeof insights.currentScore === 'number' ? insights.currentScore : null;
-  const best = typeof insights.bestScore === 'number' ? insights.bestScore : current;
-  const delta = typeof start === 'number' && typeof current === 'number' ? current - start : null;
-  const improved = typeof delta === 'number' && delta > 0.0001;
-  const headline = improved
-    ? `${label} moved up a little in the latest benchmark loop. I would still keep the claim modest.`
-    : `${label} did not show a clear active-score gain in the latest benchmark loop.`;
+  const { baseline, candidate, delta, metric } = numericComparison(status);
+  const decision = status.decision || 'unproven';
+  const headline = decision === 'improved'
+    ? `${label} has a benchmark-backed candidate gain in the latest status packet.`
+    : decision === 'regressed'
+      ? `${label}'s latest candidate regressed, so I would keep the upgrade blocked.`
+      : decision === 'held_steady'
+        ? `${label} held steady in the canonical loop status. The latest candidate did not stick.`
+        : `${label} is still unproven in the canonical loop status.`;
 
   const lines = [
     headline,
     '',
     'Compare',
   ];
-  if (typeof start === 'number') lines.push(`• baseline ${formatNumber(start)}`);
-  if (typeof current === 'number') lines.push(`• active ${formatNumber(current)}${typeof delta === 'number' ? ` (${formatSignedDelta(delta)})` : ''}`);
-  if (typeof best === 'number' && best !== current) lines.push(`• best seen ${formatNumber(best)}`);
+  if (typeof baseline === 'number') lines.push(`• baseline ${formatNumber(baseline)}`);
+  if (typeof candidate === 'number') lines.push(`• candidate ${formatNumber(candidate)}${typeof delta === 'number' ? ` (${formatSignedDelta(delta)})` : ''}`);
+  if (metric && (typeof baseline === 'number' || typeof candidate === 'number')) lines.push(`• metric ${metric}`);
   lines.push(
     '',
     'Loop',
-    `• ${insights.completedRounds ?? 0}/${insights.requestedRounds ?? insights.completedRounds ?? 0} rounds`,
-    `• ${insights.keptRounds ?? 0} kept, ${insights.revertedRounds ?? 0} reverted`,
+    `• ${status.rounds?.completed ?? 0}/${status.rounds?.requested ?? status.rounds?.completed ?? 0} rounds`,
+    `• ${status.rounds?.kept ?? 0} kept, ${status.rounds?.reverted ?? 0} reverted`,
     '',
     'Move',
-    `• ${improved ? 'Attach held-out/trap checks before promoting this as a reusable specialization upgrade.' : 'Try a narrower candidate and inspect the weak benchmark lanes before another long run.'}`
+    `• ${ensureSentence(status.nextMove || 'Use the status packet before making an improvement claim.')}`
   );
   return lines.join('\n');
 }
 
-export function renderSpecializationLoopEvidence(insights: SpecializationLoopInsights): string {
-  const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
-  if (!insights.ok) {
-    return `I could not read the latest ${label} evidence yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
+export function renderSpecializationLoopEvidence(status: SpecializationLoopStatus): string {
+  const label = status.pathLabel || labelFromKey(status.pathKey || 'specialization path');
+  if (status.ok === false) {
+    return `I could not read the latest ${label} evidence yet. ${ensureSentence(status.error || 'Status packet unavailable.')}`;
   }
 
-  const kept = (insights.keptCandidateSummaries || [])
-    .map(compactCandidateSummary)
-    .filter(Boolean)
-    .slice(0, 5);
-  const hasGain = typeof insights.startScore === 'number' &&
-    typeof insights.currentScore === 'number' &&
-    insights.currentScore > insights.startScore + 0.0001;
+  const decision = status.decision || 'unproven';
+  const hasImprovementClaim = decision === 'improved';
   const lines = [
-    hasGain
-      ? `${label} has benchmark-backed evidence for a small active gain.`
-      : `${label} has loop evidence, but not enough for an improvement claim yet.`,
+    hasImprovementClaim
+      ? `${label} has benchmark-backed evidence for an improvement claim.`
+      : `${label} has benchmark evidence, but I would not call it upgraded yet.`,
     '',
     'Evidence',
-    `• ${insights.completedRounds ?? 0}/${insights.requestedRounds ?? insights.completedRounds ?? 0} rounds completed`,
-    `• ${insights.keptRounds ?? 0} candidate${(insights.keptRounds ?? 0) === 1 ? '' : 's'} kept`,
-    `• ${insights.revertedRounds ?? 0} candidate${(insights.revertedRounds ?? 0) === 1 ? '' : 's'} reverted`,
+    `• ${status.rounds?.completed ?? 0}/${status.rounds?.requested ?? status.rounds?.completed ?? 0} rounds completed`,
+    `• ${status.rounds?.kept ?? 0} candidate${(status.rounds?.kept ?? 0) === 1 ? '' : 's'} kept`,
+    `• ${status.rounds?.reverted ?? 0} candidate${(status.rounds?.reverted ?? 0) === 1 ? '' : 's'} reverted`,
   ];
 
-  if (kept.length > 0) {
-    lines.push('', 'What stuck', ...kept.map((item) => `• ${ensureSentence(item)}`));
-  }
+  lines.push(
+    '',
+    'Proof checks',
+    `• held-out: ${friendlyProofStatus(status.heldOutStatus)}`,
+    `• trap: ${friendlyProofStatus(status.trapStatus)}`
+  );
 
   lines.push(
     '',
     'Boundary',
-    `• ${hasGain ? 'Good signal, not a final intelligence claim until held-out/trap checks pass.' : 'Useful run history, but not proof of improvement yet.'}`
+    `• ${ensureSentence(status.claimBoundary || (hasImprovementClaim ? 'Improvement still needs review before reuse.' : 'Useful run history, but not proof of improvement yet.'))}`
   );
   return lines.join('\n');
 }
@@ -1827,7 +1852,7 @@ export function renderRecursiveHelp(): string {
     '/recursive evidence <path> - latest proof readout',
     '/recursive package <path> - save a local/private insight packet',
     '/recursive report <id> - readable result summary',
-    '/recursive start <targetKey> rounds <n> - run a local Builder chip loop',
+    '/recursive start <targetKey> rounds <n> - run an attached specialization path, with Builder chip fallback',
     '',
     'When something needs you:',
     '/recursive review [id] - decisions waiting',

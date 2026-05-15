@@ -786,36 +786,49 @@ test('renders specialization loop insights from the latest path session', () => 
   assert.doesNotMatch(reply, /C:\\paths/);
 });
 
-test('renders specialization loop compare and evidence from session insights', () => {
-  const insights = {
+test('renders specialization loop compare and evidence from canonical status packets', () => {
+  const status = {
     ok: true,
     pathKey: 'startup-yc',
     pathLabel: 'Startup YC',
-    completedRounds: 20,
-    requestedRounds: 20,
-    keptRounds: 2,
-    revertedRounds: 18,
-    startScore: 0.6337,
-    currentScore: 0.6453,
-    bestScore: 0.6453,
-    keptCandidateSummaries: [
-      'YC doctrine stack (3 packets across 3 sub-doctrines): primary=Make something people want. (packet make_something_people_want).'
-    ],
-    sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop\\summary.json'
+    stage: 'review_required',
+    status: 'ready',
+    evidenceState: 'complete',
+    decision: 'held_steady',
+    heldOutStatus: 'not_configured',
+    trapStatus: 'not_configured',
+    claimBoundary: 'The candidate underperformed and was reverted, so the active path held steady.',
+    nextMove: 'Try a narrower candidate or inspect weak benchmark lanes.',
+    rounds: {
+      completed: 20,
+      requested: 20,
+      kept: 2,
+      reverted: 18
+    },
+    comparison: {
+      scoreMetric: 'scenario_score',
+      baselineScore: 0.6453,
+      candidateScore: 0.6037,
+      delta: -0.0416,
+      decision: 'reverted'
+    },
+    rawArtifactRefs: {
+      summaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\rounds\\summary.json'
+    }
   };
 
-  const compare = renderSpecializationLoopComparison(insights);
-  assert.match(compare, /Startup YC moved up a little/);
-  assert.match(compare, /baseline 0\.6337/);
-  assert.match(compare, /active 0\.6453 \(\+0\.0116\)/);
+  const compare = renderSpecializationLoopComparison(status);
+  assert.match(compare, /Startup YC held steady in the canonical loop status/);
+  assert.match(compare, /baseline 0\.6453/);
+  assert.match(compare, /candidate 0\.6037 \(-0\.0416\)/);
   assert.match(compare, /2 kept, 18 reverted/);
   assert.doesNotMatch(compare, /summary\.json/);
 
-  const evidence = renderSpecializationLoopEvidence(insights);
-  assert.match(evidence, /benchmark-backed evidence for a small active gain/);
+  const evidence = renderSpecializationLoopEvidence(status);
+  assert.match(evidence, /benchmark evidence, but I would not call it upgraded yet/);
   assert.match(evidence, /20\/20 rounds completed/);
-  assert.match(evidence, /Make something people want/);
-  assert.match(evidence, /not a final intelligence claim/);
+  assert.match(evidence, /held-out: not configured/);
+  assert.match(evidence, /candidate underperformed and was reverted/);
   assert.doesNotMatch(evidence, /C:\\paths/);
 });
 

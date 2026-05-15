@@ -4732,10 +4732,10 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (target.kind !== 'path') {
         return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
       }
-      const insights = await readSpecializationPathLoopInsights(target);
+      const status = await readSpecializationPathLoopStatus(target);
       return ctx.reply(parsed.action === 'compare'
-        ? renderSpecializationLoopComparison(insights)
-        : renderSpecializationLoopEvidence(insights));
+        ? renderSpecializationLoopComparison(status)
+        : renderSpecializationLoopEvidence(status));
     }
 
     if (parsed.action === 'package') {

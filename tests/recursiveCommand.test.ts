@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   await test('recursive command export renders help through command path', async () => {
     const ctx = fakeCtx('/recursive help');
     await handleRecursiveCommand(ctx);
-    assert.match(ctx.replies.join('\n'), /\/recursive start <targetKey> rounds <n> - run a local Builder chip loop/);
+    assert.match(ctx.replies.join('\n'), /\/recursive start <targetKey> rounds <n> - run an attached specialization path, with Builder chip fallback/);
   });
 
   await test('recursive command export validates start usage through command path', async () => {
