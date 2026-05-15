@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { LoopResult } from './chipLoop';
-import type { PathLoopResult, SpecializationLoopPackageResult, SpecializationLoopStatus } from './pathLoop';
+import type { PathLoopResult, SpecializationLoopInsights, SpecializationLoopPackageResult, SpecializationLoopStatus } from './pathLoop';
 import { redactText } from './redaction';
 
 export type RecursiveDecision = 'approve_local' | 'defer' | 'reject' | 'request_more_eval';
@@ -1582,6 +1582,58 @@ export function renderSpecializationLoopStatus(
   return lines.join('\n');
 }
 
+function compactCandidateSummary(summary: string): string {
+  return summary
+    .replace(/^YC doctrine stack \([^)]*\):\s*/i, '')
+    .replace(/^primary=/i, '')
+    .replace(/\s*\(packet [^)]+\)\.?$/i, '')
+    .trim();
+}
+
+export function renderSpecializationLoopInsights(insights: SpecializationLoopInsights): string {
+  const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
+  if (!insights.ok) {
+    return `I could not read the latest ${label} loop yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
+  }
+
+  const start = typeof insights.startScore === 'number' ? insights.startScore : null;
+  const current = typeof insights.currentScore === 'number' ? insights.currentScore : null;
+  const best = typeof insights.bestScore === 'number' ? insights.bestScore : current;
+  const improved = typeof start === 'number' && typeof best === 'number' && best > start + 0.0001;
+  const headline = improved
+    ? `${label} found a small benchmark-backed gain, but I would still keep it in review.`
+    : `${label} explored the loop, but I would not call it improved yet.`;
+
+  const lines = [
+    headline,
+    '',
+    'Score',
+    `• ${insights.completedRounds ?? 0}/${insights.requestedRounds ?? insights.completedRounds ?? 0} rounds`,
+  ];
+  if (typeof start === 'number' && typeof current === 'number') {
+    lines.push(`• active score ${formatNumber(start)} → ${formatNumber(current)}`);
+  } else if (typeof current === 'number') {
+    lines.push(`• active score ${formatNumber(current)}`);
+  }
+  if (typeof insights.keptRounds === 'number' || typeof insights.revertedRounds === 'number') {
+    lines.push(`• ${insights.keptRounds ?? 0} kept, ${insights.revertedRounds ?? 0} reverted`);
+  }
+
+  const kept = (insights.keptCandidateSummaries || [])
+    .map(compactCandidateSummary)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (kept.length > 0) {
+    lines.push('', 'What stuck', ...kept.map((item) => `• ${ensureSentence(item)}`));
+  }
+
+  const nextMove = improved
+    ? 'Add held-out/trap checks before calling this a real specialization upgrade.'
+    : 'Try a narrower candidate and inspect the weak benchmark lanes.';
+  lines.push('', 'Move', `• ${nextMove}`);
+  return lines.join('\n');
+}
+
 export function renderSpecializationLoopPackage(result: SpecializationLoopPackageResult): string {
   const packet = result.packet || {};
   const pathInfo = packet.path || {};
@@ -1962,7 +2014,7 @@ function workspaceDecisionForAction(action: 'approve' | 'defer' | 'reject' | 'mo
 function parseRounds(parts: string[]): number {
   const roundIndex = parts.findIndex((part) => part.toLowerCase() === 'rounds');
   const raw = roundIndex >= 0 ? parts[roundIndex + 1] : parts[0];
-  return Math.max(1, Math.min(10, Number.parseInt(raw || '3', 10) || 3));
+  return Math.max(1, Math.min(50, Number.parseInt(raw || '3', 10) || 3));
 }
 
 function normalizeRecursiveArtifactSyncKind(value: string | undefined): RecursiveArtifactSyncKind | null {

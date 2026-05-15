@@ -23,6 +23,7 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationLoopInsights,
   renderSpecializationLoopPackage,
   renderSpecializationLoopStatus,
   renderSpecializationPathLoopCompletion,
@@ -61,6 +62,11 @@ test('parses recursive review decisions with rationale', () => {
     action: 'start',
     chipKey: 'startup-yc',
     rounds: 4
+  });
+  assert.deepEqual(parseRecursiveCommand('start startup-yc rounds 20'), {
+    action: 'start',
+    chipKey: 'startup-yc',
+    rounds: 20
   });
   assert.deepEqual(parseRecursiveCommand('status startup-yc'), {
     action: 'status',
@@ -584,6 +590,11 @@ test('resolves local specialization path repos when attachment snapshot is unava
       key: 'spark-qa-operator',
       repoRoot: path.resolve(tempRoot)
     });
+    assert.deepEqual(resolveLocalSpecializationPathTarget('path:spark-qa-operator'), {
+      kind: 'path',
+      key: 'spark-qa-operator',
+      repoRoot: path.resolve(tempRoot)
+    });
   } finally {
     if (previous === undefined) delete process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO;
     else process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = previous;
@@ -626,7 +637,7 @@ test('builds Spark Swarm bridge args for specialization path autoloops', () => {
     buildSpecializationPathAutoloopBridgeArgs({
       pathKey: 'spark-qa-operator',
       repoRoot: 'C:\\paths\\specialization-path-spark-qa-operator',
-      rounds: 1
+      rounds: 20
     }),
     [
       '-m',
@@ -636,7 +647,7 @@ test('builds Spark Swarm bridge args for specialization path autoloops', () => {
       'spark-qa-operator',
       'C:\\paths\\specialization-path-spark-qa-operator',
       '--rounds',
-      '1'
+      '20'
     ]
   );
 });
@@ -741,6 +752,36 @@ test('renders specialization loop status without raw artifact noise', () => {
   assert.match(reply, /Move\n• Review the kept candidate and package the evidence before wider reuse\./);
   assert.doesNotMatch(reply, /C:\\paths/);
   assert.doesNotMatch(reply, /summaryPath/);
+});
+
+test('renders specialization loop insights from the latest path session', () => {
+  const reply = renderSpecializationLoopInsights({
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    completedRounds: 20,
+    requestedRounds: 20,
+    keptRounds: 2,
+    revertedRounds: 18,
+    startScore: 0.6337,
+    currentScore: 0.6453,
+    bestScore: 0.6453,
+    keptCandidateSummaries: [
+      'YC doctrine stack (3 packets across 3 sub-doctrines): primary=Make something people want. (packet make_something_people_want).',
+      'YC doctrine stack (1 packet across 1 sub-doctrine): primary=One great cofounder is worth ten good employees. (packet cofounder_quality_over_employee_count).'
+    ],
+    sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop\\summary.json'
+  });
+
+  assert.match(reply, /Startup YC found a small benchmark-backed gain/);
+  assert.match(reply, /20\/20 rounds/);
+  assert.match(reply, /active score 0\.6337 → 0\.6453/);
+  assert.match(reply, /2 kept, 18 reverted/);
+  assert.match(reply, /Make something people want/);
+  assert.match(reply, /One great cofounder is worth ten good employees/);
+  assert.match(reply, /held-out\/trap checks/);
+  assert.doesNotMatch(reply, /summary\.json/);
+  assert.doesNotMatch(reply, /C:\\paths/);
 });
 
 test('renders natural specialization loop status conversationally', () => {

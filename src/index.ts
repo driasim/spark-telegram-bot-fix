@@ -54,7 +54,7 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
-import { packageSpecializationPathLoop, readSpecializationPathLoopStatus, resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
+import { packageSpecializationPathLoop, readSpecializationPathLoopInsights, readSpecializationPathLoopStatus, resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
 import {
   parseRecursiveCommand,
   proposeRecursiveWorkspaceEvidence,
@@ -78,6 +78,7 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderSpecializationLoopStatus,
+  renderSpecializationLoopInsights,
   renderSpecializationLoopPackage,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceBridgeHints,
@@ -4745,6 +4746,10 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     if (parsed.action === 'report') {
       if (!parsed.id) return ctx.reply('Usage: /recursive report <id>');
       await safeSendChatAction(ctx, 'typing');
+      const target = await resolveRecursiveStartTarget(parsed.id);
+      if (target.kind === 'path') {
+        return ctx.reply(renderSpecializationLoopInsights(await readSpecializationPathLoopInsights(target)));
+      }
       return ctx.reply(await recursiveSessionReport(parsed.id));
     }
 
@@ -4814,7 +4819,10 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
       await safeSendChatAction(ctx, 'typing');
       const targetLabel = startTarget.kind === 'path' ? 'Spark Swarm specialization path loop' : 'recursive Builder chip loop';
-      await ctx.reply(`Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
+      const startLine = startTarget.kind === 'path'
+        ? `🧪 I’m starting ${startTarget.key} for ${rounds} benchmark round(s). I’ll keep the raw evidence local and send the summary when the loop settles.`
+        : `🧪 I’m starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I’ll send the summary when it settles.`;
+      await ctx.reply(startLine);
 
       void (async () => {
         try {
@@ -4824,7 +4832,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
               await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
               return;
             }
-            await ctx.telegram.sendMessage(chatId, renderSpecializationPathLoopCompletion(result));
+            const insights = await readSpecializationPathLoopInsights(startTarget);
+            await ctx.telegram.sendMessage(
+              chatId,
+              insights.ok ? renderSpecializationLoopInsights(insights) : renderSpecializationPathLoopCompletion(result)
+            );
             return;
           }
 

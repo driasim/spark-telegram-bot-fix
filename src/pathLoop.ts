@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -128,6 +128,26 @@ export interface SpecializationLoopPackageResult {
   error?: string;
 }
 
+export interface SpecializationLoopInsights {
+  ok: boolean;
+  pathKey: string;
+  pathLabel?: string | null;
+  sessionId?: string | null;
+  completedRounds?: number;
+  requestedRounds?: number;
+  keptRounds?: number;
+  revertedRounds?: number;
+  startScore?: number | null;
+  currentScore?: number | null;
+  bestScore?: number | null;
+  bestRoundOrdinal?: number | null;
+  bestCandidateSummary?: string | null;
+  keptCandidateSummaries?: string[];
+  stopReason?: string | null;
+  sessionSummaryPath?: string | null;
+  error?: string;
+}
+
 interface PathLoopConfig {
   pythonCommand: string;
   builderRepo: string;
@@ -154,7 +174,7 @@ function resolveConfig(): PathLoopConfig {
     process.env.SPARK_STARTUP_BENCH_REPO || path.join(os.homedir(), 'Desktop', 'startup-bench')
   );
   return {
-    pythonCommand: resolvePythonCommand(process.env.SPARK_BUILDER_PYTHON || process.env.SPARK_SWARM_BRIDGE_PYTHON),
+    pythonCommand: resolvePythonCommand(process.env.SPARK_SWARM_BRIDGE_PYTHON || process.env.SPARK_BUILDER_PYTHON),
     builderRepo,
     builderHome: path.resolve(
       process.env.SPARK_BUILDER_HOME || path.join(os.homedir(), '.spark', 'state', 'spark-intelligence')
@@ -211,7 +231,7 @@ export function classifyBuilderAttachmentTargetFromSnapshot(snapshot: any, targe
 }
 
 export function resolveLocalSpecializationPathTarget(targetKey: string): RecursiveStartTarget | null {
-  const normalizedTarget = String(targetKey || '').trim();
+  const normalizedTarget = String(targetKey || '').trim().replace(/^path:/i, '');
   if (!normalizedTarget) return null;
 
   const candidates = [
@@ -288,7 +308,7 @@ export function buildSpecializationPathAutoloopBridgeArgs(input: {
     input.pathKey,
     input.repoRoot,
     '--rounds',
-    String(Math.max(1, Math.min(10, input.rounds || 1))),
+    String(Math.max(1, Math.min(50, input.rounds || 1))),
   ];
   if (input.sync?.workspaceId && input.sync?.apiUrl && input.sync?.accessToken) {
     args.push('--sync-collective');
@@ -343,6 +363,79 @@ async function readJsonObject(filePath: string | null): Promise<Record<string, a
 function sessionSummaryPath(repoRoot: string, pathKey: string, sessionId: string | null): string | null {
   if (!sessionId) return null;
   return path.join(repoRoot, '.spark-swarm', 'specialization-paths', pathKey, 'sessions', sessionId, 'summary.json');
+}
+
+function sessionsRoot(repoRoot: string, pathKey: string): string {
+  return path.join(repoRoot, '.spark-swarm', 'specialization-paths', pathKey, 'sessions');
+}
+
+async function latestSessionSummaryPath(repoRoot: string, pathKey: string): Promise<string | null> {
+  const root = sessionsRoot(repoRoot, pathKey);
+  if (!existsSync(root)) return null;
+  const entries = await readdir(root, { withFileTypes: true });
+  const dirs = await Promise.all(entries
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const dirPath = path.join(root, entry.name);
+      const summaryPath = path.join(dirPath, 'summary.json');
+      if (!existsSync(summaryPath)) return null;
+      const info = await stat(summaryPath);
+      return { summaryPath, mtimeMs: info.mtimeMs };
+    }));
+  const newest = dirs
+    .filter((entry): entry is { summaryPath: string; mtimeMs: number } => Boolean(entry))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+  return newest?.summaryPath || null;
+}
+
+function firstRoundBaselineScore(rounds: any[]): number | null {
+  const first = rounds.find((round) => typeof round?.baselineScore === 'number');
+  return typeof first?.baselineScore === 'number' ? first.baselineScore : null;
+}
+
+function bestKeptRound(rounds: any[]): any | null {
+  const kept = rounds.filter((round) => round?.decision === 'kept');
+  if (kept.length === 0) return null;
+  return kept
+    .slice()
+    .sort((a, b) => Number(b?.resultingScore ?? b?.candidateScore ?? -Infinity) - Number(a?.resultingScore ?? a?.candidateScore ?? -Infinity))[0];
+}
+
+export async function readSpecializationPathLoopInsights(target: RecursiveStartTarget): Promise<SpecializationLoopInsights> {
+  const pathKey = target.key;
+  const repoRoot = target.repoRoot;
+  if (!pathKey) return { ok: false, pathKey, error: 'empty specialization path key' };
+  if (!repoRoot) return { ok: false, pathKey, error: `specialization path ${pathKey} has no attached repo root` };
+
+  try {
+    const summaryPath = await latestSessionSummaryPath(repoRoot, pathKey);
+    const summary = await readJsonObject(summaryPath);
+    if (!summary) return { ok: false, pathKey, error: 'No specialization loop session summary found yet.' };
+    const rounds = Array.isArray(summary.rounds) ? summary.rounds : [];
+    const bestRound = bestKeptRound(rounds);
+    return {
+      ok: true,
+      pathKey,
+      pathLabel: typeof summary?.path?.label === 'string' ? summary.path.label : null,
+      sessionId: typeof summary.sessionId === 'string' ? summary.sessionId : null,
+      completedRounds: Number.isFinite(Number(summary.completedRounds)) ? Number(summary.completedRounds) : undefined,
+      requestedRounds: Number.isFinite(Number(summary.requestedRoundsTotal)) ? Number(summary.requestedRoundsTotal) : undefined,
+      keptRounds: Number.isFinite(Number(summary.keptRounds)) ? Number(summary.keptRounds) : undefined,
+      revertedRounds: Number.isFinite(Number(summary.revertedRounds)) ? Number(summary.revertedRounds) : undefined,
+      startScore: firstRoundBaselineScore(rounds),
+      currentScore: typeof summary.currentScore === 'number' ? summary.currentScore : null,
+      bestScore: typeof summary.bestScore === 'number' ? summary.bestScore : null,
+      bestRoundOrdinal: typeof bestRound?.ordinal === 'number' ? bestRound.ordinal : null,
+      bestCandidateSummary: typeof bestRound?.candidateSummary === 'string' ? bestRound.candidateSummary : null,
+      keptCandidateSummaries: rounds
+        .filter((round) => round?.decision === 'kept' && typeof round?.candidateSummary === 'string')
+        .map((round) => String(round.candidateSummary)),
+      stopReason: typeof summary.stopReason === 'string' ? summary.stopReason : null,
+      sessionSummaryPath: summaryPath,
+    };
+  } catch (err: any) {
+    return { ok: false, pathKey, error: redactText(err?.message ? String(err.message) : String(err)) };
+  }
 }
 
 function firstArrayItem(payload: Record<string, any> | null, key: string): any | null {
@@ -425,6 +518,10 @@ export async function runSpecializationPathAutoloop(
     sync,
   });
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: 'utf-8' };
+  const pythonDir = path.dirname(config.pythonCommand);
+  if (pythonDir && pythonDir !== '.') {
+    env.PATH = [pythonDir, env.PATH].filter(Boolean).join(path.delimiter);
+  }
   const pythonPathEntries = [src];
   const startupBenchSrc = path.join(config.startupBenchRepo, 'src');
   const specializationPathSrc = path.join(repoRoot, 'src');

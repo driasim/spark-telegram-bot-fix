@@ -665,7 +665,7 @@ export function parseNaturalCreatorMissionIntent(text: string, context: NaturalC
 function naturalRoundCount(text: string): number {
   const normalized = text.toLowerCase();
   const numeric = normalized.match(/\b(?:rounds?|passes|iterations?)\s+(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\s+(?:rounds?|passes|iterations?)\b/);
-  if (numeric) return Math.max(1, Math.min(10, Number.parseInt(numeric[1], 10) || 1));
+  if (numeric) return Math.max(1, Math.min(50, Number.parseInt(numeric[1], 10) || 1));
   if (/\b(?:one|single|a)\s+(?:round|pass|iteration)\b/i.test(text)) return 1;
   if (/\btwo\s+(?:rounds|passes|iterations)\b/i.test(text)) return 2;
   if (/\bthree\s+(?:rounds|passes|iterations)\b/i.test(text)) return 3;
@@ -800,6 +800,14 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized || normalized.startsWith('/')) return null;
 
+  const earlyTarget = naturalRecursiveTarget(normalized, context);
+  if (earlyTarget?.chipKey && /\b(?:learn|learned|takeaways?|what\s+stuck|what\s+worked|what\s+did\s+.*(?:learn|find|discover))\b/i.test(normalized)) {
+    return {
+      rawCommand: `report ${earlyTarget.chipKey}`,
+      reason: `Natural-language request for ${earlyTarget.label} loop insights.`
+    };
+  }
+
   if (/\b(?:show|list|what|which|get|give\s+me)\b.*\b(?:recursive\s+)?(?:loops?|sessions?|runs?)\b/i.test(normalized) ||
       /\b(?:what|which)\s+(?:loops?|runs?)\s+(?:are|do)\s+(?:open|running|available|we\s+have)\b/i.test(normalized)) {
     return {
@@ -815,7 +823,7 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
     };
   }
 
-  const target = naturalRecursiveTarget(normalized, context);
+  const target = earlyTarget || naturalRecursiveTarget(normalized, context);
   if (!target) return null;
 
   const asksForLocalPackage =

@@ -901,6 +901,13 @@ test('extracts natural recursive commands for QA Operator loops', () => {
     }
   );
   assert.deepEqual(
+    parseNaturalRecursiveCommandIntent('what did the 20-round Startup YC loop learn? use benchmark-backed evidence, not raw logs.'),
+    {
+      rawCommand: 'report startup-yc',
+      reason: 'Natural-language request for Startup YC loop insights.'
+    }
+  );
+  assert.deepEqual(
     parseNaturalRecursiveCommandIntent('create a local insight packet for Startup YC, do not publish it'),
     {
       rawCommand: 'package startup-yc',
