@@ -278,6 +278,43 @@ async function run(): Promise<void> {
     assert.doesNotMatch(message, /- Canvas:/);
   });
 
+  await test('formatCreatorMissionSummary hides raw scoped links for read-only creator plans', async () => {
+    const message = formatCreatorMissionSummary(
+      {
+        success: true,
+        missionId: 'mission-creator-stage-only',
+        requestId: 'tg-creator-secret-chat-1778846344340',
+        trace: {
+          mission_id: 'mission-creator-stage-only',
+          request_id: 'tg-creator-secret-chat-1778846344340',
+          execution_policy: 'read_only',
+          artifacts: ['domain_chip', 'benchmark_pack', 'specialization_path'],
+          tasks: [{ id: 'creator-intent-plan' }, { id: 'benchmark-pack' }],
+          intent_packet: {
+            target_domain: 'Startup YC',
+            privacy_mode: 'local_only',
+            risk_level: 'medium'
+          },
+          links: {
+            canvas: 'http://spawner.test/canvas?pipeline=creator-tg-creator-secret-chat-1778846344340&mission=mission-creator-stage-only',
+            kanban: 'http://spawner.test/kanban?mission=mission-creator-stage-only'
+          }
+        }
+      },
+      'http://spawner.test/'
+    );
+
+    assert.match(message, /2 tasks staged/);
+    assert.match(message, /^Canvas: http:\/\/spawner\.test\/canvas$/m);
+    assert.match(message, /^Board: http:\/\/spawner\.test\/kanban$/m);
+    assert.match(message, /say: status/);
+    assert.match(message, /say: revise the plan/);
+    assert.doesNotMatch(message, /secret-chat/);
+    assert.doesNotMatch(message, /mission-creator-stage-only/);
+    assert.doesNotMatch(message, /say: run it/);
+    assert.doesNotMatch(message, /say: validate it/);
+  });
+
   await test('creatorMissionExecute posts a planned creator mission run request to Spawner', async () => {
     restoreAxios();
 

@@ -2950,7 +2950,7 @@ function missionIdFromTelegramBuildRequest(requestId: string): string {
   return `mission-${stamp || requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
 
-function opaqueTelegramRequestId(prefix: 'tg-run' | 'tg-build'): string {
+function opaqueTelegramRequestId(prefix: 'tg-run' | 'tg-build' | 'tg-creator'): string {
   return `${prefix}-${randomUUID().replace(/-/g, '').slice(0, 12)}-${Date.now()}`;
 }
 
@@ -3134,6 +3134,12 @@ function isValidCreatorMissionId(missionId: string): boolean {
 
 function pendingCreatorMissionKey(ctx: any): string {
   return `${ctx.chat.id}-${ctx.from.id}`;
+}
+
+function creatorExecutionPolicyForBrief(brief: string): 'manual_run' | 'read_only' {
+  return /\b(?:stage\s+only|do\s+not\s+run|don't\s+run|no\s+run|without\s+running|do\s+not\s+start|don't\s+start|no\s+execution)\b/i.test(brief)
+    ? 'read_only'
+    : 'manual_run';
 }
 
 function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
@@ -3448,16 +3454,17 @@ async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand):
   }
 
   await safeSendChatAction(ctx, 'typing');
-  const requestId = `tg-creator-${ctx.chat.id}-${ctx.message.message_id}-${Date.now()}`;
+  const requestId = opaqueTelegramRequestId('tg-creator');
   const result = await spawner.creatorMission({
     brief: parsed.brief,
     requestId,
     privacyMode: parsed.privacyMode,
-    riskLevel: parsed.riskLevel
+    riskLevel: parsed.riskLevel,
+    executionPolicy: creatorExecutionPolicyForBrief(parsed.brief)
   });
 
   await ctx.reply(formatCreatorMissionSummary(result));
-  if (result.success && result.missionId) {
+  if (result.success && result.missionId && result.trace?.execution_policy !== 'read_only') {
     pendingCreatorMissions.set(pendingCreatorMissionKey(ctx), {
       missionId: result.missionId,
       timestamp: Date.now()

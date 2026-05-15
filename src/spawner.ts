@@ -39,6 +39,7 @@ interface CreatorMissionInput {
   missionId?: string;
   privacyMode?: CreatorPrivacyMode;
   riskLevel?: CreatorRiskLevel;
+  executionPolicy?: 'manual_run' | 'read_only';
 }
 
 interface CreatorIntentPacket {
@@ -68,6 +69,7 @@ interface CreatorMissionTrace {
   validation_runs?: CreatorValidationRun[];
   current_stage?: string;
   stage_status?: string;
+  execution_policy?: string;
   publish_readiness?: string;
   blockers?: string[];
   tasks?: unknown[];
@@ -611,6 +613,10 @@ function creatorMissionKanbanUrl(missionId: string, baseUrl = spawnerPublicUrl()
   return `${baseUrl.replace(/\/+$/, '')}/kanban?mission=${encodeURIComponent(missionId)}`;
 }
 
+function creatorWorkspaceUrl(surface: 'canvas' | 'kanban', baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/${surface}`;
+}
+
 function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUrl()): string | undefined {
   if (!value?.trim()) return undefined;
   const trimmed = value.trim();
@@ -774,13 +780,16 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
   const trace = result.trace || {};
   const intent = trace.intent_packet || {};
   const missionId = result.missionId || trace.mission_id || 'unknown';
-  const kanbanUrl = trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
+  const readOnly = trace.execution_policy === 'read_only';
+  const kanbanUrl = readOnly
+    ? creatorWorkspaceUrl('kanban', baseUrl)
+    : trace.links?.kanban || (missionId !== 'unknown' ? creatorMissionKanbanUrl(missionId, baseUrl) : `${baseUrl}/kanban`);
   const taskCount = typeof result.taskCount === 'number'
     ? result.taskCount
     : Array.isArray(trace.tasks)
       ? trace.tasks.length
       : null;
-  const canvasUrl = absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
+  const canvasUrl = readOnly ? creatorWorkspaceUrl('canvas', baseUrl) : absoluteSpawnerUrl(result.canvasUrl || trace.links?.canvas, baseUrl);
   const domain = formatCreatorDomainLabel(intent.target_domain);
   const artifacts = formatCreatorArtifactSummary(trace.artifacts);
   const evidenceTier = formatEvidenceTier(trace.canonical?.evidence_tier);
@@ -793,7 +802,7 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     `Domain: ${domain}`,
     `Boundary: ${formatCreatorPrivacy(trace.publication?.publish_mode || intent.privacy_mode)} / ${intent.risk_level || 'unknown'} risk. No execution or publishing happened from staging.`,
     `Labs verdict: ${formatCreatorReadiness(verdict)}; evidence tier: ${formatCreatorReadiness(evidenceTier)}; network_absorbable=${networkAbsorbable}`,
-    ...(taskCount !== null ? [`${taskCount} tasks queued`] : []),
+    ...(taskCount !== null ? [`${taskCount} tasks ${readOnly ? 'staged' : 'queued'}`] : []),
     '',
     'Evidence',
     `Staged: ${artifacts}`,
@@ -805,9 +814,9 @@ export function formatCreatorMissionSummary(result: CreatorMissionResult, baseUr
     `Board: ${kanbanUrl}`,
     '',
     'Next',
-    'say: run it',
-    'say: status',
-    'say: validate it'
+    ...(readOnly
+      ? ['say: status', 'say: revise the plan']
+      : ['say: run it', 'say: status', 'say: validate it'])
   ];
 
   return lines.join('\n');
@@ -985,7 +994,8 @@ export const spawner = {
           ...(input.requestId ? { requestId: input.requestId } : {}),
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.privacyMode ? { privacyMode: input.privacyMode } : {}),
-          ...(input.riskLevel ? { riskLevel: input.riskLevel } : {})
+          ...(input.riskLevel ? { riskLevel: input.riskLevel } : {}),
+          ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {})
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_TIMEOUT_MS')
       );
