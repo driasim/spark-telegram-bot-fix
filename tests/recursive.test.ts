@@ -23,6 +23,11 @@ import {
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
   renderRecursiveTraceView,
+  renderSpecializationLoopComparison,
+  renderSpecializationLoopEvidence,
+  renderSpecializationLoopInsights,
+  renderSpecializationLoopPackage,
+  renderSpecializationLoopStatus,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceApiUrl,
   sparkWorkspaceBridgeHints,
@@ -33,6 +38,8 @@ import {
 } from '../src/recursive';
 import {
   buildSpecializationPathAutoloopBridgeArgs,
+  buildSpecializationPathPackageBridgeArgs,
+  buildSpecializationPathStatusBridgeArgs,
   classifyBuilderAttachmentTargetFromSnapshot,
   resolveLocalSpecializationPathTarget
 } from '../src/pathLoop';
@@ -57,6 +64,19 @@ test('parses recursive review decisions with rationale', () => {
     action: 'start',
     chipKey: 'startup-yc',
     rounds: 4
+  });
+  assert.deepEqual(parseRecursiveCommand('start startup-yc rounds 20'), {
+    action: 'start',
+    chipKey: 'startup-yc',
+    rounds: 20
+  });
+  assert.deepEqual(parseRecursiveCommand('status startup-yc'), {
+    action: 'status',
+    id: 'startup-yc'
+  });
+  assert.deepEqual(parseRecursiveCommand('package startup-yc'), {
+    action: 'package',
+    id: 'startup-yc'
   });
   assert.deepEqual(parseRecursiveCommand('sync prompt-benchmark C:\\runs\\prompt.json report C:\\runs\\report.md'), {
     action: 'sync',
@@ -572,6 +592,11 @@ test('resolves local specialization path repos when attachment snapshot is unava
       key: 'spark-qa-operator',
       repoRoot: path.resolve(tempRoot)
     });
+    assert.deepEqual(resolveLocalSpecializationPathTarget('path:spark-qa-operator'), {
+      kind: 'path',
+      key: 'spark-qa-operator',
+      repoRoot: path.resolve(tempRoot)
+    });
   } finally {
     if (previous === undefined) delete process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO;
     else process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = previous;
@@ -614,7 +639,7 @@ test('builds Spark Swarm bridge args for specialization path autoloops', () => {
     buildSpecializationPathAutoloopBridgeArgs({
       pathKey: 'spark-qa-operator',
       repoRoot: 'C:\\paths\\specialization-path-spark-qa-operator',
-      rounds: 1
+      rounds: 20
     }),
     [
       '-m',
@@ -624,7 +649,40 @@ test('builds Spark Swarm bridge args for specialization path autoloops', () => {
       'spark-qa-operator',
       'C:\\paths\\specialization-path-spark-qa-operator',
       '--rounds',
-      '1'
+      '20'
+    ]
+  );
+});
+
+test('builds Spark Swarm bridge args for specialization loop status', () => {
+  assert.deepEqual(
+    buildSpecializationPathStatusBridgeArgs({
+      pathKey: 'startup-yc',
+      repoRoot: 'C:\\paths\\specialization-path-startup-yc',
+    }),
+    [
+      '-m',
+      'spark_swarm_bridge.cli',
+      'specialization-path',
+      'status',
+      'startup-yc',
+      'C:\\paths\\specialization-path-startup-yc',
+      '--json'
+    ]
+  );
+  assert.deepEqual(
+    buildSpecializationPathPackageBridgeArgs({
+      pathKey: 'startup-yc',
+      repoRoot: 'C:\\paths\\specialization-path-startup-yc',
+    }),
+    [
+      '-m',
+      'spark_swarm_bridge.cli',
+      'specialization-path',
+      'package',
+      'startup-yc',
+      'C:\\paths\\specialization-path-startup-yc',
+      '--json'
     ]
   );
 });
@@ -657,6 +715,198 @@ test('renders specialization path loop completion with workspace next step', () 
   assert.doesNotMatch(reply, /Next:/);
   assert.doesNotMatch(reply, /C:\\paths/);
   assert.doesNotMatch(reply, /Workspace outcome/);
+});
+
+test('renders specialization loop status without raw artifact noise', () => {
+  const reply = renderSpecializationLoopStatus({
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    stage: 'review_required',
+    evidenceState: 'complete',
+    decision: 'improved',
+    heldOutStatus: 'passed',
+    trapStatus: 'not_configured',
+    claimBoundary: 'Candidate beat the baseline and was kept by the loop gate.',
+    nextMove: 'Review the kept candidate and package the evidence before wider reuse.',
+    rounds: {
+      completed: 1,
+      requested: 1,
+      kept: 1,
+      reverted: 0
+    },
+    comparison: {
+      scoreMetric: 'scenario_score',
+      baselineScore: 0.61,
+      candidateScore: 0.72,
+      delta: 0.11,
+      decision: 'kept'
+    },
+    rawArtifactRefs: {
+      summaryPath: 'C:\\paths\\secret\\summary.json'
+    }
+  });
+
+  assert.match(reply, /🟢 Startup YC has benchmark-backed improvement evidence\./);
+  assert.match(reply, /State\n• Review Required\n• evidence: Complete\n• rounds: 1\/1/);
+  assert.match(reply, /Score\n• scenario score 0.61 → 0.72/);
+  assert.match(reply, /Proof checks\n• held-out: Passed\n• trap: Not Configured/);
+  assert.match(reply, /Move\n• Review the kept candidate and package the evidence before wider reuse\./);
+  assert.doesNotMatch(reply, /C:\\paths/);
+  assert.doesNotMatch(reply, /summaryPath/);
+});
+
+test('renders specialization loop insights from the latest path session', () => {
+  const reply = renderSpecializationLoopInsights({
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    completedRounds: 20,
+    requestedRounds: 20,
+    keptRounds: 2,
+    revertedRounds: 18,
+    startScore: 0.6337,
+    currentScore: 0.6453,
+    bestScore: 0.6453,
+    keptCandidateSummaries: [
+      'YC doctrine stack (3 packets across 3 sub-doctrines): primary=Make something people want. (packet make_something_people_want).',
+      'YC doctrine stack (1 packet across 1 sub-doctrine): primary=One great cofounder is worth ten good employees. (packet cofounder_quality_over_employee_count).'
+    ],
+    sessionSummaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\sessions\\autoloop\\summary.json'
+  });
+
+  assert.match(reply, /Startup YC found a small benchmark-backed gain/);
+  assert.match(reply, /20\/20 rounds/);
+  assert.match(reply, /active score 0\.6337 → 0\.6453/);
+  assert.match(reply, /2 kept, 18 reverted/);
+  assert.match(reply, /Make something people want/);
+  assert.match(reply, /One great cofounder is worth ten good employees/);
+  assert.match(reply, /held-out\/trap checks/);
+  assert.doesNotMatch(reply, /summary\.json/);
+  assert.doesNotMatch(reply, /C:\\paths/);
+});
+
+test('renders specialization loop compare and evidence from canonical status packets', () => {
+  const status = {
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    stage: 'review_required',
+    status: 'ready',
+    evidenceState: 'complete',
+    decision: 'held_steady',
+    heldOutStatus: 'not_configured',
+    trapStatus: 'not_configured',
+    claimBoundary: 'The candidate underperformed and was reverted, so the active path held steady.',
+    nextMove: 'Try a narrower candidate or inspect weak benchmark lanes.',
+    rounds: {
+      completed: 20,
+      requested: 20,
+      kept: 2,
+      reverted: 18
+    },
+    comparison: {
+      scoreMetric: 'scenario_score',
+      baselineScore: 0.6453,
+      candidateScore: 0.6037,
+      delta: -0.0416,
+      decision: 'reverted'
+    },
+    rawArtifactRefs: {
+      summaryPath: 'C:\\paths\\specialization-path-startup-yc\\.spark-swarm\\specialization-paths\\startup-yc\\rounds\\summary.json'
+    }
+  };
+
+  const compare = renderSpecializationLoopComparison(status);
+  assert.match(compare, /Startup YC held steady in the canonical loop status/);
+  assert.match(compare, /baseline 0\.6453/);
+  assert.match(compare, /candidate 0\.6037 \(-0\.0416\)/);
+  assert.match(compare, /2 kept, 18 reverted/);
+  assert.doesNotMatch(compare, /summary\.json/);
+
+  const evidence = renderSpecializationLoopEvidence(status);
+  assert.match(evidence, /benchmark evidence, but I would not call it upgraded yet/);
+  assert.match(evidence, /20\/20 rounds completed/);
+  assert.match(evidence, /held-out: not configured/);
+  assert.match(evidence, /candidate underperformed and was reverted/);
+  assert.doesNotMatch(evidence, /C:\\paths/);
+});
+
+test('renders natural specialization loop status conversationally', () => {
+  const reply = renderSpecializationLoopStatus({
+    ok: true,
+    pathKey: 'startup-yc',
+    pathLabel: 'Startup YC',
+    stage: 'review_required',
+    evidenceState: 'complete',
+    decision: 'improved',
+    heldOutStatus: 'passed',
+    trapStatus: 'passed',
+    nextMove: 'Review the kept candidate and package the evidence before wider reuse.',
+    comparison: {
+      scoreMetric: 'mean_scenario_score',
+      baselineScore: 0.6803,
+      candidateScore: 0.7003,
+      delta: 0.02,
+      decision: 'kept'
+    },
+    rawArtifactRefs: {
+      summaryPath: 'C:\\paths\\secret\\summary.json'
+    }
+  }, { style: 'conversational' });
+
+  assert.match(reply, /Startup YC has benchmark-backed improvement evidence\./);
+  assert.match(reply, /Mean scenario score moved from 0.6803 to 0.7003\./);
+  assert.match(reply, /Held-out and trap checks both passed\./);
+  assert.match(reply, /I'd review the kept candidate/);
+  assert.doesNotMatch(reply, /Proof checks/);
+  assert.doesNotMatch(reply, /C:\\paths/);
+});
+
+test('renders specialization loop package without publishing or raw path noise', () => {
+  const reply = renderSpecializationLoopPackage({
+    ok: true,
+    pathKey: 'startup-yc',
+    packagePath: 'C:\\paths\\secret\\insight.json',
+    packet: {
+      path: {
+        pathKey: 'startup-yc',
+        pathLabel: 'Startup YC'
+      },
+      claim: {
+        decision: 'improved',
+        evidenceState: 'complete',
+        state: 'benchmark_backed_candidate',
+        nextMove: 'Review the kept candidate before publishing.'
+      },
+      benchmark: {
+        comparison: {
+          scoreMetric: 'mean_scenario_score',
+          baselineScore: 0.6803,
+          candidateScore: 0.7003,
+          delta: 0.02,
+          decision: 'kept'
+        },
+        heldOutStatus: 'passed',
+        trapStatus: 'passed'
+      },
+      reusableTemplateCandidate: {
+        eligible: true
+      },
+      publication: {
+        state: 'local_private',
+        published: false,
+        networkAbsorbable: false
+      }
+    }
+  });
+
+  assert.match(reply, /I packaged Startup YC's proof locally/);
+  assert.match(reply, /Nothing was published or shared/);
+  assert.match(reply, /Benchmark-backed improvement: mean scenario score 0.6803 → 0.7003, with held-out and trap checks both passed\./);
+  assert.match(reply, /ready for private template review/);
+  assert.doesNotMatch(reply, /C:\\paths/);
+  assert.doesNotMatch(reply, /insight\.json/);
 });
 
 test('renders QA Operator baseline metric as current run in path completion', () => {

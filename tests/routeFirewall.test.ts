@@ -79,6 +79,17 @@ test('allows explicit repo and docs research even when the topic is routing arch
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('allows reusable loop template staging while run and publish are blocked', () => {
+  const verdict = evaluateDeterministicRoute(
+    'creator.mission',
+    'turn this proven loop into a reusable template. Do not run or publish it.'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'creator_mission_plan_only');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
 test('uses the firewall as a broad route-arbitration smoke matrix', () => {
   const cases: Array<{
     name: string;

@@ -54,7 +54,7 @@ import {
 } from './spawner';
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
-import { resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
+import { packageSpecializationPathLoop, readSpecializationPathLoopInsights, readSpecializationPathLoopStatus, resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
 import {
   parseRecursiveCommand,
   proposeRecursiveWorkspaceEvidence,
@@ -77,6 +77,11 @@ import {
   renderRecursiveReviewCandidates,
   renderRecursiveSessions,
   renderRecursiveSwarmPacket,
+  renderSpecializationLoopComparison,
+  renderSpecializationLoopEvidence,
+  renderSpecializationLoopStatus,
+  renderSpecializationLoopInsights,
+  renderSpecializationLoopPackage,
   renderSpecializationPathLoopCompletion,
   sparkWorkspaceBridgeHints,
   sparkWorkspaceConfigured,
@@ -1272,6 +1277,73 @@ function recordNaturalRouteExecution(
   void appendNaturalRouteExecutionRecord(record).catch((error) => {
     console.warn('[NaturalRoute] execution ledger write failed:', error);
   });
+}
+
+function naturalRecursiveRawCommand(decision: NaturalRouteDecision | null): string | null {
+  if (!decision || decision.action !== 'recursive.command') return null;
+  const rawCommand = decision.payload?.rawCommand;
+  return typeof rawCommand === 'string' && rawCommand.trim() ? rawCommand.trim() : null;
+}
+
+function naturalRecursiveStatusTarget(rawCommand: string): string | null {
+  const match = rawCommand.trim().match(/^status\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function labelForTelegram(value: string): string {
+  return String(value || '')
+    .replace(/^path:/, '')
+    .replace(/^path[_-]/, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase())
+    .trim() || 'specialization';
+}
+
+async function handleNaturalRecursiveRoute(
+  ctx: any,
+  user: any,
+  text: string,
+  decision: NaturalRouteDecision | null
+): Promise<boolean> {
+  if (!conversation.isAdmin(ctx.from)) return false;
+  const rawCommand = naturalRecursiveRawCommand(decision);
+  if (!rawCommand) return false;
+
+  await conversation.remember(user, text).catch(() => {});
+
+  if (/^start\b/i.test(rawCommand)) {
+    recordNaturalRouteExecution(ctx, decision, 'recursive.start_confirmation_required', 'spark-telegram-bot', 'clarify');
+    const target = rawCommand.replace(/^start\s+/i, '').replace(/\s+rounds\s+\d+\s*$/i, '').trim();
+    const reply = target
+      ? `I can run the ${labelForTelegram(target)} loop, but that starts benchmark work. Use \`/recursive ${rawCommand}\` when you want the run to actually begin.`
+      : 'I can run that loop, but it starts benchmark work. Use the explicit `/recursive start <target> rounds <n>` command when you want it live.';
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  recordNaturalRouteExecution(ctx, decision, decision?.route || 'recursive.command', 'spark-telegram-bot', 'recursive.command');
+
+  const statusTarget = naturalRecursiveStatusTarget(rawCommand);
+  if (statusTarget) {
+    await safeSendChatAction(ctx, 'typing');
+    const target = await resolveRecursiveStartTarget(statusTarget);
+    if (target.kind !== 'path') {
+      const reply = `${statusTarget} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`;
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      return true;
+    }
+    const reply = renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target), {
+      style: 'conversational'
+    });
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  await handleRecursiveCommand(ctx, rawCommand);
+  return true;
 }
 
 function deterministicRouteAllowed(route: DeterministicRouteId, text: string): boolean {
@@ -3061,13 +3133,14 @@ function pendingCreatorMissionKey(ctx: any): string {
 function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
-  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:creator\s+)?mission)?$/i.test(normalized)) {
+  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:(?:creator\s+)?mission|private\s+path|specialization\s+path|path|autoloop))?$/i.test(normalized)) {
     return 'run';
   }
-  if (/^(?:validate|check|verify|test)(?:\s+(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+  if (/^(?:validate|verify|test)(?:\s+(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?|the\s+autoloop|the\s+evidence|the\s+capability\s+gain))?$/i.test(normalized) ||
+    /^(?:run|start)\s+(?:validation|checks?|benchmarks?|benchmark\s+validation|the\s+checks?)(?:\s+(?:on|for)\s+(?:it|the\s+path|the\s+specialization\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
     return 'validate';
   }
-  if (/^(?:status|show status|what'?s happening|what happened|show me status|check status)(?:\s+(?:for\s+)?(?:it|the\s+creator\s+mission|the\s+mission))?$/i.test(normalized)) {
+  if (/^(?:status|show status|check|check status|what'?s happening|what happened|where are we|show me status|show me what improved|what improved|did it improve|is it better yet|prepare it for review)(?:\s+(?:for\s+)?(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
     return 'status';
   }
   return null;
@@ -3077,7 +3150,34 @@ function normalizeNaturalCreatorText(text: string): string {
   return text.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function naturalCreatorTargetLabelFromText(text: string): string | null {
+  const normalized = normalizeNaturalCreatorText(text);
+  if (/\bstartup[-\s]+yc\b/.test(normalized)) return 'Startup YC';
+  if (/\bspark\s+qa\s+operator\b|\bqa\s+operator\b/.test(normalized)) return 'Spark QA Operator';
+  if (/\bdomain[-\s]+chip[-\s]+creator\b/.test(normalized)) return 'Domain Chip Creator';
+  const namedMatch = text.match(/\b(?:called|named|for)\s+["“]?([A-Z][A-Za-z0-9]*(?:[\s-]+[A-Z0-9][A-Za-z0-9]*){0,5})["”]?/);
+  return namedMatch?.[1]?.trim() || null;
+}
+
+function inferNaturalCreatorTargetLabel(text: string, recentMessages: string[] = []): string | null {
+  const direct = naturalCreatorTargetLabelFromText(text);
+  if (direct) return direct;
+
+  const normalized = normalizeNaturalCreatorText(text);
+  const isContextualFollowup = /\b(?:this|that|same|current|latest|proven|it)\b.*\b(?:loop|path|template|domain chip|benchmark|packet|creator)\b/.test(normalized) ||
+    /\b(?:turn|package|link|update|create|stage)\s+(?:this|that|it)\b/.test(normalized);
+  if (!isContextualFollowup) return null;
+
+  for (const message of [...recentMessages].reverse()) {
+    const label = naturalCreatorTargetLabelFromText(message);
+    if (label) return label;
+  }
+  return null;
+}
+
 function inferNaturalCreatorPrivacyMode(normalized: string): ParsedCreatorCommand['privacyMode'] | undefined {
+  if (/\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:publish|share|ship|deploy)\b/.test(normalized)) return 'local_only';
+  if (/\b(?:no|not)\s+(?:publish|sharing|share|deploy)(?:ing)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized)) return 'local_only';
   if (/\b(?:private|local|locally|workspace only|personal workspace)\b/.test(normalized)) return 'local_only';
   if (/\b(?:github|pull request|pr)\b/.test(normalized)) return 'github_pr';
   if (/\b(?:swarm|network|public|share|shared)\b/.test(normalized)) return 'swarm_shared';
@@ -3089,21 +3189,24 @@ function inferNaturalCreatorRiskLevel(normalized: string): ParsedCreatorCommand[
   return match ? (match[1] as ParsedCreatorCommand['riskLevel']) : 'medium';
 }
 
-export function parseNaturalCreatorMissionIntent(text: string): NaturalCreatorMissionIntent | null {
+export function parseNaturalCreatorMissionIntent(text: string, recentMessages: string[] = []): NaturalCreatorMissionIntent | null {
   const normalized = normalizeNaturalCreatorText(text);
   if (!normalized || normalized.startsWith('/')) return null;
   if (/\b(?:what|which|show|list|status|report|review|trace)\b/.test(normalized) && !/\b(?:create|build|make|plan|scaffold|generate)\b/.test(normalized)) {
     return null;
   }
 
-  const hasCreateVerb = /\b(?:create|build|make|plan|scaffold|generate|set up|spin up)\b/.test(normalized);
+  const hasCreateVerb = /\b(?:create|build|make|plan|stage|scaffold|generate|set up|spin up|prepare|add|attach|update|package|link|turn)\b/.test(normalized);
   if (!hasCreateVerb) return null;
 
   const artifactPatterns: Array<{ label: string; pattern: RegExp }> = [
     { label: 'full creator system', pattern: /\b(?:creator system|creator mission|creator run|full path|domain chip.*benchmark.*(?:specialization|path|autoloop)|specialization.*benchmark.*autoloop)\b/ },
     { label: 'specialization path', pattern: /\b(?:specialization path|specialisation path|learning path|mastery path)\b/ },
     { label: 'autoloop', pattern: /\b(?:autoloop|auto loop|recursive loop|self-improvement loop)\b/ },
-    { label: 'benchmark pack', pattern: /\b(?:benchmark pack|benchmark|eval pack|evaluation pack|test suite)\b/ },
+    { label: 'benchmark pack', pattern: /\b(?:benchmark pack|eval pack|evaluation pack|test suite)\b/ },
+    { label: 'insight packet', pattern: /\b(?:shareable insight packet|insight packet|review packet)\b/ },
+    { label: 'Swarm contribution packet', pattern: /\b(?:swarm contribution packet|swarm review packet|contribution packet)\b/ },
+    { label: 'reusable template', pattern: /\b(?:reusable template|loop template|specialization template)\b/ },
     { label: 'domain chip', pattern: /\b(?:domain chip|domain-chip)\b/ }
   ];
   const artifact = artifactPatterns.find((entry) => entry.pattern.test(normalized));
@@ -3111,11 +3214,24 @@ export function parseNaturalCreatorMissionIntent(text: string): NaturalCreatorMi
 
   const brief = text.trim().replace(/\s+/g, ' ');
   if (brief.length < 8) return null;
+  const targetLabel = inferNaturalCreatorTargetLabel(text, recentMessages);
+  const contextLines = [
+    targetLabel ? `Target domain/path: ${targetLabel}.` : null,
+    `Requested artifact: ${artifact.label}.`,
+    targetLabel && artifact.label === 'reusable template'
+      ? `Keep the reusable template attached to the active ${targetLabel} specialization loop; do not rename it to a generic Intent path.`
+      : null
+  ].filter((line): line is string => Boolean(line));
   return {
     brief: [
+      ...contextLines,
+      ...(contextLines.length > 0 ? [''] : []),
       brief,
       '',
-      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, and Swarm review packet only when gates allow it.',
+      'Treat higher-intelligence, tool-usage, reasoning, or ability-gain claims as unproven until benchmark validation records a before/after gain.',
+      'Require explicit evidence for creator-intent.json, adapter-map.json, created-artifact-manifest.json, domain-chip/, benchmark/, specialization-path/, autoloop/policy.json, reports/evidence_ladder.md, reports/creator-mission-status.json, and swarm/contribution_packet.json before any publish or share step.',
+      'Keep publication.network_absorbable=false unless future promotion gates and explicit operator approval allow it.',
+      'Use Spark creator-system standards: creator intent packet, adapter map, artifact manifests, benchmark gates, evidence ladder, local/private boundary, rollback note, and review bundle only when gates allow it.',
       'Keep Telegram user-facing output natural and concise; keep detailed evidence in Workspace/Canvas/Kanban.'
     ].join('\n'),
     privacyMode: inferNaturalCreatorPrivacyMode(normalized),
@@ -4484,7 +4600,7 @@ bot.command('creator', async (ctx) => {
     return ctx.reply(CREATOR_USAGE);
   }
 
-  await ctx.reply('Planning creator mission...');
+  await ctx.reply('I will stage the creator mission first. No run or publishing yet.');
   await handleCreatorMissionPlan(ctx, parsed);
 });
 
@@ -4599,9 +4715,46 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       return ctx.reply(await recursiveSessionStatus(parsed.id));
     }
 
+    if (parsed.action === 'status') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive status <path>');
+      await safeSendChatAction(ctx, 'typing');
+      const target = await resolveRecursiveStartTarget(parsed.id);
+      if (target.kind !== 'path') {
+        return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
+      }
+      return ctx.reply(renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target)));
+    }
+
+    if (parsed.action === 'compare' || parsed.action === 'evidence') {
+      if (!parsed.id) return ctx.reply(`Usage: /recursive ${parsed.action} <path>`);
+      await safeSendChatAction(ctx, 'typing');
+      const target = await resolveRecursiveStartTarget(parsed.id);
+      if (target.kind !== 'path') {
+        return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
+      }
+      const status = await readSpecializationPathLoopStatus(target);
+      return ctx.reply(parsed.action === 'compare'
+        ? renderSpecializationLoopComparison(status)
+        : renderSpecializationLoopEvidence(status));
+    }
+
+    if (parsed.action === 'package') {
+      if (!parsed.id) return ctx.reply('Usage: /recursive package <path>');
+      await safeSendChatAction(ctx, 'typing');
+      const target = await resolveRecursiveStartTarget(parsed.id);
+      if (target.kind !== 'path') {
+        return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
+      }
+      return ctx.reply(renderSpecializationLoopPackage(await packageSpecializationPathLoop(target)));
+    }
+
     if (parsed.action === 'report') {
       if (!parsed.id) return ctx.reply('Usage: /recursive report <id>');
       await safeSendChatAction(ctx, 'typing');
+      const target = await resolveRecursiveStartTarget(parsed.id);
+      if (target.kind === 'path') {
+        return ctx.reply(renderSpecializationLoopInsights(await readSpecializationPathLoopInsights(target)));
+      }
       return ctx.reply(await recursiveSessionReport(parsed.id));
     }
 
@@ -4671,7 +4824,10 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       const startTarget = await resolveRecursiveStartTarget(parsed.chipKey);
       await safeSendChatAction(ctx, 'typing');
       const targetLabel = startTarget.kind === 'path' ? 'Spark Swarm specialization path loop' : 'recursive Builder chip loop';
-      await ctx.reply(`Starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I will post the summary when it finishes.`);
+      const startLine = startTarget.kind === 'path'
+        ? `🧪 I’m starting ${startTarget.key} for ${rounds} benchmark round(s). I’ll keep the raw evidence local and send the summary when the loop settles.`
+        : `🧪 I’m starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I’ll send the summary when it settles.`;
+      await ctx.reply(startLine);
 
       void (async () => {
         try {
@@ -4681,7 +4837,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
               await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
               return;
             }
-            await ctx.telegram.sendMessage(chatId, renderSpecializationPathLoopCompletion(result));
+            const insights = await readSpecializationPathLoopInsights(startTarget);
+            await ctx.telegram.sendMessage(
+              chatId,
+              insights.ok ? renderSpecializationLoopInsights(insights) : renderSpecializationPathLoopCompletion(result)
+            );
             return;
           }
 
@@ -5449,6 +5609,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
     return;
   }
+
+  if (!earlyBuildIntent && await handleNaturalRecursiveRoute(ctx, user, text, naturalRouteShadow)) {
+    return;
+  }
+
   const activePendingClarification = conversation.isAdmin(ctx.from)
     ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
     : null;
@@ -5462,6 +5627,42 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
+    return;
+  }
+  const recentMessagesForNaturalRouting = conversation.isAdmin(ctx.from)
+    ? await conversation.getRecentMessages(ctx.from, 15).catch(() => [])
+    : [];
+  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text, recentMessagesForNaturalRouting) : null;
+  const recentCreatorLoopContext = recentMessagesForNaturalRouting.some((message) => (
+    /\b(?:creator\s+(?:mission|system|run)|speciali[sz]ation\s+path|benchmark\s+pack|autoloop|startup[-\s]+yc|shareable\s+insight\s+packet|reusable\s+template|recursive\s+loop)\b/i.test(message)
+  ));
+  const creatorLoopDomainChipFollowup =
+    recentCreatorLoopContext &&
+    /\b(?:domain[-\s]*chip|chip)\b/i.test(text) &&
+    (
+      /\b(?:the|this|that|current|existing)\s+(?:domain[-\s]*chip|chip)\b/i.test(text) ||
+      /\b(?:create|update|attach|add|link)\b.{0,24}\b(?:domain[-\s]*chip|chip)\b/i.test(text)
+    );
+  const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
+  if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && deterministicRouteAllowed('creator.mission', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(`I will stage the ${naturalCreatorIntent.artifactLabel} privately first. No run or publishing yet.`);
+    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
+    return;
+  }
+  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
+    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
+      brief: earlyNaturalChipBrief,
+      prd: buildDomainChipPrd(earlyNaturalChipBrief),
+      projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
+      buildMode: mode.buildMode,
+      buildModeReason: mode.reason,
+      capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
+      timestamp: Date.now()
+    });
+    await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
     return;
   }
   if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
@@ -5490,29 +5691,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       : llmResponse;
     await ctx.reply(response);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
-    return;
-  }
-  const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
-  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
-    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
-      brief: earlyNaturalChipBrief,
-      prd: buildDomainChipPrd(earlyNaturalChipBrief),
-      projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
-      buildMode: mode.buildMode,
-      buildModeReason: mode.reason,
-      capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
-      timestamp: Date.now()
-    });
-    await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
-    return;
-  }
-  const naturalCreatorIntent = conversation.isAdmin(ctx.from) ? parseNaturalCreatorMissionIntent(text) : null;
-  if (naturalCreatorIntent && deterministicRouteAllowed('creator.mission', text)) {
-    await conversation.remember(user, text).catch(() => {});
-    await ctx.reply(`Planning ${naturalCreatorIntent.artifactLabel} creator mission...`);
-    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);

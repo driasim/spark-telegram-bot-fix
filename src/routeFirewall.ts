@@ -168,13 +168,31 @@ function isNoExecutionBoundary(normalized: string): boolean {
   return [
     /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
     /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|ship|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|publish|share|ship|deploy|kick\s+off)\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|the\s+mission|the\s+build|the\s+project|it|this|that)\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:(?:a|another)\s+)?(?:mission|build|project)\b/,
     /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
     /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/
   ].some((pattern) => pattern.test(normalized));
+}
+
+function isCreatorMissionPlanOnlyRequest(normalized: string): boolean {
+  const asksForCreatorPlan =
+    /\b(?:create|build|make|plan|stage|scaffold|generate|set up|prepare|add|attach|update|package|link|turn)\b/.test(normalized) &&
+    /\b(?:creator\s+(?:mission|system|run)|domain[-\s]*chip|benchmark\s+pack|benchmarks?|evals?|speciali[sz]ation\s+path|autoloop(?:\s+policy)?|auto\s+loop|swarm\s+(?:review|contribution)\s+packet|shareable\s+insight\s+packet|insight\s+packet|review\s+packet|reusable\s+template|loop\s+template|speciali[sz]ation\s+template)\b/.test(normalized);
+  if (!asksForCreatorPlan) return false;
+
+  const blocksRunOrPublish =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:run|launch|execute|kick\s+off|publish|share|ship|deploy)\b/.test(normalized) ||
+    /\b(?:no|not)\s+(?:run|publish|sharing|share|execution|launch|deploy)(?:ing)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized);
+  if (!blocksRunOrPublish) return false;
+
+  const blocksPlanning =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|plan|stage|scaffold|generate|prepare|add|attach|update|package|link|turn)\b/.test(normalized) ||
+    /\b(?:help\s+me\s+)?(?:think\s+through|brainstorm|discuss|talk\s+through|chat\s+about)\b/.test(normalized) ||
+    /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/.test(normalized);
+  return !blocksPlanning;
 }
 
 function isMissionPreferenceLike(normalized: string): boolean {
@@ -202,6 +220,10 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (normalized.startsWith('/')) {
     return { allow: true, reason: 'slash_command', confidence: 'explicit' };
+  }
+
+  if (route === 'creator.mission' && isNoExecutionBoundary(normalized) && isCreatorMissionPlanOnlyRequest(normalized)) {
+    return { allow: true, reason: 'creator_mission_plan_only', confidence: 'explicit' };
   }
 
   if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
