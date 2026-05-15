@@ -286,7 +286,7 @@ test('routes specialization loop proof and candidate follow-ups from active path
   assert.equal(runCandidateBenchmark.requires_confirmation, true);
   assert.match(String(runCandidateBenchmark.payload.rawCommand), /start startup-yc rounds 1/);
 
-  assert.equal(compare.route, 'recursive.status');
+  assert.equal(compare.route, 'recursive.compare');
   assert.equal(compare.requires_confirmation, false);
 
   assert.equal(heldOut.route, 'recursive.status');
