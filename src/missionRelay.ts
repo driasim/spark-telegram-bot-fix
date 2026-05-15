@@ -941,6 +941,16 @@ function stripMissionControlBoilerplate(text: string): string {
     .trim();
 }
 
+function stripVisibleMissionReferences(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*Mission:\s*(?:spark|mission|dispatch)-[\w-]+\s*$/i.test(line))
+    .join('\n')
+    .replace(/\b(?:spark|mission|dispatch)-\d{6,}\b/gi, 'this mission')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function looksLikeInternalProgress(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -1187,7 +1197,7 @@ function summarizeVerificationChecks(checks: string[]): string {
 }
 
 function extractFreeformLeadSummary(text: string): string | null {
-  const cleaned = stripMarkdownFileLinks(stripThinkingAndMeta(text));
+  const cleaned = stripVisibleMissionReferences(stripMarkdownFileLinks(stripThinkingAndMeta(text)));
   const line = cleaned
     .split(/\r?\n/)
     .map((entry) => entry.trim())
@@ -1291,7 +1301,7 @@ export function formatProviderCompletionForTelegram(input: {
   const parsed = parseJsonObject(input.response);
 
   if (!parsed) {
-    const clean = stripMarkdownFileLinks(stripThinkingAndMeta(input.response));
+    const clean = stripVisibleMissionReferences(stripMarkdownFileLinks(stripThinkingAndMeta(input.response)));
     const cleanWithoutProvider = clean.replace(/^(?:Z\.AI|ZAI|Claude|Codex|MiniMax|GLM)(?:\s+GLM)?\s*:\s*/i, '').trim();
     if (!clean) {
       const openLink = input.openLink ? normalizePreviewLink(input.openLink, null) : null;
@@ -1381,7 +1391,8 @@ export function formatProviderCompletionForTelegram(input: {
   }
 
   const status = stringField(parsed, 'status');
-  const summary = stringField(parsed, 'summary') || stringField(parsed, 'message');
+  const rawSummary = stringField(parsed, 'summary') || stringField(parsed, 'message');
+  const summary = rawSummary ? stripVisibleMissionReferences(rawSummary) : null;
   const completionKind = providerCompletionKind(status, [summary, input.response].filter(Boolean).join('\n'));
   const projectPath = stringField(parsed, 'project_path') || stringField(parsed, 'projectPath');
   const openLink = input.openLink !== undefined
