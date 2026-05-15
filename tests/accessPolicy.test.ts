@@ -332,7 +332,7 @@ async function main(): Promise<void> {
     assert.match(bridgeSource, /eventId: String\(payload\.event_id \|\| ''\)/);
 
     assert.match(indexSource, /runBuilderSourceUsed\(\{/);
-    assert.match(indexSource, /selectedRoute,\n\s*confidence/);
+    assert.match(indexSource, /selectedRoute,\r?\n\s*confidence/);
     assert.match(indexSource, /telegram_status_command/);
     assert.match(indexSource, /telegram_spark_risk_profile_answer/);
     assert.match(indexSource, /telegram_restart_survival_answer/);
