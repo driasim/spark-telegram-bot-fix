@@ -90,6 +90,37 @@ test('routes tiny one-screen smoke pages through the fast direct lane', () => {
   assert.match(intent.buildLaneReason, /lightweight planning/i);
 });
 
+test('extracts clean names from Telegram direct-build game prompts', () => {
+  const quotedIntent = parseBuildIntent(
+    'Build a tiny single-screen browser game called "Spark Bumper QA". Direct build now through Spawner/Mission Control. Keep it small and fast: static HTML/CSS/JS in one folder.'
+  );
+
+  assert.ok(quotedIntent);
+  assert.equal(quotedIntent.projectName, 'Spark Bumper QA');
+  assert.equal(quotedIntent.buildMode, 'direct');
+  assert.equal(quotedIntent.buildLane, 'direct');
+
+  const routedIntent = parseBuildIntent(
+    'Direct build now through Spawner Mission Control: Spark Paddle QA. Make a tiny one-screen static HTML CSS JS game in one folder. Player moves a paddle with arrow keys or WASD to catch falling sparks for 30 seconds.'
+  );
+
+  assert.ok(routedIntent);
+  assert.equal(routedIntent.projectName, 'Spark Paddle QA');
+  assert.equal(routedIntent.buildMode, 'direct');
+  assert.equal(routedIntent.buildLane, 'direct');
+});
+
+test('does not let mission link sharing break tiny one-file game naming', () => {
+  const intent = parseBuildIntent(
+    'Build a tiny one-file browser game called "Spark Pinball QA". Direct build now through Spawner/Mission Control. Keep it fast: static HTML/CSS/JS in one folder. Include score, lives, timer, restart, win/fail. Verify locally. Share Canvas, Kanban, and Preview.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Spark Pinball QA');
+  assert.equal(intent.buildMode, 'direct');
+  assert.equal(intent.buildLane, 'direct');
+});
+
 test('keeps constrained one-file static HTML prompts direct even when they say full app', () => {
   const intent = parseBuildIntent(
     'build one file only: index.html with a big heading "Spark relay is alive" and text "telegram progress updates reached me". Do not make a full app, do not add package files, and keep it as static HTML only.'

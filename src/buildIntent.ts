@@ -168,6 +168,20 @@ function inferForAudienceProductName(prd: string): string | null {
   return titleCaseProjectName(`${audience} ${product}`);
 }
 
+function inferDashboardPurposeName(prd: string): string | null {
+  const normalized = prd.replace(/\s+/g, ' ').trim();
+  const match = normalized.match(
+    /^(?:(?:build|create|make|ship|scaffold|generate|develop)\s+)?(?:this\s+)?(?:(?:a|an|the|new|tiny|small|quick|simple)\s+)*(dashboard)\s+for\s+([A-Za-z][A-Za-z0-9 -]{2,60}?)(?=[.,:;?!]|\s+(?:with|that|which|where|using|and)\b|$)/i
+  );
+  if (!match) return null;
+  const purpose = match[2]
+    .replace(/\b(?:users?|people|teams?|things?|stuff)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!purpose) return null;
+  return titleCaseProjectName(`${purpose} ${match[1].toLowerCase()}`);
+}
+
 function inferQuotedHeadingProjectName(prd: string): string | null {
   const headingMatch = prd.match(
     /\b(?:big\s+|large\s+|hero\s+)?(?:heading|headline|title|h1)\b(?:\s+(?:that\s+)?(?:says|reads|called|named))?\s*[:\-]?\s*["']([^"']{3,80})["']/i
@@ -179,7 +193,33 @@ function inferQuotedHeadingProjectName(prd: string): string | null {
     .replace(/[.!?]+$/, '');
 }
 
+function inferExplicitProjectName(prd: string): string | null {
+  const quotedNameMatch = prd.match(
+    /\b(?:called|named)\s+["']([^"']{3,80})["']/i
+  );
+  if (quotedNameMatch?.[1]) {
+    return quotedNameMatch[1]
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.!?]+$/, '');
+  }
+
+  const routePrefaceMatch = prd.match(
+    /^(?:through|via|using|with)\s+(?:spawner(?:\s+ui)?|mission\s+control|spawner\s+mission\s+control|spawner\/mission\s+control)[^:\n]{0,80}:\s*([A-Za-z0-9][A-Za-z0-9 '&.-]{2,80}?)(?=[.,;?!]|\s+(?:make|build|create|ship|scaffold|generate|with|that|which|where|for|using|include)\b|$)/i
+  );
+  if (routePrefaceMatch?.[1]) {
+    return routePrefaceMatch[1]
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.!?]+$/, '');
+  }
+
+  return null;
+}
+
 function inferProjectName(prd: string, projectPath: string | null): string {
+  const explicitName = inferExplicitProjectName(prd);
+  if (explicitName) return explicitName;
   const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s:.-]{2,80}?)(?=[.,;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
   if (nameMatch) return nameMatch[1].trim().replace(/\s*[:;,-]\s*$/, '');
   const shippedProjectMatch = prd.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i);
@@ -198,6 +238,8 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   if (conceptualName) return conceptualName;
   const audienceProductName = inferForAudienceProductName(prd);
   if (audienceProductName) return audienceProductName;
+  const dashboardPurposeName = inferDashboardPurposeName(prd);
+  if (dashboardPurposeName) return dashboardPurposeName;
   const productPhraseName = inferProductPhraseProjectName(prd);
   if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');
@@ -321,7 +363,8 @@ function inferBuildLane(
 
   const explicitFast = /\b(?:fast\s+lane|fast\s+build|quick\s+build|quickly|finish\s+fast|tiny|small|one[-\s]*screen|single[-\s]*screen|smoke\s+(?:page|test|check|app)|one[-\s]*file|single[-\s]*file)\b/.test(lower);
   const staticSurface = /\b(?:static|vanilla[-\s]*js|html|css|javascript|no\s+build\s+step|page|landing\s+page)\b/.test(lower);
-  const heavyScope = /\b(?:advanced\s+prd|prd|platform|system|mission\s+control|kanban|canvas|auth|oauth|login|database|backend|api|integration|multi[-\s]*tenant|payments?|stripe|deploy|production|real[-\s]*time|websocket|mobile\s+app|desktop\s+app)\b/.test(lower);
+  const canvasBuildScope = /\b(?:game|browser\s+game|canvas|sprite|paddle|score|timer|levels?|enemy|player|physics|collision|animation|keyboard|mouse|touch)\b/.test(lower);
+  const heavyScope = canvasBuildScope || /\b(?:advanced\s+prd|prd|platform|system|mission\s+control|kanban|canvas|auth|oauth|login|database|backend|api|integration|multi[-\s]*tenant|payments?|stripe|deploy|production|real[-\s]*time|websocket|mobile\s+app|desktop\s+app)\b/.test(lower);
   const featureWords = (lower.match(/\b(?:filters?|charts?|dashboard|analytics|localstorage|persistence|editor|roles?|workflow|alerts?|calendar|export|import|collaboration|admin)\b/g) || []).length;
   const requestedFiles = (lower.match(/\b[\w.-]+\.(?:html|css|js|ts|tsx|jsx|json|md|py|svelte|vue|go|rs)\b/g) || []).length;
 
@@ -341,7 +384,9 @@ function inferBuildLane(
 
   return {
     lane: 'direct',
-    reason: 'Direct build lane selected: small explicit build with normal planning depth.'
+    reason: canvasBuildScope
+      ? 'Direct build lane selected: keep the normal PRD/canvas handoff for interactive builds.'
+      : 'Direct build lane selected: small explicit build with normal planning depth.'
   };
 }
 
