@@ -3942,6 +3942,9 @@ async function readLatestCanvasPlanFromSpawnerState(): Promise<LatestCanvasPlan 
 
 export function isLatestCanvasPlanQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (/\b(?:mission|project|build)\s+title\b/.test(normalized) || /\btitle\s+would\s+you\s+use\b/.test(normalized)) {
+    return false;
+  }
   const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
     || /\bfull plan\b/.test(normalized);
   const asksTasksOrSkills = /\b(?:tasks?|steps?|skills?|paired skills?|queued|plan)\b/.test(normalized);
@@ -3972,6 +3975,25 @@ export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
     'Canvas',
     `• ${plan.readyCanvasUrl}`
   ].flat().filter((line): line is string => line !== null).join('\n');
+}
+
+function buildNoStartMissionTitleReply(text: string): string | null {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksTitle = /\b(?:mission|project|build)\s+title\b/.test(normalized) || /\btitle\s+would\s+you\s+use\b/.test(normalized);
+  const noStart = /\b(?:do\s+not|don't|without|no)\s+(?:start|launch|run|create|build)\b/.test(normalized);
+  if (!asksTitle || !noStart) return null;
+
+  const quotedPhrases = Array.from(text.matchAll(/["“”']([^"“”']{3,240})["“”']/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+  for (const phrase of quotedPhrases) {
+    const intent = parseBuildIntent(phrase);
+    if (intent?.projectName) {
+      return `I’d use ${intent.projectName}. I would not start a mission from that title check.`;
+    }
+  }
+
+  return null;
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -5385,6 +5407,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(quotedOriginReply);
     await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
+    return;
+  }
+  const noStartMissionTitleReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
+    ? buildNoStartMissionTitleReply(text)
+    : null;
+  if (noStartMissionTitleReply) {
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.title_probe', 'spark-telegram-bot', 'answer');
+    await ctx.reply(noStartMissionTitleReply);
+    await conversation.rememberAssistantReply(user, noStartMissionTitleReply).catch(() => {});
     return;
   }
   const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)

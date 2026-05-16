@@ -364,6 +364,10 @@ test('bug hunt: casual next-step questions do not recall stale canvas plans', ()
     isLatestCanvasPlanQuestion('For QA, show the latest canvas plan and skills for the Startup Benchmark Progress Dashboard build. Do not start anything new.'),
     true
   );
+  assert.equal(
+    isLatestCanvasPlanQuestion('Do not start a mission. If I say "Create a tiny maze game plan and build only a minimal playable prototype", what mission title would you use? Keep it natural and short.'),
+    false
+  );
 });
 
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
