@@ -493,7 +493,7 @@ async function run(): Promise<void> {
 			assert.match(writeCall!.body.content, /Target workspace\/project path: `C:\\Users\\USER\\Desktop\\terminal-chef-clock`/);
 			assert.equal(writeCall!.body.buildMode, 'advanced_prd');
 			assert.doesNotMatch(replies.join('\n'), /Saved your mission update preference/);
-			assert.match(replies[0] || '', /🛠️ Setting up terminal chef clock as a planning canvas\./);
+			assert.match(replies[0] || '', /🛠️ Setting up Terminal Chef Clock as a planning canvas\./);
 
 		restoreAxios();
 		restoreEnv();

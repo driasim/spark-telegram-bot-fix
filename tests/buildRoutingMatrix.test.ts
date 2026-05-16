@@ -47,7 +47,7 @@ Send concise Telegram updates only when planning is ready, a meaningful step sta
 
 It needs a service menu, durations, staff availability, booking flow, manager dashboard, confirmation state, and local persistence.
 
-Include the Mission board and canvas links when they are useful.`, 'beauty booking room');
+Include the Mission board and canvas links when they are useful.`, 'Beauty Booking Room');
 
   assertRoutesToBuild(`I want to build a private Three.js tool called Magical Object Forge.
 
@@ -95,6 +95,20 @@ Send the Mission board first and the canvas when planning is ready.`;
   assert.ok(accessIntent);
   assert.equal(accessIntent.projectName, 'Salon Flow');
   assert.equal(parseNaturalAccessChangeIntent(accessPrompt), '4');
+});
+
+test('mission titles stay readable for simple game and path-derived builds', () => {
+  assert.equal(parseBuildIntent("let's build a maze game")?.projectName, 'Maze Game');
+  assert.equal(
+    parseBuildIntent(
+      'Create a tiny maze game plan and build only a minimal playable prototype. Use a short PRD if needed, keep it fast, and show Mission Control links as it moves through planning, build, and completion.'
+    )?.projectName,
+    'Tiny Maze Game'
+  );
+  assert.equal(
+    parseBuildIntent('Save mission updates as verbose and build this at C:\\Users\\USER\\Desktop\\terminal-chef-clock: a clock for terminal devs who cook.')?.projectName,
+    'Terminal Chef Clock'
+  );
 });
 
 test('non-build utility requests still route away from builder', () => {
