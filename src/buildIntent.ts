@@ -95,13 +95,22 @@ function titleCaseProjectName(value: string): string {
     .join(' ');
 }
 
+function polishInferredProjectName(value: string): string {
+  const clean = value
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.!?]+$/, '');
+  if (!clean) return clean;
+  return /[A-Z]/.test(clean) ? clean : titleCaseProjectName(clean);
+}
+
 function inferProductPhraseProjectName(prd: string): string | null {
   const normalized = prd.replace(/\s+/g, ' ').trim();
   const productType = '(?:domain[-\\s]*chip|landing\\s+page|dashboard|workbench|agent|tool|app|game|system|tracker|planner|timer|clock|site|website|page)';
   const patterns = [
-    new RegExp(`^(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i'),
-    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and)\\b|$)`, 'i')
+    new RegExp(`^(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and|plan|prototype|build|only|minimal|playable)\\b|$)`, 'i'),
+    new RegExp(`\\b(?:build|create|make|scaffold|ship|implement|design)\\s+(?:this\\s+)?(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and|plan|prototype|build|only|minimal|playable)\\b|$)`, 'i'),
+    new RegExp(`\\bi\\s+(?:want|need|could\\s+use|would\\s+like)\\s+(?:(?:a|an|the|new)\\s+)?([A-Za-z0-9][A-Za-z0-9' -]{2,90}?\\b${productType})\\b(?=[.,:;?!]|\\s+(?:that|which|where|with|for|to|using|and|plan|prototype|build|only|minimal|playable)\\b|$)`, 'i')
   ];
   const genericLeadingWords = new Set([
     'a',
@@ -112,7 +121,6 @@ function inferProductPhraseProjectName(prd: string): string | null {
     'local',
     'local-first',
     'simple',
-    'tiny',
     'quick',
     'polished',
     'real',
@@ -208,10 +216,7 @@ function inferExplicitProjectName(prd: string): string | null {
     /^(?:through|via|using|with)\s+(?:spawner(?:\s+ui)?|mission\s+control|spawner\s+mission\s+control|spawner\/mission\s+control)[^:\n]{0,80}:\s*([A-Za-z0-9][A-Za-z0-9 '&.-]{2,80}?)(?=[.,;?!]|\s+(?:make|build|create|ship|scaffold|generate|with|that|which|where|for|using|include)\b|$)/i
   );
   if (routePrefaceMatch?.[1]) {
-    return routePrefaceMatch[1]
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/[.!?]+$/, '');
+    return polishInferredProjectName(routePrefaceMatch[1]);
   }
 
   return null;
@@ -221,17 +226,17 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   const explicitName = inferExplicitProjectName(prd);
   if (explicitName) return explicitName;
   const nameMatch = prd.match(/\bcalled\s+([A-Z][\w\s:.-]{2,80}?)(?=[.,;?]|\n|\s+(?:with|that|which|where|for|using)\b|\s+and\s+(?:make|build|create|ship|scaffold|generate)\b|$)/i);
-  if (nameMatch) return nameMatch[1].trim().replace(/\s*[:;,-]\s*$/, '');
+  if (nameMatch) return polishInferredProjectName(nameMatch[1].replace(/\s*[:;,-]\s*$/, ''));
   const shippedProjectMatch = prd.match(/\bexisting shipped project\s+["']([^"']{3,80})["']/i);
-  if (shippedProjectMatch) return shippedProjectMatch[1].trim();
+  if (shippedProjectMatch) return polishInferredProjectName(shippedProjectMatch[1]);
   const quotedProjectMatch = prd.match(/\b(?:project|app|site|dashboard|tool)\s+["']([^"']{3,80})["']/i);
-  if (quotedProjectMatch) return quotedProjectMatch[1].trim();
+  if (quotedProjectMatch) return polishInferredProjectName(quotedProjectMatch[1]);
   if (projectPath) {
     const pathName = projectPath.split(/[\\/]/).filter(Boolean).pop();
     if (pathName) return projectNameFromPathSegment(pathName);
   }
   const atMatch = prd.match(/(?:at|in)\s+(?:[A-Z]:[\\/]|\/)[\w\\/:\-. ]+[\\/]([\w.-]+)/);
-  if (atMatch) return atMatch[1].replace(/[-_]/g, ' ').trim();
+  if (atMatch) return polishInferredProjectName(atMatch[1].replace(/[-_]/g, ' '));
   const quotedHeadingName = inferQuotedHeadingProjectName(prd);
   if (quotedHeadingName) return quotedHeadingName;
   const conceptualName = inferConceptualProjectName(prd);
@@ -243,14 +248,14 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   const productPhraseName = inferProductPhraseProjectName(prd);
   if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');
-  return firstWords.slice(0, 60) || 'Untitled Project';
+  return polishInferredProjectName(firstWords.slice(0, 60)) || 'Untitled Project';
 }
 
 function projectNameFromPathSegment(pathName: string): string {
   const clean = pathName.replace(/[-_]/g, ' ').trim();
   const missionMatch = clean.match(/^mission\s+\d+\s+(.+)$/i);
-  if (!missionMatch) return clean;
-  return missionMatch[1].replace(/\b\w/g, (char) => char.toUpperCase());
+  if (!missionMatch) return polishInferredProjectName(clean);
+  return titleCaseProjectName(missionMatch[1]);
 }
 
 function cleanExtractedPath(value: string): string {
