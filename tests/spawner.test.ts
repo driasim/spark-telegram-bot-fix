@@ -511,10 +511,13 @@ async function run(): Promise<void> {
     const result = await spawner.missionCommand('status', 'spark-status');
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Mission: spark-status/);
-    assert.match(result.message, /Complete: yes/);
-    assert.match(result.message, /codex: completed/);
-    assert.match(result.message, /claude: running/);
+    assert.match(result.message, /Mission is complete/);
+    assert.match(result.message, /• Complete: yes/);
+    assert.match(result.message, /• Codex: completed/);
+    assert.match(result.message, /• Claude: running/);
+    assert.match(result.message, /• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/spark-status/);
+    assert.match(result.message, /• Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-status/);
+    assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=spark-status/);
   });
 
   await test('missionCommand reports not-found status without inventing a mission', async () => {
@@ -593,11 +596,14 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Running: 1/);
-    assert.match(result.message, /- spark-fresh \| Build canvas sync/);
+    assert.match(result.message, /Spawner board is current/);
+    assert.match(result.message, /• 1 running/);
+    assert.match(result.message, /• Build canvas sync \(spark-fresh\)/);
     assert.doesNotMatch(result.message, /spark-stale/);
-    assert.match(result.message, /Completed: 1/);
-    assert.match(result.message, /- spark-done/);
+    assert.match(result.message, /• 1 completed/);
+    assert.match(result.message, /• spark-done \(spark-done\)/);
+    assert.match(result.message, /Next\n• \/mission status spark-done/);
+    assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=spark-done/);
   });
 
   await test('board tolerates malformed board buckets from Spawner', async () => {
@@ -617,9 +623,9 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Running: 0/);
-    assert.match(result.message, /Paused: 0/);
-    assert.match(result.message, /Completed: 0/);
+    assert.match(result.message, /• 0 running/);
+    assert.match(result.message, /• 0 paused/);
+    assert.match(result.message, /• 0 completed/);
   });
 
   await test('latestKanbanSummary reports the newest board-visible mission', async () => {
@@ -664,12 +670,15 @@ async function run(): Promise<void> {
     const result = await spawner.latestKanbanSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /latest mission is visible on Kanban/);
+    assert.match(result.message, /Latest mission is visible on Kanban/);
     assert.doesNotMatch(result.message, /^Yes,/);
-    assert.match(result.message, /Mission: mission-newer/);
-    assert.match(result.message, /Tasks: Render page, Write README/);
-    assert.match(result.message, /Provider: Codex/);
-    assert.match(result.message, /Relay: spark-agi:8789/);
+    assert.match(result.message, /• Title: Fresh canvas mission/);
+    assert.match(result.message, /• Tasks: Render page, Write README/);
+    assert.match(result.message, /• Provider: Codex/);
+    assert.match(result.message, /• Relay: spark-agi:8789/);
+    assert.match(result.message, /Next\n• \/mission status mission-newer/);
+    assert.match(result.message, /• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/mission-newer/);
+    assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=mission-newer/);
     assert.doesNotMatch(result.message, /mission-older/);
   });
 
@@ -712,8 +721,9 @@ async function run(): Promise<void> {
     const result = await spawner.latestProviderSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /handled by: Codex/);
-    assert.match(result.message, /Mission: spark-live/);
+    assert.match(result.message, /Latest Spawner job used Codex/);
+    assert.match(result.message, /• Title: Live smoke/);
+    assert.match(result.message, /Next\n• \/mission status spark-live/);
     assert.doesNotMatch(result.message, /spark-done/);
   });
 

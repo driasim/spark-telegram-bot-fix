@@ -330,20 +330,21 @@ function formatLatestMission(entry: BoardEntry): string[] {
     ? entry.taskNames.slice(0, 3).join(', ')
     : entry.taskName || null;
   const lines = [
-    `Mission: ${entry.missionId}`,
-    `Status: ${entry.status}`,
-    `Title: ${title}`
+    'State',
+    `• Title: ${title}`,
+    `• Status: ${formatCreatorReadiness(entry.status)}`
   ];
 
-  if (tasks) lines.push(`Tasks: ${tasks}`);
-  lines.push(`Provider: ${providerNames(entry)}`);
+  if (tasks) lines.push(`• Tasks: ${tasks}`);
+  lines.push(`• Provider: ${providerNames(entry)}`);
   if (entry.telegramRelay?.profile || entry.telegramRelay?.port) {
     const target = [entry.telegramRelay.profile, entry.telegramRelay.port ? `:${entry.telegramRelay.port}` : '']
       .filter(Boolean)
       .join('');
-    lines.push(`Relay: ${target}`);
+    lines.push(`• Relay: ${target}`);
   }
-  if (entry.providerSummary) lines.push(`Result: ${entry.providerSummary}`);
+  if (entry.providerSummary) lines.push(`• Result: ${entry.providerSummary}`);
+  lines.push('', 'Next', `• /mission status ${entry.missionId}`, '', ...missionInspectionLines(entry.missionId));
   return lines;
 }
 
@@ -352,7 +353,7 @@ function spawnerPublicUrl(): string {
 }
 
 function creatorMissionKanbanUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
-  return `${baseUrl.replace(/\/+$/, '')}/kanban?mission=${encodeURIComponent(missionId)}`;
+  return missionBoardUrl(missionId, baseUrl);
 }
 
 function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUrl()): string | undefined {
@@ -361,6 +362,61 @@ function absoluteSpawnerUrl(value: string | undefined, baseUrl = spawnerPublicUr
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (trimmed.startsWith('/')) return `${baseUrl.replace(/\/+$/, '')}${trimmed}`;
   return trimmed;
+}
+
+function missionBoardUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/kanban?mission=${encodeURIComponent(missionId)}`;
+}
+
+function missionDetailUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/missions/${encodeURIComponent(missionId)}`;
+}
+
+function missionTraceUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/trace?missionId=${encodeURIComponent(missionId)}`;
+}
+
+function missionInspectionLines(missionId: string, baseUrl = spawnerPublicUrl()): string[] {
+  return [
+    'Inspect',
+    `• Detail: ${missionDetailUrl(missionId, baseUrl)}`,
+    `• Board: ${missionBoardUrl(missionId, baseUrl)}`,
+    `• Trace: ${missionTraceUrl(missionId, baseUrl)}`
+  ];
+}
+
+function formatBoardEntryLine(entry: BoardEntry): string {
+  const label = entry.missionName || entry.taskName || entry.missionId;
+  return `• ${label} (${entry.missionId})`;
+}
+
+function missionStatusIcon(status: string | undefined): string {
+  const normalized = (status || '').toLowerCase();
+  if (/\b(?:complete|completed|success|passed)\b/.test(normalized)) return '🟢';
+  if (/\b(?:failed|error|blocked|kill|killed|cancelled|stop)\b/.test(normalized)) return '🔴';
+  if (/\b(?:pause|paused|waiting|pending|created)\b/.test(normalized)) return '🟡';
+  return '🟢';
+}
+
+function missionStatusLabel(status: any): string {
+  if (status?.allComplete) return 'complete';
+  if (status?.paused) return 'paused';
+  if (typeof status?.boardStatus === 'string' && status.boardStatus.trim()) {
+    return formatCreatorReadiness(status.boardStatus);
+  }
+  return 'running';
+}
+
+function providerStatusRows(providers: unknown): string[] {
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) {
+    return ['• none'];
+  }
+
+  const rows = Object.entries(providers as Record<string, unknown>).map(([id, value]) => {
+    const status = formatCreatorReadiness(String(value || 'unknown'));
+    return `• ${formatProviderLabel(id)}: ${status}`;
+  });
+  return rows.length > 0 ? rows : ['• none'];
 }
 
 function formatCreatorReadiness(value: string | undefined): string {
@@ -795,26 +851,44 @@ export const spawner = {
 
       if (action === 'status') {
         const status = res.data?.status;
-        const providers = status?.providers
-          ? Object.entries(status.providers).map(([id, value]) => `${id}: ${value}`).join('\n')
-          : '(none)';
+        const statusLabel = missionStatusLabel(status);
+        const boardStatus = typeof status?.boardStatus === 'string' && status.boardStatus.trim()
+          ? formatCreatorReadiness(status.boardStatus)
+          : null;
         const lines = [
-          `Mission: ${missionId}`,
-          ...(status?.boardStatus ? [`Board: ${status.boardStatus}`] : []),
-          `Paused: ${status?.paused ? 'yes' : 'no'}`,
-          `Complete: ${status?.allComplete ? 'yes' : 'no'}`,
-          'Providers:',
-          providers
+          `${missionStatusIcon(statusLabel)} Mission is ${statusLabel}.`,
+          '',
+          'State',
+          ...(boardStatus ? [`• Board: ${boardStatus}`] : []),
+          `• Paused: ${status?.paused ? 'yes' : 'no'}`,
+          `• Complete: ${status?.allComplete ? 'yes' : 'no'}`,
+          '',
+          'Providers',
+          ...providerStatusRows(status?.providers),
+          '',
+          'Next',
+          status?.allComplete
+            ? '• Inspect the handoff in Spawner.'
+            : status?.paused
+              ? `• /mission resume ${missionId}`
+              : `• /mission pause ${missionId}`,
+          '',
+          ...missionInspectionLines(missionId)
         ];
-        if (status?.lastUpdated) {
-          lines.push(`Updated: ${status.lastUpdated}`);
-        }
         return { success: true, message: lines.join('\n') };
       }
 
+      const actionLabel = action === 'kill' ? 'stop' : action;
       return {
         success: Boolean(res.data?.ok),
-        message: res.data?.message || `${action} sent for ${missionId}`
+        message: [
+          `${missionStatusIcon(action)} Mission ${actionLabel} was sent.`,
+          '',
+          'Next',
+          `• /mission status ${missionId}`,
+          '',
+          ...missionInspectionLines(missionId)
+        ].join('\n')
       };
     } catch (err: any) {
       return {
@@ -835,19 +909,35 @@ export const spawner = {
         ['Created', board.created]
       ];
 
-      const lines = ['Spawner Board'];
+      const lines = [
+        'Spawner board is current.',
+        '',
+        'State',
+        `• ${board.running.length} running`,
+        `• ${board.paused.length} paused`,
+        `• ${board.completed.length} completed`,
+        `• ${board.failed.length} failed`,
+        `• ${board.created.length} created`
+      ];
       for (const [label, entries] of sections) {
         lines.push('');
-        lines.push(`${label}: ${entries.length}`);
+        lines.push(label);
         if (entries.length === 0) {
-          lines.push('- none');
+          lines.push('• none');
           continue;
         }
 
         for (const entry of entries.slice(0, 5)) {
-          const task = entry.taskName ? ` | ${entry.taskName}` : '';
-          lines.push(`- ${entry.missionId}${task}`);
+          lines.push(formatBoardEntryLine(entry));
         }
+      }
+
+      const latest = latestBoardEntry(board);
+      lines.push('');
+      if (latest) {
+        lines.push('Next', `• /mission status ${latest.missionId}`, '', ...missionInspectionLines(latest.missionId));
+      } else {
+        lines.push('Next', '• Start with /run <goal> or /creator plan <brief>.', '', 'Inspect', `• Board: ${spawnerPublicUrl()}/kanban`);
       }
 
       return {
@@ -868,14 +958,22 @@ export const spawner = {
       if (!latest) {
         return {
           success: true,
-          message: 'Kanban has no missions yet.'
+          message: [
+            'Kanban has no missions yet.',
+            '',
+            'Next',
+            '• Start with /run <goal> or /creator plan <brief>.',
+            '',
+            'Inspect',
+            `• Board: ${spawnerPublicUrl()}/kanban`
+          ].join('\n')
         };
       }
 
       return {
         success: true,
         message: [
-          'The latest mission is visible on Kanban.',
+          'Latest mission is visible on Kanban.',
           '',
           ...formatLatestMission(latest)
         ].join('\n')
@@ -894,14 +992,22 @@ export const spawner = {
       if (!latest) {
         return {
           success: true,
-          message: 'I do not see any Spawner jobs on Kanban yet.'
+          message: [
+            'I do not see any Spawner jobs on Kanban yet.',
+            '',
+            'Next',
+            '• Start with /run <goal> or /creator plan <brief>.',
+            '',
+            'Inspect',
+            `• Board: ${spawnerPublicUrl()}/kanban`
+          ].join('\n')
         };
       }
 
       return {
         success: true,
         message: [
-          `The latest Spawner job was handled by: ${providerNames(latest)}`,
+          `Latest Spawner job used ${providerNames(latest)}.`,
           '',
           ...formatLatestMission(latest)
         ].join('\n')
