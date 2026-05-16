@@ -1287,6 +1287,31 @@ export function isSparkWorkflowBugHuntRequest(text: string): boolean {
   return qaLanguage && sparkSurface;
 }
 
+export function isSparkThreadQaGoldenCaseRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  const mentionsThreadQa = /\b(?:spark\s+thread\s+qa|thread\s+qa)\b/.test(normalized);
+  const mentionsGoldenCase = /\b(?:golden\s+(?:thread\s+qa\s+)?(?:test|case|fixture)|test\s+case|fixture|regression)\b/.test(normalized);
+  const mentionsStaleCanvasFailure =
+    /\b(?:h70\s+orbit\s+proof|stale\s+canvas|canvas\s+interruption|mission\s+intrusion|route\s+hijack)\b/.test(normalized);
+  return mentionsThreadQa && mentionsGoldenCase && mentionsStaleCanvasFailure;
+}
+
+export function renderSparkThreadQaGoldenCaseReply(_text: string): string {
+  return [
+    'Yes. This should become a golden Thread QA case, not a build.',
+    '',
+    'Case shape:',
+    '• User asks about Spark Thread QA product polish.',
+    '• Rec answers the product-memory question correctly.',
+    '• A stale H70 Orbit Proof canvas update intrudes.',
+    '',
+    'Expected result: stay in product conversation. Mission Control state only appears if the user asks to inspect, run, verify, continue, or debug that mission.'
+  ].join('\n');
+}
+
 function isProductMemoryMissionBoundaryQuestion(normalized: string): boolean {
   const mentionsProductMemory =
     /\b(?:spark\s+thread\s+qa|thread\s+qa|product\s+polish|product[-\s]*memory|product\s+conversation)\b/.test(normalized);

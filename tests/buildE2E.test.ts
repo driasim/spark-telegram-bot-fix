@@ -1527,6 +1527,38 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('H70 Thread QA golden-case request stays in chat without spawning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-thread-qa-golden-case-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+		ctx.message.text = 'Do not build anything. Turn the H70 Orbit Proof interruption into a golden Thread QA test case. Keep it natural and short.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /golden Thread QA case, not a build/);
+		assert.match(reply, /H70 Orbit Proof canvas update intrudes/);
+		assert.match(reply, /stay in product conversation/i);
+		assert.doesNotMatch(reply, /Runtime health|Degraded surfaces|Active loops/i);
+		assert.equal(captured.length, 0, 'golden-case request must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
