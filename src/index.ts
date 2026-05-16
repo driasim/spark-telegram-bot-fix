@@ -4198,6 +4198,7 @@ export function routeConfidenceGateCompatibilityAllows(input: {
 interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
+  relayGoal?: string;
 }
 
 export async function handleRunCommand(
@@ -4282,7 +4283,7 @@ export async function handleRunCommand(
     userId: String(ctx.from.id),
     requestId: result.requestId || requestId,
     traceRef,
-    goal,
+    goal: options.relayGoal || goal,
     createdAt: new Date().toISOString(),
     updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
   });
@@ -5547,7 +5548,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       `Reply with exactly: ${replyPhrase}. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`,
       [missionDefaultProvider()],
       'spawner_build',
-      { missionName: 'Telegram Golden Path Probe' }
+      { missionName: 'Telegram Golden Path Probe', relayGoal: text }
     );
     if (missionId) {
       const probeMission = {
