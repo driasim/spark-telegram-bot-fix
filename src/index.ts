@@ -198,6 +198,7 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
+  isMissionRoutingFailureClassQuestion,
   isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
   isSparkThreadQaGoldenCaseRequest,
@@ -213,6 +214,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  renderMissionRoutingFailureClassReply,
   renderSparkThreadQaGoldenCaseReply,
   renderSparkWorkflowBugHuntReply,
   builderReplySuppressionReason,
@@ -5670,6 +5672,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkThreadQaGoldenCaseReply(text);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.thread_qa_golden_case', 'spark-telegram-bot', 'plain_chat.qa_fixture');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isMissionRoutingFailureClassQuestion(text)) {
+    const reply = renderMissionRoutingFailureClassReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.mission_routing_failure_class', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

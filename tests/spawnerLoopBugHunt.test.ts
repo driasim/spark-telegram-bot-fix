@@ -6,9 +6,11 @@ import {
 } from '../src/missionRelay';
 import {
   isSparkWorkflowBugHuntRequest,
+  isMissionRoutingFailureClassQuestion,
   isNoExecutionBoundary,
   parseMissionUpdatePreferenceIntent,
   parseSpawnerBoardNaturalIntent,
+  renderMissionRoutingFailureClassReply,
   renderSparkWorkflowBugHuntReply
 } from '../src/conversationIntent';
 import {
@@ -143,6 +145,18 @@ test('bug hunt: Spark workflow QA prompts get a local plan, not invented executi
   assert.doesNotMatch(reply, /read-only/i);
   assert.doesNotMatch(reply, /Prepared, but/i);
   assert.doesNotMatch(reply, /tests\/missionControlSpawnerWorkflow/i);
+});
+
+test('bug hunt: mission routing failure-class prompts stay short and non-executing', () => {
+  const prompt = 'I am asking about a bug in mission routing. Do not launch a mission; just explain the likely failure class in one or two natural sentences.';
+  assert.equal(isMissionRoutingFailureClassQuestion(prompt), true);
+  assertNoBuild(prompt);
+
+  const reply = renderMissionRoutingFailureClassReply(prompt);
+  assert.match(reply, /route hijack/i);
+  assert.match(reply, /asked to explain only/i);
+  assert.doesNotMatch(reply, /Canvas|Kanban|Mission board|latest canvas|H70 Orbit Proof/i);
+  assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected compact reply, got: ${reply}`);
 });
 
 test('bug hunt: mission utility requests do not become project builds', () => {

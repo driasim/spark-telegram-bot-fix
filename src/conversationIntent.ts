@@ -1312,6 +1312,24 @@ export function renderSparkThreadQaGoldenCaseReply(_text: string): string {
   ].join('\n');
 }
 
+export function isMissionRoutingFailureClassQuestion(text: string): boolean {
+	const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+	if (!normalized || parseBuildIntent(normalized)) {
+		return false;
+	}
+	const asksFailureClass = /\b(?:failure\s+class|likely\s+failure|classify|classification|what\s+kind\s+of\s+bug)\b/.test(normalized);
+	const mentionsRouting = /\b(?:mission\s+routing|route\s+hijack|routing\s+bug|mission\s+route|spawner\s+route)\b/.test(normalized);
+	const noExecution = isNoExecutionBoundary(normalized);
+	return asksFailureClass && mentionsRouting && noExecution;
+}
+
+export function renderMissionRoutingFailureClassReply(_text: string): string {
+	return [
+		'That sounds like route hijack: mission or build words are pulling the conversation toward execution even though the user asked to explain only.',
+		'Fresh user intent should outrank keywords, memory, stale mission state, and pending mission context.'
+	].join('\n');
+}
+
 function isProductMemoryMissionBoundaryQuestion(normalized: string): boolean {
   const mentionsProductMemory =
     /\b(?:spark\s+thread\s+qa|thread\s+qa|product\s+polish|product[-\s]*memory|product\s+conversation)\b/.test(normalized);
