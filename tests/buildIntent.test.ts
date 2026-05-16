@@ -19,7 +19,7 @@ test('parses a compact direct build request', () => {
   assert.ok(intent);
   assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\spark-direct-probe');
   assert.equal(intent.buildMode, 'direct');
-  assert.equal(intent.projectName, 'spark direct probe');
+  assert.equal(intent.projectName, 'Spark Direct Probe');
   assert.match(intent.prd, /Files: index\.html, app\.js\./);
   assert.doesNotMatch(intent.prd, /C:\\Users\\USER\\Desktop/);
 });
