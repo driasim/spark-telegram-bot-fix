@@ -83,12 +83,24 @@ function inferConceptualProjectName(prd: string): string | null {
 }
 
 function titleCaseProjectName(value: string): string {
+  const acronymMap: Record<string, string> = {
+    api: 'API',
+    b2b: 'B2B',
+    llm: 'LLM',
+    prd: 'PRD',
+    qa: 'QA',
+    saas: 'SaaS',
+    tg: 'TG',
+    ui: 'UI'
+  };
   return value
     .replace(/[-_/]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .split(' ')
     .map((word) => {
+      const acronym = acronymMap[word.toLowerCase()];
+      if (acronym) return acronym;
       if (/^[A-Z0-9]{2,}$/.test(word)) return word;
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
@@ -102,6 +114,10 @@ function polishInferredProjectName(value: string): string {
     .replace(/[.!?]+$/, '');
   if (!clean) return clean;
   return /[A-Z]/.test(clean) ? clean : titleCaseProjectName(clean);
+}
+
+export function polishBuildProjectName(value: string): string {
+  return polishInferredProjectName(value);
 }
 
 function inferProductPhraseProjectName(prd: string): string | null {

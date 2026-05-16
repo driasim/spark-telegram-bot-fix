@@ -160,7 +160,7 @@ import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './auth
 import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
 import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
-import { parseBuildIntent, type BuildLane } from './buildIntent';
+import { parseBuildIntent, polishBuildProjectName, type BuildLane } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
 import { queueRouteArbiterShadow } from './routeArbiter';
@@ -2472,9 +2472,12 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   }))) {
     return;
   }
+  const projectName = pending.capabilityProposalPacket
+    ? pending.projectName
+    : polishBuildProjectName(pending.projectName);
   const prdContent = pending.projectPath
-    ? `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
-    : `# ${pending.projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
+    ? `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
+    : `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
 
   try {
     const res = await axios.post(
@@ -2483,7 +2486,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         content: prdContent,
         requestId: newRequestId,
         traceRef,
-        projectName: pending.projectName,
+        projectName,
         buildMode: pending.buildMode,
         buildModeReason: pending.buildModeReason,
         buildLane,
@@ -2517,7 +2520,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       chatId: String(ctx.chat.id),
       userId: String(ctx.from.id),
       requestId: newRequestId,
-      goal: pending.projectName || pending.prd,
+      goal: projectName || pending.prd,
       createdAt: new Date().toISOString(),
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
     });
@@ -2527,7 +2530,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     const kanbanUrl = missionBoardUrl(publicSpawnerUrl);
     await ctx.reply(formatBuildMissionQueuedReply({
       lead: runWithDefaults ? 'Perfect, I will use the default direction.' : 'Got it, I will use that direction.',
-      projectName: pending.projectName,
+      projectName,
       buildMode: pending.buildMode,
       buildLane,
       missionId,
@@ -2536,7 +2539,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
     startPrdCanvasReadyNotifier({
       chatId: Number(ctx.chat.id),
       userId: Number(ctx.from.id),
-      projectName: pending.projectName,
+      projectName,
       requestId: newRequestId,
       missionId,
       spawnerUrl,
@@ -4338,9 +4341,12 @@ export async function handleBuildIntent(
     return;
   }
 
+  const polishedProjectName = capabilityProposalPacket
+    ? projectName
+    : polishBuildProjectName(projectName);
   const prdContent = projectPath
-    ? `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
-    : `# ${projectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${prd}`;
+    ? `# ${polishedProjectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${projectPath}\`\n\n${prd}`
+    : `# ${polishedProjectName}\n\nBuild mode: ${buildMode}\nBuild mode reason: ${buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${prd}`;
 
   const tier = getTierForUser(ctx.from.id);
   try {
@@ -4350,7 +4356,7 @@ export async function handleBuildIntent(
         content: prdContent,
         requestId,
         traceRef,
-        projectName,
+        projectName: polishedProjectName,
         buildMode,
         buildModeReason,
         buildLane,
@@ -4384,7 +4390,7 @@ export async function handleBuildIntent(
       pendingClarifications.set(`${ctx.chat.id}-${ctx.from.id}`, {
         requestId,
         prd,
-        projectName,
+        projectName: polishedProjectName,
         projectPath,
         buildMode,
         buildModeReason,
@@ -4400,7 +4406,7 @@ export async function handleBuildIntent(
       const clarificationAssumptions = Array.isArray(res.data.addedAssumptions)
         ? res.data.addedAssumptions.filter((a: unknown): a is string => typeof a === 'string')
         : [];
-      await ctx.reply(await buildBuildClarificationReply(projectName, clarificationQuestions, clarificationAssumptions));
+      await ctx.reply(await buildBuildClarificationReply(polishedProjectName, clarificationQuestions, clarificationAssumptions));
       return;
     }
 
@@ -4414,14 +4420,14 @@ export async function handleBuildIntent(
       userId: String(ctx.from.id),
       requestId,
       traceRef,
-      goal: projectName || prd,
+      goal: polishedProjectName || prd,
       createdAt: new Date().toISOString(),
       updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
     });
 
     await ctx.reply(formatBuildMissionQueuedReply({
       lead: 'Got it. Spark is on it.',
-      projectName,
+      projectName: polishedProjectName,
       buildMode,
       buildLane,
       projectPath,
@@ -4449,7 +4455,7 @@ export async function handleBuildIntent(
     startPrdCanvasReadyNotifier({
       chatId,
       userId: Number(ctx.from.id),
-      projectName,
+      projectName: polishedProjectName,
       requestId,
       missionId,
       spawnerUrl,
