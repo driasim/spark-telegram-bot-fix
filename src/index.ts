@@ -540,18 +540,25 @@ function parseSparkLiveSummary(liveStatus: string, deepVerify: string): SparkLiv
 
 function renderSparkLiveSummary(
   summary: SparkLiveSummary,
-  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean } = {}
+  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean; sourceDisclosure?: boolean } = {}
 ): string {
   const healthy = summary.liveReady && summary.spawnerOk && summary.telegramOk;
   const includeAction = opts.includeAction ?? true;
   const lines: string[] = [
-    healthy ? '✅ Spark is healthy right now.' : '⚠️ Spark needs attention right now.',
+    healthy ? '✅ Spark is healthy right now.' : '⚠️ Spark needs attention right now.'
+  ];
+
+  if (opts.sourceDisclosure) {
+    lines.push('', "I'm using fresh runtime state here, not memory.");
+  }
+
+  lines.push(
     '',
     'Live loop',
     `• Spawner: ${summary.spawnerOk ? 'reachable' : 'needs attention'}.`,
     `• Telegram: ${summary.telegramOk ? 'polling' : 'needs attention'}.`,
     `• Mission Control: ${summary.liveReady ? 'ready' : 'not fully ready'}.`
-  ];
+  );
 
   if (opts.rawDetails) {
     lines.push(
@@ -621,7 +628,10 @@ async function renderAuthoritativeSparkLiveStateAnswer(
       runSparkCli(['live', 'status'], 45_000),
       runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
     ]);
-    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), opts);
+    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), {
+      ...opts,
+      sourceDisclosure: true
+    });
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
