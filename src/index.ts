@@ -3899,12 +3899,13 @@ async function readLatestCanvasPlanFromSpawnerState(): Promise<LatestCanvasPlan 
   return latestCanvasPlanFromLoadState(state, publicSpawnerUrl);
 }
 
-function isLatestCanvasPlanQuestion(text: string): boolean {
+export function isLatestCanvasPlanQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
     || /\bfull plan\b/.test(normalized);
   const asksTasksOrSkills = /\b(?:tasks?|steps?|skills?|paired skills?|queued|plan)\b/.test(normalized);
-  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|that|it|queued|full plan)\b/.test(normalized);
+  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|queued|full plan)\b/.test(normalized)
+    || /\b(?:that|it)\s+(?:canvas|mission|build|project|plan|queue|queued)\b/.test(normalized);
   return asksPlanDetails && asksTasksOrSkills && anchoredToRecentCanvas;
 }
 

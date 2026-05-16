@@ -17,6 +17,7 @@ import {
   formatCanvasShapingHeartbeatSummary,
   formatCanvasStillRunningSummary,
   formatLatestCanvasPlanReply,
+  isLatestCanvasPlanQuestion,
   isDomainChipPendingDirection,
   isRouteConfidenceGateUnsupportedError,
   latestCanvasPlanFromLoadState,
@@ -352,6 +353,17 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(reply, /^Mission:/im);
   assert.doesNotMatch(reply, /Mission board/);
+});
+
+test('bug hunt: casual next-step questions do not recall stale canvas plans', () => {
+  assert.equal(
+    isLatestCanvasPlanQuestion('What’s the smallest useful next step here? Keep it natural, short paragraphs, and use bullets only if they help.'),
+    false
+  );
+  assert.equal(
+    isLatestCanvasPlanQuestion('For QA, show the latest canvas plan and skills for the Startup Benchmark Progress Dashboard build. Do not start anything new.'),
+    true
+  );
 });
 
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
