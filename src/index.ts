@@ -978,11 +978,9 @@ function shouldAnswerRuntimeTruthPriority(text: string): boolean {
 
 function renderRuntimeTruthPriorityAnswer(): string {
   return [
-    'Fresh runtime state wins for current-state questions.',
+    'Fresh runtime state wins.',
     '',
-    'Rule: `spark live status`, `spark access status`, provider checks, and direct smoke probes are authoritative for what is true right now. Memory is useful for history and continuity, but it must not override fresh runtime evidence.',
-    '',
-    'So if memory says Spawner is down and fresh `spark live status` says Spawner is up, Spawner is up right now. The memory becomes stale context, not current truth.'
+    'If fresh `spark live status` says Spawner is up, Spawner is up right now. Memory becomes stale context, not current truth.'
   ].join('\n');
 }
 

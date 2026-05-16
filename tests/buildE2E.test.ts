@@ -1559,6 +1559,40 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('runtime truth priority answer stays short and conversational', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-runtime-truth-priority-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'If memory says Spawner is down but spark live status says it is up, which source wins? Keep it natural and short.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Fresh runtime state wins/);
+		assert.match(reply, /fresh `spark live status` says Spawner is up/);
+		assert.match(reply, /Memory becomes stale context/);
+		assert.doesNotMatch(reply, /Rule:/);
+		assert.doesNotMatch(reply, /provider checks|direct smoke probes/);
+		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
+		assert.equal(captured.length, 0, 'source-priority question must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
