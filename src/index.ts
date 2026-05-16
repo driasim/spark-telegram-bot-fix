@@ -432,10 +432,25 @@ function isLiveSparkHealthQuestion(text: string): boolean {
 
 function isSpawnerGoldenPathRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const explicitlyStopsExecution = /\b(?:do\s+not|don't|dont|no\s+need\s+to|without)\s+(?:start|run|launch|queue|dispatch|execute)\b/.test(normalized);
+  if (explicitlyStopsExecution) return false;
+
+  const mentionsNoEditProbe =
+    /\bno[-\s]*edit\b/.test(normalized) &&
+    /\bspawner\b/.test(normalized) &&
+    /\b(?:run|start|launch|queue|execute|through)\b/.test(normalized) &&
+    (
+      /\bmission\s+control\b/.test(normalized) ||
+      /\bdiagnostic\b/.test(normalized) ||
+      /\brepl(?:y|ies)\s+with\b/.test(normalized) ||
+      /\bspark_[a-z0-9_]{4,}\b/.test(normalized)
+    );
+
   return (
     /\bgolden[_\s-]*path\b/.test(normalized) ||
     (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
-    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized))
+    (/\b(?:golden_path_ok|spark_qa_no_edit_ok|spark_e2e_[a-z0-9_]+)\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
+    mentionsNoEditProbe
   );
 }
 
@@ -446,6 +461,22 @@ function extractNoEditMissionReplyPhrase(text: string): string {
   }
   const bareToken = text.match(/\b([A-Z][A-Z0-9_]{5,80})\b/)?.[1]?.trim();
   return bareToken || 'GOLDEN_PATH_OK';
+}
+
+function extractNoEditProbeWaitSeconds(text: string): number | null {
+  const waitMatch = text.match(/\b(?:wait|waiting)\s+(?:about\s+|around\s+|for\s+)?(\d{1,2})\s*(?:seconds?|secs?)\b/i);
+  if (!waitMatch) return null;
+  const seconds = Number(waitMatch[1]);
+  if (!Number.isFinite(seconds) || seconds < 5) return null;
+  return Math.min(seconds, 60);
+}
+
+function noEditProbeGoal(replyPhrase: string, originalText: string): string {
+  const waitSeconds = extractNoEditProbeWaitSeconds(originalText);
+  const waitInstruction = waitSeconds
+    ? ` Before replying, wait about ${waitSeconds} seconds so Mission Control can show a running state.`
+    : '';
+  return `Reply with exactly: ${replyPhrase}.${waitInstruction} Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`;
 }
 
 function compactSparkLiveOutput(output: string): string {
@@ -5521,31 +5552,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
-  }
-
-  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
-    await attachFreshRuntimeTruthContext();
-  }
-
-  if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
-    if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
-      await attachFreshRuntimeTruthContext();
-    }
-  }
-
   if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
     await conversation.remember(user, text).catch(() => {});
     const replyPhrase = extractNoEditMissionReplyPhrase(text);
     const missionId = await handleRunCommand(
       ctx,
-      `Reply with exactly: ${replyPhrase}. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`,
+      noEditProbeGoal(replyPhrase, text),
       [missionDefaultProvider()],
       'spawner_build',
       { missionName: 'Telegram Golden Path Probe', relayGoal: text }
@@ -5565,6 +5577,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
     }
     return;
+  }
+
+  if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && shouldAttachFreshRuntimeTruthContext(text) && !conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+    await attachFreshRuntimeTruthContext();
+  }
+
+  if (!earlyBuildIntent && isLiveSparkHealthQuestion(text)) {
+    if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
+      await attachFreshRuntimeTruthContext();
+    }
   }
 
   if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
