@@ -1279,9 +1279,22 @@ export function isSparkWorkflowBugHuntRequest(text: string): boolean {
   if (!normalized || parseBuildIntent(normalized)) {
     return false;
   }
+  if (isProductMemoryMissionBoundaryQuestion(normalized)) {
+    return false;
+  }
   const qaLanguage = /\b(?:unit\s+tests?|qa|bug\s+hunt(?:er|ing)?|edge\s+cases?|regressions?|smoke\s+tests?|test\s+suite|comprehensive\s+tests?|trigger\s+bugs?|bug\s+hunter)\b/.test(normalized);
   const sparkSurface = /\b(?:spawner|mission\s+control|mission\s+loop|telegram|relay|workflow|canvas|kanban|builder|route|routing)\b/.test(normalized);
   return qaLanguage && sparkSurface;
+}
+
+function isProductMemoryMissionBoundaryQuestion(normalized: string): boolean {
+  const mentionsProductMemory =
+    /\b(?:spark\s+thread\s+qa|thread\s+qa|product\s+polish|product[-\s]*memory|product\s+conversation)\b/.test(normalized);
+  const mentionsMissionState =
+    /\b(?:mission\s+control|mission\s+state|canvas|kanban|current\s+mission|mission\s+lane)\b/.test(normalized);
+  const asksBoundary =
+    /\b(?:when|should|difference|separate|mention|interrupt|intrude|leak|hijack|boundary|outrank)\b/.test(normalized);
+  return mentionsProductMemory && mentionsMissionState && asksBoundary;
 }
 
 export function renderSparkWorkflowBugHuntReply(_text: string): string {

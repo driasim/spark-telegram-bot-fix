@@ -40,6 +40,7 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isSparkChipStatusOverclaimQuestion,
+  isSparkWorkflowBugHuntRequest,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isProjectImprovementRequest,
@@ -359,6 +360,21 @@ test('does not treat route hijack audit wording as diagnostic follow-up tests', 
   assert.equal(
     isDiagnosticFollowupTestQuestion(
       'also words like build access and some other things hijack the chat instantly, can you check whether we fixed that'
+    ),
+    false
+  );
+});
+
+test('does not turn product-memory mission boundary questions into workflow bug hunt cards', () => {
+  assert.equal(
+    isSparkWorkflowBugHuntRequest(
+      'If I ask about Spark Thread QA product polish, when should you mention Mission Control state?'
+    ),
+    false
+  );
+  assert.equal(
+    isSparkWorkflowBugHuntRequest(
+      'What is the difference between product-memory context and current mission state?'
     ),
     false
   );
