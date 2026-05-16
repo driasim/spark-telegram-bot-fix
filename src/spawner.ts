@@ -393,6 +393,27 @@ function boardInspectLine(): string {
   return `Board: ${missionBoardUrl()}`;
 }
 
+function missionScopedBoardUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/kanban?mission=${encodeURIComponent(missionId)}`;
+}
+
+function missionDetailUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/missions/${encodeURIComponent(missionId)}`;
+}
+
+function missionTraceUrl(missionId: string, baseUrl = spawnerPublicUrl()): string {
+  return `${baseUrl.replace(/\/+$/, '')}/trace?missionId=${encodeURIComponent(missionId)}`;
+}
+
+function missionInspectionLines(missionId: string, baseUrl = spawnerPublicUrl()): string[] {
+  return [
+    'Inspect',
+    `• Detail: ${missionDetailUrl(missionId, baseUrl)}`,
+    `• Board: ${missionScopedBoardUrl(missionId, baseUrl)}`,
+    `• Trace: ${missionTraceUrl(missionId, baseUrl)}`
+  ];
+}
+
 function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
   const title = missionTitle(entry);
   const provider = providerNames(entry);
@@ -400,7 +421,7 @@ function formatLatestKanbanTelegramSummary(entry: BoardEntry): string {
 
   if (provider) lines.push(`${provider} is attached to it.`);
 
-  lines.push('', boardInspectLine());
+  lines.push('', ...missionInspectionLines(entry.missionId));
   return lines.join('\n');
 }
 
@@ -481,11 +502,7 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
     ];
 
     if (needsInspectionLink) {
-      lines.push(
-        '',
-        'Mission board',
-        `• ${missionBoardUrl()}`
-      );
+      lines.push('', ...missionInspectionLines(entry.missionId));
     }
 
     return lines.join('\n');
@@ -502,12 +519,7 @@ function formatLatestProviderTelegramSummary(entry: BoardEntry): string {
     );
   }
 
-  if (needsInspectionLink) {
-    lines.push(
-      '',
-      boardInspectLine()
-    );
-  }
+  lines.push('', ...missionInspectionLines(entry.missionId));
   return lines.join('\n');
 }
 
@@ -540,8 +552,7 @@ function formatLatestFailureTelegramSummary(entry: BoardEntry): string {
     causes.length === 1 ? 'The blocker I can prove:' : 'The blockers I can prove:',
     ...causes.map((line) => `• ${line}`),
     '',
-    'Full trace',
-    `• ${missionBoardUrl()}`
+    ...missionInspectionLines(entry.missionId)
   ].join('\n');
 }
 
@@ -592,11 +603,16 @@ function formatBoardTelegramSummary(board: BoardSnapshot): string {
     }
   }
 
-  lines.push(
-    '',
-    'Mission board',
-    `• ${missionBoardUrl()}`
-  );
+  const inspectTarget = active || latest;
+  if (inspectTarget) {
+    lines.push('', ...missionInspectionLines(inspectTarget.missionId));
+  } else {
+    lines.push(
+      '',
+      'Mission board',
+      `• ${missionBoardUrl()}`
+    );
+  }
 
   return lines.join('\n');
 }
@@ -631,6 +647,27 @@ function formatCreatorMode(value: string | undefined): string {
   if (value === 'specialization_path') return 'specialization path';
   if (value === 'domain_chip') return 'domain chip';
   return normalized;
+}
+
+function missionStatusLabel(status: any): string {
+  if (status?.allComplete) return 'complete';
+  if (status?.paused) return 'paused';
+  if (typeof status?.boardStatus === 'string' && status.boardStatus.trim()) {
+    return formatCreatorReadiness(status.boardStatus);
+  }
+  return 'running';
+}
+
+function providerStatusRows(providers: unknown): string[] {
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) {
+    return ['• none'];
+  }
+
+  const rows = Object.entries(providers as Record<string, unknown>).map(([id, value]) => {
+    const status = formatCreatorReadiness(String(value || 'unknown'));
+    return `• ${formatProviderLabel(id)}: ${status}`;
+  });
+  return rows.length > 0 ? rows : ['• none'];
 }
 
 function formatCreatorReadiness(value: string | undefined): string {
@@ -1152,26 +1189,44 @@ export const spawner = {
 
       if (action === 'status') {
         const status = res.data?.status;
-        const providers = status?.providers
-          ? Object.entries(status.providers).map(([id, value]) => `${id}: ${value}`).join('\n')
-          : '(none)';
+        const statusLabel = missionStatusLabel(status);
+        const boardStatus = typeof status?.boardStatus === 'string' && status.boardStatus.trim()
+          ? formatCreatorReadiness(status.boardStatus)
+          : null;
         const lines = [
-          `Mission: ${missionId}`,
-          ...(status?.boardStatus ? [`Board: ${status.boardStatus}`] : []),
-          `Paused: ${status?.paused ? 'yes' : 'no'}`,
-          `Complete: ${status?.allComplete ? 'yes' : 'no'}`,
-          'Providers:',
-          providers
+          `Mission is ${statusLabel}.`,
+          '',
+          'State',
+          ...(boardStatus ? [`• Board: ${boardStatus}`] : []),
+          `• Paused: ${status?.paused ? 'yes' : 'no'}`,
+          `• Complete: ${status?.allComplete ? 'yes' : 'no'}`,
+          '',
+          'Providers',
+          ...providerStatusRows(status?.providers),
+          '',
+          'Next',
+          status?.allComplete
+            ? '• Inspect the handoff in Spawner.'
+            : status?.paused
+              ? `• /mission resume ${missionId}`
+              : `• /mission pause ${missionId}`,
+          '',
+          ...missionInspectionLines(missionId)
         ];
-        if (status?.lastUpdated) {
-          lines.push(`Updated: ${status.lastUpdated}`);
-        }
         return { success: true, message: lines.join('\n') };
       }
 
+      const actionLabel = action === 'kill' ? 'stop' : action;
       return {
         success: Boolean(res.data?.ok),
-        message: res.data?.message || `${action} sent for ${missionId}`
+        message: [
+          `Mission ${actionLabel} was sent.`,
+          '',
+          'Next',
+          `• /mission status ${missionId}`,
+          '',
+          ...missionInspectionLines(missionId)
+        ].join('\n')
       };
     } catch (err: any) {
       return {
