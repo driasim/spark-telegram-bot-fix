@@ -90,6 +90,16 @@ test('routes tiny one-screen smoke pages through the fast direct lane', () => {
   assert.match(intent.buildLaneReason, /lightweight planning/i);
 });
 
+test('polishes inferred mission titles without workflow wording', () => {
+  const intent = parseBuildIntent(
+    'Create a tiny maze game plan and build only a minimal playable prototype. Use a short PRD if needed, keep it fast, and show me the Mission Control links as it moves through planning, build, and completion.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Tiny Maze Game');
+  assert.doesNotMatch(intent.projectName, /plan and build/i);
+});
+
 test('extracts clean names from Telegram direct-build game prompts', () => {
   const quotedIntent = parseBuildIntent(
     'Build a tiny single-screen browser game called "Spark Bumper QA". Direct build now through Spawner/Mission Control. Keep it small and fast: static HTML/CSS/JS in one folder.'

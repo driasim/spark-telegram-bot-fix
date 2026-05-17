@@ -201,13 +201,13 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.userId, '8319079055');
 		assert.equal(writeCall!.body.buildMode, 'direct');
 		assert.equal(writeCall!.body.capabilityProposalPacket, undefined);
-		assert.ok(writeCall!.body.content.includes('saas-billing-test'), 'PRD content includes project name header');
+		assert.ok(writeCall!.body.content.includes('SaaS Billing Test'), 'PRD content includes project name header');
 		assert.ok(writeCall!.body.telegramRelay, 'telegramRelay block present');
 		assert.equal(typeof writeCall!.body.options, 'object');
 		const missionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(writeCall!.body.traceRef, `trace:spawner-prd:${missionId}`);
 		assert.doesNotMatch(replies[0] || '', new RegExp(`Mission: ${missionId}`));
-		assert.match(replies[0] || '', /🛠️ Setting up saas-billing-test as a direct build\./);
+		assert.match(replies[0] || '', /🛠️ Setting up SaaS Billing Test as a direct build\./);
 		assert.match(replies[0] || '', /Canvas next\./);
 		assert.doesNotMatch(replies[0] || '', /Spawned work/);
 		assert.doesNotMatch(replies[0] || '', /Paired surfaces/);
@@ -1430,10 +1430,10 @@ async function run(): Promise<void> {
 			buildMode: 'advanced_prd'
 		});
 
-		assert.match(replies[0] || '', /I can turn this into maze game/);
+		assert.match(replies[0] || '', /I can turn this into Maze Game/);
 		assert.match(replies[0] || '', /Recommended starting point: browser-playable/);
 		assert.match(replies[0] || '', /Say "go" to start/);
-		assert.match(replies[0] || '', /maze game\.\n\nRecommended starting point:/);
+		assert.match(replies[0] || '', /Maze Game\.\n\nRecommended starting point:/);
 		assert.match(replies[0] || '', /local best score\.\n\nSay "go" to start/);
 		assert.match(replies[0] || '', /shifting walls/);
 		assert.doesNotMatch(replies[0] || '', /Brief is too thin/);
@@ -1492,7 +1492,7 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(dispatchCall!.body.content, /Answers: go/);
 			assert.match(replies.join('\n'), /Perfect, I will use the default direction/);
 			assert.doesNotMatch(replies.join('\n'), new RegExp(`Mission: ${clarifiedMissionId}`));
-			assert.match(replies.join('\n'), /🛠️ Setting up maze game as a planning canvas\./);
+			assert.match(replies.join('\n'), /🛠️ Setting up Maze Game as a planning canvas\./);
 			assert.doesNotMatch(replies.join('\n'), /Spawned work/);
 			assert.doesNotMatch(replies.join('\n'), /Canvas:/);
 			assert.doesNotMatch(replies.join('\n'), /Mission board/);
