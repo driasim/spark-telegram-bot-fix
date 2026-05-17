@@ -2210,6 +2210,8 @@ export function isUserMemoryRecallQuestion(text: string): boolean {
   return (
     /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission\s+updates?|updates?|about\s+me|about\s+how\s+i|how\s+i\s+work|work\s+style)\b/.test(normalized) ||
     /\bwhat\b.*\b(?:prefer|preferred|preference|like)\b.*\bremember\b/.test(normalized) ||
+    /\buse\s+memory\s+only\s+as\s+context\b.*\bwhat\s+did\s+we\s+decide\s+about\b/.test(normalized) ||
+    /\bwhat\s+did\s+we\s+decide\s+about\b/.test(normalized) ||
     /\bwhat\s+do\s+you\s+know\s+about\s+how\s+i\s+like\s+to\s+work\b/.test(normalized) ||
     /\bwhat\b.*\b(?:stable\s+user\s+memory|recent\s+context|only\s+recent\s+context)\b/.test(normalized)
   );

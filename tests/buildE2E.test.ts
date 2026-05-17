@@ -583,6 +583,63 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('natural memory-only recall uses fresh local notes before Builder fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079589;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let recallBridgeCalls = 0;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			if (/railway testing/i.test(messageText) && !/please remember this/i.test(messageText)) {
+				recallBridgeCalls += 1;
+				return {
+					used: true,
+					responseText: "I don't currently have that saved.",
+					decision: 'test',
+					bridgeMode: 'test',
+					routingDecision: 'memory.recall'
+				};
+			}
+			return {
+				used: true,
+				responseText: 'Noted: "Railway testing decision: use Railway for disposable cloud sandbox checks, but keep local Telegram proof separate from Railway proof."',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'memory.write'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const saveReplies: string[] = [];
+			const saveCtx = makeFakeCtx(testUserId, testUserId, 5656, saveReplies);
+			saveCtx.message.text = '/remember Railway testing decision: use Railway for disposable cloud sandbox checks, but keep local Telegram proof separate from Railway proof.';
+			(saveCtx as any).update = { update_id: 5656, message: saveCtx.message };
+			await indexModule.handleRememberCommand(saveCtx);
+
+			const recallReplies: string[] = [];
+			const recallCtx = makeFakeCtx(testUserId, testUserId, 5657, recallReplies);
+			recallCtx.message.text = 'Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.';
+			(recallCtx as any).update = { update_id: 5657, message: recallCtx.message };
+			await indexModule.handleTextMessage(recallCtx);
+
+			assert.equal(recallBridgeCalls, 0);
+			assert.match(recallReplies.join('\n'), /use Railway for disposable cloud sandbox checks/i);
+			assert.match(recallReplies.join('\n'), /keep local Telegram proof separate from Railway proof/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /don't currently have that saved/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('memory doctor evidence includes user turns from final Builder replies', async () => {
 		restoreAxios();
 		const testUserId = 8319079564;

@@ -209,6 +209,14 @@ test('separates user memory recall from build context recall', () => {
     isUserMemoryRecallQuestion('what do you know about how I like to work, and what is only recent context?'),
     true
   );
+  assert.equal(
+    isUserMemoryRecallQuestion('Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.'),
+    true
+  );
+  assert.equal(
+    isBuildContextRecallQuestion('Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.'),
+    false
+  );
   assert.equal(isBuildContextRecallQuestion('we were gonna build something do you remember what it was'), true);
 });
 

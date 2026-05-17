@@ -191,6 +191,7 @@ import {
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
+  isUserMemoryRecallQuestion,
   isDiagnosticFollowupTestQuestion,
   isDiagnosticsScanRequest,
   isMissionExecutionConfirmation,
@@ -1887,6 +1888,24 @@ async function buildLocalRecallReply(user: any, query: string): Promise<string |
     console.warn('[SlashRecall] local recall failed:', error);
     return null;
   }
+}
+
+function extractNaturalLocalMemoryRecallQuery(text: string): string | null {
+  if (extractPlainChatMemoryDirective(text)) return null;
+  const decided = text.match(/\bwhat\s+did\s+we\s+decide\s+about\s+(.+?)(?:[?.!]|$)/i)?.[1]?.trim();
+  if (decided) {
+    return decided
+      .replace(/\b(?:keep\s+it|and\s+keep\s+it|please\s+keep\s+it)\b[\s\S]*$/i, '')
+      .replace(/\b(?:do\s+not|don't)\s+run\b[\s\S]*$/i, '')
+      .trim();
+  }
+  return isUserMemoryRecallQuestion(text) ? text : null;
+}
+
+async function buildNaturalLocalMemoryRecallReply(user: any, text: string): Promise<string | null> {
+  const query = extractNaturalLocalMemoryRecallQuery(text);
+  if (!query) return null;
+  return buildLocalRecallReply(user, query);
 }
 
 export async function handleRememberCommand(ctx: any): Promise<void> {
@@ -5961,6 +5980,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
+    return;
+  }
+  const naturalLocalMemoryRecall = earlyBuildIntent ? null : await buildNaturalLocalMemoryRecallReply(user, text);
+  if (naturalLocalMemoryRecall) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(naturalLocalMemoryRecall);
+    await conversation.rememberAssistantReply(user, naturalLocalMemoryRecall).catch(() => {});
     return;
   }
   const recentRememberedAnswer = earlyBuildIntent ? null : answerFromRememberTurns(text, [
