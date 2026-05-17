@@ -1866,6 +1866,77 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
   await conversation.rememberAssistantReply(user, reply).catch(() => {});
 }
 
+async function saveSlashRememberLocally(user: any, text: string): Promise<boolean> {
+  try {
+    await conversation.remember(user, `remember this: ${text}`);
+    await conversation.learnAboutUser(user, `User asked Spark to remember: ${text}`);
+    return true;
+  } catch (error) {
+    console.warn('[SlashRemember] local memory save failed:', error);
+    return false;
+  }
+}
+
+async function buildLocalRecallReply(user: any, query: string): Promise<string | null> {
+  try {
+    const memories = await conversation.recall(user, query, 1);
+    const memory = memories[0];
+    if (!memory?.content) return null;
+    return `I remember this: ${memory.content.replace(/[.!?]+$/g, '').trim()}.`;
+  } catch (error) {
+    console.warn('[SlashRecall] local recall failed:', error);
+    return null;
+  }
+}
+
+export async function handleRememberCommand(ctx: any): Promise<void> {
+  const text = ctx.message.text.replace('/remember', '').trim();
+
+  if (!text) {
+    return ctx.reply('Usage: /remember <something to remember>');
+  }
+
+  try {
+    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
+    if (missionLessonReply) {
+      await ctx.reply(missionLessonReply);
+      return;
+    }
+    const localSaved = await saveSlashRememberLocally(ctx.from, text);
+    if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
+      return;
+    }
+    await ctx.reply(localSaved ? formatLocalMemoryDirectiveAcknowledgement(text) : buildMemoryBridgeUnavailableReply('remember'));
+  } catch (err) {
+    console.error('Failed to remember:', err);
+    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
+  }
+}
+
+export async function handleRecallCommand(ctx: any): Promise<void> {
+  const query = ctx.message.text.replace('/recall', '').trim();
+
+  if (!query) {
+    return ctx.reply('Usage: /recall <topic to recall>');
+  }
+
+  try {
+    const localRecall = await buildLocalRecallReply(ctx.from, query);
+    if (localRecall) {
+      await ctx.reply(localRecall);
+      await conversation.rememberAssistantReply(ctx.from, localRecall).catch(() => {});
+      return;
+    }
+    if (await replyViaBuilder(ctx, `What do you remember about ${query}?`)) {
+      return;
+    }
+    await ctx.reply(buildMemoryBridgeUnavailableReply('recall'));
+  } catch (err) {
+    console.error('Failed to recall:', err);
+    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
+  }
+}
+
 // Error handler
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}:`, err);
@@ -2697,47 +2768,10 @@ bot.command('clarify', async (ctx) => {
 });
 
 // /remember command
-bot.command('remember', async (ctx) => {
-  const text = ctx.message.text.replace('/remember', '').trim();
-
-  if (!text) {
-    return ctx.reply('Usage: /remember <something to remember>');
-  }
-
-  try {
-    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
-    if (missionLessonReply) {
-      await ctx.reply(missionLessonReply);
-      return;
-    }
-    if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
-      return;
-    }
-    await ctx.reply(buildMemoryBridgeUnavailableReply('remember'));
-  } catch (err) {
-    console.error('Failed to remember:', err);
-    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
-  }
-});
+bot.command('remember', handleRememberCommand);
 
 // /recall command
-bot.command('recall', async (ctx) => {
-  const query = ctx.message.text.replace('/recall', '').trim();
-
-  if (!query) {
-    return ctx.reply('Usage: /recall <topic to recall>');
-  }
-
-  try {
-    if (await replyViaBuilder(ctx, `What do you remember about ${query}?`)) {
-      return;
-    }
-    await ctx.reply(buildMemoryBridgeUnavailableReply('recall'));
-  } catch (err) {
-    console.error('Failed to recall:', err);
-    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
-  }
-});
+bot.command('recall', handleRecallCommand);
 
 // /about command - what do I know about you
 bot.command('about', async (ctx) => {

@@ -526,6 +526,63 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('slash remember creates a local fresh note that slash recall can answer before vague Builder recall', async () => {
+		restoreAxios();
+		const testUserId = 8319079588;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let recallBridgeCalls = 0;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			if (/what do you remember about/i.test(messageText)) {
+				recallBridgeCalls += 1;
+				return {
+					used: true,
+					responseText: 'I do not currently have saved entity state for Spark E2E fresh-state phase.',
+					decision: 'test',
+					bridgeMode: 'test',
+					routingDecision: 'memory.recall'
+				};
+			}
+			return {
+				used: true,
+				responseText: 'Noted: "audit marker: Spark E2E fresh-state phase on 2026-05-17"',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'memory.write'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const saveReplies: string[] = [];
+			const saveCtx = makeFakeCtx(testUserId, testUserId, 5654, saveReplies);
+			saveCtx.message.text = '/remember audit marker: Spark E2E fresh-state phase on 2026-05-17';
+			(saveCtx as any).update = { update_id: 5654, message: saveCtx.message };
+			await indexModule.handleRememberCommand(saveCtx);
+
+			const recallReplies: string[] = [];
+			const recallCtx = makeFakeCtx(testUserId, testUserId, 5655, recallReplies);
+			recallCtx.message.text = '/recall Spark E2E fresh-state phase';
+			(recallCtx as any).update = { update_id: 5655, message: recallCtx.message };
+			await indexModule.handleRecallCommand(recallCtx);
+
+			assert.match(saveReplies.join('\n'), /Noted/i);
+			assert.equal(recallBridgeCalls, 0);
+			assert.match(recallReplies.join('\n'), /I remember this: audit marker: Spark E2E fresh-state phase on 2026-05-17\./i);
+			assert.doesNotMatch(recallReplies.join('\n'), /saved entity state/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('memory doctor evidence includes user turns from final Builder replies', async () => {
 		restoreAxios();
 		const testUserId = 8319079564;
