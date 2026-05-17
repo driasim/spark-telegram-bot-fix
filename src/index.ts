@@ -41,6 +41,7 @@ import {
 import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
+import { applyPlainWordsSurfaceRequest } from './telegramSurface';
 import { installConsoleRedaction, redactIdentifier, redactText } from './redaction';
 import { readJsonFile } from './jsonState';
 import {
@@ -1696,9 +1697,10 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   if (isLowInformationLlmReply(builderReply.responseText)) {
     return false;
   }
-  await deliverBuilderReply(ctx, builderReply);
-  if (user && builderReply.responseText) {
-    await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+  const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
+  await deliverBuilderReply(ctx, { ...builderReply, responseText });
+  if (user && responseText) {
+    await conversation.rememberAssistantReply(user, responseText).catch(() => {});
   }
   return true;
 }
@@ -5705,9 +5707,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
       memories
     );
-    const response = isLowInformationLlmReply(llmResponse)
+    const response = applyPlainWordsSurfaceRequest(text, isLowInformationLlmReply(llmResponse)
       ? buildIdeationFallbackReply(text)
-      : llmResponse;
+      : llmResponse);
     await ctx.reply(response);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
     return;
@@ -6197,9 +6199,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
         memories
       );
-      const response = isLowInformationLlmReply(llmResponse)
+      const response = applyPlainWordsSurfaceRequest(text, isLowInformationLlmReply(llmResponse)
         ? buildIdeationFallbackReply(text)
-        : llmResponse;
+        : llmResponse);
       await ctx.reply(response);
       await conversation.rememberAssistantReply(user, response).catch(() => {});
       return;
@@ -6265,9 +6267,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         ? 'contradicts_resolved_list'
         : builderReplySuppressionReason(builderReply.responseText, builderReply.routingDecision);
       if (!suppressionReason && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
-        await deliverBuilderReply(ctx, builderReply);
-        if (builderReply.responseText) {
-          await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
+        await deliverBuilderReply(ctx, { ...builderReply, responseText });
+        if (responseText) {
+          await conversation.rememberAssistantReply(user, responseText).catch(() => {});
         }
         return;
       }
@@ -6305,7 +6308,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ].filter(Boolean).join('\n\n');
 
     // Get LLM response with Spark context
-    const response = await llm.chat(chatPrompt, systemContext, memories);
+    const response = applyPlainWordsSurfaceRequest(text, await llm.chat(chatPrompt, systemContext, memories));
 
     if (isLowInformationLlmReply(response)) {
       await conversation.recordInterruptedTask(user, {
