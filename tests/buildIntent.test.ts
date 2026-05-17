@@ -19,7 +19,7 @@ test('parses a compact direct build request', () => {
   assert.ok(intent);
   assert.equal(intent.projectPath, 'C:\\Users\\USER\\Desktop\\spark-direct-probe');
   assert.equal(intent.buildMode, 'direct');
-  assert.equal(intent.projectName, 'spark direct probe');
+  assert.equal(intent.projectName, 'Spark Direct Probe');
   assert.match(intent.prd, /Files: index\.html, app\.js\./);
   assert.doesNotMatch(intent.prd, /C:\\Users\\USER\\Desktop/);
 });
@@ -88,6 +88,16 @@ test('routes tiny one-screen smoke pages through the fast direct lane', () => {
   assert.equal(intent.buildMode, 'direct');
   assert.equal(intent.buildLane, 'fast_direct');
   assert.match(intent.buildLaneReason, /lightweight planning/i);
+});
+
+test('polishes inferred mission titles without workflow wording', () => {
+  const intent = parseBuildIntent(
+    'Create a tiny maze game plan and build only a minimal playable prototype. Use a short PRD if needed, keep it fast, and show me the Mission Control links as it moves through planning, build, and completion.'
+  );
+
+  assert.ok(intent);
+  assert.equal(intent.projectName, 'Tiny Maze Game');
+  assert.doesNotMatch(intent.projectName, /plan and build/i);
 });
 
 test('extracts clean names from Telegram direct-build game prompts', () => {
