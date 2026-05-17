@@ -191,6 +191,7 @@ import {
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
+  isUserMemoryRecallQuestion,
   isDiagnosticFollowupTestQuestion,
   isDiagnosticsScanRequest,
   isMissionExecutionConfirmation,
@@ -198,8 +199,10 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
+  isMissionRoutingFailureClassQuestion,
   isNoExecutionBoundary,
   isSparkChipStatusOverclaimQuestion,
+  isSparkThreadQaGoldenCaseRequest,
   isSparkWorkflowBugHuntRequest,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
@@ -212,6 +215,8 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  renderMissionRoutingFailureClassReply,
+  renderSparkThreadQaGoldenCaseReply,
   renderSparkWorkflowBugHuntReply,
   builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
@@ -432,10 +437,25 @@ function isLiveSparkHealthQuestion(text: string): boolean {
 
 function isSpawnerGoldenPathRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const explicitlyStopsExecution = /\b(?:do\s+not|don't|dont|no\s+need\s+to|without)\s+(?:start|run|launch|queue|dispatch|execute)\b/.test(normalized);
+  if (explicitlyStopsExecution) return false;
+
+  const mentionsNoEditProbe =
+    /\bno[-\s]*edit\b/.test(normalized) &&
+    /\bspawner\b/.test(normalized) &&
+    /\b(?:run|start|launch|queue|execute|through)\b/.test(normalized) &&
+    (
+      /\bmission\s+control\b/.test(normalized) ||
+      /\bdiagnostic\b/.test(normalized) ||
+      /\brepl(?:y|ies)\s+with\b/.test(normalized) ||
+      /\bspark_[a-z0-9_]{4,}\b/.test(normalized)
+    );
+
   return (
     /\bgolden[_\s-]*path\b/.test(normalized) ||
     (/\btiny mission\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
-    (/\b(?:golden_path_ok|spark_qa_no_edit_ok)\b/.test(normalized) && /\bspawner\b/.test(normalized))
+    (/\b(?:golden_path_ok|spark_qa_no_edit_ok|spark_e2e_[a-z0-9_]+)\b/.test(normalized) && /\bspawner\b/.test(normalized)) ||
+    mentionsNoEditProbe
   );
 }
 
@@ -446,6 +466,22 @@ function extractNoEditMissionReplyPhrase(text: string): string {
   }
   const bareToken = text.match(/\b([A-Z][A-Z0-9_]{5,80})\b/)?.[1]?.trim();
   return bareToken || 'GOLDEN_PATH_OK';
+}
+
+function extractNoEditProbeWaitSeconds(text: string): number | null {
+  const waitMatch = text.match(/\b(?:wait|waiting)\s+(?:about\s+|around\s+|for\s+)?(\d{1,2})\s*(?:seconds?|secs?)\b/i);
+  if (!waitMatch) return null;
+  const seconds = Number(waitMatch[1]);
+  if (!Number.isFinite(seconds) || seconds < 5) return null;
+  return Math.min(seconds, 60);
+}
+
+function noEditProbeGoal(replyPhrase: string, originalText: string): string {
+  const waitSeconds = extractNoEditProbeWaitSeconds(originalText);
+  const waitInstruction = waitSeconds
+    ? ` Before replying, wait about ${waitSeconds} seconds so Mission Control can show a running state.`
+    : '';
+  return `Reply with exactly: ${replyPhrase}.${waitInstruction} Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`;
 }
 
 function compactSparkLiveOutput(output: string): string {
@@ -509,18 +545,25 @@ function parseSparkLiveSummary(liveStatus: string, deepVerify: string): SparkLiv
 
 function renderSparkLiveSummary(
   summary: SparkLiveSummary,
-  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean } = {}
+  opts: { restartGuidance?: boolean; rawDetails?: boolean; includeAction?: boolean; sourceDisclosure?: boolean } = {}
 ): string {
   const healthy = summary.liveReady && summary.spawnerOk && summary.telegramOk;
   const includeAction = opts.includeAction ?? true;
   const lines: string[] = [
-    healthy ? '✅ Spark is healthy right now.' : '⚠️ Spark needs attention right now.',
+    healthy ? '✅ Spark is healthy right now.' : '⚠️ Spark needs attention right now.'
+  ];
+
+  if (opts.sourceDisclosure) {
+    lines.push('', "I'm using fresh runtime state here, not memory.");
+  }
+
+  lines.push(
     '',
     'Live loop',
     `• Spawner: ${summary.spawnerOk ? 'reachable' : 'needs attention'}.`,
     `• Telegram: ${summary.telegramOk ? 'polling' : 'needs attention'}.`,
     `• Mission Control: ${summary.liveReady ? 'ready' : 'not fully ready'}.`
-  ];
+  );
 
   if (opts.rawDetails) {
     lines.push(
@@ -590,7 +633,10 @@ async function renderAuthoritativeSparkLiveStateAnswer(
       runSparkCli(['live', 'status'], 45_000),
       runSparkCli(['verify', '--deep'], 90_000).catch((error) => `verify_failed: ${error instanceof Error ? error.message : String(error)}`)
     ]);
-    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), opts);
+    return renderSparkLiveSummary(parseSparkLiveSummary(liveStatus, deepVerify), {
+      ...opts,
+      sourceDisclosure: true
+    });
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
@@ -935,11 +981,9 @@ function shouldAnswerRuntimeTruthPriority(text: string): boolean {
 
 function renderRuntimeTruthPriorityAnswer(): string {
   return [
-    'Fresh runtime state wins for current-state questions.',
+    'Fresh runtime state wins.',
     '',
-    'Rule: `spark live status`, `spark access status`, provider checks, and direct smoke probes are authoritative for what is true right now. Memory is useful for history and continuity, but it must not override fresh runtime evidence.',
-    '',
-    'So if memory says Spawner is down and fresh `spark live status` says Spawner is up, Spawner is up right now. The memory becomes stale context, not current truth.'
+    'If fresh `spark live status` says Spawner is up, Spawner is up right now. Memory becomes stale context, not current truth.'
   ].join('\n');
 }
 
@@ -1823,6 +1867,95 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
   await conversation.rememberAssistantReply(user, reply).catch(() => {});
 }
 
+async function saveSlashRememberLocally(user: any, text: string): Promise<boolean> {
+  try {
+    await conversation.remember(user, `remember this: ${text}`);
+    await conversation.learnAboutUser(user, `User asked Spark to remember: ${text}`);
+    return true;
+  } catch (error) {
+    console.warn('[SlashRemember] local memory save failed:', error);
+    return false;
+  }
+}
+
+async function buildLocalRecallReply(user: any, query: string): Promise<string | null> {
+  try {
+    const memories = await conversation.recall(user, query, 1);
+    const memory = memories[0];
+    if (!memory?.content) return null;
+    return `I remember this: ${memory.content.replace(/[.!?]+$/g, '').trim()}.`;
+  } catch (error) {
+    console.warn('[SlashRecall] local recall failed:', error);
+    return null;
+  }
+}
+
+function extractNaturalLocalMemoryRecallQuery(text: string): string | null {
+  if (extractPlainChatMemoryDirective(text)) return null;
+  const decided = text.match(/\bwhat\s+did\s+we\s+decide\s+about\s+(.+?)(?:[?.!]|$)/i)?.[1]?.trim();
+  if (decided) {
+    return decided
+      .replace(/\b(?:keep\s+it|and\s+keep\s+it|please\s+keep\s+it)\b[\s\S]*$/i, '')
+      .replace(/\b(?:do\s+not|don't)\s+run\b[\s\S]*$/i, '')
+      .trim();
+  }
+  return isUserMemoryRecallQuestion(text) ? text : null;
+}
+
+async function buildNaturalLocalMemoryRecallReply(user: any, text: string): Promise<string | null> {
+  const query = extractNaturalLocalMemoryRecallQuery(text);
+  if (!query) return null;
+  return buildLocalRecallReply(user, query);
+}
+
+export async function handleRememberCommand(ctx: any): Promise<void> {
+  const text = ctx.message.text.replace('/remember', '').trim();
+
+  if (!text) {
+    return ctx.reply('Usage: /remember <something to remember>');
+  }
+
+  try {
+    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
+    if (missionLessonReply) {
+      await ctx.reply(missionLessonReply);
+      return;
+    }
+    const localSaved = await saveSlashRememberLocally(ctx.from, text);
+    if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
+      return;
+    }
+    await ctx.reply(localSaved ? formatLocalMemoryDirectiveAcknowledgement(text) : buildMemoryBridgeUnavailableReply('remember'));
+  } catch (err) {
+    console.error('Failed to remember:', err);
+    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
+  }
+}
+
+export async function handleRecallCommand(ctx: any): Promise<void> {
+  const query = ctx.message.text.replace('/recall', '').trim();
+
+  if (!query) {
+    return ctx.reply('Usage: /recall <topic to recall>');
+  }
+
+  try {
+    const localRecall = await buildLocalRecallReply(ctx.from, query);
+    if (localRecall) {
+      await ctx.reply(localRecall);
+      await conversation.rememberAssistantReply(ctx.from, localRecall).catch(() => {});
+      return;
+    }
+    if (await replyViaBuilder(ctx, `What do you remember about ${query}?`)) {
+      return;
+    }
+    await ctx.reply(buildMemoryBridgeUnavailableReply('recall'));
+  } catch (err) {
+    console.error('Failed to recall:', err);
+    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
+  }
+}
+
 // Error handler
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}:`, err);
@@ -2657,47 +2790,10 @@ bot.command('clarify', async (ctx) => {
 });
 
 // /remember command
-bot.command('remember', async (ctx) => {
-  const text = ctx.message.text.replace('/remember', '').trim();
-
-  if (!text) {
-    return ctx.reply('Usage: /remember <something to remember>');
-  }
-
-  try {
-    const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
-    if (missionLessonReply) {
-      await ctx.reply(missionLessonReply);
-      return;
-    }
-    if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
-      return;
-    }
-    await ctx.reply(buildMemoryBridgeUnavailableReply('remember'));
-  } catch (err) {
-    console.error('Failed to remember:', err);
-    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
-  }
-});
+bot.command('remember', handleRememberCommand);
 
 // /recall command
-bot.command('recall', async (ctx) => {
-  const query = ctx.message.text.replace('/recall', '').trim();
-
-  if (!query) {
-    return ctx.reply('Usage: /recall <topic to recall>');
-  }
-
-  try {
-    if (await replyViaBuilder(ctx, `What do you remember about ${query}?`)) {
-      return;
-    }
-    await ctx.reply(buildMemoryBridgeUnavailableReply('recall'));
-  } catch (err) {
-    console.error('Failed to recall:', err);
-    await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
-  }
-});
+bot.command('recall', handleRecallCommand);
 
 // /about command - what do I know about you
 bot.command('about', async (ctx) => {
@@ -3902,12 +3998,16 @@ async function readLatestCanvasPlanFromSpawnerState(): Promise<LatestCanvasPlan 
   return latestCanvasPlanFromLoadState(state, publicSpawnerUrl);
 }
 
-function isLatestCanvasPlanQuestion(text: string): boolean {
+export function isLatestCanvasPlanQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (/\b(?:mission|project|build)\s+title\b/.test(normalized) || /\btitle\s+would\s+you\s+use\b/.test(normalized)) {
+    return false;
+  }
   const asksPlanDetails = /\b(?:what|which|show|list|tell me|give me)\b/.test(normalized)
     || /\bfull plan\b/.test(normalized);
   const asksTasksOrSkills = /\b(?:tasks?|steps?|skills?|paired skills?|queued|plan)\b/.test(normalized);
-  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|that|it|queued|full plan)\b/.test(normalized);
+  const anchoredToRecentCanvas = /\b(?:canvas|mission|build|project|latest|last|queued|full plan)\b/.test(normalized)
+    || /\b(?:that|it)\s+(?:canvas|mission|build|project|plan|queue|queued)\b/.test(normalized);
   return asksPlanDetails && asksTasksOrSkills && anchoredToRecentCanvas;
 }
 
@@ -3933,6 +4033,25 @@ export function formatLatestCanvasPlanReply(plan: LatestCanvasPlan): string {
     'Canvas',
     `• ${plan.readyCanvasUrl}`
   ].flat().filter((line): line is string => line !== null).join('\n');
+}
+
+function buildNoStartMissionTitleReply(text: string): string | null {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const asksTitle = /\b(?:mission|project|build)\s+title\b/.test(normalized) || /\btitle\s+would\s+you\s+use\b/.test(normalized);
+  const noStart = /\b(?:do\s+not|don't|without|no)\s+(?:start|launch|run|create|build)\b/.test(normalized);
+  if (!asksTitle || !noStart) return null;
+
+  const quotedPhrases = Array.from(text.matchAll(/["“”']([^"“”']{3,240})["“”']/g))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+  for (const phrase of quotedPhrases) {
+    const intent = parseBuildIntent(phrase);
+    if (intent?.projectName) {
+      return `I’d use ${intent.projectName}. I would not start a mission from that title check.`;
+    }
+  }
+
+  return null;
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -4200,6 +4319,7 @@ export function routeConfidenceGateCompatibilityAllows(input: {
 interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
+  relayGoal?: string;
 }
 
 export async function handleRunCommand(
@@ -4284,7 +4404,7 @@ export async function handleRunCommand(
     userId: String(ctx.from.id),
     requestId: result.requestId || requestId,
     traceRef,
-    goal,
+    goal: options.relayGoal || goal,
     createdAt: new Date().toISOString(),
     updateId: typeof ctx.update.update_id === 'number' ? ctx.update.update_id : undefined
   });
@@ -5350,6 +5470,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
     return;
   }
+  const noStartMissionTitleReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
+    ? buildNoStartMissionTitleReply(text)
+    : null;
+  if (noStartMissionTitleReply) {
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.title_probe', 'spark-telegram-bot', 'answer');
+    await ctx.reply(noStartMissionTitleReply);
+    await conversation.rememberAssistantReply(user, noStartMissionTitleReply).catch(() => {});
+    return;
+  }
   const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
     ? buildLatestAssistantOriginReply(text, pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`) || null)
     : null;
@@ -5525,6 +5655,33 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const replyPhrase = extractNoEditMissionReplyPhrase(text);
+    const missionId = await handleRunCommand(
+      ctx,
+      noEditProbeGoal(replyPhrase, text),
+      [missionDefaultProvider()],
+      'spawner_build',
+      { missionName: 'Telegram Golden Path Probe', relayGoal: text }
+    );
+    if (missionId) {
+      const probeMission = {
+        missionId,
+        requestedPhrase: replyPhrase,
+        startedAt: new Date().toISOString()
+      };
+      const key = noEditProbeKey(ctx);
+      lastNoEditProbeMissions.set(key, probeMission);
+      await storeNoEditProbeMission(key, probeMission).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);
+      });
+      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
+    }
+    return;
+  }
+
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
@@ -5542,33 +5699,6 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (!conversationFrameContext.includes('Fresh Spark runtime truth for this turn')) {
       await attachFreshRuntimeTruthContext();
     }
-  }
-
-  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const replyPhrase = extractNoEditMissionReplyPhrase(text);
-    const missionId = await handleRunCommand(
-      ctx,
-      `Reply with exactly: ${replyPhrase}. Do not edit files. Do not create files. This is a no-edit Spawner golden-path health probe.`,
-      [missionDefaultProvider()],
-      'spawner_build',
-      { missionName: 'Telegram Golden Path Probe' }
-    );
-    if (missionId) {
-      const probeMission = {
-        missionId,
-        requestedPhrase: replyPhrase,
-        startedAt: new Date().toISOString()
-      };
-      const key = noEditProbeKey(ctx);
-      lastNoEditProbeMissions.set(key, probeMission);
-      await storeNoEditProbeMission(key, probeMission).catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
-        console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);
-      });
-      await conversation.learnAboutUser(user, `Started Spawner golden-path probe mission ${missionId} from Telegram; requested exact reply: ${replyPhrase}.`).catch(() => {});
-    }
-    return;
   }
 
   if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
@@ -5592,6 +5722,24 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isSparkThreadQaGoldenCaseRequest(text)) {
+    const reply = renderSparkThreadQaGoldenCaseReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.thread_qa_golden_case', 'spark-telegram-bot', 'plain_chat.qa_fixture');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isMissionRoutingFailureClassQuestion(text)) {
+    const reply = renderMissionRoutingFailureClassReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.mission_routing_failure_class', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
@@ -5838,6 +5986,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
+    return;
+  }
+  const naturalLocalMemoryRecall = earlyBuildIntent ? null : await buildNaturalLocalMemoryRecallReply(user, text);
+  if (naturalLocalMemoryRecall) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply(naturalLocalMemoryRecall);
+    await conversation.rememberAssistantReply(user, naturalLocalMemoryRecall).catch(() => {});
     return;
   }
   const recentRememberedAnswer = earlyBuildIntent ? null : answerFromRememberTurns(text, [

@@ -104,6 +104,20 @@ Send the Mission board first and the canvas when planning is ready.`;
   assert.equal(parseNaturalAccessChangeIntent(accessPrompt), '4');
 });
 
+test('mission titles stay readable for simple game and path-derived builds', () => {
+  assert.equal(parseBuildIntent("let's build a maze game")?.projectName, 'Maze Game');
+  assert.equal(
+    parseBuildIntent(
+      'Create a tiny maze game plan and build only a minimal playable prototype. Use a short PRD if needed, keep it fast, and show Mission Control links as it moves through planning, build, and completion.'
+    )?.projectName,
+    'Tiny Maze Game'
+  );
+  assert.equal(
+    parseBuildIntent('Save mission updates as verbose and build this at C:\\Users\\USER\\Desktop\\terminal-chef-clock: a clock for terminal devs who cook.')?.projectName,
+    'Terminal Chef Clock'
+  );
+});
+
 test('non-build utility requests still route away from builder', () => {
   assert.equal(parseBuildIntent('include board and canvas links for missions'), null);
   assert.deepEqual(parseMissionUpdatePreferenceIntent('include board and canvas links for missions'), { links: 'both' });

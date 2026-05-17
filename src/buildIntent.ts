@@ -206,6 +206,18 @@ function inferDashboardPurposeName(prd: string): string | null {
   return titleCaseProjectName(`${purpose} ${match[1].toLowerCase()}`);
 }
 
+function inferGamePrototypeName(prd: string): string | null {
+  const normalized = prd.replace(/\s+/g, ' ').trim();
+  const match = normalized.match(
+    /\b((?:(?:tiny|small|quick|minimal|simple)\s+)?[A-Za-z0-9][A-Za-z0-9' -]{1,50}?\bgame)\s+(?:plan\s+and\s+build|plan|prototype|minimal\s+playable\s+prototype)\b/i
+  );
+  if (!match?.[1]) return null;
+  const title = match[1].replace(/\s+/g, ' ').trim();
+  const qualifier = title.replace(/\bgame\b/i, '').replace(/\b(?:tiny|small|quick|minimal|simple)\b/gi, '').trim();
+  if (!qualifier) return null;
+  return titleCaseProjectName(title);
+}
+
 function inferQuotedHeadingProjectName(prd: string): string | null {
   const headingMatch = prd.match(
     /\b(?:big\s+|large\s+|hero\s+)?(?:heading|headline|title|h1)\b(?:\s+(?:that\s+)?(?:says|reads|called|named))?\s*[:\-]?\s*["']([^"']{3,80})["']/i
@@ -261,6 +273,8 @@ function inferProjectName(prd: string, projectPath: string | null): string {
   if (audienceProductName) return audienceProductName;
   const dashboardPurposeName = inferDashboardPurposeName(prd);
   if (dashboardPurposeName) return dashboardPurposeName;
+  const gamePrototypeName = inferGamePrototypeName(prd);
+  if (gamePrototypeName) return gamePrototypeName;
   const productPhraseName = inferProductPhraseProjectName(prd);
   if (productPhraseName) return productPhraseName;
   const firstWords = prd.split(/\s+/).slice(0, 6).join(' ');

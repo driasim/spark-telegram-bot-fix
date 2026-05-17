@@ -526,6 +526,120 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('slash remember creates a local fresh note that slash recall can answer before vague Builder recall', async () => {
+		restoreAxios();
+		const testUserId = 8319079588;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let recallBridgeCalls = 0;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			if (/what do you remember about/i.test(messageText)) {
+				recallBridgeCalls += 1;
+				return {
+					used: true,
+					responseText: 'I do not currently have saved entity state for Spark E2E fresh-state phase.',
+					decision: 'test',
+					bridgeMode: 'test',
+					routingDecision: 'memory.recall'
+				};
+			}
+			return {
+				used: true,
+				responseText: 'Noted: "audit marker: Spark E2E fresh-state phase on 2026-05-17"',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'memory.write'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const saveReplies: string[] = [];
+			const saveCtx = makeFakeCtx(testUserId, testUserId, 5654, saveReplies);
+			saveCtx.message.text = '/remember audit marker: Spark E2E fresh-state phase on 2026-05-17';
+			(saveCtx as any).update = { update_id: 5654, message: saveCtx.message };
+			await indexModule.handleRememberCommand(saveCtx);
+
+			const recallReplies: string[] = [];
+			const recallCtx = makeFakeCtx(testUserId, testUserId, 5655, recallReplies);
+			recallCtx.message.text = '/recall Spark E2E fresh-state phase';
+			(recallCtx as any).update = { update_id: 5655, message: recallCtx.message };
+			await indexModule.handleRecallCommand(recallCtx);
+
+			assert.match(saveReplies.join('\n'), /Noted/i);
+			assert.equal(recallBridgeCalls, 0);
+			assert.match(recallReplies.join('\n'), /I remember this: audit marker: Spark E2E fresh-state phase on 2026-05-17\./i);
+			assert.doesNotMatch(recallReplies.join('\n'), /saved entity state/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('natural memory-only recall uses fresh local notes before Builder fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079589;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let recallBridgeCalls = 0;
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			if (/railway testing/i.test(messageText) && !/please remember this/i.test(messageText)) {
+				recallBridgeCalls += 1;
+				return {
+					used: true,
+					responseText: "I don't currently have that saved.",
+					decision: 'test',
+					bridgeMode: 'test',
+					routingDecision: 'memory.recall'
+				};
+			}
+			return {
+				used: true,
+				responseText: 'Noted: "Railway testing decision: use Railway for disposable cloud sandbox checks, but keep local Telegram proof separate from Railway proof."',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'memory.write'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const saveReplies: string[] = [];
+			const saveCtx = makeFakeCtx(testUserId, testUserId, 5656, saveReplies);
+			saveCtx.message.text = '/remember Railway testing decision: use Railway for disposable cloud sandbox checks, but keep local Telegram proof separate from Railway proof.';
+			(saveCtx as any).update = { update_id: 5656, message: saveCtx.message };
+			await indexModule.handleRememberCommand(saveCtx);
+
+			const recallReplies: string[] = [];
+			const recallCtx = makeFakeCtx(testUserId, testUserId, 5657, recallReplies);
+			recallCtx.message.text = 'Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.';
+			(recallCtx as any).update = { update_id: 5657, message: recallCtx.message };
+			await indexModule.handleTextMessage(recallCtx);
+
+			assert.equal(recallBridgeCalls, 0);
+			assert.match(recallReplies.join('\n'), /use Railway for disposable cloud sandbox checks/i);
+			assert.match(recallReplies.join('\n'), /keep local Telegram proof separate from Railway proof/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /don't currently have that saved/i);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('memory doctor evidence includes user turns from final Builder replies', async () => {
 		restoreAxios();
 		const testUserId = 8319079564;
@@ -1527,6 +1641,180 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('H70 Thread QA golden-case request stays in chat without spawning', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-thread-qa-golden-case-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+		ctx.message.text = 'Do not build anything. Turn the H70 Orbit Proof interruption into a golden Thread QA test case. Keep it natural and short.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /golden Thread QA case, not a build/);
+		assert.match(reply, /H70 Orbit Proof canvas update intrudes/);
+		assert.match(reply, /stay in product conversation/i);
+		assert.doesNotMatch(reply, /Runtime health|Degraded surfaces|Active loops/i);
+		assert.equal(captured.length, 0, 'golden-case request must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('runtime truth priority answer stays short and conversational', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-runtime-truth-priority-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'If memory says Spawner is down but spark live status says it is up, which source wins? Keep it natural and short.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Fresh runtime state wins/);
+		assert.match(reply, /fresh `spark live status` says Spawner is up/);
+		assert.match(reply, /Memory becomes stale context/);
+		assert.doesNotMatch(reply, /Rule:/);
+		assert.doesNotMatch(reply, /provider checks|direct smoke probes/);
+		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
+		assert.equal(captured.length, 0, 'source-priority question must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('no-start mission title probe answers title instead of stale canvas', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-title-probe-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 607, replies);
+		ctx.message.text = 'Do not start a mission. If I say "Create a tiny maze game plan and build only a minimal playable prototype", what mission title would you use? Keep it natural and short.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Tiny Maze Game/);
+		assert.match(reply, /would not start a mission/i);
+		assert.doesNotMatch(reply, /latest canvas|H70 Orbit Proof|build steps are queued|Canvas/i);
+		assert.equal(captured.length, 0, 'title probe must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('no-start mission routing failure-class probe stays conversational', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-routing-failure-class-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 608, replies);
+		ctx.message.text = 'I am asking about a bug in mission routing. Do not launch a mission; just explain the likely failure class in one or two natural sentences.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /route hijack/i);
+		assert.match(reply, /asked to explain only/i);
+		assert.doesNotMatch(reply, /latest canvas|H70 Orbit Proof|Mission board|Canvas|Kanban/i);
+		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
+		assert.equal(captured.length, 0, 'failure-class probe must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-slow-no-edit-route-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/spark/run')) {
+				return {
+					data: {
+						success: true,
+						missionId: 'spark-slow-no-edit',
+						requestId: body.requestId,
+						providers: ['codex']
+					}
+				};
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { providers: [{ id: 'codex' }] } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 605, replies);
+		ctx.message.text = 'Run a deliberately slow no-edit Mission Control diagnostic through Spawner. It should only prove live running-state UI and reply with SPARK_E2E_SLOW_NO_EDIT_OK after waiting about 30 seconds. Do not create files, do not edit files, and share Canvas/Kanban/View Execution if it starts.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
+		assert.ok(runCall, 'explicit no-edit Spawner diagnostic must dispatch through Spawner');
+		assert.equal(runCall!.body.missionName, 'Telegram Golden Path Probe');
+		assert.match(runCall!.body.goal, /Reply with exactly: SPARK_E2E_SLOW_NO_EDIT_OK/);
+		assert.match(runCall!.body.goal, /wait about 30 seconds so Mission Control can show a running state/);
+		assert.match(replies.join('\n'), /I will run that through Codex now\./);
+		assert.doesNotMatch(replies.join('\n'), /Spark is healthy right now|No repair action needed/i);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('natural access status uses authoritative CLI state instead of generic help', async () => {
 		restoreAxios();
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-status-'));
@@ -1601,6 +1889,68 @@ async function run(): Promise<void> {
 			assert.match(reply, /Runner:/);
 			assert.doesNotMatch(reply, /Levels:\n1 - Chat/);
 			assert.doesNotMatch(reply, /Change it with `\/access 1`/);
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('fresh live state answers disclose runtime source instead of memory', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-live-state-source-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
+				'  echo "[OK] Spark Live is ready."',
+				'  echo "Telegram profiles: 1 running, 0 stopped"',
+				'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
+				'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
+				'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
+				'  exit 0',
+				'fi',
+				'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
+				'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		try {
+			const captured: CapturedCall[] = [];
+			(axios as any).post = async (url: string, body: any) => {
+				captured.push({ url, body });
+				return { data: { success: true } };
+			};
+
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+			ctx.message.text = 'What is the current live state of Spark? Are you using fresh runtime state or memory? Keep it natural and short.';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /Spark is healthy right now/);
+			assert.match(reply, /fresh runtime state.*not memory/i);
+			assert.match(reply, /Live loop/);
+			assert.match(reply, /Spawner: reachable/);
+			assert.match(reply, /Telegram: polling/);
+			assert.equal(captured.length, 0, 'live-state question must not launch or post work');
 		} finally {
 			process.env.PATH = oldPath;
 			rmSync(tempRoot, { recursive: true, force: true });

@@ -487,6 +487,30 @@ export function buildMissionSurfaceLinks(
   return links;
 }
 
+function shouldIncludeRequestedMissionControlLinks(goal?: string): boolean {
+  const normalized = (goal || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\bshare\b/.test(normalized) &&
+    /\b(?:canvas|kanban|view execution|execution)\b/.test(normalized)
+  ) || (
+    /\bno[-\s]*edit\b/.test(normalized) &&
+    /\b(?:mission control|spawner)\b/.test(normalized) &&
+    /\b(?:canvas|kanban|view execution|execution)\b/.test(normalized)
+  );
+}
+
+function requestedMissionControlLinkLines(missionId: string, goal?: string): string[] {
+  if (!shouldIncludeRequestedMissionControlLinks(goal)) return [];
+  const baseUrl = spawnerPublicUrl();
+  const missionQuery = `mission=${encodeURIComponent(missionId)}`;
+  return [
+    `Canvas: ${baseUrl}/canvas?${missionQuery}`,
+    `Kanban: ${baseUrl}/kanban?${missionQuery}`,
+    `View execution: ${baseUrl}/canvas?${missionQuery}`
+  ];
+}
+
 function missionIdIsLinked(missionId: string, links: string[]): boolean {
   const encoded = encodeURIComponent(missionId);
   return links.some((link) => link.includes(`mission=${encoded}`));
@@ -1371,6 +1395,10 @@ export function formatProviderCompletionForTelegram(input: {
     } else if (projectPath && input.previewPending) {
       lines.push('', 'Preview is not ready yet. The board can show the run meanwhile.');
     }
+    const requestedMissionControlLinks = requestedMissionControlLinkLines(input.missionId, input.goal);
+    if (requestedMissionControlLinks.length > 0) {
+      lines.push('', 'Mission Control', ...requestedMissionControlLinks.map((line) => `• ${line}`));
+    }
     if (shipped.length > 0) {
       lines.push('', 'Shipped', ...shipped.map((item) => `• ${item}`));
     }
@@ -1420,6 +1448,10 @@ export function formatProviderCompletionForTelegram(input: {
     lines.push('', ...openProjectLines(openLink));
   } else if (projectPath && input.previewPending) {
     lines.push('', 'Preview is not ready yet. The board can show the run meanwhile.');
+  }
+  const requestedMissionControlLinks = requestedMissionControlLinkLines(input.missionId, input.goal);
+  if (requestedMissionControlLinks.length > 0) {
+    lines.push('', 'Mission Control', ...requestedMissionControlLinks.map((line) => `• ${line}`));
   }
 
   if (verification.length > 0) {

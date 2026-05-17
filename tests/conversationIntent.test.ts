@@ -40,6 +40,9 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isSparkChipStatusOverclaimQuestion,
+  isSparkWorkflowBugHuntRequest,
+  isSparkThreadQaGoldenCaseRequest,
+  renderSparkThreadQaGoldenCaseReply,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isProjectImprovementRequest,
@@ -206,6 +209,14 @@ test('separates user memory recall from build context recall', () => {
     isUserMemoryRecallQuestion('what do you know about how I like to work, and what is only recent context?'),
     true
   );
+  assert.equal(
+    isUserMemoryRecallQuestion('Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.'),
+    true
+  );
+  assert.equal(
+    isBuildContextRecallQuestion('Use memory only as context: what did we decide about Railway testing? Keep it short and do not run anything.'),
+    false
+  );
   assert.equal(isBuildContextRecallQuestion('we were gonna build something do you remember what it was'), true);
 });
 
@@ -362,6 +373,33 @@ test('does not treat route hijack audit wording as diagnostic follow-up tests', 
     ),
     false
   );
+});
+
+test('does not turn product-memory mission boundary questions into workflow bug hunt cards', () => {
+  assert.equal(
+    isSparkWorkflowBugHuntRequest(
+      'If I ask about Spark Thread QA product polish, when should you mention Mission Control state?'
+    ),
+    false
+  );
+  assert.equal(
+    isSparkWorkflowBugHuntRequest(
+      'What is the difference between product-memory context and current mission state?'
+    ),
+    false
+  );
+});
+
+test('recognizes H70 Thread QA golden-case requests as conversation fixtures', () => {
+  const prompt = 'Do not build anything. Turn the H70 Orbit Proof interruption into a golden Thread QA test case. Keep it natural and short.';
+  assert.equal(isSparkThreadQaGoldenCaseRequest(prompt), true);
+  assert.equal(isSparkWorkflowBugHuntRequest(prompt), false);
+
+  const reply = renderSparkThreadQaGoldenCaseReply(prompt);
+  assert.match(reply, /golden Thread QA case, not a build/);
+  assert.match(reply, /H70 Orbit Proof canvas update intrudes/);
+  assert.match(reply, /Mission Control state only appears if the user asks/);
+  assert.doesNotMatch(reply, /Runtime health|Degraded surfaces|Active loops/i);
 });
 
 test('turns explicit contextual improvement requests into diagnostic integration missions', () => {

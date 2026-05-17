@@ -1279,9 +1279,65 @@ export function isSparkWorkflowBugHuntRequest(text: string): boolean {
   if (!normalized || parseBuildIntent(normalized)) {
     return false;
   }
+  if (isProductMemoryMissionBoundaryQuestion(normalized)) {
+    return false;
+  }
   const qaLanguage = /\b(?:unit\s+tests?|qa|bug\s+hunt(?:er|ing)?|edge\s+cases?|regressions?|smoke\s+tests?|test\s+suite|comprehensive\s+tests?|trigger\s+bugs?|bug\s+hunter)\b/.test(normalized);
   const sparkSurface = /\b(?:spawner|mission\s+control|mission\s+loop|telegram|relay|workflow|canvas|kanban|builder|route|routing)\b/.test(normalized);
   return qaLanguage && sparkSurface;
+}
+
+export function isSparkThreadQaGoldenCaseRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || parseBuildIntent(normalized)) {
+    return false;
+  }
+  const mentionsThreadQa = /\b(?:spark\s+thread\s+qa|thread\s+qa)\b/.test(normalized);
+  const mentionsGoldenCase = /\b(?:golden\s+(?:thread\s+qa\s+)?(?:test|case|fixture)|test\s+case|fixture|regression)\b/.test(normalized);
+  const mentionsStaleCanvasFailure =
+    /\b(?:h70\s+orbit\s+proof|stale\s+canvas|canvas\s+interruption|mission\s+intrusion|route\s+hijack)\b/.test(normalized);
+  return mentionsThreadQa && mentionsGoldenCase && mentionsStaleCanvasFailure;
+}
+
+export function renderSparkThreadQaGoldenCaseReply(_text: string): string {
+  return [
+    'Yes. This should become a golden Thread QA case, not a build.',
+    '',
+    'Case shape:',
+    '• User asks about Spark Thread QA product polish.',
+    '• Rec answers the product-memory question correctly.',
+    '• A stale H70 Orbit Proof canvas update intrudes.',
+    '',
+    'Expected result: stay in product conversation. Mission Control state only appears if the user asks to inspect, run, verify, continue, or debug that mission.'
+  ].join('\n');
+}
+
+export function isMissionRoutingFailureClassQuestion(text: string): boolean {
+	const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+	if (!normalized || parseBuildIntent(normalized)) {
+		return false;
+	}
+	const asksFailureClass = /\b(?:failure\s+class|likely\s+failure|classify|classification|what\s+kind\s+of\s+bug)\b/.test(normalized);
+	const mentionsRouting = /\b(?:mission\s+routing|route\s+hijack|routing\s+bug|mission\s+route|spawner\s+route)\b/.test(normalized);
+	const noExecution = isNoExecutionBoundary(normalized);
+	return asksFailureClass && mentionsRouting && noExecution;
+}
+
+export function renderMissionRoutingFailureClassReply(_text: string): string {
+	return [
+		'That sounds like route hijack: mission or build words are pulling the conversation toward execution even though the user asked to explain only.',
+		'Fresh user intent should outrank keywords, memory, stale mission state, and pending mission context.'
+	].join('\n');
+}
+
+function isProductMemoryMissionBoundaryQuestion(normalized: string): boolean {
+  const mentionsProductMemory =
+    /\b(?:spark\s+thread\s+qa|thread\s+qa|product\s+polish|product[-\s]*memory|product\s+conversation)\b/.test(normalized);
+  const mentionsMissionState =
+    /\b(?:mission\s+control|mission\s+state|canvas|kanban|current\s+mission|mission\s+lane)\b/.test(normalized);
+  const asksBoundary =
+    /\b(?:when|should|difference|separate|mention|interrupt|intrude|leak|hijack|boundary|outrank)\b/.test(normalized);
+  return mentionsProductMemory && mentionsMissionState && asksBoundary;
 }
 
 export function renderSparkWorkflowBugHuntReply(_text: string): string {
@@ -2154,6 +2210,8 @@ export function isUserMemoryRecallQuestion(text: string): boolean {
   return (
     /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission\s+updates?|updates?|about\s+me|about\s+how\s+i|how\s+i\s+work|work\s+style)\b/.test(normalized) ||
     /\bwhat\b.*\b(?:prefer|preferred|preference|like)\b.*\bremember\b/.test(normalized) ||
+    /\buse\s+memory\s+only\s+as\s+context\b.*\bwhat\s+did\s+we\s+decide\s+about\b/.test(normalized) ||
+    /\bwhat\s+did\s+we\s+decide\s+about\b/.test(normalized) ||
     /\bwhat\s+do\s+you\s+know\s+about\s+how\s+i\s+like\s+to\s+work\b/.test(normalized) ||
     /\bwhat\b.*\b(?:stable\s+user\s+memory|recent\s+context|only\s+recent\s+context)\b/.test(normalized)
   );

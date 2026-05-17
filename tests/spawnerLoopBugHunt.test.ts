@@ -6,9 +6,11 @@ import {
 } from '../src/missionRelay';
 import {
   isSparkWorkflowBugHuntRequest,
+  isMissionRoutingFailureClassQuestion,
   isNoExecutionBoundary,
   parseMissionUpdatePreferenceIntent,
   parseSpawnerBoardNaturalIntent,
+  renderMissionRoutingFailureClassReply,
   renderSparkWorkflowBugHuntReply
 } from '../src/conversationIntent';
 import {
@@ -17,6 +19,7 @@ import {
   formatCanvasShapingHeartbeatSummary,
   formatCanvasStillRunningSummary,
   formatLatestCanvasPlanReply,
+  isLatestCanvasPlanQuestion,
   isDomainChipPendingDirection,
   isRouteConfidenceGateUnsupportedError,
   latestCanvasPlanFromLoadState,
@@ -142,6 +145,18 @@ test('bug hunt: Spark workflow QA prompts get a local plan, not invented executi
   assert.doesNotMatch(reply, /read-only/i);
   assert.doesNotMatch(reply, /Prepared, but/i);
   assert.doesNotMatch(reply, /tests\/missionControlSpawnerWorkflow/i);
+});
+
+test('bug hunt: mission routing failure-class prompts stay short and non-executing', () => {
+  const prompt = 'I am asking about a bug in mission routing. Do not launch a mission; just explain the likely failure class in one or two natural sentences.';
+  assert.equal(isMissionRoutingFailureClassQuestion(prompt), true);
+  assertNoBuild(prompt);
+
+  const reply = renderMissionRoutingFailureClassReply(prompt);
+  assert.match(reply, /route hijack/i);
+  assert.match(reply, /asked to explain only/i);
+  assert.doesNotMatch(reply, /Canvas|Kanban|Mission board|latest canvas|H70 Orbit Proof/i);
+  assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected compact reply, got: ${reply}`);
 });
 
 test('bug hunt: mission utility requests do not become project builds', () => {
@@ -352,6 +367,21 @@ test('bug hunt: canvas task details stay available as an explicit follow-up', ()
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas/);
   assert.doesNotMatch(reply, /^Mission:/im);
   assert.doesNotMatch(reply, /Mission board/);
+});
+
+test('bug hunt: casual next-step questions do not recall stale canvas plans', () => {
+  assert.equal(
+    isLatestCanvasPlanQuestion('What’s the smallest useful next step here? Keep it natural, short paragraphs, and use bullets only if they help.'),
+    false
+  );
+  assert.equal(
+    isLatestCanvasPlanQuestion('For QA, show the latest canvas plan and skills for the Startup Benchmark Progress Dashboard build. Do not start anything new.'),
+    true
+  );
+  assert.equal(
+    isLatestCanvasPlanQuestion('Do not start a mission. If I say "Create a tiny maze game plan and build only a minimal playable prototype", what mission title would you use? Keep it natural and short.'),
+    false
+  );
 });
 
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
