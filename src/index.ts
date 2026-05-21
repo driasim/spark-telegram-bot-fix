@@ -1354,7 +1354,7 @@ async function handleNaturalRecursiveRoute(
   const rawCommand = naturalRecursiveRawCommand(decision);
   if (!rawCommand) return false;
 
-  await conversation.remember(user, text).catch(() => {});
+  await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
 
   if (/^start\b/i.test(rawCommand)) {
     recordNaturalRouteExecution(ctx, decision, 'recursive.start_confirmation_required', 'spark-telegram-bot', 'clarify');
@@ -1363,7 +1363,7 @@ async function handleNaturalRecursiveRoute(
       ? `I can run the ${labelForTelegram(target)} loop, but that starts benchmark work. Use \`/recursive ${rawCommand}\` when you want the run to actually begin.`
       : 'I can run that loop, but it starts benchmark work. Use the explicit `/recursive start <target> rounds <n>` command when you want it live.';
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return true;
   }
 
@@ -1376,14 +1376,14 @@ async function handleNaturalRecursiveRoute(
     if (target.kind !== 'path') {
       const reply = `${statusTarget} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`;
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return true;
     }
     const reply = renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target), {
       style: 'conversational'
     });
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return true;
   }
 
@@ -1715,7 +1715,7 @@ function requireAdmin(ctx: any): boolean {
     return true;
   }
 
-  ctx.reply('Admin only. Add your Telegram ID to ADMIN_TELEGRAM_IDS first.').catch(() => {});
+  ctx.reply('Admin only. Add your Telegram ID to ADMIN_TELEGRAM_IDS first.').catch((err: unknown) => console.error('[Bot] Failed operation:', err));
   return false;
 }
 
