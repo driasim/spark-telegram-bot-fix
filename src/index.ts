@@ -2322,7 +2322,7 @@ export function formatAocQuestionAnswer(query: string): string {
     return [
       'Question answer',
       '',
-      'Not definitely for full browser automation. A fresh route receipt can prove public fetch/search, but clicks, screenshots, cookies, logged-in pages, and Spawner browser routes stay unproven until their own browser probe succeeds.',
+      'Not definitely for full browser automation. A fresh route receipt can prove scoped browser actions like public page open, state read, or screenshot capture. Clicks, cookies, logged-in pages, and Spawner browser routes stay unproven until their own probe succeeds.',
     ].join('\n');
   }
 
@@ -2342,10 +2342,29 @@ export function formatBrowserProofQuestionAnswer(query: string): string {
     'What I can say:',
     '• Registered or possible: public web fetch and browser routes may exist.',
     '• Proven now: nothing from this message alone.',
-    '• Still unproven until probed: clicks, screenshots, cookies, logged-in pages, and Spawner browser automation.',
+    '• Still unproven until probed: public page open, state read, screenshot capture, clicks, cookies, logged-in pages, and Spawner browser automation.',
     '',
     'Run `/probe browser` to turn browser availability into fresh last-success or last-failure evidence.'
   ].join('\n');
+}
+
+function extractBrowserProofNames(probeSummary: string): string[] {
+  const match = probeSummary.match(/\bproofs=([A-Za-z0-9_,.-]+)/);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatBrowserProofScope(proofNames: string[]): string {
+  const proofSet = new Set(proofNames);
+  const proven: string[] = [];
+  if (proofSet.has('public_page_open')) proven.push('public page open');
+  if (proofSet.has('state_read')) proven.push('state read');
+  if (proofSet.has('screenshot_capture')) proven.push('screenshot capture');
+  if (!proven.length) return 'That proves the browser route probe worked recently.';
+  return `That proves this scope right now: ${proven.join(', ')}.`;
 }
 
 async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
@@ -2358,13 +2377,17 @@ async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
 
     const status = receipt.status.toLowerCase();
     if (status === 'success') {
+      const proofNames = extractBrowserProofNames(receipt.probeSummary || '');
       return [
-        'Not definitely for full browser automation, but a fresh browser route receipt exists.',
+        proofNames.length
+          ? 'Yes for the browser actions covered by the fresh receipt. Not for full browser automation.'
+          : 'Not definitely for full browser automation, but a fresh browser route receipt exists.',
         '',
         'Latest `/probe browser`: success.',
         receipt.probeSummary ? `Evidence: ${receipt.probeSummary}` : '',
         '',
-        'That proves the browser route probe worked recently. It still does not prove logged-in pages, cookies, or arbitrary click/screenshot workflows unless those are covered by the probe.'
+        formatBrowserProofScope(proofNames),
+        'Still unproven here: logged-in pages, cookies, sensitive click workflows, arbitrary sites, and Spawner browser automation unless a specific probe covers them.'
       ].filter(Boolean).join('\n');
     }
 

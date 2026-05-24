@@ -435,6 +435,10 @@ async function main(): Promise<void> {
     assert.match(indexSource, /conversation\.browser_proof_boundary/);
     assert.match(indexSource, /I do not have a fresh browser probe receipt attached to this turn/);
     assert.match(indexSource, /readLatestCapabilityProbeReceipt\('spark_browser'\)/);
+    assert.match(indexSource, /extractBrowserProofNames/);
+    assert.match(indexSource, /public_page_open/);
+    assert.match(indexSource, /screenshot_capture/);
+    assert.match(indexSource, /Yes for the browser actions covered by the fresh receipt/);
     assert.match(indexSource, /The latest browser route receipt freshly failed/);
     assert.match(indexSource, /Run `\/probe browser` to turn browser availability into fresh last-success or last-failure evidence/);
     assert.match(indexSource, /runBuilderConversationColdContext\(\{[\s\S]*?\}\)\.catch\(\(error\)/);
