@@ -433,10 +433,15 @@ async function main(): Promise<void> {
     assert.match(indexSource, /Not definitely for full browser automation/);
     assert.match(indexSource, /await buildBrowserProofQuestionAnswer\(text\)/);
     assert.match(indexSource, /conversation\.browser_proof_boundary/);
-    assert.match(indexSource, /I do not have a fresh browser probe receipt attached to this turn/);
+    assert.match(indexSource, /I need a fresh `\/probe browser` result before I should claim browser access/);
     assert.match(indexSource, /readLatestCapabilityProbeReceipt\('spark_browser'\)/);
-    assert.match(indexSource, /The latest browser route receipt freshly failed/);
-    assert.match(indexSource, /Run `\/probe browser` to turn browser availability into fresh last-success or last-failure evidence/);
+    assert.match(indexSource, /extractBrowserProofNames/);
+    assert.match(indexSource, /public_page_open/);
+    assert.match(indexSource, /screenshot_capture/);
+    assert.match(indexSource, /Yes, for the small browser check Spark just proved/);
+    assert.match(indexSource, /The fresh probe covered/);
+    assert.match(indexSource, /The latest browser probe failed, so browser automation is unavailable right now/);
+    assert.match(indexSource, /Run `\/probe browser` and I can answer from the fresh result/);
     assert.match(indexSource, /runBuilderConversationColdContext\(\{[\s\S]*?\}\)\.catch\(\(error\)/);
     assert.match(indexSource, /runBuilderAgentOperatingContext\(\{[\s\S]*?currentMessage: text,[\s\S]*?liveState,/);
     const llmSource = await readFile(path.join(__dirname, '..', 'src', 'llm.ts'), 'utf8');

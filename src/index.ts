@@ -2322,7 +2322,7 @@ export function formatAocQuestionAnswer(query: string): string {
     return [
       'Question answer',
       '',
-      'Not definitely for full browser automation. A fresh route receipt can prove public fetch/search, but clicks, screenshots, cookies, logged-in pages, and Spawner browser routes stay unproven until their own browser probe succeeds.',
+      'Not definitely for full browser automation. A fresh route receipt can prove scoped browser actions like public page open, state read, or screenshot capture. Clicks, cookies, logged-in pages, and Spawner browser routes stay unproven until their own probe succeeds.',
     ].join('\n');
   }
 
@@ -2337,15 +2337,33 @@ export function formatBrowserProofQuestionAnswer(query: string): string {
   if (!asksAboutBrowser || !asksForProof) return '';
 
   return [
-    'Not definitely. I do not have a fresh browser probe receipt attached to this turn.',
+    'Not from this message alone. I need a fresh `/probe browser` result before I should claim browser access.',
     '',
-    'What I can say:',
-    '• Registered or possible: public web fetch and browser routes may exist.',
-    '• Proven now: nothing from this message alone.',
-    '• Still unproven until probed: clicks, screenshots, cookies, logged-in pages, and Spawner browser automation.',
+    'Right now I can only say the browser route may exist. Public page open, state read, screenshots, clicks, cookies, and logged-in pages are unproven until a probe covers them.',
     '',
-    'Run `/probe browser` to turn browser availability into fresh last-success or last-failure evidence.'
+    'Run `/probe browser` and I can answer from the fresh result.'
   ].join('\n');
+}
+
+function extractBrowserProofNames(probeSummary: string): string[] {
+  const match = probeSummary.match(/\bproofs=([A-Za-z0-9_,.-]+)/);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatBrowserProofScope(proofNames: string[]): string {
+  const proofSet = new Set(proofNames);
+  const proven: string[] = [];
+  if (proofSet.has('public_page_open')) proven.push('public page open');
+  if (proofSet.has('state_read')) proven.push('state read');
+  if (proofSet.has('screenshot_capture')) proven.push('screenshot capture');
+  if (!proven.length) return 'The latest browser probe succeeded, but it did not say which browser actions it covered.';
+  const last = proven.pop();
+  const scope = proven.length ? `${proven.join(', ')}, and ${last}` : last;
+  return `The fresh probe covered ${scope}.`;
 }
 
 async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
@@ -2358,25 +2376,24 @@ async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
 
     const status = receipt.status.toLowerCase();
     if (status === 'success') {
+      const proofNames = extractBrowserProofNames(receipt.probeSummary || '');
       return [
-        'Not definitely for full browser automation, but a fresh browser route receipt exists.',
+        proofNames.length
+          ? 'Yes, for the small browser check Spark just proved. Not for full browser automation yet.'
+          : 'The browser probe succeeded, but I should still keep the claim narrow.',
         '',
-        'Latest `/probe browser`: success.',
-        receipt.probeSummary ? `Evidence: ${receipt.probeSummary}` : '',
+        formatBrowserProofScope(proofNames),
         '',
-        'That proves the browser route probe worked recently. It still does not prove logged-in pages, cookies, or arbitrary click/screenshot workflows unless those are covered by the probe.'
+        'Still unproven: logged-in pages, cookies, sensitive clicks, arbitrary sites, and Spawner browser automation. Those need their own probe.'
       ].filter(Boolean).join('\n');
     }
 
     return [
-      'No. The latest browser route receipt freshly failed.',
+      'No. The latest browser probe failed, so browser automation is unavailable right now.',
       '',
-      'Latest `/probe browser`: failure.',
       receipt.failureReason ? `Reason: ${receipt.failureReason}` : '',
-      receipt.probeSummary ? `Evidence: ${receipt.probeSummary}` : '',
-      receipt.eventId ? `Event: ${receipt.eventId}` : '',
       '',
-      'So browser capability is registered, but browser automation is unavailable right now until the browser-use adapter is installed/configured and a new probe succeeds.'
+      'Once browser-use is fixed and `/probe browser` succeeds, I can claim only the scope that probe proves.'
     ].filter(Boolean).join('\n');
   } catch (error) {
     console.warn('[BrowserProof] latest probe receipt read failed:', redactText(error instanceof Error ? error.message : String(error)));
