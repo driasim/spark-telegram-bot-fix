@@ -146,6 +146,7 @@ import {
   normalizeTelegramRelayVerbosity,
   approvePendingMissionLesson,
   getTelegramRelayIdentity,
+  markLatestMissionRelayCancelledForChat,
   markMissionRelayCancelled,
   markMissionRelayPaused,
   markMissionRelayResumed,
@@ -201,6 +202,9 @@ import {
   isGlobalAgentDoctrineRequest,
   isMissionRoutingFailureClassQuestion,
   isNoExecutionBoundary,
+  isProtectedMissionCancelPronounIntent,
+  isProtectedMissionPausePronounIntent,
+  isProtectedMissionResumePronounIntent,
   isSparkChipStatusOverclaimQuestion,
   isSparkThreadQaGoldenCaseRequest,
   isSparkWorkflowBugHuntRequest,
@@ -212,6 +216,7 @@ import {
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
   parseNaturalChipCreateIntent,
+  parseContextualSpawnerBoardNaturalIntent,
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
@@ -247,6 +252,7 @@ import {
   withHiddenWindows
 } from './hiddenProcess';
 import {
+  codexClientConfigArgsFromModelCommand,
   normalizeModelProvider,
   normalizeModelRole,
   renderModelRecommendations,
@@ -1678,7 +1684,14 @@ interface PendingDomainChipBuild {
   timestamp: number;
 }
 const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
+interface PendingMissionCancelConfirmation {
+  missionId: string;
+  title: string;
+  timestamp: number;
+}
+const pendingMissionCancelConfirmations = new Map<string, PendingMissionCancelConfirmation>();
 const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const MISSION_CANCEL_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 const PUBLIC_ONBOARDING_COMMANDS = new Set(['/start', '/myid']);
 const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
@@ -1687,7 +1700,43 @@ function clearPendingExecutionState(key: string): boolean {
   const hadClarification = pendingClarifications.delete(key);
   const hadDomainChip = pendingDomainChipBuilds.delete(key);
   const hadCreatorMission = pendingCreatorMissions.delete(key);
-  return hadClarification || hadDomainChip || hadCreatorMission;
+  const hadMissionCancel = pendingMissionCancelConfirmations.delete(key);
+  return hadClarification || hadDomainChip || hadCreatorMission || hadMissionCancel;
+}
+
+function missionCancelConfirmationKey(ctx: any): string {
+  return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
+}
+
+function isMissionCancelConfirmationText(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  return (
+    /^(?:yes[,\s]+)?(?:cancel|kill|stop)\s+(?:it|that|that\s+mission|this\s+mission|the\s+mission)$/.test(normalized) ||
+    /^confirm\s+(?:cancel|kill|stop)(?:\s+(?:it|that|that\s+mission|this\s+mission|the\s+mission))?$/.test(normalized)
+  );
+}
+
+async function handlePendingMissionCancelConfirmation(ctx: any, text: string): Promise<boolean> {
+  if (!isMissionCancelConfirmationText(text)) return false;
+
+  const key = missionCancelConfirmationKey(ctx);
+  const pending = pendingMissionCancelConfirmations.get(key);
+  if (!pending) return false;
+
+  pendingMissionCancelConfirmations.delete(key);
+  await conversation.remember(ctx.from, text).catch(() => {});
+
+  if (Date.now() - pending.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
+    await ctx.reply('That cancel confirmation expired. Ask me to cancel it again if you still want to stop it.');
+    return true;
+  }
+
+  const result = await spawner.confirmContextualMissionCancel(pending.missionId, pending.title);
+  if (result.commandSent && result.missionId) {
+    markMissionRelayCancelled(pending.missionId);
+  }
+  await ctx.reply(result.message);
+  return true;
 }
 
 function extractCommandName(text: string | undefined): string | null {
@@ -2217,6 +2266,18 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
       probeTelegramRunnerWritability(),
       buildAocLiveState()
     ]);
+    const memoryInPlayPromise = memoryQuery
+      ? runBuilderConversationColdContext({
+          userId: ctx.from.id,
+          currentMessage: memoryQuery,
+        }).catch((error) => ({
+          used: false,
+          contextText: '',
+          sourceCount: 0,
+          bridgeMode: 'bridge_error',
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      : Promise.resolve({ used: false, contextText: '', sourceCount: 0, bridgeMode: 'not_requested' });
     const [result, memoryInPlay] = await Promise.all([
       runBuilderAgentOperatingContext({
         userId: ctx.from.id,
@@ -2227,12 +2288,7 @@ async function handleAgentOperatingContextCommand(ctx: any): Promise<void> {
         runnerLabel: runnerPreflight.runnerLabel,
         liveState,
       }),
-      memoryQuery
-        ? runBuilderConversationColdContext({
-            userId: ctx.from.id,
-            currentMessage: memoryQuery,
-          })
-        : Promise.resolve({ used: false, contextText: '', sourceCount: 0, bridgeMode: 'not_requested' }),
+      memoryInPlayPromise,
     ]);
     const memorySummary = memoryQuery ? formatMemoryInPlaySummary(memoryInPlay) : '';
     await ctx.reply([result.replyText, memorySummary].filter(Boolean).join('\n\n'));
@@ -3613,16 +3669,45 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string): Promi
   return true;
 }
 
-function isPendingClarificationFollowup(text: string): boolean {
+export function isPendingClarificationAlternativeRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return false;
+  return [
+    /\bwhat\s+else\s+(?:would\s+you\s+)?(?:recommend|suggest|try|build|make|create)\b/,
+    /\b(?:something|anything)\s+(?:different|else)\b.*\b(?:recommend|suggest|try|build|make|create)\b/,
+    /\b(?:try|do|explore)\s+something\s+different\b/,
+    /\b(?:other|different)\s+(?:ideas?|directions?|options?|recommendations?|suggestions?)\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function isPendingClarificationSteeringAnswer(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || normalized.length > 180) return false;
+  if (/[?]/.test(normalized)) return false;
+  if (isNoExecutionBoundary(normalized) || isPendingClarificationAlternativeRequest(normalized)) return false;
+  if (/^(?:but|and|also|because|why|what|where|when|who|how|should|could|would)\b/.test(normalized)) return false;
+  const hasSteeringLanguage = /\b(?:feel|tone|style|vibe|direction|make it|closer to|more|less|playful|weird|practical|premium|chill|atmospheric|fast|score|score-chasing|strange|surreal|useful|simple|polished|dark|bright|fun|serious|cozy|sharp|experimental|arcade|puzzle|narrative)\b/.test(normalized);
+  const looksLikePreferenceList =
+    /\b(?:and|but|with|without|somewhat|kind of|kinda|closer to)\b/.test(normalized) &&
+    !/\b(?:build|create|make|run|start|launch|ship|mission|canvas|kanban)\b/.test(normalized);
+  return hasSteeringLanguage || looksLikePreferenceList;
+}
+
+export function isPendingClarificationFollowup(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized) return false;
+  if (isNoExecutionBoundary(normalized) || isPendingClarificationAlternativeRequest(normalized)) return false;
   if (/^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)$/i.test(normalized)) {
     return true;
   }
   const startsWithConfirmation = /^(?:yes|yeah|yep|ok|okay|sure|perfect|sounds good|great|cool)\b/.test(normalized);
   const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
   const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
-  return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
+  return (
+    contextualObject &&
+    action &&
+    (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized))
+  ) || isPendingClarificationSteeringAnswer(normalized);
 }
 
 function isBareExecutionStart(text: string): boolean {
@@ -3633,8 +3718,7 @@ function isBareExecutionStart(text: string): boolean {
 export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
   if (!pending) return false;
   const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
-  if (!expired) return true;
-  return isPendingClarificationFollowup(text);
+  return !expired && isPendingClarificationFollowup(text);
 }
 
 function pendingClarificationForMessage(key: string, text: string): PendingClarification | null {
@@ -3714,19 +3798,14 @@ export function formatCanvasReadySummary(args: {
   kanbanUrl: string;
 }): string {
   const tasks = Array.isArray(args.analysis?.tasks) ? args.analysis.tasks : [];
-  const tier = args.tier || 'base';
   const rawTaskCount = typeof args.taskCount === 'number' ? args.taskCount : tasks.length;
   const taskCount = Number.isFinite(rawTaskCount) ? rawTaskCount : 0;
   const buildStepLine = taskCount > 0
-    ? `I queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'}. Spark is moving into the build now.`
+    ? `Spark queued ${taskCount} build ${taskCount === 1 ? 'step' : 'steps'} and is moving now.`
     : 'Spark is moving into the build now.';
-  const taskPreview = formatCanvasTaskPreview(tasks, tier);
-  const skillSummary = formatCanvasSkillSummary(tasks, tier);
   return telegramBlocks(
     `Canvas is ready for ${args.projectName}.`,
     buildStepLine,
-    taskPreview,
-    skillSummary,
     ['Canvas', `• ${args.readyCanvasUrl}`].join('\n')
   );
 }
@@ -4052,6 +4131,15 @@ function buildNoStartMissionTitleReply(text: string): string | null {
   }
 
   return null;
+}
+
+function isNaturalMissionRelayCancellation(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!isNoExecutionBoundary(normalized)) return false;
+  const cancellationWord = /\b(?:cancel|stop|hold\s+off|pause|never\s+mind|nevermind|no\s+need)\b/.test(normalized);
+  const targetsMission = /\b(?:that|this|the|latest|last|current|active)?\s*(?:build|mission|run|work)\b/.test(normalized);
+  const talkHere = /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/.test(normalized);
+  return cancellationWord && (targetsMission || talkHere);
 }
 
 async function recordBuilderAocPreflightForRun(input: {
@@ -4631,6 +4719,17 @@ bot.command('model', async (ctx) => {
   const raw = ctx.message.text.replace('/model', '').trim();
   if (!raw || raw.toLowerCase() === 'status') {
     await ctx.reply(renderModelStatus());
+    return;
+  }
+
+  const codexClientConfig = codexClientConfigArgsFromModelCommand(raw);
+  if (codexClientConfig.handled) {
+    if ('error' in codexClientConfig) {
+      await ctx.reply(codexClientConfig.error);
+      return;
+    }
+    const reply = await runSparkCli(codexClientConfig.args, 45_000);
+    await ctx.reply(reply);
     return;
   }
 
@@ -5836,6 +5935,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
     console.log(`[ConversationIntent] early ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
+    if (isPendingClarificationAlternativeRequest(text)) {
+      pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
+    }
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
     await safeSendChatAction(ctx, 'typing');
@@ -6039,13 +6141,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
     const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
 
+    if (await handlePendingMissionCancelConfirmation(ctx, text)) {
+      return;
+    }
+
     // Build intent gets first refusal inside the admin lane. Utility helpers can
     // still extract preferences from the same prompt, but they must not stop a
     // detailed project brief from becoming a mission.
-    if (isNoExecutionBoundary(text) && clearPendingExecutionState(pendingExecutionKey)) {
-      await conversation.remember(user, text).catch(() => {});
-      await ctx.reply('Got it, no build or mission started. We can keep talking here.');
-      return;
+    if (isNoExecutionBoundary(text)) {
+      const clearedPendingExecution = clearPendingExecutionState(pendingExecutionKey);
+      const suppressedMissionId = !clearedPendingExecution && isNaturalMissionRelayCancellation(text)
+        ? await markLatestMissionRelayCancelledForChat(ctx.chat.id, ctx.from.id)
+        : null;
+      if (clearedPendingExecution || suppressedMissionId) {
+        await conversation.remember(user, text).catch(() => {});
+        await ctx.reply(suppressedMissionId
+          ? 'Got it. I will keep late handoff messages quiet for that build, and we can just talk here.'
+          : 'Got it, no build or mission started. We can keep talking here.');
+        return;
+      }
     }
 
     if (pendingClarification && isPendingClarificationFollowup(text)) {
@@ -6191,6 +6305,46 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const localServiceContext = contextualTurns.join('\n');
 
+    if (isProtectedMissionResumePronounIntent(text, contextualTurns)) {
+      await conversation.remember(user, text).catch(() => {});
+      const result = isNoExecutionBoundary(text)
+        ? await spawner.describeContextualPausedMissionResumeBoundary()
+        : await spawner.resumeContextualPausedMission();
+      if (result.commandSent && result.missionId) {
+        markMissionRelayResumed(result.missionId);
+      }
+      await ctx.reply(result.message);
+      return;
+    }
+
+    if (isProtectedMissionPausePronounIntent(text, contextualTurns)) {
+      await conversation.remember(user, text).catch(() => {});
+      const result = isNoExecutionBoundary(text)
+        ? await spawner.describeContextualActiveMissionPauseBoundary()
+        : await spawner.pauseContextualActiveMission();
+      if (result.commandSent && result.missionId) {
+        markMissionRelayPaused(result.missionId);
+      }
+      await ctx.reply(result.message);
+      return;
+    }
+
+    if (isProtectedMissionCancelPronounIntent(text, contextualTurns)) {
+      await conversation.remember(user, text).catch(() => {});
+      const result = isNoExecutionBoundary(text)
+        ? await spawner.describeContextualMissionCancelBoundary()
+        : await spawner.prepareContextualMissionCancel();
+      if (result.needsConfirmation && result.missionId && result.title) {
+        pendingMissionCancelConfirmations.set(missionCancelConfirmationKey(ctx), {
+          missionId: result.missionId,
+          title: result.title,
+          timestamp: Date.now()
+        });
+      }
+      await ctx.reply(result.message);
+      return;
+    }
+
     const naturalChipBrief = parseNaturalChipCreateIntent(text);
     if (naturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
       await conversation.remember(user, text).catch(() => {});
@@ -6208,7 +6362,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    const spawnerBoardIntent = parseSpawnerBoardNaturalIntent(text);
+    const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent(text, contextualTurns);
     if (spawnerBoardIntent && deterministicRouteAllowed('spawner.board', text)) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
@@ -6220,8 +6374,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'
         ? await spawner.latestProviderSummary()
+        : spawnerBoardIntent === 'latest_failed_provider'
+          ? await spawner.latestFailedProviderSummary()
         : spawnerBoardIntent === 'latest_mission'
           ? await spawner.latestMissionSummary()
+        : spawnerBoardIntent === 'active_missions'
+          ? await spawner.activeMissionSummary()
         : spawnerBoardIntent === 'latest_on_kanban'
           ? await spawner.latestKanbanSummary()
           : spawnerBoardIntent === 'latest_project_preview'
@@ -6337,6 +6495,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     if (shouldPreferConversationalIdeation(text)) {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
+      if (isPendingClarificationAlternativeRequest(text)) {
+        pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
+      }
       await safeSendChatAction(ctx, 'typing');
       if (isShortResolvedListPick(text, conversationFrame)) {
         const fastReply = buildSelectedListFastReply(conversationFrame);

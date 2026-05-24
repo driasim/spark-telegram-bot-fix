@@ -106,6 +106,8 @@ Send the Mission board first and the canvas when planning is ready.`;
 
 test('mission titles stay readable for simple game and path-derived builds', () => {
   assert.equal(parseBuildIntent("let's build a maze game")?.projectName, 'Maze Game');
+  assert.equal(parseBuildIntent("let's build a game now for now Spark")?.projectName, 'Spark Game');
+  assert.equal(parseBuildIntent('lets build something Spark')?.projectName, 'Spark App');
   assert.equal(
     parseBuildIntent(
       'Create a tiny maze game plan and build only a minimal playable prototype. Use a short PRD if needed, keep it fast, and show Mission Control links as it moves through planning, build, and completion.'
@@ -127,12 +129,16 @@ test('non-build utility requests still route away from builder', () => {
 
   assert.equal(parseBuildIntent('show me the current Spawner/Kanban board'), null);
   assert.equal(parseSpawnerBoardNaturalIntent('show me the current Spawner/Kanban board'), 'board');
+  assert.equal(parseBuildIntent('what is currently running or paused in Mission Control? keep it short and do not start anything.'), null);
+  assert.equal(parseSpawnerBoardNaturalIntent('what is currently running or paused in Mission Control? keep it short and do not start anything.'), 'active_missions');
 
   assert.equal(parseBuildIntent('scan my desktop projects'), null);
   assert.equal(isLocalWorkspaceInspectionOnlyRequest('scan my desktop projects'), false);
 
   assert.equal(parseBuildIntent('can you help me think through whether we should build a mission control dashboard before we touch the canvas?'), null);
   assert.equal(parseBuildIntent('Give me three build ideas for a memory dashboard'), null);
+  assert.equal(parseBuildIntent('Hey Spark, give me the top 10 ideas about how to build startups in a better way'), null);
+  assert.equal(parseBuildIntent('How to build startups in a better way?'), null);
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
   assert.equal(
     parseBuildIntent(
