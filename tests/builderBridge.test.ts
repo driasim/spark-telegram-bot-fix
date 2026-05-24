@@ -647,7 +647,7 @@ test('browser proof guard reads latest capability probe receipts from Builder bl
   assert.match(bridgeSource, /String\(entry\.event_type \|\| ''\) !== 'capability_probed'/);
   assert.match(bridgeSource, /String\(entry\.route_chosen \|\| ''\) !== routeKey/);
   assert.match(indexSource, /readLatestCapabilityProbeReceipt\('spark_browser'\)/);
-  assert.match(indexSource, /Latest `\/probe browser`: failure/);
+  assert.match(indexSource, /The latest browser probe failed/);
   assert.match(indexSource, /browser automation is unavailable right now/);
 });
 
