@@ -1361,7 +1361,7 @@ async function handleNaturalRecursiveRoute(
   const rawCommand = naturalRecursiveRawCommand(decision);
   if (!rawCommand) return false;
 
-  await conversation.remember(user, text).catch(() => {});
+  await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
 
   if (/^start\b/i.test(rawCommand)) {
     recordNaturalRouteExecution(ctx, decision, 'recursive.start_confirmation_required', 'spark-telegram-bot', 'clarify');
@@ -1370,7 +1370,7 @@ async function handleNaturalRecursiveRoute(
       ? `I can run the ${labelForTelegram(target)} loop, but that starts benchmark work. Use \`/recursive ${rawCommand}\` when you want the run to actually begin.`
       : 'I can run that loop, but it starts benchmark work. Use the explicit `/recursive start <target> rounds <n>` command when you want it live.';
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return true;
   }
 
@@ -1383,14 +1383,14 @@ async function handleNaturalRecursiveRoute(
     if (target.kind !== 'path') {
       const reply = `${statusTarget} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`;
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return true;
     }
     const reply = renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target), {
       style: 'conversational'
     });
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return true;
   }
 
@@ -1763,7 +1763,7 @@ async function handlePendingMissionCancelConfirmation(ctx: any, text: string): P
   if (!pending) return false;
 
   pendingMissionCancelConfirmations.delete(key);
-  await conversation.remember(ctx.from, text).catch(() => {});
+  await conversation.remember(ctx.from, text).catch((err) => console.error('[Bot] Failed operation:', err));
 
   if (Date.now() - pending.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
     await ctx.reply('That cancel confirmation expired. Ask me to cancel it again if you still want to stop it.');
@@ -1803,7 +1803,7 @@ function requireAdmin(ctx: any): boolean {
     return true;
   }
 
-  ctx.reply('Admin only. Add your Telegram ID to ADMIN_TELEGRAM_IDS first.').catch(() => {});
+  ctx.reply('Admin only. Add your Telegram ID to ADMIN_TELEGRAM_IDS first.').catch((err: unknown) => console.error('[Bot] Failed operation:', err));
   return false;
 }
 
@@ -1820,7 +1820,7 @@ function buildUpdateWithText(update: Record<string, unknown>, text: string): Rec
 async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   const user = ctx.from;
   if (user) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
   }
   const builderReply = await runBuilderTelegramBridge(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
   if (!builderReply.used || builderReply.bridgeMode === 'bridge_error') {
@@ -1832,7 +1832,7 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
   await deliverBuilderReply(ctx, { ...builderReply, responseText });
   if (user && responseText) {
-    await conversation.rememberAssistantReply(user, responseText).catch(() => {});
+    await conversation.rememberAssistantReply(user, responseText).catch((err) => console.error('[Bot] Failed operation:', err));
   }
   return true;
 }
@@ -1941,7 +1941,7 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
       shouldUseBuilderReplyForMemoryDirective(builderReply.responseText, builderReply.routingDecision)
     ) {
       await ctx.reply(builderReply.responseText);
-      await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      await conversation.rememberAssistantReply(user, builderReply.responseText).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
   } catch (error) {
@@ -1952,7 +1952,7 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
     ? formatLocalMemoryDirectiveAcknowledgement(directive)
     : buildMemoryBridgeUnavailableReply('remember');
   await ctx.reply(reply);
-  await conversation.rememberAssistantReply(user, reply).catch(() => {});
+  await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
 }
 
 async function saveSlashRememberLocally(user: any, text: string): Promise<boolean> {
@@ -2031,7 +2031,7 @@ export async function handleRecallCommand(ctx: any): Promise<void> {
     const localRecall = await buildLocalRecallReply(ctx.from, query);
     if (localRecall) {
       await ctx.reply(localRecall);
-      await conversation.rememberAssistantReply(ctx.from, localRecall).catch(() => {});
+      await conversation.rememberAssistantReply(ctx.from, localRecall).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
     if (await replyViaBuilder(ctx, `What do you remember about ${query}?`)) {
@@ -2718,7 +2718,7 @@ async function handleLocalWorkspaceInventory(ctx: any): Promise<void> {
     const summary = await summarizeLocalWorkspaces();
     const reply = renderLocalWorkspaceInspectionReply(summary);
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     await ctx.reply(`Local workspace inspection failed: ${detail}`);
@@ -3789,7 +3789,7 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string): Promi
     await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
     return true;
   }
-  await conversation.remember(ctx.from, text).catch(() => {});
+  await conversation.remember(ctx.from, text).catch((err) => console.error('[Bot] Failed operation:', err));
   await safeSendChatAction(ctx, 'typing');
 
   if (action === 'status') {
@@ -5386,7 +5386,7 @@ bot.command('access', async (ctx) => {
     if (runtimeGate.ok) {
       const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
   }
@@ -5457,7 +5457,7 @@ async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile)
       ].filter(Boolean).join('\n')
     : baseReply;
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
-  await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+  await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
   if (level5DisableResult?.needsSparkRestart) {
     scheduleSparkRestartAfterAccessChange();
   }
@@ -5483,7 +5483,7 @@ async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
         : await renderSparkAccessChangeReply('operator'),
     ].join('\n');
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     if (result.needsSparkRestart) {
       scheduleSparkRestartAfterAccessChange();
     }
@@ -5515,7 +5515,7 @@ async function handleSparkAccessAction(ctx: any, actionId: SparkAccessActionId, 
       ? [result.reply, '', formatSparkAccessAutomaticRestartNotice(actionId)].join('\n')
       : result.reply;
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+    await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     if (result.needsSparkRestart) {
       scheduleSparkRestartAfterAccessChange();
     }
@@ -5564,7 +5564,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
     if (runtimeGate.ok) {
       const reply = await renderLevel5ActivationAnswer(ctx.chat.id);
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
+      await conversation.rememberAssistantReply(ctx.from, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return true;
     }
   }
@@ -5704,28 +5704,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     : null;
   const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx.message));
   if (!earlyBuildIntent && quotedOriginReply) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(quotedOriginReply);
-    await conversation.rememberAssistantReply(user, quotedOriginReply).catch(() => {});
+    await conversation.rememberAssistantReply(user, quotedOriginReply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
   const noStartMissionTitleReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
     ? buildNoStartMissionTitleReply(text)
     : null;
   if (noStartMissionTitleReply) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.title_probe', 'spark-telegram-bot', 'answer');
     await ctx.reply(noStartMissionTitleReply);
-    await conversation.rememberAssistantReply(user, noStartMissionTitleReply).catch(() => {});
+    await conversation.rememberAssistantReply(user, noStartMissionTitleReply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
   const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
     ? buildLatestAssistantOriginReply(text, pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`) || null)
     : null;
   if (latestOriginReply) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(latestOriginReply);
-    await conversation.rememberAssistantReply(user, latestOriginReply).catch(() => {});
+    await conversation.rememberAssistantReply(user, latestOriginReply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
@@ -5734,28 +5734,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       await readLatestCanvasPlanFromSpawnerState();
     if (latestPlan) {
       const reply = formatLatestCanvasPlanReply(latestPlan);
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
   }
 
   if (globalAgentDoctrineRequest) {
     const reply = formatGlobalAgentDoctrineRequestReply(text);
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'agent_doctrine.global_blocked', 'spark-telegram-bot', 'clarify');
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   const browserProofAnswer = !earlyBuildIntent ? await buildBrowserProofQuestionAnswer(text) : '';
   if (browserProofAnswer) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.browser_proof_boundary', 'spark-telegram-bot', 'answer');
     await ctx.reply(browserProofAnswer);
-    await conversation.rememberAssistantReply(user, browserProofAnswer).catch(() => {});
+    await conversation.rememberAssistantReply(user, browserProofAnswer).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
@@ -5768,16 +5768,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
       const reply = renderPendingTaskRecoveryReply(pendingTask);
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
   }
 
   const naturalAccessChange = earlyBuildIntent ? null : parseNaturalAccessChangeIntent(text);
   if (naturalAccessChange && deterministicRouteAllowed('access.change', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await handleAccessChangeRequest(ctx, naturalAccessChange);
     return;
   }
@@ -5795,7 +5795,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ? conversationFrame.referenceResolution.value
     : null;
   if (frameAccessChange && deterministicRouteAllowed('access.change', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await handleAccessChangeRequest(ctx, frameAccessChange);
     return;
   }
@@ -5805,7 +5805,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ? null
     : parseContextualAccessChangeIntent(text, recentAccessMessages);
   if (contextualAccessChange && deterministicRouteAllowed('access.change', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await handleAccessChangeRequest(ctx, contextualAccessChange);
     return;
   }
@@ -5818,7 +5818,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = renderRuntimeTruthPriorityAnswer();
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_runtime_truth_priority', [
@@ -5837,57 +5837,57 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         summary: 'Fresh diagnostics and live probes outrank stale memory for current-state claims.'
       }
     ]);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerSparkRiskProfile(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderAuthoritativeSparkRiskProfileAnswer();
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_spark_risk_profile_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerMemoryRuntimeSeparation(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderMemoryRuntimeSeparationAnswer();
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_memory_runtime_boundary_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerRestartSurvivalQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderRestartSurvivalAnswer(ctx.chat.id);
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_survival_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerRestartNeededQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderRestartNeededAnswer();
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_needed_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerMissionProvenanceQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderMissionProvenanceAnswer(ctx, user);
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_mission_provenance_answer', [
@@ -5899,12 +5899,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         summary: 'Telegram answered from no-edit Spawner probe mission evidence when available.'
       }
     ]);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const replyPhrase = extractNoEditMissionReplyPhrase(text);
     const missionId = await handleRunCommand(
       ctx,
@@ -5931,11 +5931,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
@@ -5950,7 +5950,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_status_answer', [
@@ -5962,49 +5962,49 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         summary: 'Telegram answered access status from the Spark CLI access state and runner writability preflight.'
       }
     ]);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && isAccessHelpQuestion(text) && deterministicRouteAllowed('access.help', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && isSparkThreadQaGoldenCaseRequest(text)) {
     const reply = renderSparkThreadQaGoldenCaseReply(text);
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.thread_qa_golden_case', 'spark-telegram-bot', 'plain_chat.qa_fixture');
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && isMissionRoutingFailureClassQuestion(text)) {
     const reply = renderMissionRoutingFailureClassReply(text);
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.mission_routing_failure_class', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   if (!earlyBuildIntent && isSparkWorkflowBugHuntRequest(text)) {
     const reply = renderSparkWorkflowBugHuntReply(text);
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.qa_planning', 'spark-telegram-bot', 'plain_chat.qa_plan');
     await ctx.reply(reply);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
   if (safeOperatorAction && deterministicRouteAllowed('operator.safe_action', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     if (safeOperatorAction.kind === 'level5_smoke' && accessProfile !== 'operator') {
       await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
@@ -6018,11 +6018,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     try {
       const reply = await runSafeOperatorAction(safeOperatorAction);
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       const reply = `Safe operator check failed: ${err?.message || String(err)}`;
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     }
     return;
   }
@@ -6062,13 +6062,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     );
   const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
   if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && deterministicRouteAllowed('creator.mission', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(`I will stage the ${naturalCreatorIntent.artifactLabel} privately first. No run or publishing yet.`);
     await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
   if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
     pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
       brief: earlyNaturalChipBrief,
@@ -6087,14 +6087,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (isPendingClarificationAlternativeRequest(text)) {
       pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
     }
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
     await safeSendChatAction(ctx, 'typing');
     if (isShortResolvedListPick(text, conversationFrame)) {
       const fastReply = buildSelectedListFastReply(conversationFrame);
       if (fastReply) {
         await ctx.reply(fastReply);
-        await conversation.rememberAssistantReply(user, fastReply).catch(() => {});
+        await conversation.rememberAssistantReply(user, fastReply).catch((err) => console.error('[Bot] Failed operation:', err));
         return;
       }
     }
@@ -6110,18 +6110,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       ? buildIdeationFallbackReply(text)
       : llmResponse);
     await ctx.reply(response);
-    await conversation.rememberAssistantReply(user, response).catch(() => {});
+    await conversation.rememberAssistantReply(user, response).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
   if (naturalRecursiveProposal && conversation.isAdmin(ctx.from) && deterministicRouteAllowed('recursive.proposal', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     const submitArg = naturalRecursiveProposal.submit ? ' submit' : '';
     await handleRecursiveCommand(ctx, `propose ${naturalRecursiveProposal.target}${submitArg}`);
     return;
   }
   if (!earlyBuildIntent && isSparkChipStatusOverclaimQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderSelfAwarenessStatus({
@@ -6130,11 +6130,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         currentMessage: text,
       });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       const reply = renderSparkChipStatusBoundaryFallbackReply();
       await ctx.reply(reply);
-      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
     }
     return;
   }
@@ -6145,7 +6145,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   const selfImprovementGoal = earlyBuildIntent ? null : extractSparkSelfImprovementGoal(text);
   if (selfImprovementGoal && deterministicRouteAllowed('spark.self_improvement', text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderSelfImprovementPlan({
@@ -6155,7 +6155,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         goal: selfImprovementGoal,
       });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
@@ -6163,7 +6163,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   const wikiPromotion = earlyBuildIntent ? null : extractSparkWikiPromotionIntent(text);
   if (wikiPromotion) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderWikiPromoteImprovement({
@@ -6176,19 +6176,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         invalidationTrigger: 'Downgrade this note if newer live traces, tests, or source docs contradict it.',
       });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
     return;
   }
   if (!earlyBuildIntent && isSparkWikiInventoryQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderWikiInventory({ refresh: true, limit: 12 });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
@@ -6196,7 +6196,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   const wikiAnswerQuestion = earlyBuildIntent ? null : extractSparkWikiAnswerQuestion(text);
   if (wikiAnswerQuestion) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderWikiAnswer({
@@ -6208,7 +6208,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         currentMessage: text,
       });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
@@ -6216,24 +6216,24 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   const wikiQuery = earlyBuildIntent ? null : extractSparkWikiQuery(text);
   if (wikiQuery) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderWikiQuery({ query: wikiQuery, refresh: true, limit: 5 });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
     return;
   }
   if (!earlyBuildIntent && isSparkWikiStatusQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderWikiStatus({ refresh: true });
       await ctx.reply(result.replyText);
-      await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
+      await conversation.rememberAssistantReply(user, result.replyText).catch((err) => console.error('[Bot] Failed operation:', err));
     } catch (err: any) {
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
@@ -6241,9 +6241,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   const naturalLocalMemoryRecall = earlyBuildIntent ? null : await buildNaturalLocalMemoryRecallReply(user, text);
   if (naturalLocalMemoryRecall) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(naturalLocalMemoryRecall);
-    await conversation.rememberAssistantReply(user, naturalLocalMemoryRecall).catch(() => {});
+    await conversation.rememberAssistantReply(user, naturalLocalMemoryRecall).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
   const recentRememberedAnswer = earlyBuildIntent ? null : answerFromRememberTurns(text, [
@@ -6251,17 +6251,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ...await conversation.getRecentTurns(user, 40)
   ]);
   if (recentRememberedAnswer) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(recentRememberedAnswer);
-    await conversation.rememberAssistantReply(user, recentRememberedAnswer).catch(() => {});
+    await conversation.rememberAssistantReply(user, recentRememberedAnswer).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
   const choiceContextAcknowledgement = earlyBuildIntent ? null : renderChoiceContextAcknowledgement(text);
   if (choiceContextAcknowledgement) {
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     await ctx.reply(choiceContextAcknowledgement);
-    await conversation.rememberAssistantReply(user, choiceContextAcknowledgement).catch(() => {});
+    await conversation.rememberAssistantReply(user, choiceContextAcknowledgement).catch((err) => console.error('[Bot] Failed operation:', err));
     return;
   }
 
@@ -6303,7 +6303,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         ? await markLatestMissionRelayCancelledForChat(ctx.chat.id, ctx.from.id)
         : null;
       if (clearedPendingExecution || suppressedMissionId) {
-        await conversation.remember(user, text).catch(() => {});
+        await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
         await ctx.reply(suppressedMissionId
           ? 'Got it. I will keep late handoff messages quiet for that build, and we can just talk here.'
           : 'Got it, no build or mission started. We can keep talking here.');
@@ -6317,7 +6317,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
 
@@ -6328,7 +6328,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ) {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
-        await conversation.remember(user, text).catch(() => {});
+        await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
         await ctx.reply([
           `Got it. I will improve ${latestShippedProject.projectName}.`,
           '',
@@ -6386,13 +6386,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
         return;
       }
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await safeSendChatAction(ctx, 'typing');
       try {
         const summary = await summarizeLocalWorkspaces();
         const reply = renderLocalWorkspaceInspectionReply(summary);
         await ctx.reply(reply);
-        await conversation.rememberAssistantReply(user, reply).catch(() => {});
+        await conversation.rememberAssistantReply(user, reply).catch((err) => console.error('[Bot] Failed operation:', err));
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         await conversation.recordInterruptedTask(user, {
@@ -6406,7 +6406,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
 
@@ -6417,7 +6417,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const defaultBuild = inferDefaultBuildFromRecentScoping(text, recentMessages);
     if (defaultBuild && deterministicRouteAllowed('spawner.default_build', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply(`I will choose the default and start it: ${defaultBuild.projectName}.`);
       await handleBuildIntent(
         ctx,
@@ -6431,14 +6431,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (isBareExecutionStart(text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply('I am not seeing an active build or mission waiting from here. Give me the target again and I will route it fresh.');
       return;
     }
 
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
     if (missionUpdatePreference && deterministicRouteAllowed('mission_updates.preference', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const detailLines: string[] = [];
       if (missionUpdatePreference.verbosity) {
         await setTelegramRelayVerbosity(ctx.chat.id, missionUpdatePreference.verbosity);
@@ -6455,7 +6455,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const localServiceContext = contextualTurns.join('\n');
 
     if (isProtectedMissionResumePronounIntent(text, contextualTurns)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualPausedMissionResumeBoundary()
         : await spawner.resumeContextualPausedMission();
@@ -6467,7 +6467,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (isProtectedMissionPausePronounIntent(text, contextualTurns)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualActiveMissionPauseBoundary()
         : await spawner.pauseContextualActiveMission();
@@ -6479,7 +6479,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (isProtectedMissionCancelPronounIntent(text, contextualTurns)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualMissionCancelBoundary()
         : await spawner.prepareContextualMissionCancel();
@@ -6496,7 +6496,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const naturalChipBrief = parseNaturalChipCreateIntent(text);
     if (naturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const mode = domainChipBuildModeForBrief(naturalChipBrief);
       pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
         brief: naturalChipBrief,
@@ -6519,7 +6519,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         return;
       }
 
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await safeSendChatAction(ctx, 'typing');
       const result = spawnerBoardIntent === 'latest_provider'
         ? await spawner.latestProviderSummary()
@@ -6541,13 +6541,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     if (isLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply(buildLocalSparkServiceReply(await spawner.isAvailable()));
       return;
     }
 
     if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await ctx.reply(buildLocalSparkServiceClarificationReply());
       return;
     }
@@ -6563,14 +6563,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (isDiagnosticFollowupTestQuestion(text) && deterministicRouteAllowed('diagnostics.followup_test', text)) {
       const reply = buildDiagnosticFollowupTestReply(sessionContext);
       if (reply) {
-        await conversation.remember(user, text).catch(() => {});
+        await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
         await ctx.reply(reply);
         return;
       }
     }
 
     if (isDiagnosticsScanRequest(text) && deterministicRouteAllowed('diagnostics.scan', text)) {
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       await safeSendChatAction(ctx, 'typing');
       try {
         const scan = await runBuilderDiagnosticsScan();
@@ -6602,7 +6602,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const improvementGoal = buildContextualImprovementGoal(text, contextualTurns);
       if (improvementGoal) {
         console.log(`[ConversationIntent] inferred contextual improvement mission user=${userRef(ctx.from?.id)} textLen=${text.length}`);
-        await conversation.remember(user, text).catch(() => {});
+        await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
         const missionId = await handleRunCommand(ctx, improvementGoal, [missionDefaultProvider()], undefined, {
           missionName: 'Spark Diagnostic Agent Integration'
         });
@@ -6619,7 +6619,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'external_research'));
         return;
       }
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const missionId = await handleRunCommand(ctx, buildExternalResearchGoal(text, contextualTurns), [missionDefaultProvider()], 'external_research');
       if (missionId) {
         await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} to inspect an external GitHub/web target from Telegram.`).catch(() => {});
@@ -6630,7 +6630,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const inferredMission = inferMissionFromRecentContext(text, recentMessages);
     if (inferredMission && deterministicRouteAllowed('spawner.contextual_mission', text)) {
       console.log(`[ConversationIntent] inferred mission from follow-up user=${userRef(ctx.from?.id)} textLen=${text.length}`);
-      await conversation.remember(user, text).catch(() => {});
+      await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
       const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
         missionName: inferredMission.missionName
       });
@@ -6640,7 +6640,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
 
     if (shouldPreferConversationalIdeation(text)) {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
@@ -6652,7 +6652,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         const fastReply = buildSelectedListFastReply(conversationFrame);
         if (fastReply) {
           await ctx.reply(fastReply);
-          await conversation.rememberAssistantReply(user, fastReply).catch(() => {});
+          await conversation.rememberAssistantReply(user, fastReply).catch((err) => console.error('[Bot] Failed operation:', err));
           return;
         }
       }
@@ -6668,7 +6668,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         ? buildIdeationFallbackReply(text)
         : llmResponse);
       await ctx.reply(response);
-      await conversation.rememberAssistantReply(user, response).catch(() => {});
+      await conversation.rememberAssistantReply(user, response).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
 
@@ -6687,11 +6687,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const memoryDoctorEvidenceTurns = shouldAttachMemoryDoctorEvidence(text)
       ? selectMemoryDoctorEvidenceTurns(text, await conversation.getRecentTurns(user, 8).catch(() => []))
       : [];
-    await conversation.remember(user, text).catch(() => {});
+    await conversation.remember(user, text).catch((err) => console.error('[Bot] Failed operation:', err));
     if (memoryDoctorEvidenceTurns.length > 0 && shouldPreferMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns)) {
       const fallback = renderMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns);
       await ctx.reply(fallback);
-      await conversation.rememberAssistantReply(user, fallback).catch(() => {});
+      await conversation.rememberAssistantReply(user, fallback).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
 
@@ -6723,7 +6723,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       if (memoryDoctorEvidenceTurns.length > 0 && isMemoryDoctorBridgeDetourReply(builderReply.responseText)) {
         const fallback = renderMemoryDoctorEvidenceFallback(text, memoryDoctorEvidenceTurns);
         await ctx.reply(fallback);
-        await conversation.rememberAssistantReply(user, fallback).catch(() => {});
+        await conversation.rememberAssistantReply(user, fallback).catch((err) => console.error('[Bot] Failed operation:', err));
         return;
       }
       const contradictsResolvedList = conversationFrame.referenceResolution.kind === 'list_item' &&
@@ -6735,7 +6735,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
         await deliverBuilderReply(ctx, { ...builderReply, responseText });
         if (responseText) {
-          await conversation.rememberAssistantReply(user, responseText).catch(() => {});
+          await conversation.rememberAssistantReply(user, responseText).catch((err) => console.error('[Bot] Failed operation:', err));
         }
         return;
       }
@@ -6786,7 +6786,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     await ctx.reply(response);
-    await conversation.rememberAssistantReply(user, response).catch(() => {});
+    await conversation.rememberAssistantReply(user, response).catch((err) => console.error('[Bot] Failed operation:', err));
 
     // Learn preferences from patterns
     if (text.toLowerCase().includes('i like')) {
@@ -6819,7 +6819,7 @@ export async function handleImageMessage(ctx: any): Promise<void> {
   const user = ctx.from;
   const imageMemoryText = telegramImageMemoryText(ctx.message);
 
-  await conversation.remember(user, imageMemoryText).catch(() => {});
+  await conversation.remember(user, imageMemoryText).catch((err) => console.error('[Bot] Failed operation:', err));
   await safeSendChatAction(ctx, 'typing');
 
   try {
@@ -6834,7 +6834,7 @@ export async function handleImageMessage(ctx: any): Promise<void> {
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText) {
       await ctx.reply(builderReply.responseText);
-      await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      await conversation.rememberAssistantReply(user, builderReply.responseText).catch((err) => console.error('[Bot] Failed operation:', err));
       return;
     }
 
@@ -6861,7 +6861,7 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
   const user = ctx.from;
   const startedAt = Date.now();
 
-  await conversation.remember(user, '[voice message]').catch(() => {});
+  await conversation.remember(user, '[voice message]').catch((err) => console.error('[Bot] Failed operation:', err));
   const rememberedAt = Date.now();
   await safeSendChatAction(ctx, 'typing');
 
@@ -6882,7 +6882,7 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
         `[VoiceBridgeTiming] user=${userRef(ctx.from?.id)} remember_ms=${rememberedAt - startedAt} media_ms=${mediaReadyAt - rememberedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
       );
       if (builderReply.responseText) {
-        await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+        await conversation.rememberAssistantReply(user, builderReply.responseText).catch((err) => console.error('[Bot] Failed operation:', err));
       }
       return;
     }
