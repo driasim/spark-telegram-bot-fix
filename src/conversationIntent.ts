@@ -1980,7 +1980,6 @@ export function isLowInformationLlmReply(reply: string): boolean {
     normalized === "i'm having trouble thinking right now. try again in a moment." ||
     normalized.includes('working memory') ||
     normalized.includes('returned no concrete guidance') ||
-    normalized.includes('access is not authorized for this channel') ||
     normalized.includes('no prior list or options to match') ||
     normalized.includes('two of what') ||
     normalized.includes("don't have a list") ||
