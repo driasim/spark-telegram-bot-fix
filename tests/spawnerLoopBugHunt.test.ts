@@ -461,7 +461,8 @@ test('bug hunt: latest canvas plan can be restored from persisted Spawner state 
   assert.match(reply, /The latest canvas is for H70 Orbit Proof\./);
   assert.match(reply, /2 build steps are queued\./);
   assert.match(reply, /• Create the playable game shell - frontend, Three\.js, game dev, game UI, mobile/);
-  assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels\n• Skill tier: pro tier \(full spark-skill-graphs catalog\)/);
+  assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels\n• Skill tier: pro tier \(full Spark skill catalog\)/);
+  assert.doesNotMatch(reply, /spark-skill-graphs/);
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas\?pipeline=prd-tg-build-d9318b7927c7-1778771867119&mission=mission-1778771867119/);
   assert.doesNotMatch(reply, /I can turn this into/);
 });

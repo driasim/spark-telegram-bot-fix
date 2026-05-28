@@ -22,7 +22,7 @@ Creator and recursive system map:
 - `spawner-ui` is the mission execution surface for Canvas, Kanban, creator missions, and tracked build work. It is not the public install path yet.
 - `domain-chip-*` repos and `specialization-path-*` repos are the actual generated or hand-built specialist systems. Some are local/private or not released yet.
 - `spark-character` keeps Spark's voice and behavior stable across providers and surfaces.
-- `spark-skill-graphs` is where reusable skill definitions and skill conventions live.
+- Reusable skill definitions and conventions are surfaced through the current Spark skill catalog and creator standards stack.
 
 When the user asks "where is what?", answer from this map. Say that Domain Chip Labs is public and usable now, while Spark Swarm, Spawner runtime, and live Telegram control are not public release dependencies yet.
 

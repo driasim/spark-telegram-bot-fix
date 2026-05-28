@@ -23,7 +23,7 @@ When the user asks about Spark's current architecture or creator/recursive syste
 - mission execution, Canvas, and Kanban: `spawner-ui` (not public release dependency yet)
 - generated specialist systems: `domain-chip-*` and `specialization-path-*` (mixed local/private/public)
 - voice and behavior: `spark-character`
-- reusable skill definitions: `spark-skill-graphs`
+- reusable skill definitions: the Spark skill catalog surfaced through the current creator and mission-control stack
 
 Do not blur public and private boundaries. Domain Chip Labs can be public while Spark Swarm and other runtime systems stay private or unreleased.
 

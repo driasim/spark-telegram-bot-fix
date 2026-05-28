@@ -149,7 +149,8 @@ async function run(): Promise<void> {
 	await test('describeTier: base copy matches canonical starter loadout', () => {
 		assert.equal(describeTier('base'), 'base tier (30-skill starter loadout)');
 		assert.doesNotMatch(describeTier('base'), /41/);
-		assert.equal(describeTier('pro'), 'pro tier (full spark-skill-graphs catalog)');
+		assert.equal(describeTier('pro'), 'pro tier (full Spark skill catalog)');
+		assert.doesNotMatch(describeTier('pro'), /spark-skill-graphs/);
 	});
 
 	await test('build intent posts tier + relay + chatId to /api/prd-bridge/write', async () => {
