@@ -3006,12 +3006,13 @@ bot.command('about', async (ctx) => {
 
 // /forget command - prefer Builder deletion flow
 bot.command('forget', async (ctx) => {
-  const target = ctx.message.text.replace('/forget', '').trim();
+  const target = ctx.message.text.replace(/^\/forget\b/, '').trim();
   if (target) {
     try {
       if (await replyViaBuilder(ctx, `Forget ${target}.`)) {
         return;
       }
+      return;
     } catch (err) {
       console.error('Failed to forget via Builder bridge:', err);
     }
