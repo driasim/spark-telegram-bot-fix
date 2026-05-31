@@ -2709,6 +2709,29 @@ export function buildIdeationFallbackReply(text: string): string {
 }
 
 export function buildNoExecutionIdeationReply(text: string): string {
+  if (/\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:three|3)\s+(?:build\s+)?ideas?\b/i.test(text)) {
+    if (/\bfounder\s+onboarding\b/i.test(text)) {
+      return [
+        'Three founder-onboarding ideas, staying in chat:',
+        '',
+        '1. Pilot Commitment Triage: turns founder notes into “paid signal, blocker, or research” buckets and suggests the next ask.',
+        '2. First-Week Revenue Map: helps a founder map ICP, buyer, price, proof, and the first five paid-outreach moves.',
+        '3. Onboarding Objection Room: simulates investor/customer objections and rewrites the founder answer until it becomes specific, testable, and commercial.',
+        '',
+        'No build starts until you explicitly ask for one.'
+      ].join('\n');
+    }
+    return [
+      'Three ideas, staying in chat:',
+      '',
+      '1. A tiny decision board that turns messy notes into ranked next moves.',
+      '2. A proof tracker that shows what has been tested, what passed, and what still needs evidence.',
+      '3. A guided answer improver that compares a weak reply with a sharper version and records the lesson.',
+      '',
+      'No build starts until you explicitly ask for one.'
+    ].join('\n');
+  }
+
   if (/\bdomain[-\s]*chip[-\w]*\b/i.test(text)) {
     return [
       "I won't create one here.",

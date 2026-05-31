@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   buildIdeationFallbackReply,
   buildIdeationSystemHint,
+  buildNoExecutionIdeationReply,
   buildContextualImprovementGoal,
   buildProjectImprovementGoal,
   buildDiagnosticFollowupTestReply,
@@ -1752,6 +1753,16 @@ test('no-edit Spawner probe explanation stays in chat', () => {
   assert.match(reply, /bounded job to Spawner/i);
   assert.match(reply, /does not prove editing ability/i);
   assert.doesNotMatch(reply, /Mission:/i);
+});
+
+test('no-build ideation preserves requested idea count', () => {
+  const reply = buildNoExecutionIdeationReply('Give me three build ideas for founder onboarding. Do not build anything yet.');
+  assert.match(reply, /Three founder-onboarding ideas/i);
+  assert.match(reply, /1\./);
+  assert.match(reply, /2\./);
+  assert.match(reply, /3\./);
+  assert.match(reply, /No build starts/i);
+  assert.doesNotMatch(reply, /Got it, staying in chat/i);
 });
 
 test('resolves contextual access change follow-ups from recent access turns', () => {
