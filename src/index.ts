@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -57,6 +57,18 @@ import {
 import { createChipFromPrompt } from './chipCreate';
 import { runChipLoop } from './chipLoop';
 import { packageSpecializationPathLoop, readSpecializationPathLoopInsights, readSpecializationPathLoopStatus, resolveRecursiveStartTarget, runSpecializationPathAutoloop } from './pathLoop';
+import {
+  isSparkQaOperatorKey,
+  parseSparkQaCommand,
+  readLatestSparkQaAutoloopRound,
+  readStartupReleaseVerdict,
+  renderSparkQaAutoloopRound,
+  renderSparkQaBenchmarkCreator,
+  renderSparkQaHelp,
+  renderStartupReleaseVerdict,
+  runSparkQaAutoloopRound,
+  runSparkQaBenchmarkCreator
+} from './sparkQaOperator';
 import {
   parseRecursiveCommand,
   proposeRecursiveWorkspaceEvidence,
@@ -170,6 +182,7 @@ import { queueRouteArbiterShadow } from './routeArbiter';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
+  buildNoExecutionIdeationReply,
   buildIdeationSystemHint,
   buildContextualImprovementGoal,
   buildProjectImprovementGoal,
@@ -188,9 +201,10 @@ import {
   formatMissionUpdatePreferenceAcknowledgement,
   inferDefaultBuildFromRecentScoping,
   inferMissionFromRecentContext,
-  isContextualAccessCapabilityMismatchQuestion,
-  isAccessCapabilityMismatchQuestion,
-  isAccessHelpQuestion,
+	  isContextualAccessCapabilityMismatchQuestion,
+	  isAccessCapabilityMismatchQuestion,
+	  isAccessCapabilityRepairRequest,
+	  isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
   isUserMemoryRecallQuestion,
@@ -202,6 +216,7 @@ import {
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
   isMissionRoutingFailureClassQuestion,
+  isNoExecutionExplanationPrompt,
   isNoExecutionBoundary,
   isProtectedMissionCancelPronounIntent,
   isProtectedMissionPausePronounIntent,
@@ -212,6 +227,11 @@ import {
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isProjectImprovementRequest,
+  isStartupReleaseBoundaryQuestion,
+  isStartupFounderAdvisoryQuestion,
+  isStartupSelfImprovementCanaryRequest,
+  isXContentCredentialBoundaryQuestion,
+  isXPostReviewFromLinksRequest,
   isLocalSparkServiceRequest,
   isLowInformationLlmReply,
   parseContextualAccessChangeIntent,
@@ -224,6 +244,8 @@ import {
   renderMissionRoutingFailureClassReply,
   renderSparkThreadQaGoldenCaseReply,
   renderSparkWorkflowBugHuntReply,
+  renderXContentCredentialBoundaryReply,
+  renderXPostReviewFromLinksBoundaryReply,
   builderReplySuppressionReason,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
@@ -234,6 +256,18 @@ import {
   type NaturalRouteDecision,
   type NaturalRouteOwnerSystem
 } from './naturalRouteDecision';
+import type { TelegramIntentDecisionV2 } from './intentContract';
+import {
+  classifyTelegramIntentV2,
+  shouldEnforceTelegramIntentGateV2
+} from './telegramIntentGate';
+import {
+  authorizeToolCallFromEnvelope,
+  buildTelegramTurnIntentEnvelope,
+  type ToolAuthorizationInput,
+  type TurnIntentEnvelopeV1
+} from './harnessContract';
+import { authorizeTelegramActionFromEnvelope, type TelegramActionAuthorityInput } from './telegramActionAuthority';
 import { renderNaturalRouteDecisionReply } from './naturalRouteTelemetry';
 import {
   appendNaturalRouteExecutionRecord,
@@ -283,6 +317,35 @@ const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 const execFileAsync = promisify(execFile);
 
 installConsoleRedaction();
+
+type BuilderBridgeRunner = typeof runBuilderTelegramBridge;
+let builderBridgeRunnerForTest: BuilderBridgeRunner | null = null;
+
+export function __setBuilderBridgeRunnerForTest(runner: BuilderBridgeRunner | null): void {
+  builderBridgeRunnerForTest = runner;
+}
+
+function builderBridgeRunner(...args: Parameters<BuilderBridgeRunner>): ReturnType<BuilderBridgeRunner> {
+  return (builderBridgeRunnerForTest || runBuilderTelegramBridge)(...args);
+}
+
+type RecursiveStatusDeps = {
+  resolve: typeof resolveRecursiveStartTarget;
+  readStatus: typeof readSpecializationPathLoopStatus;
+};
+
+let recursiveStatusDepsForTest: RecursiveStatusDeps | null = null;
+
+export function __setRecursiveStatusDepsForTest(deps: RecursiveStatusDeps | null): void {
+  recursiveStatusDepsForTest = deps;
+}
+
+function recursiveStatusDeps(): RecursiveStatusDeps {
+  return recursiveStatusDepsForTest || {
+    resolve: resolveRecursiveStartTarget,
+    readStatus: readSpecializationPathLoopStatus
+  };
+}
 
 // Validate environment
 if (!process.env.BOT_TOKEN && !TELEGRAM_SMOKE_MODE) {
@@ -861,6 +924,80 @@ async function readSparkAccessState(): Promise<{
   };
 }
 
+async function readSparkWorkspaceAccessState(): Promise<{
+  effective: unknown;
+  requested: unknown;
+  workspaceWritable: unknown;
+}> {
+  const rawStatus = await runSparkCli(['access', 'status', '--json'], 30_000);
+  const payload = JSON.parse(rawStatus) as Record<string, unknown>;
+  const stateMachine = objectRecord(payload.state_machine);
+  const workspacePreflight = objectRecord(payload.workspace_preflight);
+  return {
+    effective: payload.effective_access_level ?? stateMachine.effective_access_level ?? 'unknown',
+    requested: stateMachine.requested_access_level ?? payload.access_level ?? 'unknown',
+    workspaceWritable: workspacePreflight.writable
+  };
+}
+
+async function renderAccessCapabilityRepairAnswer(chatId: string | number): Promise<string> {
+  const [chatProfile, runnerPreflight] = await Promise.all([
+    getSparkAccessProfile(chatId),
+    probeTelegramRunnerWritability()
+  ]);
+
+  try {
+    let accessState = await readSparkWorkspaceAccessState();
+    let workspaceAction = accessState.workspaceWritable === true
+      ? 'The safe Spark workspace was already writable, so I did not rerun setup.'
+      : '';
+
+    if (accessState.workspaceWritable !== true) {
+      await runSparkCli(['access', 'setup', '--json'], 60_000);
+      accessState = await readSparkWorkspaceAccessState();
+      workspaceAction = accessState.workspaceWritable === true
+        ? 'I repaired the safe Spark workspace. Safe workspace setup is ready.'
+        : 'I ran safe Spark workspace setup, but the workspace still did not prove writable.';
+    }
+
+    const runnerLine = runnerPreflight.runnerWritable === 'yes'
+      ? 'Spark can now work inside the safe workspace from this Telegram runner.'
+      : 'I will not claim direct edits from this Telegram runner until the writable lane proves it.';
+    return [
+      'This is access repair, not a Spawner mission.',
+      '',
+      workspaceAction,
+      `- Chat setting: Access level ${sparkAccessLevel(chatProfile)}.`,
+      `- Requested by CLI: Level ${accessState.requested}.`,
+      `- Effective by CLI: Level ${accessState.effective}.`,
+      `- Spark workspace writable: ${boolText(accessState.workspaceWritable)}.`,
+      `- Telegram runner writable: ${runnerPreflight.runnerWritable}.`,
+      '',
+      runnerLine
+    ].filter(Boolean).join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'This is access repair, not a Spawner mission.',
+      '',
+      `I could not complete the local access repair check: ${detail}`,
+      `- Telegram runner writable: ${runnerPreflight.runnerWritable}.`,
+      '',
+      'I will not create a mission or claim edits from a lane that has not proven writable.'
+    ].join('\n');
+  }
+}
+
+function renderAccessCapabilityMismatchAnswer(): string {
+  return [
+    'Allowed, blocked here.',
+    '',
+    'Access level is permission; runner capability is what this exact lane can do. If access says operator but this is a read-only runner, Spark can inspect, reason, run safe read-only checks, and shape the fix, but it cannot honestly claim file edits, config changes, launches, or repairs from that lane.',
+    '',
+    'Use a writable Spark/Codex/Spawner runner before promising execution.'
+  ].join('\n');
+}
+
 function shouldAnswerAuthoritativeAccessCapability(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
@@ -991,6 +1128,23 @@ function renderRuntimeTruthPriorityAnswer(): string {
     'Fresh runtime state wins.',
     '',
     'If fresh `spark live status` says Spawner is up, Spawner is up right now. Memory becomes stale context, not current truth.'
+  ].join('\n');
+}
+
+function shouldAnswerWorkspaceWikiFreshnessBoundary(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\b(?:workspace|repo|files?)\b/.test(normalized) &&
+    /\bwiki\b/.test(normalized) &&
+    /\b(?:old\s+notes?|memory|notes?)\b.*\b(?:current\s+truth|fresh\s+truth|live\s+truth)\b/.test(normalized)
+  );
+}
+
+function renderWorkspaceWikiFreshnessBoundaryAnswer(): string {
+  return [
+    'Use Workspace and Wiki as historical context, then verify current truth with fresh runtime probes.',
+    '',
+    'Old notes can explain what we believed or changed before; they do not outrank live status, test output, file state, or fresh evidence from this turn.'
   ].join('\n');
 }
 
@@ -1342,6 +1496,97 @@ function naturalRecursiveStatusTarget(rawCommand: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
+function isNaturalSparkQaBenchmarkRunQuestion(text: string): boolean {
+  const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || isNoExecutionBoundary(normalized)) return false;
+  return (
+    /\bspark\s+qa\s+operator\b/.test(normalized) &&
+    /\b(?:benchmark|autoloop|proof|score|scores)\b/.test(normalized) &&
+    /\b(?:show|run|check|what(?:'s| is)|where|report|score|scores)\b/.test(normalized)
+  );
+}
+
+function isNaturalSparkQaBenchmarkStatusQuestion(text: string): boolean {
+  const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || isNoExecutionBoundary(normalized)) return false;
+  if (/\bscores?\b/.test(normalized)) return false;
+  return (
+    /\blatest\s+qa\s+run\b/.test(normalized) ||
+    (/\bspark\s+qa\s+operator\b/.test(normalized) &&
+      /\b(?:benchmark|autoloop|proof|evidence)\b/.test(normalized) &&
+      /\b(?:latest|show|what\s+happened|evidence|proof)\b/.test(normalized))
+  );
+}
+
+function isNaturalSparkQaLoopPauseRequest(text: string): boolean {
+  const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return (
+    /\b(?:pause|stop|hold)\b/.test(normalized) &&
+    /\bspark\s+qa\s+operator\b/.test(normalized) &&
+    /\b(?:loop|autoloop|rounds?)\b/.test(normalized)
+  );
+}
+
+async function pauseSparkQaOperatorLoop(): Promise<{ ok: boolean; reply: string }> {
+  const repoRoot = String(process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO || process.env.SPARK_QA_OPERATOR_REPO || '').trim();
+  if (!repoRoot) {
+    return {
+      ok: false,
+      reply: 'I could not pause the Spark QA Operator loop because the local repo path is not configured.'
+    };
+  }
+  const controlDir = path.join(path.resolve(repoRoot), '.spark-swarm', 'specialization-paths', 'spark-qa-operator');
+  const controlPath = path.join(controlDir, 'control.json');
+  const payload = {
+    schemaVersion: 'spark-specialization-path-control.v1',
+    pathKey: 'spark-qa-operator',
+    status: 'paused',
+    updatedAt: new Date().toISOString(),
+    reason: 'telegram_user_pause_request'
+  };
+  await mkdir(controlDir, { recursive: true });
+  await writeFile(controlPath, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+  return {
+    ok: true,
+    reply: 'Paused the Spark QA Operator loop. It will not start more rounds until you explicitly resume it.'
+  };
+}
+
+function isNaturalSparkQaBenchmarkNoRunQuestion(text: string): boolean {
+  const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  return Boolean(
+    normalized &&
+    isNoExecutionBoundary(normalized) &&
+    /\bspark\s+qa\s+operator\b/.test(normalized) &&
+    /\b(?:benchmark|autoloop|proof|score|scores)\b/.test(normalized)
+  );
+}
+
+function renderSparkQaBenchmarkNoRunReply(): string {
+  return [
+    "I won't run a fresh benchmark from that wording.",
+    '',
+    "I also won't report cached benchmark numbers as if they were current proof. Ask me to run the Spark QA benchmark/autoloop proof when you want a fresh score."
+  ].join('\n');
+}
+
+function isUnderspecifiedBenchmarkPackCreation(text: string): boolean {
+  const normalized = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!/\b(?:create|build|make|plan|stage|generate)\b.{0,60}\b(?:benchmark pack|benchmarks|benchmark)\b/.test(normalized)) return false;
+  const hasLevel = /\blevel\s*(10|[1-9])\b/.test(normalized);
+  const hasTarget = /\b(?:spark\s+qa\s+operator|qa\s+operator|specialization\s+path|startup[-\s]+yc|domain[-\s]+chip[-\s]+creator)\b/.test(normalized);
+  return !hasLevel || !hasTarget;
+}
+
+function renderUnderspecifiedBenchmarkPackReply(): string {
+  return [
+    'Choose the specialization path and benchmark level first (1-10).',
+    '',
+    'For example: create level 7 benchmarks for Spark QA Operator.',
+    'Level 10 is the long-running research/swarm lab mode, so I should not stage it from a vague benchmark-pack request.'
+  ].join('\n');
+}
+
 function labelForTelegram(value: string): string {
   return String(value || '')
     .replace(/^path:/, '')
@@ -1379,14 +1624,15 @@ async function handleNaturalRecursiveRoute(
   const statusTarget = naturalRecursiveStatusTarget(rawCommand);
   if (statusTarget) {
     await safeSendChatAction(ctx, 'typing');
-    const target = await resolveRecursiveStartTarget(statusTarget);
+    const deps = recursiveStatusDeps();
+    const target = await deps.resolve(statusTarget);
     if (target.kind !== 'path') {
       const reply = `${statusTarget} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`;
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(user, reply).catch(() => {});
       return true;
     }
-    const reply = renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target), {
+    const reply = renderSpecializationLoopStatus(await deps.readStatus(target), {
       style: 'conversational'
     });
     await ctx.reply(reply);
@@ -1410,6 +1656,249 @@ function deterministicRouteAllowed(route: DeterministicRouteId, text: string): b
     console.log(`[RouteFirewall] blocked route=${route} reason=${verdict.reason} textLen=${text.length}`);
   }
   return verdict.allow;
+}
+
+function telegramActionAuthorityAllowed(
+  envelope: TurnIntentEnvelopeV1,
+  input: TelegramActionAuthorityInput
+): boolean {
+  const authorization = authorizeTelegramActionFromEnvelope(envelope, input);
+  queueRouteArbiterShadow({
+    route: input.route,
+    text: input.text,
+    verdict: authorization.routeVerdict,
+    profile: activeTelegramProfile()
+  });
+  if (!authorization.allow) {
+    console.log(
+      `[TelegramActionAuthority] blocked route=${input.route} tool=${input.toolName} reasons=${authorization.reasonCodes.join(',')} textLen=${input.text.length}`
+    );
+  }
+  return authorization.allow;
+}
+
+function telegramActionEnvelope(
+  baseEnvelope: TurnIntentEnvelopeV1,
+  input: {
+    route: string;
+    ownerSystem: NaturalRouteOwnerSystem | string;
+    action: string;
+    kind?: TelegramIntentDecisionV2['kind'];
+    confidence?: TelegramIntentDecisionV2['confidence'];
+  }
+): TurnIntentEnvelopeV1 {
+  const decision: TelegramIntentDecisionV2 = {
+    schema_version: 'spark.telegram.intent_decision.v2',
+    kind: input.kind || 'runtime_truth_or_operator',
+    route: input.route,
+    owner_system: input.ownerSystem as NaturalRouteOwnerSystem,
+    action: input.action,
+    confidence: input.confidence || 'explicit',
+    constraints: {
+      noExecution: baseEnvelope.directive.noExecution,
+      noPublish: baseEnvelope.directive.noPublish,
+      noMerge: false,
+      noPublicClaim: false,
+      noNetworkAbsorptionClaim: false,
+      localOnly: baseEnvelope.directive.localOnly
+    },
+    payload: { selectedBy: 'telegram_action_branch' },
+    matched_signals: ['fresh_telegram_action_branch'],
+    blocked_candidates: [],
+    supporting_routes: [baseEnvelope.selectedIntent.action || baseEnvelope.selectedIntent.kind].filter(Boolean) as string[],
+    enforcement: baseEnvelope.directive.noExecution ? 'blocked' : 'observe',
+    natural_route: null
+  };
+
+  return buildTelegramTurnIntentEnvelope({
+    text: baseEnvelope.text.raw,
+    decision,
+    userRef: baseEnvelope.user.userRef,
+    chatRef: baseEnvelope.user.chatRef,
+    accessProfile: baseEnvelope.user.accessProfile,
+    conversationKind: baseEnvelope.sessionScope.conversationKind,
+    recentTurns: baseEnvelope.contextRefs.recentTurns,
+    pendingState: baseEnvelope.contextRefs.pendingState,
+    memoryRefs: baseEnvelope.contextRefs.memoryRefs,
+    runtimeTruthRefs: baseEnvelope.contextRefs.runtimeTruthRefs,
+    startupOperatorRefs: baseEnvelope.contextRefs.startupOperatorRefs,
+    turnId: baseEnvelope.turnId,
+    traceId: baseEnvelope.traceId
+  });
+}
+
+function telegramBranchActionAuthorityAllowed(
+  baseEnvelope: TurnIntentEnvelopeV1,
+  input: TelegramActionAuthorityInput & {
+    action?: string;
+    kind?: TelegramIntentDecisionV2['kind'];
+    confidence?: TelegramIntentDecisionV2['confidence'];
+  }
+): boolean {
+  const actionEnvelope = telegramActionEnvelope(baseEnvelope, {
+    route: input.route,
+    ownerSystem: input.ownerSystem,
+    action: input.action || input.route,
+    kind: input.kind,
+    confidence: input.confidence
+  });
+  return telegramActionAuthorityAllowed(actionEnvelope, input);
+}
+
+async function handleTelegramIntentGateV2SafeRoute(
+  ctx: any,
+  user: any,
+  text: string,
+  naturalRouteShadow: NaturalRouteDecision | null,
+  decision: TelegramIntentDecisionV2,
+  envelope: TurnIntentEnvelopeV1
+): Promise<boolean> {
+  if (!shouldEnforceTelegramIntentGateV2(decision)) {
+    return false;
+  }
+
+  const toolAuthorization = toolAuthorizationForTelegramIntent(decision);
+  if (toolAuthorization) {
+    const authorization = authorizeToolCallFromEnvelope(envelope, toolAuthorization);
+    if (authorization.verdict === 'blocked') {
+      console.log(`[HarnessContract] blocked selected=${decision.route} reasons=${authorization.reasonCodes.join(',')}`);
+      return false;
+    }
+  }
+
+  const blockedRoutes = decision.blocked_candidates.map((candidate) => candidate.route).join(',');
+  console.log(
+    `[IntentGateV2] selected=${decision.route} kind=${decision.kind} owner=${decision.owner_system} natural=${naturalRouteShadow?.route || 'none'} blocked=${blockedRoutes || 'none'}`
+  );
+
+  if (decision.route === 'memory.write') {
+    const directive = typeof decision.payload.directive === 'string'
+      ? decision.payload.directive
+      : extractPlainChatMemoryDirective(text);
+    if (!directive || !telegramActionAuthorityAllowed(envelope, {
+      route: 'memory.write',
+      text,
+      toolName: 'memory.write',
+      ownerSystem: 'domain-chip-memory',
+      mutationClass: 'writes_memory'
+    })) {
+      return false;
+    }
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+    await handlePlainChatMemoryDirective(ctx, user, text, directive);
+    return true;
+  }
+
+  if (decision.route === 'access.status') {
+    if (!deterministicRouteAllowed('access.status', text)) {
+      return false;
+    }
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    await ctx.reply(reply);
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_intent_gate_v2_access_status', [
+      {
+        source: 'spark_access_status',
+        role: 'access_truth',
+        freshness: 'fresh',
+        sourceRef: 'spark access status --json',
+        summary: 'Intent Gate V2 routed access status to the authoritative Spark CLI access state and runner writability preflight.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  if (decision.route === 'access.help') {
+    if (!deterministicRouteAllowed('access.help', text)) {
+      return false;
+    }
+    await conversation.remember(user, text).catch(() => {});
+    const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const reply = renderSparkAccessConversationHelp(accessProfile);
+    await ctx.reply(reply);
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  if (decision.route === 'startup.proof_readout') {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    const reply = renderStartupReleaseVerdict(await readStartupReleaseVerdict());
+    await ctx.reply(reply);
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  if (decision.route === 'startup.founder_advice') {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const reply = await renderStartupFounderAdviceReply(text);
+      await ctx.reply(reply);
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    } catch (err: any) {
+      const reply = renderSparkErrorReply(err, 'chat', conversation.isAdmin(user));
+      await ctx.reply(reply);
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    }
+    return true;
+  }
+
+  if (decision.route === 'startup.answer_improvement_canary') {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    const reply = await renderStartupSelfImprovementCanaryReply(text);
+    await ctx.reply(reply);
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
+function toolAuthorizationForTelegramIntent(decision: TelegramIntentDecisionV2): ToolAuthorizationInput | null {
+  if (decision.route === 'memory.write') {
+    return {
+      toolName: 'memory.write',
+      ownerSystem: 'domain-chip-memory',
+      mutationClass: 'writes_memory'
+    };
+  }
+  if (decision.route === 'access.status') {
+    return {
+      toolName: 'access.status',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'read_only'
+    };
+  }
+  if (decision.route === 'access.help' || decision.route === 'startup.proof_readout') {
+    return {
+      toolName: 'answer.compose',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'read_only'
+    };
+  }
+  if (decision.route === 'startup.founder_advice') {
+    return {
+      toolName: 'answer.compose',
+      ownerSystem: 'spark-intelligence-builder',
+      mutationClass: 'read_only'
+    };
+  }
+  if (decision.route === 'startup.answer_improvement_canary') {
+    return {
+      toolName: 'spawner.run',
+      ownerSystem: 'spark-intelligence-builder',
+      mutationClass: 'launches_mission'
+    };
+  }
+  return null;
 }
 
 function nodeOutboundAuditPath(): string {
@@ -1527,12 +2016,14 @@ type FinalAnswerGateSuppressionInput = {
   fallbackRoute: 'local_chat';
 };
 
-function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput): void {
-  const auditPath = finalAnswerGateAuditPath();
+export function buildFinalAnswerGateSuppressionRecord(
+  input: FinalAnswerGateSuppressionInput,
+  now = new Date()
+): Record<string, unknown> {
   const requestId = String(input.requestId || '').trim();
   const traceRef = String(input.traceRef || '').trim();
-  const record = {
-    ts: new Date().toISOString(),
+  return {
+    ts: now.toISOString(),
     event: 'final_answer_checked',
     outcome: 'suppressed_builder_reply',
     chat_id_present: String(input.chatId ?? '').trim().length > 0,
@@ -1549,6 +2040,11 @@ function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput
     fallback_route: input.fallbackRoute,
     latest_intent_preserved: true
   };
+}
+
+function recordFinalAnswerGateSuppression(input: FinalAnswerGateSuppressionInput): void {
+  const auditPath = finalAnswerGateAuditPath();
+  const record = buildFinalAnswerGateSuppressionRecord(input);
   mkdir(path.dirname(auditPath), { recursive: true })
     .then(() => appendFile(auditPath, `${JSON.stringify(record)}\n`, 'utf-8'))
     .catch((error) => {
@@ -1793,7 +2289,7 @@ function isMissionCancelConfirmationText(text: string): boolean {
   );
 }
 
-async function handlePendingMissionCancelConfirmation(ctx: any, text: string): Promise<boolean> {
+async function handlePendingMissionCancelConfirmation(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   if (!isMissionCancelConfirmationText(text)) return false;
 
   const key = missionCancelConfirmationKey(ctx);
@@ -1806,6 +2302,19 @@ async function handlePendingMissionCancelConfirmation(ctx: any, text: string): P
   if (Date.now() - pending.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
     await ctx.reply('That cancel confirmation expired. Ask me to cancel it again if you still want to stop it.');
     return true;
+  }
+
+  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
+    route: 'spawner.mission_control',
+    text,
+    toolName: 'spawner.mission_control',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'spawner.mission_cancel_confirm',
+    kind: 'build_or_spawner',
+    confidence: 'contextual'
+  })) {
+    return false;
   }
 
   const result = await spawner.confirmContextualMissionCancel(pending.missionId, pending.title);
@@ -1876,14 +2385,47 @@ function requireAdmin(ctx: any): boolean {
   return false;
 }
 
-function buildUpdateWithText(update: Record<string, unknown>, text: string): Record<string, unknown> {
+function withSparkTurnIntentEnvelope(
+  update: Record<string, unknown>,
+  envelope: TurnIntentEnvelopeV1
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(update)) as Record<string, unknown>;
+  cloned.spark_turn_intent = envelope;
+  const messagePayload = cloned.message;
+  if (messagePayload && typeof messagePayload === 'object') {
+    (messagePayload as Record<string, unknown>).spark_turn_intent = envelope;
+  }
+  return cloned;
+}
+
+function buildUpdateWithText(
+  update: Record<string, unknown>,
+  text: string,
+  envelope?: TurnIntentEnvelopeV1
+): Record<string, unknown> {
   const cloned = JSON.parse(JSON.stringify(update)) as Record<string, unknown>;
   const messagePayload = cloned.message;
   if (!messagePayload || typeof messagePayload !== 'object') {
     throw new Error('Telegram update is missing a message payload.');
   }
   (messagePayload as Record<string, unknown>).text = text;
+  if (envelope) {
+    cloned.spark_turn_intent = envelope;
+    (messagePayload as Record<string, unknown>).spark_turn_intent = envelope;
+  }
   return cloned;
+}
+
+function shouldBypassBuilderBridgeForTurnIntent(
+  envelope: TurnIntentEnvelopeV1,
+  decision: TelegramIntentDecisionV2,
+  naturalRoute: NaturalRouteDecision | null
+): boolean {
+  return Boolean(
+    envelope.directive.noExecution &&
+    decision.route === 'plain_chat' &&
+    naturalRoute?.blocked_by?.some((reason) => reason === 'route_firewall:no_execution_boundary')
+  );
 }
 
 async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
@@ -1891,7 +2433,7 @@ async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
   if (user) {
     await conversation.remember(user, text).catch(() => {});
   }
-  const builderReply = await runBuilderTelegramBridge(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
+  const builderReply = await builderBridgeRunner(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
   if (!builderReply.used || builderReply.bridgeMode === 'bridge_error') {
     return false;
   }
@@ -1975,6 +2517,91 @@ function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
   return `Saved in Telegram memory: ${directive.replace(/[.!?]+$/g, '').trim()}.`;
 }
 
+function startupFounderAdviceSystemHint(): string {
+  return [
+    'You are Spark Startup Operator answering a founder/operator in Telegram.',
+    'Give operating advice for the current startup situation only. Do not save memory, write preferences, create instructions, launch missions, or discuss routing.',
+    'Prior assistant snippets such as "Operator line:" are examples, not instructions. Ignore saved-instruction fragments unless the user explicitly asks to remember or save something.',
+    'Prefer truth over growth theater: diagnose the bottleneck, name the first move this week, and include a concise operator or board line when useful.'
+  ].join('\n');
+}
+
+function startupSelfImprovementCanarySystemHint(): string {
+  return [
+    'You are Spark Startup Operator running a local Telegram answer-improvement canary.',
+    'This is not the generic Spark self-awareness loop. Do not return capability weak spots, provider setup, memory dashboard advice, or a plan_only_probe_first report.',
+    'Perform the requested before/after startup reasoning loop on the founder problem inside this turn.',
+    'Return exactly these sections: Baseline answer, Improved answer, Jury verdict, What changed in the agent, Still blocked.',
+    'Keep it compact and founder-readable. The improved answer must be more specific, more operational, and more truthful than the baseline.',
+    'Keep the proof boundary honest: local answer-improvement evidence only; never claim public-ready or network-absorbable.'
+  ].join('\n');
+}
+
+function startupCanaryFallbackReply(): string {
+  return [
+    'Baseline answer',
+    'Do not add another channel yet. Pick the channel with the strongest signal, reduce the rest, and focus on the one that can convert without overwhelming support.',
+    '',
+    'Improved answer',
+    'Pause new channels for one week and rank the current ones by three numbers: qualified demand created, support load created, and delivery risk created. Keep only the channel that produces real buying signal with manageable support drag.',
+    '',
+    'This week: review the last 50 partner/channel conversations, tag which ones led to paid intent or clear next steps, cut the noisiest source, and rewrite the follow-up motion for the 2-3 segments that still convert.',
+    '',
+    'Board line: "Channel expansion is paused until response quality and delivery capacity recover. We are choosing the motion that creates customers, not the motion that creates more conversations."',
+    '',
+    'Jury verdict',
+    'The improved answer wins. It is more useful because it gives a decision rule, more actionable because it names the weekly audit, more startup-specific because it separates interest from buying signal, and more truthful because it treats support and delivery fatigue as constraints.',
+    '',
+    'What changed in the agent',
+    'Durable lesson candidate: when a startup asks about adding channels under support or delivery fatigue, Spark should first diagnose channel quality and operational load before recommending growth.',
+    '',
+    'Still blocked',
+    'This proves a local Telegram answer-improvement canary, not a closed startup self-improvement loop. It still needs held-out transfer tests, persisted operator artifact review, score reconciliation, stability, and public/network promotion gates.'
+  ].join('\n');
+}
+
+function isStartupCanaryComplete(reply: string): boolean {
+  const normalized = reply.toLowerCase();
+  return [
+    'baseline',
+    'improved',
+    'jury',
+    'changed',
+    'blocked'
+  ].every((needle) => normalized.includes(needle)) &&
+    !/\b(?:plan_only_probe_first|provider profile|self-awareness capsule|memory-quality-dashboard)\b/i.test(reply);
+}
+
+async function renderStartupSelfImprovementCanaryReply(text: string): Promise<string> {
+  const prompt = [
+    text,
+    '',
+    'Important: answer the startup canary itself. Do not answer with the Startup Bench score card or generic self-awareness plan.'
+  ].join('\n');
+
+  try {
+    const response = await llm.chat(prompt, startupSelfImprovementCanarySystemHint(), '');
+    if (response && !isLowInformationLlmReply(response) && isStartupCanaryComplete(response)) {
+      return response;
+    }
+  } catch (error) {
+    console.warn('[StartupCanary] LLM canary failed, using local fallback:', error);
+  }
+  return startupCanaryFallbackReply();
+}
+
+async function renderStartupFounderAdviceReply(text: string): Promise<string> {
+  const response = await llm.chat(text, startupFounderAdviceSystemHint(), '');
+  if (!isLowInformationLlmReply(response)) {
+    return response;
+  }
+  return [
+    'Do not add another motion yet. First isolate the constraint, prove the next customer or revenue signal, and only then scale the channel.',
+    '',
+    'Operator line: "We are not going to turn weak signal into more volume. This week we fix the quality of the motion, prove what converts, and then decide whether another channel has earned the right to exist."'
+  ].join('\n');
+}
+
 function renderSparkChipStatusBoundaryFallbackReply(): string {
   return [
     'Spark chip status',
@@ -2002,7 +2629,7 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
 
   await safeSendChatAction(ctx, 'typing');
   try {
-    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    const builderReply = await builderBridgeRunner(ctx.update as unknown as Record<string, unknown>);
     console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
     if (
       builderReply.used &&
@@ -2702,7 +3329,7 @@ async function handleCapabilityLedgerReviewCommand(ctx: any): Promise<void> {
   if (!requireAdmin(ctx)) return;
   await safeSendChatAction(ctx, 'typing');
   try {
-    const builderReply = await runBuilderTelegramBridge(ctx.update as unknown as Record<string, unknown>);
+    const builderReply = await builderBridgeRunner(ctx.update as unknown as Record<string, unknown>);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText.trim()) {
       await ctx.reply(builderReply.responseText);
       return;
@@ -3593,6 +4220,8 @@ export function parseNaturalCreatorMissionIntent(text: string, recentMessages: s
   const brief = text.trim().replace(/\s+/g, ' ');
   if (brief.length < 8) return null;
   const targetLabel = inferNaturalCreatorTargetLabel(text, recentMessages);
+  const benchmarkLevelMatch = normalized.match(/\blevel\s*(10|[1-9])\b/);
+  const isSparkQaBenchmarkPack = artifact.label === 'benchmark pack' && /\b(?:spark\s+qa\s+operator|qa\s+operator)\b/.test(normalized);
   const contextLines = [
     targetLabel ? `Target domain/path: ${targetLabel}.` : null,
     `Requested artifact: ${artifact.label}.`,
@@ -3600,10 +4229,23 @@ export function parseNaturalCreatorMissionIntent(text: string, recentMessages: s
       ? `Keep the reusable template attached to the active ${targetLabel} specialization loop; do not rename it to a generic Intent path.`
       : null
   ].filter((line): line is string => Boolean(line));
+  const benchmarkCreatorLines = isSparkQaBenchmarkPack
+    ? [
+        benchmarkLevelMatch
+          ? `Benchmark creation level selected: ${benchmarkLevelMatch[1]}/10. Level 10 can take hours or days and needs Canvas/Kanban proof when those surfaces are active.`
+          : 'Benchmark creation level selected: 10/10. Level 10 can take hours or days and needs Canvas/Kanban proof when those surfaces are active.',
+        'Benchmark Creator PRD schema: spark-benchmark-creator-prd.v1.',
+        'Use the benchmark-creator-prd hook and include promotion_bridge.template.json.',
+        'Require benchmark_execution_contract coverage, hard_zeroes, and promotion_gate checks before any score claim.',
+        'Do not route this as a generic app build.'
+      ]
+    : [];
   return {
     brief: [
       ...contextLines,
       ...(contextLines.length > 0 ? [''] : []),
+      ...benchmarkCreatorLines,
+      ...(benchmarkCreatorLines.length > 0 ? [''] : []),
       brief,
       '',
       'Treat higher-intelligence, tool-usage, reasoning, or ability-gain claims as unproven until benchmark validation records a before/after gain.',
@@ -3613,7 +4255,9 @@ export function parseNaturalCreatorMissionIntent(text: string, recentMessages: s
       'Keep Telegram user-facing output natural and concise; keep detailed evidence in Workspace/Canvas/Kanban.'
     ].join('\n'),
     privacyMode: inferNaturalCreatorPrivacyMode(normalized),
-    riskLevel: inferNaturalCreatorRiskLevel(normalized),
+    riskLevel: isSparkQaBenchmarkPack && (benchmarkLevelMatch?.[1] || '10') === '10'
+      ? 'high'
+      : inferNaturalCreatorRiskLevel(normalized),
     artifactLabel: artifact.label
   };
 }
@@ -3748,8 +4392,12 @@ export function formatDomainChipBuildPreview(brief: string): string {
 
 function isDomainChipPendingStart(text: string): boolean {
   const normalized = text.trim().toLowerCase();
-  return /^(?:go|start|run|build|create|make|ship|do it|build it|create it|make it|start it|yes|yeah|yep|ok|okay|sure|perfect)$/i.test(normalized) ||
+  return /^(?:go|start|run|build|create|make|ship|do it|build it|create it|make it|start it)$/i.test(normalized) ||
     isMissionExecutionConfirmation(text);
+}
+
+function isBareDomainChipPendingYes(text: string): boolean {
+  return /^(?:yes|yeah|yep|ok|okay|sure|perfect)$/i.test(text.trim());
 }
 
 function isDomainChipPendingCancel(text: string): boolean {
@@ -3774,7 +4422,7 @@ function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: s
   return `${pending.prd}\n\n## User direction before build\n\n${text.trim()}`;
 }
 
-async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boolean> {
+async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   const key = `${ctx.chat.id}-${ctx.from.id}`;
   const pending = pendingDomainChipBuilds.get(key);
   if (!pending) return false;
@@ -3791,7 +4439,25 @@ async function handlePendingDomainChipBuild(ctx: any, text: string): Promise<boo
     return true;
   }
 
+  if (isBareDomainChipPendingYes(text)) {
+    await ctx.reply('I will not start the pending domain chip from a bare yes. Say "go" to use defaults, give the direction you want, or say "cancel".');
+    return true;
+  }
+
   if (!isDomainChipPendingDirection(text)) {
+    return false;
+  }
+
+  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
+    route: 'domain_chip.pending',
+    text,
+    toolName: 'domain_chip.create',
+    ownerSystem: 'domain-chip',
+    mutationClass: 'creates_chip',
+    action: 'domain_chip.pending',
+    kind: 'creator_or_domain_chip',
+    confidence: 'contextual'
+  })) {
     return false;
   }
 
@@ -3842,7 +4508,7 @@ async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand):
   }
 }
 
-async function handlePendingCreatorMissionControl(ctx: any, text: string): Promise<boolean> {
+async function handlePendingCreatorMissionControl(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   const key = pendingCreatorMissionKey(ctx);
   const pending = pendingCreatorMissions.get(key);
   if (!pending) return false;
@@ -3871,6 +4537,19 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string): Promi
     const result = await spawner.creatorMissionValidate({ missionId: pending.missionId });
     await ctx.reply(formatCreatorMissionValidationSummary(result));
     return true;
+  }
+
+  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
+    route: 'creator.mission',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'creator.mission.execute',
+    kind: 'creator_or_domain_chip',
+    confidence: 'contextual'
+  })) {
+    return false;
   }
 
   const result = await spawner.creatorMissionExecute({ missionId: pending.missionId });
@@ -5140,6 +5819,40 @@ bot.command('loop', async (ctx) => {
   })();
 });
 
+export async function handleSparkQaCommand(ctx: any, rawOverride?: string): Promise<unknown> {
+  if (!requireAdmin(ctx)) return;
+
+  const raw = rawOverride ?? ctx.message.text.replace('/sparkqa', '').trim();
+  const parsed = parseSparkQaCommand(raw);
+  if (!parsed || parsed.action === 'help') return ctx.reply(renderSparkQaHelp());
+
+  await safeSendChatAction(ctx, 'typing');
+  if (parsed.action === 'status') {
+    return ctx.reply(renderSparkQaAutoloopRound(await readLatestSparkQaAutoloopRound()));
+  }
+
+  if (parsed.action === 'startup') {
+    return ctx.reply(renderStartupReleaseVerdict(await readStartupReleaseVerdict()));
+  }
+
+  if (parsed.action === 'run') {
+    await ctx.reply('Starting the Spark QA benchmark/autoloop proof now. I will only report a score if the dossier clears it.');
+    return ctx.reply(renderSparkQaAutoloopRound(await runSparkQaAutoloopRound()));
+  }
+
+  if (parsed.action === 'benchmark') {
+    return ctx.reply(renderSparkQaBenchmarkCreator(await runSparkQaBenchmarkCreator({
+      specializationPath: parsed.specializationPath || 'Spark QA Operator',
+      level: parsed.level || 10,
+      prompt: parsed.prompt,
+    })));
+  }
+
+  return ctx.reply(renderSparkQaHelp());
+}
+
+bot.command('sparkqa', async (ctx) => handleSparkQaCommand(ctx));
+
 export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
   if (!requireAdmin(ctx)) return;
 
@@ -5171,11 +5884,15 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
     if (parsed.action === 'status') {
       if (!parsed.id) return ctx.reply('Usage: /recursive status <path>');
       await safeSendChatAction(ctx, 'typing');
-      const target = await resolveRecursiveStartTarget(parsed.id);
+      const deps = recursiveStatusDeps();
+      const target = await deps.resolve(parsed.id);
       if (target.kind !== 'path') {
         return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
       }
-      return ctx.reply(renderSpecializationLoopStatus(await readSpecializationPathLoopStatus(target)));
+      if (isSparkQaOperatorKey(target.key)) {
+        return ctx.reply(renderStartupReleaseVerdict(await readStartupReleaseVerdict(target.repoRoot)));
+      }
+      return ctx.reply(renderSpecializationLoopStatus(await deps.readStatus(target)));
     }
 
     if (parsed.action === 'compare' || parsed.action === 'evidence') {
@@ -5184,6 +5901,9 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       const target = await resolveRecursiveStartTarget(parsed.id);
       if (target.kind !== 'path') {
         return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
+      }
+      if (isSparkQaOperatorKey(target.key)) {
+        return ctx.reply(renderStartupReleaseVerdict(await readStartupReleaseVerdict(target.repoRoot)));
       }
       const status = await readSpecializationPathLoopStatus(target);
       return ctx.reply(parsed.action === 'compare'
@@ -5206,6 +5926,9 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       await safeSendChatAction(ctx, 'typing');
       const target = await resolveRecursiveStartTarget(parsed.id);
       if (target.kind === 'path') {
+        if (isSparkQaOperatorKey(target.key)) {
+          return ctx.reply(renderStartupReleaseVerdict(await readStartupReleaseVerdict(target.repoRoot)));
+        }
         return ctx.reply(renderSpecializationLoopInsights(await readSpecializationPathLoopInsights(target)));
       }
       return ctx.reply(await recursiveSessionReport(parsed.id));
@@ -5285,6 +6008,12 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       void (async () => {
         try {
           if (startTarget.kind === 'path') {
+            if (isSparkQaOperatorKey(startTarget.key)) {
+              await ctx.telegram.sendMessage(chatId, renderSparkQaAutoloopRound(await runSparkQaAutoloopRound({
+                repoRoot: startTarget.repoRoot,
+              })));
+              return;
+            }
             const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
             if (!result.ok) {
               await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
@@ -5775,9 +6504,69 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const naturalRouteShadow = await recordNaturalRouteShadow(ctx, text);
   const globalAgentDoctrineRequest = isGlobalAgentDoctrineRequest(text);
   const parsedEarlyBuildIntent = conversation.isAdmin(ctx.from) && !globalAgentDoctrineRequest ? parseBuildIntent(text) : null;
-  const earlyBuildIntent = parsedEarlyBuildIntent && deterministicRouteAllowed('spawner.build', text)
+  const telegramIntentGateV2 = classifyTelegramIntentV2(text, {
+    naturalRouteDecision: naturalRouteShadow
+  });
+  const turnIntentEnvelope = buildTelegramTurnIntentEnvelope({
+    text,
+    decision: telegramIntentGateV2,
+    userRef: userRef(ctx.from?.id),
+    chatRef: chatRef(ctx.chat?.id),
+    accessProfile: conversation.isAdmin(ctx.from) ? 'admin' : 'standard',
+    conversationKind: ctx.chat?.type === 'private' ? 'dm' : 'group'
+  });
+  const earlyBuildIntent = parsedEarlyBuildIntent && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  })
     ? parsedEarlyBuildIntent
     : null;
+	  if (!earlyBuildIntent && isNaturalSparkQaBenchmarkNoRunQuestion(text)) {
+	    const reply = renderSparkQaBenchmarkNoRunReply();
+	    await conversation.remember(user, text).catch(() => {});
+	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.no_run_boundary', 'spark-telegram-bot', 'plain_chat.boundary');
+	    await ctx.reply(reply);
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
+		  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaLoopPauseRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+		    route: 'sparkqa.pause',
+		    text,
+		    toolName: 'sparkqa.pause',
+		    ownerSystem: 'spark-telegram-bot',
+		    mutationClass: 'writes_files',
+		    action: 'sparkqa.pause',
+		    kind: 'diagnostic_or_self_awareness'
+		  })) {
+	    await conversation.remember(user, text).catch(() => {});
+	    const result = await pauseSparkQaOperatorLoop();
+	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.pause', 'spark-telegram-bot', 'sparkqa.local_control');
+	    await ctx.reply(result.reply);
+	    await conversation.rememberAssistantReply(user, result.reply).catch(() => {});
+	    return;
+	  }
+	  if (!earlyBuildIntent && isXContentCredentialBoundaryQuestion(text)) {
+    const reply = renderXContentCredentialBoundaryReply();
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.xcontent_credential_boundary', 'spark-telegram-bot', 'plain_chat.boundary');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && isXPostReviewFromLinksRequest(text)) {
+    const reply = renderXPostReviewFromLinksBoundaryReply();
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.x_post_review_boundary', 'spark-telegram-bot', 'plain_chat.boundary');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && await handleTelegramIntentGateV2SafeRoute(ctx, user, text, naturalRouteShadow, telegramIntentGateV2, turnIntentEnvelope)) {
+    return;
+  }
   const quotedOriginReply = buildQuotedMissionStatusOriginReply(text, quotedTelegramMessageText(ctx.message));
   if (!earlyBuildIntent && quotedOriginReply) {
     await conversation.remember(user, text).catch(() => {});
@@ -5852,7 +6641,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const naturalAccessChange = earlyBuildIntent ? null : parseNaturalAccessChangeIntent(text);
-  if (naturalAccessChange && deterministicRouteAllowed('access.change', text)) {
+  if (naturalAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'access.change',
+    text,
+    toolName: 'access.change',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'access.change',
+    kind: 'runtime_truth_or_operator'
+  })) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, naturalAccessChange);
     return;
@@ -5870,33 +6667,62 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
-  if (frameAccessChange && deterministicRouteAllowed('access.change', text)) {
+  if (frameAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'access.change',
+    text,
+    toolName: 'access.change',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'access.change',
+    kind: 'runtime_truth_or_operator'
+  })) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, frameAccessChange);
     return;
-  }
+	  }
 
-  const recentAccessMessages = await conversation.getRecentMessages(user, 6);
-  const contextualAccessChange = earlyBuildIntent || conversationFrame.referenceResolution.kind === 'list_item'
-    ? null
-    : parseContextualAccessChangeIntent(text, recentAccessMessages);
-  if (contextualAccessChange && deterministicRouteAllowed('access.change', text)) {
+	  const recentAccessMessages = await conversation.getRecentMessages(user, 6);
+	  if (!earlyBuildIntent && isAccessCapabilityRepairRequest(text, recentAccessMessages)) {
+	    await conversation.remember(user, text).catch(() => {});
+	    const reply = await renderAccessCapabilityRepairAnswer(ctx.chat.id);
+	    await ctx.reply(reply);
+	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_repair', runtimeTruthSourceEvidence(text));
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
+	  const contextualAccessChange = earlyBuildIntent || conversationFrame.referenceResolution.kind === 'list_item'
+	    ? null
+	    : parseContextualAccessChangeIntent(text, recentAccessMessages);
+	  if (contextualAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'access.change',
+	    text,
+	    toolName: 'access.change',
+	    ownerSystem: 'spark-telegram-bot',
+	    mutationClass: 'writes_files',
+	    action: 'access.change',
+	    kind: 'runtime_truth_or_operator'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     await handleAccessChangeRequest(ctx, contextualAccessChange);
     return;
   }
 
-  if (
-    !earlyBuildIntent &&
-    (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
-  ) {
-    await attachFreshRuntimeTruthContext();
-  }
+	  if (
+	    !earlyBuildIntent &&
+	    (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
+	  ) {
+	    await conversation.remember(user, text).catch(() => {});
+	    const reply = renderAccessCapabilityMismatchAnswer();
+	    await ctx.reply(reply);
+	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_boundary', runtimeTruthSourceEvidence(text));
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
 
-  if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = renderRuntimeTruthPriorityAnswer();
-    await ctx.reply(reply);
+	  if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
+	    await conversation.remember(user, text).catch(() => {});
+	    const reply = renderRuntimeTruthPriorityAnswer();
+	    await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_runtime_truth_priority', [
       {
         source: 'current_user_message',
@@ -5914,10 +6740,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     ]);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
-    return;
-  }
+	    return;
+	  }
 
-  if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
+	  if (!earlyBuildIntent && shouldAnswerWorkspaceWikiFreshnessBoundary(text)) {
+	    await conversation.remember(user, text).catch(() => {});
+	    const reply = renderWorkspaceWikiFreshnessBoundaryAnswer();
+	    await ctx.reply(reply);
+	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_workspace_wiki_freshness_boundary', runtimeTruthSourceEvidence(text));
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
+
+	  if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
     await ctx.reply(reply);
@@ -5979,7 +6814,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text)) {
+	  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'spawner.build',
+	    text,
+	    toolName: 'spawner.run',
+	    ownerSystem: 'spawner-ui',
+	    mutationClass: 'launches_mission',
+	    action: 'spawner.build',
+	    kind: 'build_or_spawner'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     const replyPhrase = extractNoEditMissionReplyPhrase(text);
     const missionId = await handleRunCommand(
@@ -6069,6 +6912,43 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  if (!earlyBuildIntent && isNoExecutionExplanationPrompt(text)) {
+    const reply = renderMissionRoutingFailureClassReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_execution_explanation', 'spark-telegram-bot', 'plain_chat.qa_boundary');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isUnderspecifiedBenchmarkPackCreation(text)) {
+    const reply = renderUnderspecifiedBenchmarkPackReply();
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'creator.benchmark_pack_clarify', 'spark-telegram-bot', 'clarify');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  const explicitBenchmarkCreatorIntent = !earlyBuildIntent && conversation.isAdmin(ctx.from)
+    ? parseNaturalCreatorMissionIntent(text, [])
+    : null;
+  if (
+    explicitBenchmarkCreatorIntent?.artifactLabel === 'benchmark pack' &&
+    telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'creator.mission',
+      text,
+      toolName: 'domain_chip.create',
+      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+      mutationClass: 'creates_chip'
+    })
+  ) {
+    await conversation.remember(user, text).catch(() => {});
+    await ctx.reply('I will stage the level 10 Benchmark Creator PRD privately first. It should cover Canvas, Kanban, Spark Swarm review, research evidence, and Auto Loop improvement; scoring stays blocked until fresh artifacts exist.');
+    await handleCreatorMissionPlan(ctx, explicitBenchmarkCreatorIntent);
+    return;
+  }
+
   if (!earlyBuildIntent && isSparkWorkflowBugHuntRequest(text)) {
     const reply = renderSparkWorkflowBugHuntReply(text);
     await conversation.remember(user, text).catch(() => {});
@@ -6079,7 +6959,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
-  if (safeOperatorAction && deterministicRouteAllowed('operator.safe_action', text)) {
+	  if (safeOperatorAction && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'operator.safe_action',
+	    text,
+	    toolName: 'operator.safe_action',
+	    ownerSystem: 'spark-telegram-bot',
+	    mutationClass: 'writes_files',
+	    action: 'operator.safe_action',
+	    kind: 'runtime_truth_or_operator'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     if (safeOperatorAction.kind === 'level5_smoke' && accessProfile !== 'operator') {
@@ -6103,23 +6991,63 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && await handleNaturalRecursiveRoute(ctx, user, text, naturalRouteShadow)) {
-    return;
-  }
+	  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaBenchmarkStatusQuestion(text)) {
+	    await conversation.remember(user, text).catch(() => {});
+	    await safeSendChatAction(ctx, 'typing');
+	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.status', 'spark-telegram-bot', 'sparkqa.latest_autoloop_round');
+	    const reply = renderSparkQaAutoloopRound(await readLatestSparkQaAutoloopRound());
+	    await ctx.reply(reply);
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
+
+		  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaBenchmarkRunQuestion(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+		    route: 'sparkqa.run',
+		    text,
+		    toolName: 'sparkqa.run',
+		    ownerSystem: 'spark-telegram-bot',
+		    mutationClass: 'writes_files',
+		    action: 'sparkqa.run',
+		    kind: 'diagnostic_or_self_awareness'
+		  })) {
+	    await conversation.remember(user, text).catch(() => {});
+	    await safeSendChatAction(ctx, 'typing');
+	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.run', 'spark-telegram-bot', 'sparkqa.autoloop_round');
+	    const target = await resolveRecursiveStartTarget('spark-qa-operator');
+	    const reply = renderSparkQaAutoloopRound(await runSparkQaAutoloopRound({
+	      repoRoot: target.kind === 'path' ? target.repoRoot : undefined
+	    }));
+	    await ctx.reply(reply);
+	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    return;
+	  }
+
+	  if (!earlyBuildIntent && await handleNaturalRecursiveRoute(ctx, user, text, naturalRouteShadow)) {
+	    return;
+	  }
 
   const activePendingClarification = conversation.isAdmin(ctx.from)
     ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
     : null;
   if (
-    activePendingClarification &&
-    isPendingClarificationFollowup(text) &&
-    deterministicRouteAllowed('spawner.pending_clarification', text)
-  ) {
+	    activePendingClarification &&
+	    isPendingClarificationFollowup(text) &&
+	    telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.pending_clarification',
+	      text,
+	      toolName: 'spawner.run',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.clarification_reply',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })
+	  ) {
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.clarification_reply');
     await handleClarificationAnswers(ctx, text);
     return;
   }
-  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text)) {
+	  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text, turnIntentEnvelope)) {
     return;
   }
   const recentMessagesForNaturalRouting = conversation.isAdmin(ctx.from)
@@ -6137,13 +7065,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       /\b(?:create|update|attach|add|link)\b.{0,24}\b(?:domain[-\s]*chip|chip)\b/i.test(text)
     );
   const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
-  if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && deterministicRouteAllowed('creator.mission', text)) {
+  if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'creator.mission',
+    text,
+    toolName: 'domain_chip.create',
+    ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+    mutationClass: 'creates_chip'
+  })) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(`I will stage the ${naturalCreatorIntent.artifactLabel} privately first. No run or publishing yet.`);
     await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
     return;
   }
-  if (earlyNaturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
+  if (earlyNaturalChipBrief && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'domain_chip.create',
+    text,
+    toolName: 'domain_chip.create',
+    ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+    mutationClass: 'creates_chip'
+  })) {
     await conversation.remember(user, text).catch(() => {});
     const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
     pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
@@ -6165,6 +7105,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
+    if (isNoExecutionBoundary(text)) {
+      const response = buildNoExecutionIdeationReply(text);
+      await ctx.reply(response);
+      await conversation.rememberAssistantReply(user, response).catch(() => {});
+      return;
+    }
     await safeSendChatAction(ctx, 'typing');
     if (isShortResolvedListPick(text, conversationFrame)) {
       const fastReply = buildSelectedListFastReply(conversationFrame);
@@ -6190,7 +7136,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const naturalRecursiveProposal = earlyBuildIntent ? null : parseNaturalRecursiveProposalIntent(text);
-  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from) && deterministicRouteAllowed('recursive.proposal', text)) {
+	  if (naturalRecursiveProposal && conversation.isAdmin(ctx.from) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'recursive.proposal',
+	    text,
+	    toolName: 'recursive.propose',
+	    ownerSystem: 'spark-telegram-bot',
+	    mutationClass: 'writes_files',
+	    action: 'recursive.propose',
+	    kind: 'recursive_or_swarm'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     const submitArg = naturalRecursiveProposal.submit ? ' submit' : '';
     await handleRecursiveCommand(ctx, `propose ${naturalRecursiveProposal.target}${submitArg}`);
@@ -6215,12 +7169,49 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const memoryDirective = earlyBuildIntent ? null : extractPlainChatMemoryDirective(text);
-  if (memoryDirective && deterministicRouteAllowed('memory.write', text)) {
+  if (memoryDirective && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+    route: 'memory.write',
+    text,
+    toolName: 'memory.write',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory'
+  })) {
     await handlePlainChatMemoryDirective(ctx, user, text, memoryDirective);
     return;
   }
+
+  if (!earlyBuildIntent && isStartupReleaseBoundaryQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    const reply = renderStartupReleaseVerdict(await readStartupReleaseVerdict());
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isStartupFounderAdvisoryQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    try {
+      const response = await renderStartupFounderAdviceReply(text);
+      await ctx.reply(response);
+      await conversation.rememberAssistantReply(user, response).catch(() => {});
+    } catch (err: any) {
+      await ctx.reply(renderSparkErrorReply(err, 'chat', conversation.isAdmin(user)));
+    }
+    return;
+  }
+
   const selfImprovementGoal = earlyBuildIntent ? null : extractSparkSelfImprovementGoal(text);
-  if (selfImprovementGoal && deterministicRouteAllowed('spark.self_improvement', text)) {
+	  if (selfImprovementGoal && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'spark.self_improvement',
+	    text,
+	    toolName: 'spark.self_improvement',
+	    ownerSystem: 'spark-intelligence-builder',
+	    mutationClass: 'writes_files',
+	    action: 'spark.self_improvement',
+	    kind: 'diagnostic_or_self_awareness'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     await safeSendChatAction(ctx, 'typing');
     try {
@@ -6238,7 +7229,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const wikiPromotion = earlyBuildIntent ? null : extractSparkWikiPromotionIntent(text);
-  if (wikiPromotion) {
+	  if (wikiPromotion && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	    route: 'spark.wiki',
+	    text,
+	    toolName: 'spark_wiki.promote',
+	    ownerSystem: 'spark-intelligence-builder',
+	    mutationClass: 'writes_memory',
+	    action: 'spark_wiki.promote',
+	    kind: 'wiki_or_knowledge'
+	  })) {
     await conversation.remember(user, text).catch(() => {});
     await safeSendChatAction(ctx, 'typing');
     try {
@@ -6366,7 +7365,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
     const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
 
-    if (await handlePendingMissionCancelConfirmation(ctx, text)) {
+	    if (await handlePendingMissionCancelConfirmation(ctx, text, turnIntentEnvelope)) {
       return;
     }
 
@@ -6387,12 +7386,21 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (pendingClarification && isPendingClarificationFollowup(text)) {
+	    if (pendingClarification && isPendingClarificationFollowup(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.pending_clarification',
+	      text,
+	      toolName: 'spawner.run',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.clarification_reply',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })) {
       await handleClarificationAnswers(ctx, text);
       return;
     }
 
-    if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
+	    if (await handlePendingDomainChipBuild(ctx, text, turnIntentEnvelope)) {
       await conversation.remember(user, text).catch(() => {});
       return;
     }
@@ -6400,7 +7408,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
     if (
       isProjectImprovementRequest(text, latestShippedProject) &&
-      deterministicRouteAllowed('spawner.project_iteration', text)
+      telegramActionAuthorityAllowed(turnIntentEnvelope, {
+        route: 'spawner.project_iteration',
+        text,
+        toolName: 'spawner.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission'
+      })
     ) {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
@@ -6481,18 +7495,33 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (deterministicRouteAllowed('domain_chip.pending', text) && await handlePendingDomainChipBuild(ctx, text)) {
+	    if (await handlePendingDomainChipBuild(ctx, text, turnIntentEnvelope)) {
       await conversation.remember(user, text).catch(() => {});
       return;
     }
 
-    if (pendingClarification && !buildIntent && deterministicRouteAllowed('spawner.pending_clarification', text)) {
+	    if (pendingClarification && !buildIntent && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.pending_clarification',
+	      text,
+	      toolName: 'spawner.run',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.clarification_reply',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })) {
       await handleClarificationAnswers(ctx, text);
       return;
     }
 
     const defaultBuild = inferDefaultBuildFromRecentScoping(text, recentMessages);
-    if (defaultBuild && deterministicRouteAllowed('spawner.default_build', text)) {
+    if (defaultBuild && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'spawner.default_build',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    })) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(`I will choose the default and start it: ${defaultBuild.projectName}.`);
       await handleBuildIntent(
@@ -6513,7 +7542,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
-    if (missionUpdatePreference && deterministicRouteAllowed('mission_updates.preference', text)) {
+	    if (missionUpdatePreference && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'mission_updates.preference',
+	      text,
+	      toolName: 'mission_updates.preference',
+	      ownerSystem: 'spark-telegram-bot',
+	      mutationClass: 'writes_files',
+	      action: 'mission_updates.preference',
+	      kind: 'runtime_truth_or_operator'
+	    })) {
       await conversation.remember(user, text).catch(() => {});
       const detailLines: string[] = [];
       if (missionUpdatePreference.verbosity) {
@@ -6530,7 +7567,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const localServiceContext = contextualTurns.join('\n');
 
-    if (isProtectedMissionResumePronounIntent(text, contextualTurns)) {
+	    if (isProtectedMissionResumePronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.mission_control',
+	      text,
+	      toolName: 'spawner.mission_control',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.mission_resume',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualPausedMissionResumeBoundary()
@@ -6542,7 +7588,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isProtectedMissionPausePronounIntent(text, contextualTurns)) {
+	    if (isProtectedMissionPausePronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.mission_control',
+	      text,
+	      toolName: 'spawner.mission_control',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.mission_pause',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualActiveMissionPauseBoundary()
@@ -6554,7 +7609,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isProtectedMissionCancelPronounIntent(text, contextualTurns)) {
+	    if (isProtectedMissionCancelPronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'spawner.mission_control',
+	      text,
+	      toolName: 'spawner.mission_control',
+	      ownerSystem: 'spawner-ui',
+	      mutationClass: 'launches_mission',
+	      action: 'spawner.mission_cancel_prepare',
+	      kind: 'build_or_spawner',
+	      confidence: 'contextual'
+	    })) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualMissionCancelBoundary()
@@ -6571,7 +7635,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const naturalChipBrief = parseNaturalChipCreateIntent(text);
-    if (naturalChipBrief && deterministicRouteAllowed('domain_chip.create', text)) {
+    if (naturalChipBrief && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'domain_chip.create',
+      text,
+      toolName: 'domain_chip.create',
+      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+      mutationClass: 'creates_chip'
+    })) {
       await conversation.remember(user, text).catch(() => {});
       const mode = domainChipBuildModeForBrief(naturalChipBrief);
       pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
@@ -6645,7 +7715,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isDiagnosticsScanRequest(text) && deterministicRouteAllowed('diagnostics.scan', text)) {
+	    if (isDiagnosticsScanRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
+	      route: 'diagnostics.scan',
+	      text,
+	      toolName: 'diagnostics.scan',
+	      ownerSystem: 'spark-cli',
+	      mutationClass: 'writes_files',
+	      action: 'diagnostics.scan',
+	      kind: 'diagnostic_or_self_awareness'
+	    })) {
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
       try {
@@ -6674,7 +7752,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isExplicitContextualBuildRequest(text) && deterministicRouteAllowed('spawner.contextual_improvement', text)) {
+    if (isExplicitContextualBuildRequest(text) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'spawner.contextual_improvement',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    })) {
       const improvementGoal = buildContextualImprovementGoal(text, contextualTurns);
       if (improvementGoal) {
         console.log(`[ConversationIntent] inferred contextual improvement mission user=${userRef(ctx.from?.id)} textLen=${text.length}`);
@@ -6689,7 +7773,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isExternalResearchRequest(text) && deterministicRouteAllowed('spawner.external_research', text)) {
+    if (isExternalResearchRequest(text) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'spawner.external_research',
+      text,
+      toolName: 'external.fetch',
+      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+      mutationClass: 'external_network',
+      externalNetwork: true
+    })) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'external_research')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'external_research'));
@@ -6704,7 +7795,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const inferredMission = inferMissionFromRecentContext(text, recentMessages);
-    if (inferredMission && deterministicRouteAllowed('spawner.contextual_mission', text)) {
+    if (inferredMission && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'spawner.contextual_mission',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    })) {
       console.log(`[ConversationIntent] inferred mission from follow-up user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       await conversation.remember(user, text).catch(() => {});
       const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
@@ -6722,6 +7819,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       if (isPendingClarificationAlternativeRequest(text)) {
         pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
+      }
+      if (isNoExecutionBoundary(text)) {
+        const response = buildNoExecutionIdeationReply(text);
+        await ctx.reply(response);
+        await conversation.rememberAssistantReply(user, response).catch(() => {});
+        return;
       }
       await safeSendChatAction(ctx, 'typing');
       if (isShortResolvedListPick(text, conversationFrame)) {
@@ -6750,7 +7853,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     // Single-provider run intent: "minimax, draft...", "ask claude to...", "all models: ..."
     const intent = parseNaturalRunIntent(text);
-    if (intent && deterministicRouteAllowed('natural_run', text)) {
+    if (intent && telegramActionAuthorityAllowed(turnIntentEnvelope, {
+      route: 'natural_run',
+      text,
+      toolName: 'provider.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'external_network',
+      externalNetwork: true
+    })) {
       await handleRunCommand(ctx, intent.goal, intent.providers);
       return;
     }
@@ -6780,19 +7890,29 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       bridgeMode: '',
       routingDecision: ''
     };
-    if (!hasFreshRuntimeTruth) {
+    const bypassBuilderBridge = shouldBypassBuilderBridgeForTurnIntent(
+      turnIntentEnvelope,
+      telegramIntentGateV2,
+      naturalRouteShadow
+    );
+    if (!hasFreshRuntimeTruth && !bypassBuilderBridge) {
       try {
         const bridgeUpdate = memoryDoctorEvidenceTurns.length > 0
           ? buildUpdateWithText(
               ctx.update as unknown as Record<string, unknown>,
-              buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns)
+              buildMemoryDoctorEvidencePrompt(text, memoryDoctorEvidenceTurns),
+              turnIntentEnvelope
             )
-          : ctx.update as unknown as Record<string, unknown>;
-        builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+          : withSparkTurnIntentEnvelope(ctx.update as unknown as Record<string, unknown>, turnIntentEnvelope);
+        builderReply = await builderBridgeRunner(bridgeUpdate);
       } catch (bridgeError) {
         bridgeFailed = true;
         console.warn('[Bridge] local chat fallback after bridge error:', bridgeError);
       }
+    } else if (bypassBuilderBridge) {
+      console.log(
+        `[Bridge] bypassed for no-execution plain chat user=${userRef(ctx.from?.id)} textLen=${text.length}`
+      );
     }
     console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error') {
@@ -6905,7 +8025,7 @@ export async function handleImageMessage(ctx: any): Promise<void> {
           ctx.update as unknown as Record<string, unknown>,
           await conversation.getRecentMessages(user, 6).catch(() => [])
         );
-    const builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+    const builderReply = await builderBridgeRunner(bridgeUpdate);
     console.log(`[ImageBridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText) {
@@ -6944,7 +8064,7 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
   try {
     const bridgeUpdate = await buildVoiceBridgeUpdate(ctx);
     const mediaReadyAt = Date.now();
-    const builderReply = await runBuilderTelegramBridge(bridgeUpdate);
+    const builderReply = await builderBridgeRunner(bridgeUpdate);
     const builderReadyAt = Date.now();
     const voiceTiming = builderReply.voiceTiming && Object.keys(builderReply.voiceTiming).length
       ? ` voiceTiming=${JSON.stringify(builderReply.voiceTiming)}`

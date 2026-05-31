@@ -97,6 +97,24 @@ interface CreatorMissionExecutionInput {
   requestId?: string;
 }
 
+function machineOriginPolicy(input: {
+  origin: string;
+  source: string;
+  reason: string;
+  allowedTools: string[];
+  mutationClassesAllowed: string[];
+}) {
+  return {
+    schema: 'spark.machine_origin_policy.v1',
+    origin: input.origin,
+    source: input.source,
+    reason: input.reason,
+    allowedTools: input.allowedTools,
+    mutationClassesAllowed: input.mutationClassesAllowed,
+    networkPolicy: 'local_only'
+  };
+}
+
 interface CreatorMissionLookupInput {
   missionId?: string;
   requestId?: string;
@@ -1131,7 +1149,18 @@ export const spawner = {
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.privacyMode ? { privacyMode: input.privacyMode } : {}),
           ...(input.riskLevel ? { riskLevel: input.riskLevel } : {}),
-          ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {})
+          ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
+          ...(input.executionPolicy !== 'read_only'
+            ? {
+                executionAuthority: machineOriginPolicy({
+                  origin: 'spark-telegram-bot.creator-mission',
+                  source: 'telegram_creator_mission_bridge',
+                  reason: 'Telegram creator mission bridge requested an executable creator mission.',
+                  allowedTools: ['creator.mission.create'],
+                  mutationClassesAllowed: ['creates_chip']
+                })
+              }
+            : {})
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_TIMEOUT_MS')
       );
@@ -1165,7 +1194,14 @@ export const spawner = {
         `${SPAWNER_UI_URL}/api/creator/mission/execute`,
         {
           ...(input.missionId ? { missionId: input.missionId } : {}),
-          ...(input.requestId ? { requestId: input.requestId } : {})
+          ...(input.requestId ? { requestId: input.requestId } : {}),
+          executionAuthority: machineOriginPolicy({
+            origin: 'spark-telegram-bot.creator-mission-execute',
+            source: 'telegram_creator_mission_execute_bridge',
+            reason: 'Telegram creator mission bridge requested execution of a staged creator mission.',
+            allowedTools: ['spawner.dispatch'],
+            mutationClassesAllowed: ['launches_mission']
+          })
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_EXECUTE_TIMEOUT_MS')
       );

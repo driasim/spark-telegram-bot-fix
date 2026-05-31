@@ -38,6 +38,7 @@ import {
 } from '../src/recursive';
 import {
   buildSpecializationPathAutoloopBridgeArgs,
+  buildSpecializationPathEvidenceBenchmarkArgs,
   buildSpecializationPathPackageBridgeArgs,
   buildSpecializationPathStatusBridgeArgs,
   classifyBuilderAttachmentTargetFromSnapshot,
@@ -74,6 +75,10 @@ test('parses recursive review decisions with rationale', () => {
     action: 'status',
     id: 'startup-yc'
   });
+  assert.deepEqual(parseRecursiveCommand('benchmark spark-qa-operator'), {
+    action: 'benchmark',
+    id: 'spark-qa-operator'
+  });
   assert.deepEqual(parseRecursiveCommand('package startup-yc'), {
     action: 'package',
     id: 'startup-yc'
@@ -98,6 +103,27 @@ test('parses recursive review decisions with rationale', () => {
     id: 'C:\\crypto\\.spark-swarm\\collective-sync.json',
     proposeArgs: ['submit']
   });
+});
+
+test('builds specialization path evidence benchmark args', () => {
+  assert.deepEqual(
+    buildSpecializationPathEvidenceBenchmarkArgs({
+      casesPath: '/repo/benchmarks/evidence/mac_lab_cases.json',
+      evidenceRoot: '/repo/benchmarks/evidence/runs/latest',
+      outputPath: '/repo/.spark-swarm/evidence-benchmark/latest-from-telegram.json'
+    }),
+    [
+      '-m',
+      'specialization_path_spark_qa_operator.cli',
+      'evidence-benchmark',
+      '--cases',
+      '/repo/benchmarks/evidence/mac_lab_cases.json',
+      '--evidence-root',
+      '/repo/benchmarks/evidence/runs/latest',
+      '--output',
+      '/repo/.spark-swarm/evidence-benchmark/latest-from-telegram.json'
+    ]
+  );
 });
 
 test('renders recursive network proposal gates without overclaiming', () => {
@@ -782,6 +808,52 @@ test('renders specialization loop insights from the latest path session', () => 
   assert.match(reply, /Make something people want/);
   assert.match(reply, /One great cofounder is worth ten good employees/);
   assert.match(reply, /held-out\/trap checks/);
+  assert.doesNotMatch(reply, /summary\.json/);
+  assert.doesNotMatch(reply, /C:\\paths/);
+});
+
+test('renders specialization loop report from canonical status when no autoloop session exists', () => {
+  const reply = renderSpecializationLoopInsights({
+    ok: false,
+    pathKey: 'spark-qa-operator',
+    pathLabel: 'Spark QA Operator',
+    error: 'No specialization loop session summary found yet.',
+    status: {
+      ok: true,
+      pathKey: 'spark-qa-operator',
+      pathLabel: 'Spark QA Operator',
+      stage: 'baseline_complete',
+      evidenceState: 'complete',
+      decision: 'held_steady',
+      heldOutStatus: 'passed',
+      trapStatus: 'passed',
+      claimBoundary: 'Standalone benchmark completed, but no candidate comparison has been recorded yet.',
+      nextMove: 'Try a narrower candidate or inspect weak benchmark lanes.',
+      rounds: {
+        completed: 1,
+        requested: 1,
+        kept: 0,
+        reverted: 0
+      },
+      comparison: {
+        scoreMetric: 'overall_score',
+        baselineScore: 1,
+        candidateScore: 1,
+        delta: 0,
+        decision: 'held_steady'
+      },
+      rawArtifactRefs: {
+        summaryPath: 'C:\\paths\\specialization-path-spark-qa-operator\\.spark-swarm\\spark-qa-benchmark\\summary.json'
+      }
+    }
+  });
+
+  assert.match(reply, /⚪ Spark QA Operator held steady\./);
+  assert.match(reply, /State\n• Baseline Complete\n• evidence: Complete\n• rounds: 1\/1/);
+  assert.match(reply, /Score\n• current run 1 → 1/);
+  assert.match(reply, /Proof checks\n• held-out: Passed\n• trap: Passed/);
+  assert.match(reply, /Standalone benchmark completed/);
+  assert.doesNotMatch(reply, /No specialization loop session summary found yet/);
   assert.doesNotMatch(reply, /summary\.json/);
   assert.doesNotMatch(reply, /C:\\paths/);
 });

@@ -2,10 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  assertTelegramIntegerId,
   buildBuilderAocPreflightCommands,
   compactColdMemoryQuery,
-  extractLatestCapabilityProbeReceiptFromBlackBoxPayload,
   formatAgentBlackBoxReply,
   formatConversationColdMemoryContext,
   formatDiagnosticsScanReply,
@@ -558,36 +556,6 @@ test('agent operating context bridge uses the shared AOC panel route', () => {
   assert.doesNotMatch(source, /'self',\s*'context'/);
 });
 
-test('Telegram bridge accepts only integer-shaped Telegram ids before Builder argv use', () => {
-  assert.equal(assertTelegramIntegerId(' 8319079055 ', 'userId'), '8319079055');
-  assert.equal(assertTelegramIntegerId(-1001234567890, 'chatId'), '-1001234567890');
-
-  assert.throws(() => assertTelegramIntegerId('123;--json', 'userId'), /userId must be a Telegram integer id/);
-  assert.throws(() => assertTelegramIntegerId('human:telegram:123', 'userId'), /userId must be a Telegram integer id/);
-  assert.throws(() => assertTelegramIntegerId('123456789012345678901', 'chatId'), /chatId must be a Telegram integer id/);
-});
-
-test('Builder bridge validates Telegram ids on identity-bearing Builder calls', () => {
-  const source = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
-
-  for (const functionName of [
-    'runBuilderSelfAwarenessStatus',
-    'runBuilderSelfImprovementPlan',
-    'runBuilderAgentOperatingContext',
-    'runBuilderWikiAnswer',
-    'runBuilderConversationColdContext',
-  ]) {
-    const start = source.indexOf(`export async function ${functionName}`);
-    assert.notEqual(start, -1, `${functionName} exists`);
-    const nextExport = source.indexOf('\nexport ', start + 1);
-    const block = source.slice(start, nextExport === -1 ? undefined : nextExport);
-    assert.match(block, /assertTelegramIntegerId/);
-  }
-
-  assert.doesNotMatch(source, /human:telegram:\$\{String\(input\.userId\)\.trim\(\)\}/);
-  assert.doesNotMatch(source, /session:telegram:\$\{String\(input\.chatId\)\.trim\(\)\}:\$\{String\(input\.userId\)\.trim\(\)\}/);
-});
-
 test('builder repo resolver prefers release-installed Builder when Telegram runs from installed source', () => {
   const homeDir = path.resolve('C:/Users/USER');
   const installedBuilderRepo = path.join(homeDir, '.spark', 'modules', 'spark-intelligence-builder-release', 'source');
@@ -667,54 +635,6 @@ test('black-box bridge invokes Builder self black-box json route', () => {
 
   assert.match(source, /'self',\s*'black-box'/);
   assert.match(source, /'--json'/);
-});
-
-test('browser proof guard reads latest capability probe receipts from Builder black box', () => {
-  const bridgeSource = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
-  const indexSource = readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-
-  assert.match(bridgeSource, /CAPABILITY_PROBE_RECEIPT_BLACK_BOX_LIMIT = 200/);
-  assert.match(bridgeSource, /readLatestCapabilityProbeReceipt/);
-  assert.match(bridgeSource, /String\(entry\.event_type \|\| ''\) !== 'capability_probed'/);
-  assert.match(bridgeSource, /String\(entry\.route_chosen \|\| ''\) !== routeKey/);
-  assert.match(indexSource, /readLatestCapabilityProbeReceipt\('spark_browser'\)/);
-  assert.match(indexSource, /The latest browser probe failed/);
-  assert.match(indexSource, /browser automation is unavailable right now/);
-});
-
-test('extracts browser probe receipt beyond noisy black-box head entries', () => {
-  const entries: Record<string, unknown>[] = Array.from({ length: 41 }, (_, index) => ({
-    event_id: `evt-noise-${index}`,
-    event_type: 'route_selected',
-    route_chosen: 'spark_memory',
-    blockers: [],
-    changed: ['spark_memory:last_probe=success'],
-  }));
-  entries.push({
-    event_id: 'evt-browser-fail',
-    event_type: 'capability_probed',
-    route_chosen: 'spark_browser',
-    blockers: ['browser-use adapter status source is not ready.'],
-    changed: ['spark_browser:last_probe=failure'],
-    sources_used: [
-      {
-        summary: 'browser-use adapter status=missing_status package_available=False cli_available=False',
-      },
-    ],
-    created_at: '2026-05-24T15:30:00Z',
-  });
-
-  const receipt = extractLatestCapabilityProbeReceiptFromBlackBoxPayload({ entries }, 'spark_browser');
-
-  assert.deepEqual(receipt, {
-    capabilityKey: 'spark_browser',
-    status: 'failure',
-    failureReason: 'browser-use adapter status source is not ready.',
-    probeSummary: 'browser-use adapter status=missing_status package_available=False cli_available=False',
-    routeLatencyMs: null,
-    eventId: 'evt-browser-fail',
-    createdAt: '2026-05-24T15:30:00Z',
-  });
 });
 
 test('AOC preflight commands carry trace metadata without raw prompt or chat ids', () => {

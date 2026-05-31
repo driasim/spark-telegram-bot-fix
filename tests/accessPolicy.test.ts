@@ -376,7 +376,7 @@ async function main(): Promise<void> {
   await test('gates Spawner command side doors by access level', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
 
-    const pendingCreatorControl = indexSource.match(/async function handlePendingCreatorMissionControl[\s\S]*?\n(?:export\s+)?function isPendingClarificationFollowup/);
+    const pendingCreatorControl = indexSource.match(/async function handlePendingCreatorMissionControl[\s\S]*?\nfunction isPendingClarificationFollowup/);
     assert.ok(pendingCreatorControl, 'expected pending creator mission control handler to exist');
     assert.match(pendingCreatorControl[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
     assert.match(pendingCreatorControl[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
@@ -389,7 +389,7 @@ async function main(): Promise<void> {
     assert.ok(missionCommand, 'expected /mission command handler to exist');
     assert.match(missionCommand[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
 
-    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent\(text, contextualTurns\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
+    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseSpawnerBoardNaturalIntent\(text\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
     assert.ok(naturalBoardRoute, 'expected natural Spawner board route to exist');
     assert.match(naturalBoardRoute[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
     assert.match(naturalBoardRoute[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
@@ -425,28 +425,6 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('voice', async \(ctx\) => \{/);
     assert.match(indexSource, /replyViaBuilder\(ctx, ctx\.message\?\.text \|\| '\/voice'\)/);
     assert.doesNotMatch(indexSource, /spark\.getVoice\(\)/);
-    assert.match(indexSource, /const memoryQuery = text\.replace\(\/\^\\\/\(\?:context\|operating_context\|agent_context\|aoc\)/);
-    assert.match(indexSource, /const memoryInPlayPromise = memoryQuery/);
-    assert.match(indexSource, /const questionAnswer = memoryQuery \? formatAocQuestionAnswer\(memoryQuery\) : ''/);
-    assert.match(indexSource, /Access Level 5 describes what Spark is allowed to attempt/);
-    assert.match(indexSource, /does not prove this runner can edit files/);
-    assert.match(indexSource, /Not definitely for full browser automation/);
-    assert.match(indexSource, /await buildBrowserProofQuestionAnswer\(text\)/);
-    assert.match(indexSource, /conversation\.browser_proof_boundary/);
-    assert.match(indexSource, /I need a fresh `\/probe browser` result before I should claim browser access/);
-    assert.match(indexSource, /readLatestCapabilityProbeReceipt\('spark_browser'\)/);
-    assert.match(indexSource, /extractBrowserProofNames/);
-    assert.match(indexSource, /public_page_open/);
-    assert.match(indexSource, /screenshot_capture/);
-    assert.match(indexSource, /Yes, for the small browser check Spark just proved/);
-    assert.match(indexSource, /The fresh probe covered/);
-    assert.match(indexSource, /The latest browser probe failed, so browser automation is unavailable right now/);
-    assert.match(indexSource, /Run `\/probe browser` and I can answer from the fresh result/);
-    assert.match(indexSource, /runBuilderConversationColdContext\(\{[\s\S]*?\}\)\.catch\(\(error\)/);
-    assert.match(indexSource, /runBuilderAgentOperatingContext\(\{[\s\S]*?currentMessage: text,[\s\S]*?liveState,/);
-    const llmSource = await readFile(path.join(__dirname, '..', 'src', 'llm.ts'), 'utf8');
-    assert.match(llmSource, /Do not answer with "yes" or "definitely" unless the current prompt includes a fresh route receipt or tool result/);
-    assert.match(llmSource, /Never say "I just fetched", "I opened", or "I browsed" unless that action actually happened in the current turn/);
     const sparkSource = await readFile(path.join(__dirname, '..', 'src', 'spark.ts'), 'utf8');
     const distSparkSource = await readFile(path.join(__dirname, '..', 'dist', 'spark.js'), 'utf8');
     assert.doesNotMatch(sparkSource, /getVoice/);

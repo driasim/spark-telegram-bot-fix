@@ -117,8 +117,25 @@ function hasRecentContext(context: NaturalRouteDecisionContext): boolean {
   return Boolean(context.recentMessages?.some((message) => message.trim()));
 }
 
+function isAccessCapabilityRepairFollowup(text: string, recentMessages: string[]): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const recentAccessContext = recentMessages
+    .slice(-8)
+    .join('\n')
+    .toLowerCase();
+  if (!/\b(?:read[-\s]*only|runner|writab|access|capability|edit)\b/.test(recentAccessContext)) return false;
+  return (
+    /\b(?:beyond|past|out of|fix|repair|enable|make it|make this)\b.{0,60}\bread[-\s]*only\b/.test(normalized) ||
+    /^(?:did you|did it|is it fixed|is this fixed|done|fixed)\??$/.test(normalized)
+  );
+}
+
 function recursiveRouteName(rawCommand: string): string {
   const verb = rawCommand.trim().split(/\s+/)[0] || 'command';
+  if (['compare', 'evidence', 'benchmark', 'status'].includes(verb.toLowerCase())) {
+    return 'recursive.status';
+  }
   return `recursive.${verb}`;
 }
 
@@ -369,6 +386,20 @@ export function decideNaturalRoute(
       payload: { level: contextualAccessLevel },
       context_source: 'hot_recent_turns',
       matched_signals: ['recent_access_focus', 'contextual_access_change'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  if (isAccessCapabilityRepairFollowup(normalized, recentMessages)) {
+    return decision({
+      route: 'access.status',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'contextual',
+      action: 'access.status',
+      payload: { reason: 'access_capability_repair' },
+      context_source: 'hot_recent_turns',
+      matched_signals: ['recent_access_repair_context'],
       blocked_by: [],
       requires_confirmation: false
     });

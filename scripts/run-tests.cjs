@@ -48,6 +48,7 @@ const tests = [
   'tests/diagnose.test.ts',
   'tests/recursive.test.ts',
   'tests/recursiveCommand.test.ts',
+  'tests/sparkQaOperator.test.ts',
   'tests/creatorMissionStatus.test.ts',
   'tests/launchConversationQuality.test.ts',
   'tests/builderBridge.test.ts',
@@ -59,6 +60,11 @@ const tests = [
 
 const requireRealToken = process.argv.includes('--require-real-token');
 const token = process.env.BOT_TOKEN || '';
+const runIndex = process.argv.indexOf('--run');
+const requestedTests = runIndex >= 0
+  ? process.argv.slice(runIndex + 1).filter((arg) => arg && !arg.startsWith('--'))
+  : [];
+const testsToRun = requestedTests.length > 0 ? requestedTests : tests;
 
 if (requireRealToken && (!token || token === '123:test' || token === '0:telegram-smoke-token')) {
   console.error('BOT_TOKEN must be set to a real tester bot token for this test mode.');
@@ -72,7 +78,7 @@ const env = {
 
 const tsNodeBin = path.join(__dirname, '..', 'node_modules', 'ts-node', 'dist', 'bin.js');
 
-for (const testFile of tests) {
+for (const testFile of testsToRun) {
   const result = spawnSync(process.execPath, [tsNodeBin, testFile], {
     env,
     stdio: 'inherit'

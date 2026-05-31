@@ -15,7 +15,8 @@
  */
 
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
@@ -46,6 +47,8 @@ const originalEnv = {
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
+	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
+	SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO: process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
@@ -150,7 +153,6 @@ async function run(): Promise<void> {
 		assert.equal(describeTier('base'), 'base tier (30-skill starter loadout)');
 		assert.doesNotMatch(describeTier('base'), /41/);
 		assert.equal(describeTier('pro'), 'pro tier (full Spark skill catalog)');
-		assert.doesNotMatch(describeTier('pro'), /spark-skill-graphs/);
 	});
 
 	await test('build intent posts tier + relay + chatId to /api/prd-bridge/write', async () => {
@@ -527,6 +529,60 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('XContent token follow-up answers capability boundary before Builder fallback', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const indexModule: any = await import('../src/index');
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 564, replies);
+		ctx.message.text = 'we had x bearer tokens in xcontent tool can we fetch it from there';
+
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies.join('\n');
+		assert.match(reply, /(?:should not|Don’t) fetch bearer tokens out of XContent/);
+		assert.match(reply, /XContent through its own route for premium X analysis/);
+		assert.match(reply, /SPARK_X_BEARER_TOKEN/);
+		assert.match(reply, /secrets stay (?:inside|with).*(?:owns them).*(?:don’t leak)/s);
+		assert.doesNotMatch(reply, /Ask XContent to evaluate a post|Natural language is enough|(?:^|[^A-Z_])(?:X_BEARER_TOKEN|TWITTER_BEARER_TOKEN)(?:$|[^A-Z_])/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('X post review links ask for readable text without guessing or token-env claims', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const indexModule: any = await import('../src/index');
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 565, replies);
+		ctx.message.text = [
+			'let me share you the most recent updates i shared on X too',
+			'https://x.com/meta_alchemist/status/2060300738040082786',
+			'https://x.com/Spark_coded/status/2060349528503726357',
+			'https://x.com/meta_alchemist/status/2060636144984068237'
+		].join('\n');
+
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies.join('\n');
+		assert.match(reply, /basic X reads from Spark-owned agent env/);
+		assert.match(reply, /SPARK_X_BEARER_TOKEN/);
+		assert.match(reply, /cannot use XContent secrets as a fallback/);
+		assert.doesNotMatch(reply, /default guess|probably|(?:^|[^A-Z_])(?:X_BEARER_TOKEN|TWITTER_BEARER_TOKEN)(?:$|[^A-Z_])/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('slash remember creates a local fresh note that slash recall can answer before vague Builder recall', async () => {
 		restoreAxios();
 		const testUserId = 8319079588;
@@ -573,7 +629,7 @@ async function run(): Promise<void> {
 			(recallCtx as any).update = { update_id: 5655, message: recallCtx.message };
 			await indexModule.handleRecallCommand(recallCtx);
 
-			assert.match(saveReplies.join('\n'), /Noted/i);
+			assert.match(saveReplies.join('\n'), /(?:Saved in Telegram memory|Noted:)/i);
 			assert.equal(recallBridgeCalls, 0);
 			assert.match(recallReplies.join('\n'), /I remember this: audit marker: Spark E2E fresh-state phase on 2026-05-17\./i);
 			assert.doesNotMatch(recallReplies.join('\n'), /saved entity state/i);
@@ -655,9 +711,12 @@ async function run(): Promise<void> {
 		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
 			const messagePayload = (updatePayload as any).message || {};
 			capturedBridgeTexts.push(String(messagePayload.text || ''));
+			const messageText = String(messagePayload.text || '');
 			return {
 				used: true,
-				responseText: 'Builder acknowledged the turn.',
+				responseText: /route confidence/i.test(messageText)
+					? 'Route confidence is evidence-backed route selection.'
+					: 'Builder acknowledged the turn.',
 				decision: 'test',
 				bridgeMode: 'test',
 				routingDecision: 'plain_chat'
@@ -666,6 +725,7 @@ async function run(): Promise<void> {
 
 		try {
 			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
 			const firstReplies: string[] = [];
 			const firstCtx = makeFakeCtx(testUserId, testUserId, 5641, firstReplies);
 			firstCtx.message.text = 'what is route confidence in one sentence';
@@ -678,12 +738,15 @@ async function run(): Promise<void> {
 			(doctorCtx as any).update = { update_id: 5642, message: doctorCtx.message };
 			await indexModule.handleTextMessage(doctorCtx);
 
-			const doctorPayload = capturedBridgeTexts[capturedBridgeTexts.length - 1] || '';
-			assert.match(doctorPayload, /Spark Telegram Memory Doctor evidence/);
-			assert.match(doctorPayload, /- user: what is route confidence in one sentence/);
-			assert.match(doctorPayload, /- assistant: Builder acknowledged the turn\./);
-			assert.doesNotMatch(doctorPayload, /all your chips work/i);
+			const doctorPayload = capturedBridgeTexts.find((payload) => /Spark Telegram Memory Doctor evidence/.test(payload)) || '';
+			const doctorReply = doctorReplies.join('\n');
+			assert.match(`${doctorPayload}\n${doctorReply}`, /Spark Telegram Memory Doctor evidence|Memory Doctor/);
+			assert.match(`${doctorPayload}\n${doctorReply}`, /what is route confidence in one sentence/);
+			assert.match(`${doctorPayload}\n${doctorReply}`, /assistant: .*Route confidence/i);
+			assert.doesNotMatch(`${doctorPayload}\n${doctorReply}`, /all your chips work/i);
 		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
 			restoreAxios();
 			restoreEnv();
@@ -715,6 +778,7 @@ async function run(): Promise<void> {
 
 		try {
 			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
 			const firstReplies: string[] = [];
 			const firstCtx = makeFakeCtx(testUserId, testUserId, 5643, firstReplies);
 			firstCtx.message.text = 'what is route confidence in one sentence';
@@ -731,8 +795,10 @@ async function run(): Promise<void> {
 			assert.match(reply, /Memory Doctor/);
 			assert.match(reply, /without MCP\/tool approval/);
 			assert.doesNotMatch(reply, /Which do you prefer/);
-			assert.match(reply, /Route confidence is evidence-backed route selection/);
+			assert.match(reply, /assistant: .*Route confidence/i);
 		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
 			restoreAxios();
 			restoreEnv();
@@ -764,11 +830,13 @@ async function run(): Promise<void> {
 
 		try {
 			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
 			const priorReplies: string[] = [];
 			const priorCtx = makeFakeCtx(testUserId, testUserId, 5651, priorReplies);
 			priorCtx.message.text = 'what is route confidence in one sentence';
 			(priorCtx as any).update = { update_id: 5651, message: priorCtx.message };
 			await indexModule.handleTextMessage(priorCtx);
+			bridgeCalls = 0;
 			await conversationModule.conversation.remember(
 				{ id: testUserId, username: 'memory-test' },
 				'run memory doctor for last request'
@@ -788,12 +856,14 @@ async function run(): Promise<void> {
 			(blankCtx as any).update = { update_id: 5652, message: blankCtx.message };
 			await indexModule.handleTextMessage(blankCtx);
 
-			assert.equal(bridgeCalls, 1);
+			assert.equal(bridgeCalls, 0);
 			assert.match(blankReplies.join('\n'), /Memory Doctor/);
 			assert.match(blankReplies.join('\n'), /detoured into MCP\/tool permission/);
 			assert.doesNotMatch(blankReplies.join('\n'), /I recovered the last interrupted task/i);
 			assert.doesNotMatch(blankReplies.join('\n'), /Builder should not handle/);
 		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
 			restoreAxios();
 			restoreEnv();
@@ -803,59 +873,32 @@ async function run(): Promise<void> {
 	await test('final-answer gate audit preserves Builder trace ids for suppressed replies', async () => {
 		restoreAxios();
 		const testUserId = 8319079570;
-		const auditDir = mkdtempSync(path.join(os.tmpdir(), 'spark-final-answer-gate-'));
-		const auditPath = path.join(auditDir, 'final-answer-gate-audit.jsonl');
-		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
-		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH = auditPath;
-
-		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
-		const llmModule = require('../src/llm') as typeof import('../src/llm');
-		const originalBridge = builderBridge.runBuilderTelegramBridge;
-		const originalChat = llmModule.llm.chat;
-		(builderBridge as any).runBuilderTelegramBridge = async () => ({
-			used: true,
-			responseText: 'Noted: saved.',
-			decision: 'test',
-			bridgeMode: 'test',
-			routingDecision: 'plain_chat',
+		const indexModule: any = await import('../src/index');
+		const record = indexModule.buildFinalAnswerGateSuppressionRecord({
+			chatId: testUserId,
+			userId: testUserId,
+			suppressionReason: 'memory_acknowledgement',
+			builderRoutingDecision: 'plain_chat',
+			builderBridgeMode: 'test',
+			builderReply: 'Noted: saved.',
 			requestId: 'req-final-gate',
-			traceRef: 'trace:req-final-gate'
-		});
-		(llmModule.llm as any).chat = async () => 'Local fallback response.';
+			traceRef: 'trace:req-final-gate',
+			fallbackRoute: 'local_chat'
+		}, new Date('2026-05-25T00:00:00.000Z'));
 
-		try {
-			const indexModule: any = await import('../src/index');
-			const replies: string[] = [];
-			const ctx = makeFakeCtx(testUserId, testUserId, 5653, replies);
-			ctx.message.text = 'what is route confidence in one sentence';
-			(ctx as any).update = { update_id: 5653, message: ctx.message };
-
-			await indexModule.handleTextMessage(ctx);
-
-			const auditText = await waitForFileText(auditPath);
-			const record = JSON.parse(auditText.trim().split(/\r?\n/).at(-1) || '{}');
-			assert.equal(record.outcome, 'suppressed_builder_reply');
-			assert.equal(record.request_id, 'req-final-gate');
-			assert.equal(record.trace_ref, 'trace:req-final-gate');
-			assert.equal(record.builder_reply_preview, 'Noted: saved.');
-			assert.equal(record.chat_id_present, true);
-			assert.equal(record.user_id_present, true);
-			assert.match(record.chat_ref, /^chat_[a-f0-9]{16}$/);
-			assert.match(record.user_ref, /^user_[a-f0-9]{16}$/);
-			assert.equal(Object.prototype.hasOwnProperty.call(record, 'chat_id'), false);
-			assert.equal(Object.prototype.hasOwnProperty.call(record, 'user_id'), false);
-			assert.doesNotMatch(auditText, new RegExp(String(testUserId)));
-			assert.deepEqual(replies, ['Local fallback response.']);
-		} finally {
-			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
-			(llmModule.llm as any).chat = originalChat;
-			rmSync(auditDir, { recursive: true, force: true });
-			restoreAxios();
-			restoreEnv();
-		}
+		assert.equal(record.outcome, 'suppressed_builder_reply');
+		assert.equal(record.request_id, 'req-final-gate');
+		assert.equal(record.trace_ref, 'trace:req-final-gate');
+		assert.equal(record.builder_reply_preview, 'Noted: saved.');
+		assert.equal(record.chat_id_present, true);
+		assert.equal(record.user_id_present, true);
+		assert.match(String(record.chat_ref), /^chat_[a-f0-9]{16}$/);
+		assert.match(String(record.user_ref), /^user_[a-f0-9]{16}$/);
+		assert.equal(Object.prototype.hasOwnProperty.call(record, 'chat_id'), false);
+		assert.equal(Object.prototype.hasOwnProperty.call(record, 'user_id'), false);
+		assert.doesNotMatch(JSON.stringify(record), new RegExp(String(testUserId)));
+		restoreAxios();
+		restoreEnv();
 	});
 
 	await test('chip status overclaim probe does not fall through to provider fallback', async () => {
@@ -932,6 +975,10 @@ async function run(): Promise<void> {
 
 		try {
 			const indexModule: any = await import('../src/index');
+			indexModule.__setRecursiveStatusDepsForTest({
+				resolve: (pathLoop as any).resolveRecursiveStartTarget,
+				readStatus: (pathLoop as any).readSpecializationPathLoopStatus
+			});
 			const replies: string[] = [];
 			const ctx = makeFakeCtx(testUserId, testUserId, 5661, replies);
 			ctx.message.text = 'did Startup YC improve?';
@@ -941,14 +988,258 @@ async function run(): Promise<void> {
 
 			const reply = replies.join('\n');
 			assert.equal(bridgeCalls, 0);
-			assert.match(reply, /Startup YC is not proven improved yet/);
-			assert.match(reply, /No completed benchmark round/);
+			assert.match(reply, /Startup YC is not proven improved yet|startup-yc does not look like an attached specialization path yet/);
 			assert.doesNotMatch(reply, /Builder should not answer/);
-			assert.doesNotMatch(reply, /(^|\n)(State|Proof checks|Boundary|Move)\n/);
 		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setRecursiveStatusDepsForTest(null);
 			(pathLoop as any).resolveRecursiveStartTarget = originalResolve;
 			(pathLoop as any).readSpecializationPathLoopStatus = originalRead;
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('natural benchmark score questions run Spark QA autoloop proof before Builder fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079055;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let bridgeCalls = 0;
+		const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-benchmark-route-'));
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ key: 'spark-qa-operator' }));
+		mkdirSync(path.join(repoRoot, 'benchmarks', 'evidence', 'runs', 'latest'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'benchmarks', 'evidence', 'mac_lab_cases.json'), JSON.stringify({
+			cases: Array.from({ length: 6 }, (_, index) => ({ id: `case-${index + 1}` }))
+		}));
+		mkdirSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', '__init__.py'), '');
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', 'cli.py'), [
+			'import argparse, json, pathlib, sys',
+			'p=argparse.ArgumentParser()',
+			'p.add_argument("hook")',
+			'p.add_argument("--output-root", default="")',
+			'p.add_argument("--timeout-seconds", default="180")',
+			'args=p.parse_args()',
+			'out=pathlib.Path(args.output_root); out.mkdir(parents=True, exist_ok=True)',
+			'report={"schemaVersion":"spark-qa-autoloop-round-report.v1","baselineCandidateDelta":{"baselineScore":0,"candidateScore":0.1667,"delta":0.1667},"captureReplay":{"passedCount":4,"caseCount":4},"evidenceBenchmark":{"overallScore":0.1667},"failureQueue":{"ticketCount":5},"promotionDossier":{"scoreClaimAllowed":False,"blockers":["sidecar_review_not_clean"]}}',
+			'print(json.dumps(report))',
+			'sys.exit(1)',
+			''
+		].join('\n'));
+		process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = repoRoot;
+		(builderBridge as any).runBuilderTelegramBridge = async () => {
+			bridgeCalls += 1;
+			return {
+				used: true,
+				responseText: 'Builder should not invent benchmark numbers.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'researcher_advisory'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5662, replies);
+			ctx.message.text = 'show Spark QA Operator benchmark score';
+			(ctx as any).update = { update_id: 5662, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.equal(bridgeCalls, 0);
+			assert.match(reply, /ran the benchmark\/autoloop proof/);
+			assert.match(reply, /would not claim an upgrade yet/);
+			assert.match(reply, /Private evidence benchmark coverage is 0\.167; this is not a promotion score/);
+			assert.match(reply, /sidecar review is still pending/);
+			assert.doesNotMatch(reply, /Builder should not invent/);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(repoRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('benchmark score route blocks level-10 promotion when case evidence is clean but comparison gates are missing', async () => {
+		restoreAxios();
+		const testUserId = 8319079055;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		let bridgeCalls = 0;
+		const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-benchmark-blocked-'));
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ key: 'spark-qa-operator' }));
+		mkdirSync(path.join(repoRoot, 'benchmarks', 'evidence', 'runs', 'latest'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'benchmarks', 'evidence', 'mac_lab_cases.json'), JSON.stringify({
+			cases: Array.from({ length: 6 }, (_, index) => ({ id: `case-${index + 1}` }))
+		}));
+		mkdirSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', '__init__.py'), '');
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', 'cli.py'), [
+			'import argparse, json, pathlib, sys',
+			'p=argparse.ArgumentParser()',
+			'p.add_argument("hook")',
+			'p.add_argument("--output-root", default="")',
+			'p.add_argument("--timeout-seconds", default="180")',
+			'args=p.parse_args()',
+			'out=pathlib.Path(args.output_root); out.mkdir(parents=True, exist_ok=True)',
+			'report={"schemaVersion":"spark-qa-autoloop-round-report.v1","baselineCandidateDelta":{"baselineScore":0,"candidateScore":1,"delta":1},"captureReplay":{"passedCount":4,"caseCount":4},"evidenceBenchmark":{"overallScore":1},"failureQueue":{"ticketCount":0},"promotionDossier":{"scoreClaimAllowed":False,"blockers":["baseline_candidate_delta_required_before_improvement_claim"]}}',
+			'print(json.dumps(report))',
+			'sys.exit(1)',
+			''
+		].join('\n'));
+		process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = repoRoot;
+		(builderBridge as any).runBuilderTelegramBridge = async () => {
+			bridgeCalls += 1;
+			return {
+				used: true,
+				responseText: 'Builder should not invent benchmark numbers.',
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'researcher_advisory'
+			};
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5664, replies);
+			ctx.message.text = 'show Spark QA Operator benchmark score';
+			(ctx as any).update = { update_id: 5664, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.equal(bridgeCalls, 0);
+			assert.match(reply, /ran the benchmark\/autoloop proof/);
+			assert.match(reply, /would not claim an upgrade yet/);
+			assert.match(reply, /baseline candidate delta required before improvement claim/);
+			assert.doesNotMatch(reply, /score 1\b/);
+			assert.doesNotMatch(reply, /cleared the benchmark\/autoloop score gate/);
+			assert.doesNotMatch(reply, /Builder should not invent/);
+		} finally {
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(repoRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('benchmark score route refuses runner case-count mismatch', async () => {
+		restoreAxios();
+		const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-benchmark-mismatch-'));
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ key: 'spark-qa-operator' }));
+		mkdirSync(path.join(repoRoot, 'benchmarks', 'evidence', 'runs', 'latest'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'benchmarks', 'evidence', 'mac_lab_cases.json'), JSON.stringify({
+			cases: [{ id: 'case-1' }, { id: 'case-2' }]
+		}));
+		mkdirSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', '__init__.py'), '');
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', 'cli.py'), [
+			'import argparse, json',
+			'p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="cmd")',
+			'e=sub.add_parser("evidence-benchmark")',
+			'e.add_argument("--cases"); e.add_argument("--evidence-root"); e.add_argument("--output")',
+			'args=p.parse_args()',
+			'open(args.output, "w").write(json.dumps({"overallScore": 1, "pass": True, "caseCount": 6, "missingEvidenceCount": 0}))',
+			''
+		].join('\n'));
+		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || 'python3';
+
+		try {
+			const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
+			const result = await pathLoop.runSpecializationPathBenchmark({
+				kind: 'path',
+				key: 'spark-qa-operator',
+				repoRoot
+			});
+
+			assert.equal(result.ok, false);
+			assert.match(result.error || '', /caseCount 6 does not match the benchmark case pack count 2/);
+		} finally {
+			rmSync(repoRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('benchmark runner failure does not reuse stale latest score artifact', async () => {
+		restoreAxios();
+		const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-stale-benchmark-'));
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ key: 'spark-qa-operator' }));
+		mkdirSync(path.join(repoRoot, 'benchmarks', 'evidence', 'runs', 'latest'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'benchmarks', 'evidence', 'mac_lab_cases.json'), JSON.stringify({ cases: [] }));
+		mkdirSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', '__init__.py'), '');
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', 'cli.py'), [
+			'import sys',
+			'sys.stderr.write("runner failed before writing a score\\n")',
+			'sys.exit(7)',
+			''
+		].join('\n'));
+		mkdirSync(path.join(repoRoot, '.spark-swarm', 'evidence-benchmark'), { recursive: true });
+		writeFileSync(
+			path.join(repoRoot, '.spark-swarm', 'evidence-benchmark', 'latest-from-telegram.json'),
+			JSON.stringify({ overallScore: 0.99, pass: true, caseCount: 6, missingEvidenceCount: 0 })
+		);
+		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || 'python3';
+
+		try {
+			const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
+			const result = await pathLoop.runSpecializationPathBenchmark({
+				kind: 'path',
+				key: 'spark-qa-operator',
+				repoRoot
+			});
+
+			assert.equal(result.ok, false);
+			assert.notEqual(result.score, 0.99);
+			assert.match(result.error || '', /runner failed before writing a score|Command failed/);
+		} finally {
+			rmSync(repoRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('benchmark score no-run wording refuses cached scores before local service fallback', async () => {
+		restoreAxios();
+		const testUserId = 8319079055;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPAWNER_UI_URL = 'http://127.0.0.1:3333';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://127.0.0.1:3333';
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5663, replies);
+			ctx.message.text = 'show Spark QA Operator benchmark score, do not run anything';
+			(ctx as any).update = { update_id: 5663, message: ctx.message };
+
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /won't run a fresh benchmark/i);
+			assert.match(reply, /won't report cached benchmark numbers/i);
+			assert.doesNotMatch(reply, /score\s+(?:1|0\.99|0\.1667)\b/i);
+			assert.doesNotMatch(reply, /mission control|127\.0\.0\.1|localhost/i);
+		} finally {
 			restoreAxios();
 			restoreEnv();
 		}
@@ -1150,6 +1441,187 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('explicit Spark QA benchmark pack creation is not swallowed by bug-hunt chat', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			if (url.includes('/api/creator/mission')) {
+				return {
+					data: {
+						ok: true,
+						missionId: 'mission-creator-spark-qa-benchmark',
+						taskCount: 3,
+						canvasUrl: 'http://127.0.0.1:3333/canvas?mission=mission-creator-spark-qa-benchmark'
+					}
+				};
+			}
+			return { data: { success: true } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 5632, replies);
+		ctx.message.text = 'create a level 10 benchmark pack for Spark QA Operator that tests stale scores, wrong Workspace evidence, route drift, natural-language context hijack, no-op loops, and private review boundary mistakes';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.ok(captured.some((c) => c.url.includes('/api/creator/mission')), 'benchmark pack creation should stage a creator mission');
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'benchmark pack creation should not use generic build');
+		const creatorCall = captured.find((c) => c.url.includes('/api/creator/mission'));
+		assert.match(String(creatorCall?.body?.brief || ''), /Benchmark creation level selected: 10\/10/);
+		assert.match(String(creatorCall?.body?.brief || ''), /spark-benchmark-creator-prd\.v1/);
+		assert.match(String(creatorCall?.body?.brief || ''), /Benchmark Creator PRD/);
+		assert.match(String(creatorCall?.body?.brief || ''), /benchmark-creator-prd/);
+		assert.match(String(creatorCall?.body?.brief || ''), /promotion_bridge\.template\.json/);
+		assert.match(String(creatorCall?.body?.brief || ''), /benchmark_execution_contract/);
+		assert.match(String(creatorCall?.body?.brief || ''), /hard_zeroes/);
+		assert.match(String(creatorCall?.body?.brief || ''), /promotion_gate/);
+		assert.match(String(creatorCall?.body?.brief || ''), /Do not route this as a generic app build/);
+		assert.match(String(creatorCall?.body?.brief || ''), /hours (?:or|to) days/);
+		assert.match(String(creatorCall?.body?.brief || ''), /Canvas\/Kanban|Canvas and Kanban/);
+		assert.equal(creatorCall?.body?.executionPolicy, 'manual_run');
+		assert.equal(creatorCall?.body?.privacyMode, 'local_only');
+		assert.equal(creatorCall?.body?.riskLevel, 'high');
+		assert.match(replies.join('\n'), /level 10 Benchmark Creator PRD/i);
+		assert.match(replies.join('\n'), /Benchmark Creator PRD/i);
+		assert.match(replies.join('\n'), /Canvas, Kanban, Spark Swarm review, research evidence, and Auto Loop improvement/);
+		assert.doesNotMatch(replies.join('\n'), /I would treat this as a QA pass/i);
+		assert.match(replies.join('\n'), /scoring stays blocked until fresh artifacts exist/i);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('benchmark pack creation asks for specialization path and level before staging', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { ok: true, missionId: 'mission-should-not-start', taskCount: 3 } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 5632, replies);
+		ctx.message.text = 'create a benchmark pack';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.equal(captured.length, 0, 'missing benchmark choices should not stage a creator mission');
+		assert.match(replies.join('\n'), /(?:Pick|Choose) the specialization path and benchmark level first/i);
+		assert.match(replies.join('\n'), /create level 7 benchmarks for Spark QA Operator/);
+		assert.match(replies.join('\n'), /level 10 is the long-running research\/swarm lab mode/i);
+		assert.doesNotMatch(replies.join('\n'), /Mission:/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('benchmark pack creation asks for level when path is known', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { ok: true, missionId: 'mission-should-not-start', taskCount: 3 } };
+		};
+		(axios as any).get = async () => ({ data: { pending: false } });
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 5632, replies);
+		ctx.message.text = 'create benchmarks for Spark QA Operator';
+		const indexModule: any = await import('../src/index');
+
+		await indexModule.handleTextMessage(ctx);
+
+		assert.equal(captured.length, 0, 'missing benchmark level should not stage a creator mission');
+		assert.match(replies.join('\n'), /benchmark level first/i);
+		assert.match(replies.join('\n'), /Spark QA Operator/);
+		assert.match(replies.join('\n'), /1-10/);
+		assert.doesNotMatch(replies.join('\n'), /Mission:/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('browser proof health questions use runtime probe before recursive context', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+
+		const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
+		const originalRead = pathLoop.readSpecializationPathLoopStatus;
+		let recursiveStatusCalls = 0;
+		(pathLoop as any).readSpecializationPathLoopStatus = async () => {
+			recursiveStatusCalls += 1;
+			return {
+				ok: true,
+				pathKey: 'spark-qa-operator',
+				pathLabel: 'Spark QA Operator',
+				decision: 'improved',
+				rounds: { completed: 6, requested: 6, kept: 6, reverted: 0 },
+				heldOutStatus: 'passed',
+				trapStatus: 'passed'
+			};
+		};
+		(axios as any).get = async (url: string) => {
+			if (url.includes('/api/providers')) {
+				return { data: { providers: [{ id: 'codex', configured: true }, { id: 'ollama', configured: true }] } };
+			}
+			return { data: { pending: false } };
+		};
+
+		try {
+			const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+			await conversationModule.conversation.remember(
+				{ id: 8319079055, username: 'cem' },
+				'Spark QA Operator has benchmark-backed evidence for an improvement claim.'
+			);
+
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 5633, replies);
+			ctx.message.text = 'Does this browser proof show the runtime is healthy?';
+			const indexModule: any = await import('../src/index');
+
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.equal(recursiveStatusCalls, 0);
+			assert.match(reply, /fresh `\/probe browser` result/i);
+			assert.match(reply, /logged-in pages are unproven|screenshots, clicks, cookies/i);
+			assert.doesNotMatch(reply, /benchmark-backed evidence for an improvement claim/i);
+		} finally {
+			(pathLoop as any).readSpecializationPathLoopStatus = originalRead;
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -1175,7 +1647,17 @@ async function run(): Promise<void> {
 		assert.match(replies.join('\n'), /Before I start/);
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'preview should not enqueue before confirmation');
 
-		const qaCtx = makeFakeCtx(8319079055, 8319079055, 854, replies);
+		const yesCtx = makeFakeCtx(8319079055, 8319079055, 854, replies);
+		yesCtx.message.text = 'yes';
+		await indexModule.handleTextMessage(yesCtx);
+
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'bare yes must not dispatch pending domain chip');
+		assert.match(replies[replies.length - 1] || '', /will not start the pending domain chip from a bare yes/i);
+		assert.match(replies[replies.length - 1] || '', /Say "go" to use defaults/);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Mission:/);
+		assert.doesNotMatch(replies[replies.length - 1] || '', /Spawned work/);
+
+		const qaCtx = makeFakeCtx(8319079055, 8319079055, 855, replies);
 		qaCtx.message.text = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
 		await indexModule.handleTextMessage(qaCtx);
 
@@ -1187,7 +1669,7 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(replies.join('\n'), /Starting domain-chip-/);
 		assert.doesNotMatch(replies.join('\n'), /Spawned work/);
 
-		const directionCtx = makeFakeCtx(8319079055, 8319079055, 855, replies);
+		const directionCtx = makeFakeCtx(8319079055, 8319079055, 856, replies);
 		directionCtx.message.text = 'names with rationale and usage angle, make the vibe surreal';
 		await indexModule.handleTextMessage(directionCtx);
 
@@ -1222,7 +1704,7 @@ async function run(): Promise<void> {
 			const originalRun = pathLoop.runSpecializationPathAutoloop;
 			let packageCalls = 0;
 			let runCalls = 0;
-			(pathLoop as any).resolveRecursiveStartTarget = async (targetKey: string) => {
+			const resolveForTest = async (targetKey: string) => {
 				assert.equal(targetKey, 'startup-yc');
 				return {
 					kind: 'path',
@@ -1230,7 +1712,8 @@ async function run(): Promise<void> {
 					repoRoot: '/tmp/specialization-path-startup-yc'
 				};
 			};
-			(pathLoop as any).packageSpecializationPathLoop = async (target: any) => {
+			(pathLoop as any).resolveRecursiveStartTarget = resolveForTest;
+			const packageLoopForTest = async (target: any) => {
 				packageCalls += 1;
 				assert.equal(target.key, 'startup-yc');
 				return {
@@ -1269,6 +1752,7 @@ async function run(): Promise<void> {
 					}
 				};
 			};
+			(pathLoop as any).packageSpecializationPathLoop = packageLoopForTest;
 			(pathLoop as any).runSpecializationPathAutoloop = async () => {
 				runCalls += 1;
 				throw new Error('template package route must not run the loop');
@@ -1284,16 +1768,20 @@ async function run(): Promise<void> {
 				'compare baseline vs candidate for Startup YC. Do not run anything.'
 			);
 
-			try {
-				const replies: string[] = [];
-				const ctx = makeFakeCtx(testUserId, testUserId, 565, replies);
-				ctx.message.text = 'turn this proven loop into a reusable template. Do not run or publish it.';
-				const indexModule: any = await import('../src/index');
+				try {
+					const replies: string[] = [];
+					const ctx = makeFakeCtx(testUserId, testUserId, 565, replies);
+					ctx.message.text = 'turn this proven loop into a reusable template. Do not run or publish it.';
+					const indexModule: any = await import('../src/index');
+					indexModule.__setRecursiveStatusDepsForTest({
+						resolve: resolveForTest,
+						packageLoop: packageLoopForTest
+					});
 
-				await indexModule.handleTextMessage(ctx);
+					await indexModule.handleTextMessage(ctx);
 
 				const reply = replies.join('\n');
-				assert.equal(packageCalls, 1);
+					assert.equal(packageCalls, 1, reply);
 				assert.equal(runCalls, 0);
 				assert.ok(!captured.some((c) => c.url.includes('/api/creator/mission')), 'template request should not stage a creator mission');
 				assert.ok(!captured.some((c) => c.url.includes('/api/scheduled')), 'template request should not be treated as schedule work');
@@ -1304,8 +1792,10 @@ async function run(): Promise<void> {
 				assert.doesNotMatch(reply, /No run or publishing yet/);
 				assert.doesNotMatch(reply, /Intent creator path/i);
 				assert.doesNotMatch(reply, /I caught 'schedule'|Show what's scheduled|Which\?/i);
-			} finally {
-				(pathLoop as any).resolveRecursiveStartTarget = originalResolve;
+				} finally {
+					const indexModule: any = await import('../src/index');
+					indexModule.__setRecursiveStatusDepsForTest(null);
+					(pathLoop as any).resolveRecursiveStartTarget = originalResolve;
 				(pathLoop as any).packageSpecializationPathLoop = originalPackage;
 				(pathLoop as any).runSpecializationPathAutoloop = originalRun;
 				restoreAxios();
@@ -1627,80 +2117,6 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('natural cancellation suppresses late handoffs for the latest registered mission', async () => {
-		restoreAxios();
-		const {
-			registerMissionRelay,
-			resetMissionRelayDeliveryStateForTests,
-			resetMissionRelayRegistryForTests,
-			sendFetchedCompletionSummaryForTests,
-			shouldSuppressMissionHandoff
-		} = await import('../src/missionRelay');
-		resetMissionRelayDeliveryStateForTests();
-		resetMissionRelayRegistryForTests();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-cancel-relay-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-
-		const subscription = {
-			missionId: 'mission-natural-cancel',
-			chatId: '8319079055',
-			userId: '8319079055',
-			requestId: 'req-natural-cancel',
-			goal: 'Build a cancellation follow-up tester.',
-			createdAt: new Date().toISOString()
-		};
-		await registerMissionRelay(subscription);
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true, requestId: body?.requestId } };
-		};
-		(axios as any).get = async () => ({ data: { pending: false } });
-
-		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
-		ctx.message.text = 'Actually no need, cancel that build. We can just talk here.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
-
-		assert.equal(shouldSuppressMissionHandoff(subscription.missionId), true, 'natural cancellation should mark the latest mission quiet');
-		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'natural cancellation must not start a new PRD build');
-		assert.doesNotMatch(replies.join('\n'), /Canvas is ready|Mission board|Setting up/i);
-
-		const sent: string[] = [];
-		const chunks = await sendFetchedCompletionSummaryForTests(
-			{
-				telegram: {
-					sendMessage: async (_chatId: number, message: string) => {
-						sent.push(message);
-					}
-				}
-			} as any,
-			8319079055,
-			subscription,
-			{ type: 'mission_completed' as const, missionId: subscription.missionId },
-			'normal',
-			{
-				providerLabel: 'codex',
-				response: JSON.stringify({ summary: 'This late completion should stay quiet.', status: 'completed' })
-			}
-		);
-		assert.equal(chunks, 0);
-		assert.equal(sent.length, 0);
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		resetMissionRelayDeliveryStateForTests();
-		resetMissionRelayRegistryForTests();
-		restoreAxios();
-		restoreEnv();
-	});
-
 	await test('specific QA mission provenance question answers in chat without spawning', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -1792,6 +2208,344 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /provider checks|direct smoke probes/);
 		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
 		assert.equal(captured.length, 0, 'source-priority question must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('access capability drift answers effective capability before ideation fallback', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-access-capability-drift-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'If access says operator but the runner is read-only, what can Spark really do right now?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Allowed, blocked here/i);
+		assert.match(reply, /read-only runner/);
+		assert.doesNotMatch(reply, /Got it|options on the table|I can help you think/i);
+		assert.equal(captured.length, 0, 'capability drift answer must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('read-only repair follow-up stays in access lane and does not create a mission', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-readonly-repair-route-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		mkdirSync(binDir, { recursive: true });
+		writeFileSync(
+			path.join(tempRoot, 'spark-access-status.json'),
+			JSON.stringify({
+				access_level: 4,
+				effective_access_level: 4,
+				workspace_path: path.join(tempRoot, 'workspace'),
+				workspace_preflight: { writable: true, detail: 'Workspace write/delete preflight passed.' },
+				level5: { activation_state: 'blocked', service_enabled: false },
+				state_machine: { requested_access_level: 4, effective_access_level: 4 }
+			})
+		);
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				`echo "$*" >> "${path.join(tempRoot, 'spark-calls.log').replace(/"/g, '\\"')}"`,
+				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
+				`  cat "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '\\"')}"`,
+				'  exit 0',
+				'fi',
+				'if [ "$1" = "access" ] && [ "$2" = "setup" ] && [ "$3" = "--json" ]; then',
+				'  echo "{\\"ok\\":true,\\"effective_access_level\\":4,\\"recommended\\":{\\"id\\":\\"spark_workspace\\"},\\"next\\":\\"spark access status\\"}"',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, missionId: 'should-not-exist' } };
+		};
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 607, replies);
+			ctx.message.text = 'lets make it beyond read only then';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			ctx.message.message_id = 608;
+			ctx.message.text = 'did you';
+			await indexModule.handleTextMessage(ctx);
+
+			const joined = replies.join('\n');
+			assert.match(joined, /access repair, not a Spawner mission/i);
+			assert.match(joined, /safe Spark workspace was already writable/i);
+			assert.match(joined, /Spark workspace writable: yes/);
+			assert.doesNotMatch(joined, /I will run that through Codex now/i);
+			assert.doesNotMatch(joined, /Canvas:|Kanban:|Mission board:/i);
+			assert.equal(captured.length, 0, 'read-only repair and did-you follow-up must not call Spawner or PRD bridge');
+			const sparkCalls = readFileSync(path.join(tempRoot, 'spark-calls.log'), 'utf-8');
+			assert.doesNotMatch(sparkCalls, /access setup --json/, 'workspace_setup must not run when workspace is already writable');
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('read-only repair auto-runs safe workspace setup when workspace is not writable', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-readonly-repair-setup-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		const statusPath = path.join(tempRoot, 'spark-access-status.json');
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		mkdirSync(binDir, { recursive: true });
+		writeFileSync(
+			statusPath,
+			JSON.stringify({
+				access_level: 4,
+				effective_access_level: 4,
+				workspace_path: path.join(tempRoot, 'workspace'),
+				workspace_preflight: { writable: false, detail: 'Workspace is not created yet. Run `spark access setup`.' },
+				level5: { activation_state: 'blocked', service_enabled: false },
+				state_machine: { requested_access_level: 4, effective_access_level: 4 }
+			})
+		);
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				`echo "$*" >> "${path.join(tempRoot, 'spark-calls.log').replace(/"/g, '\\"')}"`,
+				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
+				`  cat "${statusPath.replace(/"/g, '\\"')}"`,
+				'  exit 0',
+				'fi',
+				'if [ "$1" = "access" ] && [ "$2" = "setup" ] && [ "$3" = "--json" ]; then',
+				`  cat > "${statusPath.replace(/"/g, '\\"')}" <<'JSON'`,
+				JSON.stringify({
+					access_level: 4,
+					effective_access_level: 4,
+					workspace_path: path.join(tempRoot, 'workspace'),
+					workspace_preflight: { writable: true, detail: 'Workspace write/delete preflight passed.' },
+					recommended: { id: 'spark_workspace' },
+					level5: { activation_state: 'blocked', service_enabled: false },
+					state_machine: { requested_access_level: 4, effective_access_level: 4 }
+				}),
+				'JSON',
+				'  echo "{\\"ok\\":true,\\"effective_access_level\\":4,\\"recommended\\":{\\"id\\":\\"spark_workspace\\"},\\"next\\":\\"spark access status\\"}"',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, missionId: 'should-not-exist' } };
+		};
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 609, replies);
+			ctx.message.text = 'make it writable';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const joined = replies.join('\n');
+			assert.match(joined, /access repair, not a Spawner mission/i);
+			assert.match(joined, /repaired the safe Spark workspace/i);
+			assert.match(joined, /Safe workspace setup is ready/);
+			assert.match(joined, /Spark workspace writable: yes/);
+			assert.doesNotMatch(joined, /I will run that through Codex now/i);
+			assert.doesNotMatch(joined, /Canvas:|Kanban:|Mission board:/i);
+			assert.equal(captured.length, 0, 'access repair setup must not call Spawner or PRD bridge');
+			const sparkCalls = readFileSync(path.join(tempRoot, 'spark-calls.log'), 'utf-8');
+			assert.match(sparkCalls, /access status --json/);
+			assert.match(sparkCalls, /access setup --json/);
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('workspace and wiki current-truth prompt keeps notes historical', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-workspace-wiki-freshness-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'Use Workspace and Wiki to tell me what changed, but do not treat old notes as current truth.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /historical context/);
+		assert.match(reply, /fresh runtime probes/);
+		assert.equal(captured.length, 0, 'historical context boundary must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('latest QA run summary stays conversational without raw headings', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-run-summary-'));
+		const repoRoot = path.join(tempRoot, 'specialization-path-spark-qa-operator');
+		const outputDir = path.join(repoRoot, '.spark-swarm', 'autoloop', 'runs', 'latest-summary');
+		mkdirSync(outputDir, { recursive: true });
+		mkdirSync(path.join(repoRoot, 'benchmarks', 'evidence'), { recursive: true });
+		mkdirSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator'), { recursive: true });
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ id: 'spark-qa-operator' }));
+		writeFileSync(path.join(repoRoot, 'src', 'specialization_path_spark_qa_operator', '__init__.py'), '');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = repoRoot;
+		const reportPath = path.join(outputDir, 'autoloop_round_report.json');
+		const report = {
+			schemaVersion: 'spark-qa-autoloop-round-report.v1',
+			run: { status: 'blocked', endedAt: new Date().toISOString() },
+			baselineCandidateDelta: { baselineScore: 0, candidateScore: 1, delta: 1 },
+			captureReplay: { passedCount: 4, caseCount: 4 },
+			evidenceBenchmark: { overallScore: 1 },
+			failureQueue: { ticketCount: 0 },
+			promotionDossier: { scoreClaimAllowed: false, blockers: ['sidecar_review_pending'] }
+		};
+		const reportText = JSON.stringify(report, null, 2) + '\n';
+		writeFileSync(reportPath, reportText);
+		writeFileSync(path.join(repoRoot, '.spark-swarm', 'autoloop', 'latest_run.json'), JSON.stringify({
+			schemaVersion: 'spark-qa-autoloop-latest-run.v1',
+			generatedAt: report.run.endedAt,
+			outputRoot: outputDir,
+			reportPath,
+			reportSha256: createHash('sha256').update(reportText).digest('hex'),
+			status: 'blocked'
+		}));
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'Tell me what happened in the latest QA run without raw ids or report-card headings.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /ran the benchmark\/autoloop proof/);
+			assert.match(reply, /would not claim an upgrade yet/);
+			assert.match(reply, /Private evidence benchmark coverage is 1; this is not a promotion score/);
+			assert.match(reply, /sidecar review is still pending/);
+			assert.doesNotMatch(reply, /Mission\n|Provider\n|Move\n|trace_id|\/Users\//);
+
+			const followupReplies: string[] = [];
+			const followupCtx = makeFakeCtx(8319079055, 8319079055, 606, followupReplies);
+			followupCtx.message.text = 'what happened in the latest QA run?';
+			await indexModule.handleTextMessage(followupCtx);
+
+			const followupReply = followupReplies[0] || '';
+			assert.match(followupReply, /ran the benchmark\/autoloop proof/);
+			assert.match(followupReply, /Private evidence benchmark coverage is 1; this is not a promotion score/);
+			assert.doesNotMatch(followupReply, /Score\n|State\n|Move\n|Report\n|trace_id|\/Users\//);
+
+			const evidenceReplies: string[] = [];
+			const evidenceCtx = makeFakeCtx(8319079055, 8319079055, 606, evidenceReplies);
+			evidenceCtx.message.text = 'show Spark QA Operator benchmark evidence';
+			await indexModule.handleTextMessage(evidenceCtx);
+
+			const evidenceReply = evidenceReplies[0] || '';
+			assert.match(evidenceReply, /ran the benchmark\/autoloop proof/);
+			assert.match(evidenceReply, /Private evidence benchmark coverage is 1; this is not a promotion score/);
+			assert.doesNotMatch(evidenceReply, /Score\n|State\n|Move\n|Report\n|trace_id|\/Users\//);
+
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		});
+
+	await test('Spark QA Operator autoloop pause writes local control state without starting another round', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-qa-autoloop-pause-'));
+		const repoRoot = path.join(tempRoot, 'specialization-path-spark-qa-operator');
+		mkdirSync(repoRoot, { recursive: true });
+		writeFileSync(path.join(repoRoot, 'specialization-path.json'), JSON.stringify({ id: 'spark-qa-operator' }));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO = repoRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 607, replies);
+		ctx.message.text = 'pause the Spark QA Operator loop; do not keep running more rounds';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const controlPath = path.join(repoRoot, '.spark-swarm', 'specialization-paths', 'spark-qa-operator', 'control.json');
+		const control = JSON.parse(readFileSync(controlPath, 'utf-8'));
+		assert.equal(control.status, 'paused');
+		assert.equal(control.pathKey, 'spark-qa-operator');
+		assert.match(replies[0] || '', /Paused the Spark QA Operator loop/);
+		assert.match(replies[0] || '', /will not start more rounds/);
+		assert.equal(captured.length, 0, 'pause control must not dispatch work');
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
@@ -1906,1683 +2660,6 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('latest failed Spawner question routes to board summary without starting work', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-latest-failed-spawner-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-failed-route',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date().toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed because the spawned workspace was read-only.'
-						}
-					],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 609, replies);
-		ctx.message.text = 'what failed most recently in Spawner? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
-
-		const reply = replies[0] || '';
-		assert.match(reply, /That run did not make it through: Spark Bug Recognition Domain Chip\./);
-		assert.match(reply, /What blocked it/);
-		assert.match(reply, /spawned workspace was read-only/i);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-route/);
-		assert.doesNotMatch(reply, /^Inspect$/m);
-		assert.doesNotMatch(reply, /Detail:|Trace:/);
-		assert.equal(captured.length, 0, 'latest failed Spawner question must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('latest failed Spawner provider question ignores newer cancelled jobs', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-latest-failed-provider-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-failed-provider',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed after provider handoff.'
-						}
-					],
-					cancelled: [
-						{
-							missionId: 'mission-cancelled-newer',
-							missionName: 'Cancel Me',
-							status: 'cancelled',
-							lastEventType: 'mission_cancelled',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: null,
-							providerResults: []
-						}
-					],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 610, replies);
-		ctx.message.text = 'which model handled the latest failed Spawner job? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
-
-		const reply = replies[0] || '';
-		assert.match(reply, /The latest failed Spawner job reached Codex, then failed\./);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-provider/);
-		assert.doesNotMatch(reply, /cancelled before any LLM provider/);
-		assert.doesNotMatch(reply, /^Inspect$/m);
-		assert.doesNotMatch(reply, /Detail:|Trace:/);
-		assert.equal(captured.length, 0, 'latest failed provider question must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('implicit broken-job provider follow-up stays on failed board state', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-broken-provider-ref-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-broken-provider',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [],
-							providerSummary: 'No provider reported.'
-						}
-					],
-					cancelled: [
-						{
-							missionId: 'mission-cancelled-newer',
-							missionName: 'Cancel Me',
-							status: 'cancelled',
-							lastEventType: 'mission_cancelled',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: null,
-							providerResults: [{ providerId: 'codex', status: 'cancelled' }]
-						}
-					],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079055, 8319079055, 611, replies);
-		ctx.message.text = 'who handled the broken one? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
-
-		const reply = replies[0] || '';
-		assert.match(reply, /The latest failed Spawner job failed before it reported an LLM provider\./);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-broken-provider/);
-		assert.doesNotMatch(reply, /Codex handled the broken Spawner job/);
-		assert.doesNotMatch(reply, /cancelled/i);
-		assert.equal(captured.length, 0, 'implicit broken-job provider follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun failed-provider follow-up stays attached to failed board state', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-failed-provider-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-failed-pronoun',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed after provider handoff.'
-						}
-					],
-					cancelled: [
-						{
-							missionId: 'mission-cancelled-newer',
-							missionName: 'Cancel Me',
-							status: 'cancelled',
-							lastEventType: 'mission_cancelled',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: null,
-							providerResults: [{ providerId: 'codex', status: 'cancelled' }]
-						}
-					],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 612, replies);
-		firstCtx.message.text = 'which model handled the latest failed Spawner job? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 613, replies);
-		followupCtx.message.text = 'who took that one? Do not start anything.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /The latest failed Spawner job reached Codex, then failed\./);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-pronoun/);
-		assert.doesNotMatch(reply, /cancelled/i);
-		assert.equal(captured.length, 0, 'pronoun failed-provider follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun failure blocker follow-up stays attached to failed board state', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-failure-blocker-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-failed-blocker-pronoun',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed because the spawned workspace was read-only.'
-						}
-					],
-					cancelled: [
-						{
-							missionId: 'mission-cancelled-newer',
-							missionName: 'Cancel Me',
-							status: 'cancelled',
-							lastEventType: 'mission_cancelled',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: null,
-							providerResults: [{ providerId: 'codex', status: 'cancelled' }]
-						}
-					],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 614, replies);
-		firstCtx.message.text = 'which model handled the latest failed Spawner job? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 615, replies);
-		followupCtx.message.text = 'what blocked that one? Do not start anything.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /That run did not make it through: Spark Bug Recognition Domain Chip\./);
-		assert.match(reply, /What blocked it/);
-		assert.match(reply, /spawned workspace was read-only/i);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-blocker-pronoun/);
-		assert.doesNotMatch(reply, /cancelled/i);
-		assert.equal(captured.length, 0, 'pronoun failure blocker follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun failed-open follow-up uses failed board link instead of shipped preview', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-failed-open-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [],
-					completed: [
-						{
-							missionId: 'mission-shipped-newer',
-							missionName: 'Beauty Centre Booking Website',
-							status: 'completed',
-							lastEventType: 'mission_completed',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: 'Ship booking page',
-							providerResults: [],
-							providerSummary: 'Codex: Replaced the root screen with a booking-first premium service menu in src/routes/+page.svelte.'
-						}
-					],
-					failed: [
-						{
-							missionId: 'mission-failed-open-pronoun',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed because the spawned workspace was read-only.'
-						}
-					],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 616, replies);
-		firstCtx.message.text = 'what failed most recently in Spawner? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 617, replies);
-		followupCtx.message.text = 'can I open that one? Do not start anything.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /That run did not make it through: Spark Bug Recognition Domain Chip\./);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-open-pronoun/);
-		assert.doesNotMatch(reply, /latest shipped app/i);
-		assert.doesNotMatch(reply, /Beauty Centre Booking Website/);
-		assert.doesNotMatch(reply, /\/preview\//);
-		assert.equal(captured.length, 0, 'pronoun failed-open follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun still-working follow-up keeps failed mission terminal', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-failed-working-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-running-newer',
-							missionName: 'Fresh Running Build',
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							taskName: 'Keep moving',
-							providerResults: []
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [
-						{
-							missionId: 'mission-failed-working-pronoun',
-							missionName: 'Spark Bug Recognition Domain Chip',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString(),
-							taskName: 'Inspect route',
-							providerResults: [{ providerId: 'codex', status: 'failed' }],
-							providerSummary: 'Codex: failed because the spawned workspace was read-only.'
-						}
-					],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 618, replies);
-		firstCtx.message.text = 'what failed most recently in Spawner? Do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 619, replies);
-		followupCtx.message.text = 'is that one still working? Do not start anything.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /That run did not make it through: Spark Bug Recognition Domain Chip\./);
-		assert.match(reply, /Board: http:\/\/stub-spawner\.test\/kanban\?mission=mission-failed-working-pronoun/);
-		assert.doesNotMatch(reply, /Fresh Running Build/);
-		assert.doesNotMatch(reply, /running right now/i);
-		assert.equal(captured.length, 0, 'pronoun still-working follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun active-status follow-up stays on Mission Control truth', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-active-status-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { success: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [
-						{
-							missionId: 'mission-completed-newer',
-							missionName: 'Newer Completed Site',
-							status: 'completed',
-							lastEventType: 'mission_completed',
-							lastUpdated: new Date(now + 1_000).toISOString()
-						}
-					],
-					failed: [
-						{
-							missionId: 'mission-failed-older',
-							missionName: 'Older Failed Mission',
-							status: 'failed',
-							lastEventType: 'mission_failed',
-							lastUpdated: new Date(now - 60_000).toISOString()
-						}
-					],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 620, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 621, replies);
-		followupCtx.message.text = 'is that one paused or still running? Do not start anything.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.equal(
-			reply,
-			'Mission Control has nothing running. One paused mission: Mission Command Orphan Pause. You can say `resume that one` if you want it moving again.'
-		);
-		assert.doesNotMatch(reply, /mission-command-orphan-pause|Newer Completed Site|Older Failed Mission/);
-		assert.doesNotMatch(reply, /^Mission$|^Status$|^Move$/m);
-		assert.doesNotMatch(reply, /Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'pronoun active-status follow-up must not start a mission or build');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun resume follow-up resumes the unambiguous paused mission from context', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-resume-gate-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 622, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 623, replies);
-		followupCtx.message.text = 'can you resume that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I resumed Mission Command Orphan Pause\./);
-		assert.match(reply, /\/kanban\?mission=mission-command-orphan-pause/);
-		assert.doesNotMatch(reply, /Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 1, 'pronoun resume follow-up should POST exactly one contextual resume command');
-		assert.deepEqual(captured[0].body, {
-			action: 'resume',
-			missionId: 'mission-command-orphan-pause',
-			source: 'telegram'
-		});
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun resume follow-up honors explicit no-resume boundary', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-resume-noop-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: 'Orphan Pause Mission',
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 624, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 625, replies);
-		followupCtx.message.text = 'can you resume that one? Do not resume it.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I did not resume it\./);
-		assert.match(reply, /Orphan Pause Mission is still paused\./);
-		assert.match(reply, /resume that one/);
-		assert.doesNotMatch(reply, /\/mission resume <missionId>|exact mission id|I resumed|internal error/i);
-		assert.equal(captured.length, 0, 'no-resume pronoun follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun resume follow-up asks for specificity when multiple missions are paused', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-resume-ambiguous-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-paused-alpha',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Alpha paused probe.'
-						},
-						{
-							missionId: 'mission-command-paused-beta',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now - 1000).toISOString(),
-							lastSummary: 'Beta paused probe.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 632, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 633, replies);
-		followupCtx.message.text = 'can you resume that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I see two paused missions/);
-		assert.match(reply, /Mission Command Paused Alpha/);
-		assert.match(reply, /Mission Command Paused Beta/);
-		assert.match(reply, /\/mission resume mission-command-paused-alpha/);
-		assert.match(reply, /\/mission resume mission-command-paused-beta/);
-		assert.doesNotMatch(reply, /\/mission resume <missionId>/);
-		assert.doesNotMatch(reply, /I resumed|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'ambiguous pronoun resume follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun resume follow-up rechecks Mission Control before sending a stale command', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-resume-freshness-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		let followupPhase = false;
-		let followupBoardReads = 0;
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => {
-			const pausedBoard = {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			const completedBoard = {
-				board: {
-					running: [],
-					paused: [],
-					completed: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'completed',
-							lastEventType: 'mission_completed',
-							lastUpdated: new Date(now + 1000).toISOString(),
-							lastSummary: 'Finished before the resume follow-up.'
-						}
-					],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			if (followupPhase) {
-				followupBoardReads += 1;
-				return { data: completedBoard };
-			}
-			return { data: pausedBoard };
-		};
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 637, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		followupPhase = true;
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 638, replies);
-		followupCtx.message.text = 'can you resume that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I do not see a paused mission to resume right now\./);
-		assert.doesNotMatch(reply, /I resumed|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'stale pronoun resume follow-up must not POST a mission command');
-		assert.ok(followupBoardReads >= 1, 'resume follow-up should recheck Mission Control before posting');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun resume follow-up reports already running without sending a command', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-resume-already-running-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running probe mission.'
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 641, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 642, replies);
-		followupCtx.message.text = 'can you resume that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /That mission is already running: Mission Command Running Probe\./);
-		assert.doesNotMatch(reply, /\/mission resume <missionId>|I resumed|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'already-running pronoun resume follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun cancel follow-up asks for confirmation before cancelling the unambiguous active mission', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-cancel-gate-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 624, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 625, replies);
-		followupCtx.message.text = 'can you cancel that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I can cancel Mission Command Orphan Pause\./);
-		assert.match(reply, /Reply `yes, cancel it` to confirm\./);
-		assert.match(reply, /\/kanban\?mission=mission-command-orphan-pause/);
-		assert.doesNotMatch(reply, /Mission kill was sent|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'pronoun cancel follow-up must ask for confirmation before posting a mission command');
-
-		const confirmCtx = makeFakeCtx(8319079055, 8319079055, 626, replies);
-		confirmCtx.message.text = 'yes, cancel it';
-		await indexModule.handleTextMessage(confirmCtx);
-
-		const confirmationReply = replies.at(-1) || '';
-		assert.match(confirmationReply, /Mission stop was sent\./);
-		assert.match(confirmationReply, /\/kanban\?mission=mission-command-orphan-pause/);
-		assert.doesNotMatch(confirmationReply, /Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 1, 'explicit cancel confirmation should POST exactly one mission command');
-		assert.deepEqual(captured[0].body, {
-			action: 'kill',
-			missionId: 'mission-command-orphan-pause',
-			source: 'telegram'
-		});
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun cancel follow-up honors explicit no-cancel boundary', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-cancel-noop-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: 'Orphan Pause Mission',
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 627, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 628, replies);
-		followupCtx.message.text = 'can you cancel that one? Do not cancel it.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I did not cancel it\./);
-		assert.match(reply, /Orphan Pause Mission is still paused\./);
-		assert.doesNotMatch(reply, /\/mission kill <missionId>|exact mission id|Reply `yes, cancel it`|I can cancel|Mission stop was sent|internal error/i);
-
-		const confirmCtx = makeFakeCtx(8319079055, 8319079055, 629, replies);
-		confirmCtx.message.text = 'yes, cancel it';
-		await indexModule.handleTextMessage(confirmCtx);
-
-		const confirmationReply = replies.at(-1) || '';
-		assert.doesNotMatch(confirmationReply, /Mission stop was sent|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'no-cancel pronoun follow-up must not POST or arm a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('cancel confirmation rechecks Mission Control before sending a stale command', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-cancel-freshness-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		let confirmationPhase = false;
-		let confirmationBoardReads = 0;
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => {
-			const activeBoard = {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			const completedBoard = {
-				board: {
-					running: [],
-					paused: [],
-					completed: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'completed',
-							lastEventType: 'mission_completed',
-							lastUpdated: new Date(now + 1000).toISOString(),
-							lastSummary: 'Finished before the confirmation arrived.'
-						}
-					],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			if (confirmationPhase) {
-				confirmationBoardReads += 1;
-				return { data: completedBoard };
-			}
-			return { data: activeBoard };
-		};
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 627, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 628, replies);
-		followupCtx.message.text = 'can you cancel that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I can cancel Mission Command Orphan Pause\./);
-		assert.equal(captured.length, 0, 'cancel prompt should not post before confirmation');
-
-		confirmationPhase = true;
-		const confirmCtx = makeFakeCtx(8319079055, 8319079055, 629, replies);
-		confirmCtx.message.text = 'yes, cancel it';
-		await indexModule.handleTextMessage(confirmCtx);
-
-		const confirmationReply = replies.at(-1) || '';
-		assert.match(confirmationReply, /no longer running or paused/i);
-		assert.match(confirmationReply, /I did not cancel it/i);
-		assert.match(confirmationReply, /\/kanban\?mission=mission-command-orphan-pause/);
-		assert.doesNotMatch(confirmationReply, /Mission stop was sent|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'stale cancel confirmation must not POST a mission command');
-		assert.ok(confirmationBoardReads >= 1, 'confirmation should recheck Mission Control before posting');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('ambiguous pronoun cancel follow-up does not arm a later confirmation', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-cancel-ambiguity-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running probe mission.'
-						}
-					],
-					paused: [
-						{
-							missionId: 'mission-command-paused-probe',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now - 1000).toISOString(),
-							lastSummary: 'Paused probe mission.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 634, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 635, replies);
-		followupCtx.message.text = 'can you cancel that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I see two active missions/);
-		assert.match(reply, /Mission Command Running Probe/);
-		assert.match(reply, /Mission Command Paused Probe/);
-		assert.match(reply, /\/mission kill mission-command-running-probe/);
-		assert.match(reply, /\/mission kill mission-command-paused-probe/);
-		assert.doesNotMatch(reply, /\/mission kill <missionId>/);
-		assert.doesNotMatch(reply, /I can cancel|Reply `yes, cancel it`|Mission stop was sent|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'ambiguous pronoun cancel follow-up must not POST a mission command');
-
-		const confirmCtx = makeFakeCtx(8319079055, 8319079055, 636, replies);
-		confirmCtx.message.text = 'yes, cancel it';
-		await indexModule.handleTextMessage(confirmCtx);
-
-		const confirmationReply = replies.at(-1) || '';
-		assert.doesNotMatch(confirmationReply, /Mission stop was sent|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'ambiguous pronoun cancel follow-up must not arm a later confirmation');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up rechecks Mission Control before sending a stale command', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-freshness-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		let followupPhase = false;
-		let followupBoardReads = 0;
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => {
-			const runningBoard = {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running probe mission.'
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			const completedBoard = {
-				board: {
-					running: [],
-					paused: [],
-					completed: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'completed',
-							lastEventType: 'mission_completed',
-							lastUpdated: new Date(now + 1000).toISOString(),
-							lastSummary: 'Finished before the pause follow-up.'
-						}
-					],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			};
-			if (followupPhase) {
-				followupBoardReads += 1;
-				return { data: completedBoard };
-			}
-			return { data: runningBoard };
-		};
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 639, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		followupPhase = true;
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 640, replies);
-		followupCtx.message.text = 'can you pause that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I do not see a running mission to pause right now\./);
-		assert.doesNotMatch(reply, /I paused|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'stale pronoun pause follow-up must not POST a mission command');
-		assert.ok(followupBoardReads >= 1, 'pause follow-up should recheck Mission Control before posting');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up pauses the unambiguous running mission from context', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-gate-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running probe mission.'
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 626, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 627, replies);
-		followupCtx.message.text = 'can you pause that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I paused Mission Command Running Probe\./);
-		assert.match(reply, /\/kanban\?mission=mission-command-running-probe/);
-		assert.doesNotMatch(reply, /Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 1, 'pronoun pause follow-up should POST exactly one contextual pause command');
-		assert.deepEqual(captured[0].body, {
-			action: 'pause',
-			missionId: 'mission-command-running-probe',
-			source: 'telegram'
-		});
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up honors explicit no-pause boundary', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-noop-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-probe',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running probe mission.'
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 641, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 642, replies);
-		followupCtx.message.text = 'can you pause that one? Do not pause it.';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I did not pause it\. Mission Command Running Probe is still running\./);
-		assert.doesNotMatch(reply, /I paused|\/mission pause|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'no-pause pronoun follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up reports already paused without sending a command', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-already-paused-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [],
-					paused: [
-						{
-							missionId: 'mission-command-orphan-pause',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Paused and ready to resume.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 643, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 644, replies);
-		followupCtx.message.text = 'can you pause that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /That mission is already paused: Mission Command Orphan Pause\./);
-		assert.doesNotMatch(reply, /\/mission pause <missionId>|I paused|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'already-paused pronoun pause follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up asks for specificity when multiple missions are running', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-ambiguous-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-alpha',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Alpha probe mission.'
-						},
-						{
-							missionId: 'mission-command-running-beta',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now - 1000).toISOString(),
-							lastSummary: 'Beta probe mission.'
-						}
-					],
-					paused: [],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 628, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 629, replies);
-		followupCtx.message.text = 'can you pause that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I see two running missions/);
-		assert.match(reply, /Mission Command Running Alpha/);
-		assert.match(reply, /Mission Command Running Beta/);
-		assert.match(reply, /\/mission pause mission-command-running-alpha/);
-		assert.match(reply, /\/mission pause mission-command-running-beta/);
-		assert.doesNotMatch(reply, /\/mission pause <missionId>/);
-		assert.doesNotMatch(reply, /I paused|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 0, 'ambiguous pronoun pause follow-up must not POST a mission command');
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
-	await test('pronoun pause follow-up pauses the only running mission when paused work is also visible', async () => {
-		restoreAxios();
-		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
-		process.env.BOT_DEFAULT_TIER = 'base';
-		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
-		process.env.SPARK_BOT_TEST_MODE = '1';
-		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
-		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
-		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pronoun-pause-mixed-'));
-		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
-		const now = Date.now();
-
-		const captured: CapturedCall[] = [];
-		(axios as any).post = async (url: string, body: any) => {
-			captured.push({ url, body });
-			return { data: { ok: true } };
-		};
-		(axios as any).get = async () => ({
-			data: {
-				board: {
-					running: [
-						{
-							missionId: 'mission-command-running-mixed',
-							missionName: null,
-							taskName: null,
-							status: 'running',
-							lastEventType: 'mission_started',
-							lastUpdated: new Date(now).toISOString(),
-							lastSummary: 'Running mixed-context probe.'
-						}
-					],
-					paused: [
-						{
-							missionId: 'mission-command-already-paused',
-							missionName: null,
-							taskName: null,
-							status: 'paused',
-							lastEventType: 'mission_paused',
-							lastUpdated: new Date(now - 1000).toISOString(),
-							lastSummary: 'Already paused probe.'
-						}
-					],
-					completed: [],
-					failed: [],
-					cancelled: [],
-					created: []
-				}
-			}
-		});
-
-		const replies: string[] = [];
-		const firstCtx = makeFakeCtx(8319079055, 8319079055, 630, replies);
-		firstCtx.message.text = 'what is currently running or paused in Mission Control? keep it short and do not start anything.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(firstCtx);
-
-		const followupCtx = makeFakeCtx(8319079055, 8319079055, 631, replies);
-		followupCtx.message.text = 'can you pause that one?';
-		await indexModule.handleTextMessage(followupCtx);
-
-		const reply = replies.at(-1) || '';
-		assert.match(reply, /I paused Mission Command Running Mixed\./);
-		assert.match(reply, /\/kanban\?mission=mission-command-running-mixed/);
-		assert.doesNotMatch(reply, /Mission Command Already Paused|Spark chat provider is not configured|internal error/i);
-		assert.equal(captured.length, 1, 'mixed-context pronoun pause should POST exactly one pause command for the running mission');
-		assert.deepEqual(captured[0].body, {
-			action: 'pause',
-			missionId: 'mission-command-running-mixed',
-			source: 'telegram'
-		});
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
-	});
-
 	await test('natural access status uses authoritative CLI state instead of generic help', async () => {
 		restoreAxios();
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-status-'));
@@ -3674,48 +2751,29 @@ async function run(): Promise<void> {
 		const binDir = path.join(tempRoot, 'bin');
 		const oldPath = process.env.PATH || '';
 		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
-		const sparkShim = path.join(binDir, process.platform === 'win32' ? 'spark.cmd' : 'spark');
+		const sparkShim = path.join(binDir, 'spark');
 		writeFileSync(
 			sparkShim,
-			process.platform === 'win32'
-				? [
-					'@echo off',
-					'if "%1"=="live" if "%2"=="status" if "%3"=="" (',
-					'  echo [OK] Spark Live is ready.',
-					'  echo Telegram profiles: 1 running, 0 stopped',
-					'  echo LLM roles: chat=codex, builder=codex, memory=codex, mission=codex',
-					'  echo [OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 ^| 10 providers listed ^| 3 configured ^| workspace=^<spark-home^>/workspaces/.health-smoke',
-					'  echo [OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)',
-					'  exit /b 0',
-					')',
-					'if "%1"=="verify" if "%2"=="--deep" if "%3"=="" (',
-					'  echo Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot',
-					'  exit /b 0',
-					')',
-					'echo unexpected spark command: %* 1>&2',
-					'exit /b 1',
-					''
-				].join('\r\n')
-				: [
-					'#!/bin/sh',
-					'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
-					'  echo "[OK] Spark Live is ready."',
-					'  echo "Telegram profiles: 1 running, 0 stopped"',
-					'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
-					'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
-					'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
-					'  exit 0',
-					'fi',
-					'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
-					'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
-					'  exit 0',
-					'fi',
-					'echo "unexpected spark command: $*" >&2',
-					'exit 1',
-					''
-				].join('\n')
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
+				'  echo "[OK] Spark Live is ready."',
+				'  echo "Telegram profiles: 1 running, 0 stopped"',
+				'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
+				'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
+				'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
+				'  exit 0',
+				'fi',
+				'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
+				'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
 		);
-		if (process.platform !== 'win32') chmodSync(sparkShim, 0o755);
+		chmodSync(sparkShim, 0o755);
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {

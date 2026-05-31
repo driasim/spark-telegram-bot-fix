@@ -13,6 +13,7 @@ export type DeterministicRouteId =
   | 'spawner.board'
   | 'spawner.local_service'
   | 'spawner.external_research'
+  | 'spawner.mission_control'
   | 'diagnostics.scan'
   | 'diagnostics.followup_test'
   | 'domain_chip.create'
@@ -22,10 +23,13 @@ export type DeterministicRouteId =
   | 'spark.chip_status'
   | 'spark.wiki'
   | 'memory.write'
+  | 'schedule.delete'
   | 'natural_run'
   | 'pending_task.recovery'
   | 'local_workspace.inspect'
   | 'mission_updates.preference'
+  | 'sparkqa.run'
+  | 'sparkqa.pause'
   | 'domain_chip.pending';
 
 export interface RouteFirewallVerdict {
@@ -43,6 +47,7 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'spawner.contextual_improvement',
   'spawner.project_iteration',
   'spawner.external_research',
+  'spawner.mission_control',
   'diagnostics.scan',
   'diagnostics.followup_test',
   'domain_chip.create',
@@ -50,10 +55,13 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'recursive.proposal',
   'spark.self_improvement',
   'memory.write',
+  'schedule.delete',
   'natural_run',
   'pending_task.recovery',
   'local_workspace.inspect',
   'mission_updates.preference',
+  'sparkqa.run',
+  'sparkqa.pause',
   'domain_chip.pending'
 ]);
 
@@ -125,6 +133,21 @@ function isExplicitDiagnosticRun(normalized: string): boolean {
   return /^(?:please\s+)?(?:run|start|perform)\s+(?:a\s+)?(?:fresh\s+)?diagnostics?(?:\s+scan)?(?:\s+(?:now|please|again))?\b/.test(normalized);
 }
 
+function isExplicitSpawnerNoEditMission(normalized: string): boolean {
+  if (/\b(?:do\s+not|don't|dont|no\s+need\s+to|without)\s+(?:start|run|launch|queue|dispatch|execute)\b/.test(normalized)) {
+    return false;
+  }
+  return /\bspawner\b/.test(normalized) &&
+    /\b(?:run|start|launch|queue|execute)\b/.test(normalized) &&
+    /\bmission\b/.test(normalized) &&
+    (
+      /\bno[-\s]*edit\b/.test(normalized) ||
+      /\b(?:do\s+not|don't|dont)\s+edit\s+files?\b/.test(normalized) ||
+      /\brepl(?:y|ies)\s+with\b/.test(normalized) ||
+      /\bspark_[a-z0-9_]{4,}\b/.test(normalized)
+    );
+}
+
 function isShortConfirmation(normalized: string): boolean {
   return normalized.length <= 90 && /^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)(?:[.! ]*)$/i.test(normalized);
 }
@@ -134,7 +157,28 @@ function isExplicitNaturalRun(normalized: string): boolean {
 }
 
 function isExplicitMemoryWrite(normalized: string): boolean {
-  return /^(?:memory\s+(?:update|note)|save\s+to\s+memory|please\s+)?(?:remember|save|store)\b/.test(normalized) || /^memory\s+(?:update|note)\s*[:,-]/.test(normalized);
+  return /^(?:memory\s+(?:update|note)|save\s+to\s+memory|please\s+)?(?:remember|save|store)\b/.test(normalized) ||
+    /^(?:for\s+later|note\s+for\s+later)\s*[,:-]/.test(normalized) ||
+    /^memory\s+(?:update|note)\s*[:,-]/.test(normalized);
+}
+
+function isExplicitScheduleDelete(normalized: string): boolean {
+  return /\b(?:delete|cancel|remove|kill|stop|drop|disable|turn\s+off)\b.{0,80}\b(?:schedule|scheduled|reminder|job|automation|routine|recurring\s+task|sched-[a-z0-9]+)\b/.test(normalized) ||
+    /\b(?:schedule|scheduled|reminder|job|automation|routine|recurring\s+task|sched-[a-z0-9]+)\b.{0,80}\b(?:delete|cancel|remove|kill|stop|drop|disable|turn\s+off)\b/.test(normalized);
+}
+
+function isExplicitDomainChipCreate(normalized: string): boolean {
+  return /\b(?:build|create|make|scaffold|generate)\b.{0,80}\b(?:domain[-\s]*chip|chip)\b/.test(normalized) ||
+    /^(?:please\s+)?(?:domain[-\s]*chip|chip)\s+(?:for|that|which|to)\b/.test(normalized);
+}
+
+function isExplicitSparkSelfImprovementRequest(normalized: string): boolean {
+  return (
+    /\b(?:run|start|perform|execute|pick|choose|decide)\b.{0,100}\b(?:spark\s+)?self[-\s]*improvement\b/.test(normalized) ||
+    /\b(?:what|which)\b.{0,80}\b(?:you|spark|agent)\b.{0,80}\b(?:improve|upgrade|repair|fix|work\s+on)\b/.test(normalized) ||
+    /\b(?:improving|improve|upgrade|change|install|enable|connect|wire|integrate|give|build|create|set\s+up|make)\b.{0,120}\b(?:your|you|spark|agent)\b.{0,80}\b(?:capabilit(?:y|ies)|brain|memory|workflow|voice|email|calendar|files?|tools?|skills?|integrations?)\b/.test(normalized) ||
+    /\b(?:your|you|spark|agent)\b.{0,80}\b(?:capabilit(?:y|ies)|brain|memory|workflow|voice|email|calendar|files?|tools?|skills?|integrations?)\b.{0,120}\b(?:improve|upgrade|change|install|enable|connect|wire|integrate|give|build|create|set\s+up|make)\b/.test(normalized)
+  );
 }
 
 function isBoundedOperatorProbe(normalized: string): boolean {
@@ -155,11 +199,23 @@ function isBoundedOperatorProbe(normalized: string): boolean {
   );
 }
 
+function isExplicitSparkQaRun(normalized: string): boolean {
+  return /\bspark\s+qa\s+operator\b/.test(normalized) &&
+    /\b(?:benchmark|autoloop|proof|score|scores)\b/.test(normalized) &&
+    /\b(?:run|start|execute|perform)\b/.test(normalized);
+}
+
+function isExplicitSparkQaPause(normalized: string): boolean {
+  return /\b(?:pause|stop|hold)\b/.test(normalized) &&
+    /\bspark\s+qa\s+operator\b/.test(normalized) &&
+    /\b(?:loop|autoloop|rounds?)\b/.test(normalized);
+}
+
 function isExplicitExternalResearch(normalized: string): boolean {
   return (
     /\b(?:look\s+(?:at|into)|research|inspect|compare|study|analy[sz]e|dig\s+(?:into|deep\s+into))\b/.test(normalized) &&
     (
-      /\b(?:docs?|documentation|repos?|repositories|github|codebases?|source\s+code|openclaw|hermes)\b/.test(normalized) ||
+      /\b(?:docs?|documentation|repos?|repositories|github|codebases?|source\s+code|open\s+source|agent\s+harness|openclaw|hermes)\b/.test(normalized) ||
       /\b(?:today|latest|current|recent|people\s+are\s+saying|web|internet|online|public)\b/.test(normalized)
     )
   );
@@ -170,12 +226,48 @@ function isNoExecutionBoundary(normalized: string): boolean {
     /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
     /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|publish|share|ship|deploy|kick\s+off)\b/,
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|the\s+mission|the\s+build|the\s+project|it|this|that)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|a\s+domain[-\s]*chip|a\s+chip|the\s+mission|the\s+build|the\s+project|the\s+domain[-\s]*chip|the\s+chip|it|this|that)\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute)\s+(?:(?:a|another)\s+)?(?:mission|build|project)\b/,
     /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
+    /\b(?:mentioning|just mentioning|only mentioning|keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|quoted text|quoted bug[-\s]*report term|bug\s+report|qa\s+case|meta[-\s]*language|not a request|not an instruction|not a command|not asking for|does\s+not\s+mean|doesn't\s+mean|not\s+mean)\b.{0,100}\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas)\b/,
+    /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas)\b.{0,100}\b(?:keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|quoted text|quoted bug[-\s]*report term|bug\s+report|qa\s+case|meta[-\s]*language|not a request|not an instruction|not a command|not asking for|does\s+not\s+mean|doesn't\s+mean|not\s+mean)\b/,
+    /\b(?:stay in chat|just explain|explain the boundary|explain the failure class)\b/,
     /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/
   ].some((pattern) => pattern.test(normalized));
+}
+
+function hasExecutionStopBoundary(normalized: string): boolean {
+  return [
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|a\s+domain[-\s]*chip|a\s+chip|the\s+mission|the\s+build|the\s+project|the\s+domain[-\s]*chip|the\s+chip|it|this|that)\b/,
+    /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
+    /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasPublicationOnlyBoundary(normalized: string): boolean {
+  return (
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:publish|share|ship|deploy)\b/.test(normalized) ||
+    /\b(?:private|local only|local-only|keep it local|do not claim public|don't claim public|no public|not public|network[-\s]*absorbable\s+false)\b/.test(normalized)
+  ) && !hasExecutionStopBoundary(normalized);
+}
+
+function isLocalSelfImprovementCanary(normalized: string): boolean {
+  const asksToRun = /\b(?:run|start|perform|execute)\b/.test(normalized);
+  const selfImprovement =
+    /\b(?:spark\s+)?(?:startup\s+)?self[-\s]*improvement\b/.test(normalized) ||
+    /\bself[-\s]*improving\s+(?:agent|loop)\b/.test(normalized);
+  const canaryShape =
+    /\b(?:canary|baseline|improved\s+answer|before\s*\/\s*after|before\s+and\s+after|jury\s+verdict|blind\s+jury|critique|proof\s+boundary)\b/.test(normalized);
+  const publicationBoundary =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:publish|share|ship|deploy|merge|claim)\b/.test(normalized) ||
+    /\b(?:public[-\s]*ready|network[-\s]*absorbable|network\s+absorption|promotion\s+gates?)\b/.test(normalized);
+  const explicitNoRun =
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|kick\s+off)\b/.test(normalized) ||
+    /\b(?:no|not)\s+(?:run|execution|launch)(?:ning)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized);
+
+  return asksToRun && selfImprovement && canaryShape && publicationBoundary && !explicitNoRun;
 }
 
 function isCreatorMissionPlanOnlyRequest(normalized: string): boolean {
@@ -194,6 +286,12 @@ function isCreatorMissionPlanOnlyRequest(normalized: string): boolean {
     /\b(?:help\s+me\s+)?(?:think\s+through|brainstorm|discuss|talk\s+through|chat\s+about)\b/.test(normalized) ||
     /\b(?:we can|we should|let'?s|lets|just)\s+(?:talk|chat|discuss)(?:\s+(?:here|for now|instead))?\b/.test(normalized);
   return !blocksPlanning;
+}
+
+function isExplicitCreatorArtifactRequest(normalized: string): boolean {
+  return /\b(?:create|build|make|scaffold|generate|prepare)\b/.test(normalized) &&
+    /\b(?:benchmark\s+pack|eval\s+pack|review\s+packet|creator\s+artifact|proof\s+packet)\b/.test(normalized) &&
+    !/\b(?:do not|don't|dont|no need to)\s+(?:create|build|make|scaffold|generate|prepare)\b/.test(normalized);
 }
 
 function isMissionPreferenceLike(normalized: string): boolean {
@@ -226,6 +324,26 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'creator.mission' && isNoExecutionBoundary(normalized) && isCreatorMissionPlanOnlyRequest(normalized)) {
     return { allow: true, reason: 'creator_mission_plan_only', confidence: 'explicit' };
   }
+  if (route === 'creator.mission' && isExplicitCreatorArtifactRequest(normalized)) {
+    return { allow: true, reason: 'explicit_creator_artifact', confidence: 'explicit' };
+  }
+
+  if (route === 'spark.self_improvement' && isNoExecutionBoundary(normalized) && isLocalSelfImprovementCanary(normalized)) {
+    return { allow: true, reason: 'self_improvement_canary_local_only', confidence: 'explicit' };
+  }
+
+  if (route === 'spawner.build' && isConcreteProjectBuild(normalized) && hasPublicationOnlyBoundary(normalized)) {
+    return { allow: true, reason: 'concrete_project_build_local_only', confidence: 'explicit' };
+  }
+  if (route === 'spawner.build' && isExplicitSpawnerNoEditMission(normalized)) {
+    return { allow: true, reason: 'explicit_spawner_no_edit_mission', confidence: 'explicit' };
+  }
+  if (route === 'schedule.delete' && isExplicitScheduleDelete(normalized)) {
+    return { allow: true, reason: 'explicit_schedule_delete', confidence: 'explicit' };
+  }
+  if (route === 'domain_chip.create' && isExplicitDomainChipCreate(normalized)) {
+    return { allow: true, reason: 'explicit_domain_chip_create', confidence: 'explicit' };
+  }
 
   if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
     return { allow: false, reason: 'no_execution_boundary', confidence: 'blocked' };
@@ -234,8 +352,17 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {
     return { allow: true, reason: 'concrete_project_build', confidence: 'explicit' };
   }
+  if (route === 'spawner.build' && isExplicitSpawnerNoEditMission(normalized)) {
+    return { allow: true, reason: 'explicit_spawner_no_edit_mission', confidence: 'explicit' };
+  }
   if (route === 'spawner.build' && isMissionPreferenceLike(normalized)) {
     return { allow: false, reason: 'mission_preference_not_build', confidence: 'blocked' };
+  }
+  if (isBoundedOperatorProbe(normalized) && MISSION_OR_BUILD_ROUTES.has(route)) {
+    return { allow: false, reason: 'operator_probe_competing_route', confidence: 'blocked' };
+  }
+  if (route === 'spawner.build' && !isConcreteProjectBuild(normalized)) {
+    return { allow: false, reason: 'plain_chat_protected', confidence: 'blocked' };
   }
   if (route === 'access.change' && isExplicitAccessChange(normalized)) {
     return { allow: true, reason: 'explicit_access_change', confidence: 'explicit' };
@@ -252,15 +379,23 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'memory.write' && isExplicitMemoryWrite(normalized)) {
     return { allow: true, reason: 'explicit_memory_write', confidence: 'explicit' };
   }
+  if (route === 'spark.self_improvement' && isExplicitSparkSelfImprovementRequest(normalized)) {
+    return { allow: true, reason: 'explicit_spark_self_improvement', confidence: 'explicit' };
+  }
   if (route === 'spawner.external_research' && isExplicitExternalResearch(normalized)) {
     return { allow: true, reason: 'explicit_external_research', confidence: 'explicit' };
   }
   if (route === 'operator.safe_action' && isBoundedOperatorProbe(normalized)) {
     return { allow: true, reason: 'bounded_operator_probe', confidence: 'explicit' };
   }
-
-  if (isBoundedOperatorProbe(normalized) && MISSION_OR_BUILD_ROUTES.has(route)) {
-    return { allow: false, reason: 'operator_probe_competing_route', confidence: 'blocked' };
+  if (route === 'sparkqa.run' && isExplicitSparkQaRun(normalized)) {
+    return { allow: true, reason: 'explicit_sparkqa_run', confidence: 'explicit' };
+  }
+  if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
+    return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
+  }
+  if (route === 'domain_chip.pending' && normalized === 'yes') {
+    return { allow: false, reason: 'ambiguous_pending_domain_chip_confirmation', confidence: 'blocked' };
   }
 
   if (isProtectedPlainChat(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
@@ -286,8 +421,11 @@ export function shouldUseRouteArbiter(
     'short_pending_confirmation',
     'explicit_provider_run',
     'explicit_memory_write',
+    'explicit_spark_self_improvement',
     'explicit_external_research',
-    'bounded_operator_probe'
+    'bounded_operator_probe',
+    'explicit_sparkqa_run',
+    'explicit_sparkqa_pause'
   ].includes(verdict.reason)) {
     return false;
   }

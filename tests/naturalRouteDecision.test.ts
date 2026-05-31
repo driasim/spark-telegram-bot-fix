@@ -190,6 +190,26 @@ test('routes contextual access changes only after access-focused turns', () => {
   assert.equal(decideNaturalRoute('4', { recentMessages: ['User: I like the fourth design'] }).route, 'plain_chat');
 });
 
+test('routes read-only repair turns to access status instead of contextual missions', () => {
+  const recentMessages = [
+    'User: how are you Spark',
+    'Spark: This runner is still read-only, so I will not pretend I can edit from here.',
+    'User: lets make it beyond read only then',
+    'Spark: I will check access and runner writability first.'
+  ];
+
+  const repair = decideNaturalRoute('lets make it beyond read only then', { recentMessages });
+  assert.equal(repair.route, 'access.status');
+  assert.equal(repair.owner_system, 'spark-telegram-bot');
+  assert.equal(repair.payload.reason, 'access_capability_repair');
+  assert.equal(repair.requires_confirmation, false);
+
+  const didYou = decideNaturalRoute('did you', { recentMessages });
+  assert.equal(didYou.route, 'access.status');
+  assert.equal(didYou.owner_system, 'spark-telegram-bot');
+  assert.equal(didYou.requires_confirmation, false);
+});
+
 test('routes wiki status, inventory, answer, and query requests to Builder-owned memory surfaces', () => {
   const status = decideNaturalRoute('is your Spark wiki connected and healthy?');
   const inventory = decideNaturalRoute('what pages are in your LLM wiki?');
@@ -286,7 +306,7 @@ test('routes specialization loop proof and candidate follow-ups from active path
   assert.equal(runCandidateBenchmark.requires_confirmation, true);
   assert.match(String(runCandidateBenchmark.payload.rawCommand), /start startup-yc rounds 1/);
 
-  assert.equal(compare.route, 'recursive.compare');
+  assert.equal(compare.route, 'recursive.status');
   assert.equal(compare.requires_confirmation, false);
 
   assert.equal(heldOut.route, 'recursive.status');

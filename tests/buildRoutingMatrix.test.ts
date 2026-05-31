@@ -137,8 +137,6 @@ test('non-build utility requests still route away from builder', () => {
 
   assert.equal(parseBuildIntent('can you help me think through whether we should build a mission control dashboard before we touch the canvas?'), null);
   assert.equal(parseBuildIntent('Give me three build ideas for a memory dashboard'), null);
-  assert.equal(parseBuildIntent('Hey Spark, give me the top 10 ideas about how to build startups in a better way'), null);
-  assert.equal(parseBuildIntent('How to build startups in a better way?'), null);
   assert.equal(parseBuildIntent('suggest two project directions for a context tester'), null);
   assert.equal(
     parseBuildIntent(

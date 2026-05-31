@@ -158,6 +158,42 @@ test('builds Codex exec args for non-git Spark workspaces', () => {
   ]);
 });
 
+test('passes explicit Codex reasoning effort and service tier', () => {
+  const oldEffort = process.env.CODEX_REASONING_EFFORT;
+  const oldTier = process.env.CODEX_SERVICE_TIER;
+  process.env.CODEX_REASONING_EFFORT = 'high';
+  process.env.CODEX_SERVICE_TIER = 'priority';
+
+  try {
+    assert.deepEqual(codexExecArgs('gpt-5.5', '/tmp/last-message.txt'), [
+      'exec',
+      '--skip-git-repo-check',
+      '-c',
+      'model_reasoning_effort="high"',
+      '-c',
+      'service_tier="priority"',
+      '--model',
+      'gpt-5.5',
+      '--sandbox',
+      'read-only',
+      '--output-last-message',
+      '/tmp/last-message.txt',
+      '-',
+    ]);
+  } finally {
+    if (oldEffort === undefined) {
+      delete process.env.CODEX_REASONING_EFFORT;
+    } else {
+      process.env.CODEX_REASONING_EFFORT = oldEffort;
+    }
+    if (oldTier === undefined) {
+      delete process.env.CODEX_SERVICE_TIER;
+    } else {
+      process.env.CODEX_SERVICE_TIER = oldTier;
+    }
+  }
+});
+
 test('system prompt teaches fresh Spark installs their ecosystem', () => {
   const prompt = buildSparkChatSystemPrompt('', '');
 

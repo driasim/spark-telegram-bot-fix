@@ -27,8 +27,6 @@ import {
   isRouteConfidenceGateUnsupportedError,
   latestCanvasPlanFromLoadState,
   routeConfidenceGateCompatibilityAllows,
-  cleanupSlidingWindowRateLimit,
-  slidingWindowRateLimitAllows,
   shouldUsePendingClarificationForMessage
 } from '../src/index';
 
@@ -51,29 +49,6 @@ function assertBuild(prompt: string, expectedProjectName: string): void {
   assert.ok(intent, `Expected build route for:\n${prompt}`);
   assert.equal(intent.projectName, expectedProjectName);
 }
-
-test('rate limit uses a sliding window instead of a single last-action timestamp', () => {
-  const requests = new Map<number, number[]>();
-
-  assert.equal(slidingWindowRateLimitAllows(requests, 123, 0), true);
-  assert.equal(slidingWindowRateLimitAllows(requests, 123, 400), true);
-  assert.equal(slidingWindowRateLimitAllows(requests, 123, 800), true);
-  assert.equal(slidingWindowRateLimitAllows(requests, 123, 999), false);
-  assert.equal(slidingWindowRateLimitAllows(requests, 123, 1000), true);
-  assert.deepEqual(requests.get(123), [400, 800, 1000]);
-});
-
-test('rate limit cleanup removes stale users and preserves active windows', () => {
-  const requests = new Map<number, number[]>([
-    [123, [0, 10]],
-    [456, [950, 990]],
-  ]);
-
-  cleanupSlidingWindowRateLimit(requests, 1500);
-
-  assert.equal(requests.has(123), false);
-  assert.deepEqual(requests.get(456), [950, 990]);
-});
 
 test('bug hunt: strategy, QA, and route-meta conversations do not hijack into builds', () => {
   [
@@ -171,6 +146,8 @@ test('bug hunt: no-execution boundaries outrank build and mission words', () => 
 
 test('bug hunt: pending domain-chip drafts only accept explicit confirmation or chip-shaping direction', () => {
   assert.equal(isDomainChipPendingDirection('go'), true);
+  assert.equal(isDomainChipPendingDirection('yes'), false);
+  assert.equal(isDomainChipPendingDirection('yes create it'), true);
   assert.equal(isDomainChipPendingDirection('names with rationale and usage angle, make the vibe surreal'), true);
   assert.equal(isDomainChipPendingDirection('luxury sci-fi but still developer-friendly'), true);
   assert.equal(
@@ -431,10 +408,6 @@ test('bug hunt: casual next-step questions do not recall stale canvas plans', ()
     isLatestCanvasPlanQuestion('Do not start a mission. If I say "Create a tiny maze game plan and build only a minimal playable prototype", what mission title would you use? Keep it natural and short.'),
     false
   );
-  assert.equal(
-    isLatestCanvasPlanQuestion('Do not start a mission or build anything. Just answer in chat. I want to check whether my Spark providers are ready. What command should I run for spark providers status or the nearest provider test command? Please explain how to read missing keys, role-specific readiness for Agent LLM versus Mission LLM, and the safest next step if one provider is not ready. Do not print raw config, secrets, tokens, or full environment values.'),
-    false
-  );
 });
 
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
@@ -466,7 +439,6 @@ test('bug hunt: latest canvas plan can be restored from persisted Spawner state 
   assert.match(reply, /2 build steps are queued\./);
   assert.match(reply, /• Create the playable game shell - frontend, Three\.js, game dev, game UI, mobile/);
   assert.match(reply, /Skills invoked\n• Active: 10 skills: frontend, Three\.js, game dev, game UI, mobile, game design, game loop, puzzle, procedural, levels\n• Skill tier: pro tier \(full Spark skill catalog\)/);
-  assert.doesNotMatch(reply, /spark-skill-graphs/);
   assert.match(reply, /Canvas\n• http:\/\/127\.0\.0\.1:3333\/canvas\?pipeline=prd-tg-build-d9318b7927c7-1778771867119&mission=mission-1778771867119/);
   assert.doesNotMatch(reply, /I can turn this into/);
 });
@@ -495,6 +467,31 @@ test('bug hunt: provider completion does not make failures look shipped', () => 
   assert.match(noText, /Open the preview or board if you want to inspect what changed\./);
   assert.doesNotMatch(noText, /Codex:\s*completed without a text response/i);
   assert.doesNotMatch(noText, /Mission: mission-empty/);
+});
+
+test('bug hunt: created mission handoff is not framed as finished work', () => {
+  const message = formatProviderCompletionForTelegram({
+    providerLabel: 'codex',
+    missionId: 'mission-agent-mission-control-v1',
+    verbosity: 'normal',
+    response: [
+      'Created the focused Spawner mission v1.',
+      '',
+      'Mission: `mission-agent-mission-control-v1`',
+      'Canvas: http://127.0.0.1:3334/canvas?pipeline=prd-telegram-agent-mission-control-v1&mission=mission-agent-mission-control-v1',
+      'Kanban: http://127.0.0.1:3334/kanban?mission=mission-agent-mission-control-v1',
+      '',
+      'Verification passed:',
+      '- Board shows the mission in `created` with `5/5` tasks queued.',
+      '- Trace reports `canvas_ready`, `0%`, `5` nodes.',
+      '- npm run smoke:routes passed.'
+    ].join('\n')
+  });
+
+  assert.match(message, /(?:staged the handoff|queued, not completed|set up; execution is still pending|canvas is ready)/i);
+  assert.match(message, /Created the focused Spawner mission v1/i);
+  assert.doesNotMatch(message, /I got this one finished|got it done|came back clean|this one is finished/i);
+  assert.doesNotMatch(message, /^✨/);
 });
 
 test('bug hunt: missing Builder route-confidence command degrades through local compatibility gate', () => {

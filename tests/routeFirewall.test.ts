@@ -34,6 +34,17 @@ test('allows explicit project builds through the firewall', () => {
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('allows explicit no-edit Spawner missions through the firewall', () => {
+  const verdict = evaluateDeterministicRoute(
+    'spawner.build',
+    'Run a tiny mission through Spawner that only replies: SPARK_TURNINTENT_QA_OK_6. Do not edit files.'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
 test('allows explicit memory updates even when they mention plans', () => {
   const verdict = evaluateDeterministicRoute(
     'memory.write',
@@ -90,6 +101,17 @@ test('allows reusable loop template staging while run and publish are blocked', 
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('allows explicit creator benchmark pack artifacts through Spark QA meta language', () => {
+  const verdict = evaluateDeterministicRoute(
+    'creator.mission',
+    'create a benchmark pack for Spark QA Operator that tests stale scores, wrong Workspace evidence, route drift, natural-language context hijack, no-op loops, and private review boundary mistakes'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'explicit_creator_artifact');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
 test('uses the firewall as a broad route-arbitration smoke matrix', () => {
   const cases: Array<{
     name: string;
@@ -127,6 +149,13 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       reason: 'plain_chat_protected'
     },
     {
+      name: 'tokenomics allocation question is chat, not a fast build',
+      route: 'spawner.build',
+      prompt: 'we already have a big community airdrop that we promised so it needs to be around 20% imo. and team 10% makes sense wondering what if we make liquidity dex 5% would it be too small or good enough, and then we could have some more stuff for ecosystem rewards.',
+      allow: false,
+      reason: 'plain_chat_protected'
+    },
+    {
       name: 'bug-hunt QA is chat, not pending domain chip execution',
       route: 'domain_chip.pending',
       prompt: 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow',
@@ -152,6 +181,19 @@ test('uses the firewall as a broad route-arbitration smoke matrix', () => {
       prompt: 'go',
       allow: true,
       reason: 'short_pending_confirmation'
+    },
+    {
+      name: 'bare yes does not start stale pending domain chip work',
+      route: 'domain_chip.pending',
+      prompt: 'yes',
+      allow: false,
+      reason: 'ambiguous_pending_domain_chip_confirmation'
+    },
+    {
+      name: 'explicit pending domain chip start still works',
+      route: 'domain_chip.pending',
+      prompt: 'yes create it',
+      allow: true
     },
     {
       name: 'explicit provider run still works',
