@@ -71,8 +71,31 @@ const MISSION_OR_BUILD_ROUTES = new Set<DeterministicRouteId>([
   'domain_chip.pending'
 ]);
 
+const CYRILLIC_TO_ASCII_OFFSET = 0x0430 - 0x0061;
+
+const HOMOGLYPH_REPLACEMENTS: Record<number, string> = {
+  0x03bf: 'o', // Greek omicron
+  0x03c1: 'p', // Greek rho
+};
+
+export function normalizeRouteFirewallText(text: string): string {
+  let value = text.normalize('NFKD').toLowerCase();
+  value = value.replace(/[\u0300-\u036f]/g, '');
+  value = Array.from(value, (char) => {
+    const code = char.charCodeAt(0);
+    if (code in HOMOGLYPH_REPLACEMENTS) {
+      return HOMOGLYPH_REPLACEMENTS[code];
+    }
+    if (code >= 0x0430 && code <= 0x044f) {
+      return String.fromCharCode(code - CYRILLIC_TO_ASCII_OFFSET);
+    }
+    return char;
+  }).join('');
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 function normalize(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return normalizeRouteFirewallText(text);
 }
 
 function isQuestionLike(normalized: string): boolean {
