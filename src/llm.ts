@@ -71,7 +71,7 @@ function joinUrl(baseUrl: string, pathName: string): string {
 
 function stripReasoningPreamble(text: string): string {
   return text
-    .replace(/<think>[\s\S]*?(?:<\/think>|<\/thin>|$)/gi, '')
+    .replace(/<think>[\s\S]*?(?:<\/think>|<\/thin>)/gi, '')
     .trim();
 }
 
