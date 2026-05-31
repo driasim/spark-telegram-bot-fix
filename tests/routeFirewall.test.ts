@@ -112,6 +112,49 @@ test('allows explicit creator benchmark pack artifacts through Spark QA meta lan
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('does not let Spark QA score wording steal benchmark-pack creation', () => {
+  const verdict = evaluateDeterministicRoute(
+    'sparkqa.run',
+    'create a benchmark pack for Spark QA Operator that tests stale scores, wrong Workspace evidence, route drift, and no-op loops'
+  );
+
+  assert.equal(verdict.allow, false);
+  assert.equal(verdict.reason, 'plain_chat_protected');
+});
+
+test('allows Spark QA benchmark score proof questions through the run boundary', () => {
+  const verdict = evaluateDeterministicRoute(
+    'sparkqa.run',
+    'show Spark QA Operator benchmark score'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'explicit_sparkqa_run');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
+test('allows Spark QA pause control even when it blocks more rounds', () => {
+  const verdict = evaluateDeterministicRoute(
+    'sparkqa.pause',
+    'pause the Spark QA Operator loop; do not keep running more rounds'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'explicit_sparkqa_pause');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
+test('allows explicit no-edit Mission Control diagnostics through Spawner', () => {
+  const verdict = evaluateDeterministicRoute(
+    'spawner.build',
+    'Run a deliberately slow no-edit Mission Control diagnostic through Spawner. It should only prove live running-state UI and reply with SPARK_E2E_SLOW_NO_EDIT_OK after waiting about 30 seconds. Do not create files, do not edit files.'
+  );
+
+  assert.equal(verdict.allow, true);
+  assert.equal(verdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(verdict.confidence, 'explicit');
+});
+
 test('uses the firewall as a broad route-arbitration smoke matrix', () => {
   const cases: Array<{
     name: string;

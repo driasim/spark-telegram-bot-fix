@@ -600,6 +600,7 @@ export function parseRecursiveCommand(raw: string): RecursiveCommand | null {
   if (
     action === 'session' ||
     action === 'status' ||
+    action === 'benchmark' ||
     action === 'compare' ||
     action === 'evidence' ||
     action === 'package' ||
@@ -1597,6 +1598,7 @@ function compactCandidateSummary(summary: string): string {
 export function renderSpecializationLoopInsights(insights: SpecializationLoopInsights): string {
   const label = insights.pathLabel || labelFromKey(insights.pathKey || 'specialization path');
   if (!insights.ok) {
+    if (insights.status) return renderSpecializationLoopStatus(insights.status);
     return `I could not read the latest ${label} loop yet. ${ensureSentence(insights.error || 'No session summary is available.')}`;
   }
 

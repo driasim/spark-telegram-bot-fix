@@ -733,16 +733,16 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /Spawner board/);
+    assert.match(result.message, /Right now/);
     assert.match(result.message, /• running: 1/);
-    assert.match(result.message, /• Build canvas sync/);
+    assert.match(result.message, /Build canvas sync/);
     assert.doesNotMatch(result.message, /spark-stale/);
-    assert.match(result.message, /• history: 2 \(1 complete, 0 failed, 1 cancelled\)/);
+    assert.match(result.message, /History/);
+    assert.match(result.message, /• total: 2/);
+    assert.match(result.message, /• complete: 1/);
+    assert.match(result.message, /• cancelled: 1/);
     assert.doesNotMatch(result.message, /• completed: 1/);
-    assert.doesNotMatch(result.message, /• failed: 0/);
-    assert.match(result.message, /Inspect\n• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/spark-fresh/);
-    assert.match(result.message, /• Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-fresh/);
-    assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=spark-fresh/);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-fresh/);
     assert.doesNotMatch(result.message, /^-\s+/m);
   });
 
@@ -766,7 +766,11 @@ async function run(): Promise<void> {
     assert.equal(result.success, true);
     assert.match(result.message, /• running: 0/);
     assert.match(result.message, /• paused: 0/);
-    assert.match(result.message, /• history: 0 \(0 complete, 0 failed, 0 cancelled\)/);
+    assert.match(result.message, /History/);
+    assert.match(result.message, /• total: 0/);
+    assert.match(result.message, /• complete: 0/);
+    assert.match(result.message, /• failed: 0/);
+    assert.match(result.message, /• cancelled: 0/);
   });
 
   await test('board renders readable active mission titles instead of raw ids', async () => {
@@ -795,9 +799,9 @@ async function run(): Promise<void> {
     const result = await spawner.board();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /• Mission Command Orphan Pause/);
+    assert.match(result.message, /• paused: 1 - Mission Command Orphan Pause/);
     assert.doesNotMatch(result.message, /• mission-command-orphan-pause/);
-    assert.match(result.message, /Inspect\n• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/mission-command-orphan-pause/);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-command-orphan-pause/);
   });
 
   await test('activeMissionSummary answers running and paused questions without terminal-count drift or raw ids', async () => {
@@ -840,7 +844,7 @@ async function run(): Promise<void> {
     const result = await spawner.activeMissionSummary();
 
     assert.equal(result.success, true);
-    assert.equal(result.message, 'Mission Control has nothing running. One paused mission: Mission Command Orphan Pause.');
+    assert.equal(result.message, 'Mission Control has nothing running. One paused mission: Mission Command Orphan Pause. You can say `resume that one` if you want it moving again.');
     assert.doesNotMatch(result.message, /Spawner board|Counts|Latest|Inspect/);
     assert.doesNotMatch(result.message, /completed:|failed:|mission-command-orphan-pause|trace\?|\/missions\//i);
   });
@@ -1178,12 +1182,10 @@ async function run(): Promise<void> {
     const result = await spawner.latestFailureSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /That run did not make it through\. It was Recursive Sage Maze Game\./);
+    assert.match(result.message, /That run did not make it through: Recursive Sage Maze Game\./);
     assert.match(result.message, /Skill API was unreachable from the spawned Codex lane/);
     assert.match(result.message, /spawned workspace was read-only/);
-    assert.match(result.message, /Inspect\n• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/mission-game/);
-    assert.match(result.message, /• Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-game/);
-    assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=mission-game/);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-game/);
     assert.doesNotMatch(result.message, /^Mission$/m);
     assert.doesNotMatch(result.message, /^Move$/m);
     assert.doesNotMatch(result.message, /\b(?:mandatory|required)\s+H70/i);
@@ -1222,10 +1224,9 @@ async function run(): Promise<void> {
     const result = await spawner.latestFailureSummary();
 
     assert.equal(result.success, true);
-    assert.match(result.message, /That run did not make it through\. It was Axiom Garden\./);
-    assert.match(result.message, /The blocker I can prove:\n• Spawner recorded a provider failure\./);
-    assert.match(result.message, /Inspect\n• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/mission-generic-failure/);
-    assert.equal((result.message.match(/Inspect/g) || []).length, 1);
+    assert.match(result.message, /That run did not make it through: Axiom Garden\./);
+    assert.match(result.message, /What blocked it\n• Spawner recorded a provider failure\./);
+    assert.match(result.message, /Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=mission-generic-failure/);
     assert.doesNotMatch(result.message, /^Mission$/m);
     assert.doesNotMatch(result.message, /^Move$/m);
   });

@@ -145,6 +145,7 @@ export interface SpecializationLoopInsights {
   ok: boolean;
   pathKey: string;
   pathLabel?: string | null;
+  status?: SpecializationLoopStatus | null;
   sessionId?: string | null;
   completedRounds?: number;
   requestedRounds?: number;

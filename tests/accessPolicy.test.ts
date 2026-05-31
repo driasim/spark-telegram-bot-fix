@@ -305,7 +305,8 @@ async function main(): Promise<void> {
     assert.match(indexSource, /ephemeral, not memory/);
     assert.match(indexSource, /higher priority than older memory, persona, or generic access doctrine/);
     assert.match(indexSource, /const hasFreshRuntimeTruth = Boolean\(freshRuntimeTruthContext\)/);
-    assert.match(indexSource, /if \(!hasFreshRuntimeTruth\) \{[\s\S]*?runBuilderTelegramBridge/);
+    assert.match(indexSource, /if \(!hasFreshRuntimeTruth && !bypassBuilderBridge\) \{[\s\S]*?builderBridgeRunner/);
+    assert.match(indexSource, /shouldBypassBuilderBridgeForTurnIntent/);
     assert.match(indexSource, /Authoritative current-state context for this answer/);
     assert.match(indexSource, /highest-priority source for current state/);
     assert.match(indexSource, /const reply = await renderAuthoritativeSparkLiveStateAnswer\(\{ rawDetails: shouldShowRawSparkLiveDetails\(text\) \}\);[\s\S]*?await ctx\.reply\(reply\);/);
@@ -376,7 +377,7 @@ async function main(): Promise<void> {
   await test('gates Spawner command side doors by access level', async () => {
     const indexSource = await readFile(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
 
-    const pendingCreatorControl = indexSource.match(/async function handlePendingCreatorMissionControl[\s\S]*?\nfunction isPendingClarificationFollowup/);
+    const pendingCreatorControl = indexSource.match(/async function handlePendingCreatorMissionControl[\s\S]*?\nexport function isPendingClarificationAlternativeRequest/);
     assert.ok(pendingCreatorControl, 'expected pending creator mission control handler to exist');
     assert.match(pendingCreatorControl[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
     assert.match(pendingCreatorControl[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);
@@ -389,7 +390,7 @@ async function main(): Promise<void> {
     assert.ok(missionCommand, 'expected /mission command handler to exist');
     assert.match(missionCommand[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
 
-    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseSpawnerBoardNaturalIntent\(text\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
+    const naturalBoardRoute = indexSource.match(/const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent\(text, contextualTurns\);[\s\S]*?\n    if \(isLocalSparkServiceRequest/);
     assert.ok(naturalBoardRoute, 'expected natural Spawner board route to exist');
     assert.match(naturalBoardRoute[0], /sparkAccessAllows\(accessProfile, 'spawner_build'\)/);
     assert.match(naturalBoardRoute[0], /renderSparkAccessDenial\(accessProfile, 'spawner_build'\)/);

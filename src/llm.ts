@@ -80,9 +80,15 @@ export function isCodexProvider(value: string | undefined = process.env.LLM_PROV
 }
 
 export function codexExecArgs(model: string, outputPath: string): string[] {
+  const configArgs: string[] = [];
+  const reasoningEffort = process.env.CODEX_REASONING_EFFORT?.trim();
+  const serviceTier = process.env.CODEX_SERVICE_TIER?.trim();
+  if (reasoningEffort) configArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
+  if (serviceTier) configArgs.push('-c', `service_tier="${serviceTier}"`);
   return [
     'exec',
     '--skip-git-repo-check',
+    ...configArgs,
     '--model',
     model,
     '--sandbox',

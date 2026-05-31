@@ -137,9 +137,13 @@ function isExplicitSpawnerNoEditMission(normalized: string): boolean {
   if (/\b(?:do\s+not|don't|dont|no\s+need\s+to|without)\s+(?:start|run|launch|queue|dispatch|execute)\b/.test(normalized)) {
     return false;
   }
+  const missionLike = /\bmission\b/.test(normalized) ||
+    /\bmission\s+control\b/.test(normalized) ||
+    /\bdiagnostic\b/.test(normalized) ||
+    /\bproof\b/.test(normalized);
   return /\bspawner\b/.test(normalized) &&
     /\b(?:run|start|launch|queue|execute)\b/.test(normalized) &&
-    /\bmission\b/.test(normalized) &&
+    missionLike &&
     (
       /\bno[-\s]*edit\b/.test(normalized) ||
       /\b(?:do\s+not|don't|dont)\s+edit\s+files?\b/.test(normalized) ||
@@ -200,9 +204,10 @@ function isBoundedOperatorProbe(normalized: string): boolean {
 }
 
 function isExplicitSparkQaRun(normalized: string): boolean {
+  if (isExplicitCreatorArtifactRequest(normalized)) return false;
   return /\bspark\s+qa\s+operator\b/.test(normalized) &&
     /\b(?:benchmark|autoloop|proof|score|scores)\b/.test(normalized) &&
-    /\b(?:run|start|execute|perform)\b/.test(normalized);
+    /\b(?:run|start|execute|perform|show|check|report|score|scores|what(?:'s| is)|where)\b/.test(normalized);
 }
 
 function isExplicitSparkQaPause(normalized: string): boolean {
@@ -343,6 +348,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (route === 'domain_chip.create' && isExplicitDomainChipCreate(normalized)) {
     return { allow: true, reason: 'explicit_domain_chip_create', confidence: 'explicit' };
+  }
+  if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
+    return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
   }
 
   if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {

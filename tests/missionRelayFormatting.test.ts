@@ -1327,7 +1327,7 @@ void (async () => {
       });
 
       const suppressed = await markLatestMissionRelayCancelledForChat('8319079055', '8319079055');
-      assert.equal(suppressed?.missionId, missionId);
+      assert.equal(suppressed, missionId);
       assert.equal(shouldSuppressMissionHandoff(missionId), true);
     } finally {
       if (originalPort === undefined) delete process.env.TELEGRAM_RELAY_PORT;

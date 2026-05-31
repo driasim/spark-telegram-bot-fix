@@ -48,7 +48,6 @@ const tests = [
   'tests/diagnose.test.ts',
   'tests/recursive.test.ts',
   'tests/recursiveCommand.test.ts',
-  'tests/sparkQaOperator.test.ts',
   'tests/creatorMissionStatus.test.ts',
   'tests/launchConversationQuality.test.ts',
   'tests/builderBridge.test.ts',

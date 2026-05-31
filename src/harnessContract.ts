@@ -248,9 +248,11 @@ function executionPolicyForDecision(
   const route = decision.route;
   const canPublish = !decision.constraints.noPublish && !decision.constraints.localOnly;
   const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|sparkqa\.|recursive\.propose|recursive\.proposal)/.test(route);
+  const fileMutationBlocked = decision.payload?.noFileMutation === true ||
+    decision.matched_signals.includes('explicit_spawner_no_edit_mission');
 
   return {
-    canMutateFiles: !noExecution && localMutationRoute,
+    canMutateFiles: !noExecution && !fileMutationBlocked && localMutationRoute,
     canLaunchMission: !noExecution && /(?:spawner|mission|creator|domain_chip|startup\.answer_improvement_canary|natural_run|external_research)/.test(route),
     canWriteMemory: !noExecution && (route === 'memory.write' || route === 'spark_wiki.promote' || route === 'spark.wiki'),
     canDeleteSchedule: !noExecution && /schedule\.delete/.test(route),

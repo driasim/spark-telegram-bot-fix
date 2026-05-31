@@ -41,17 +41,28 @@ const originalEnv = {
 	BOT_DEFAULT_TIER: process.env.BOT_DEFAULT_TIER,
 	BOT_PRO_USER_IDS: process.env.BOT_PRO_USER_IDS,
 	ADMIN_TELEGRAM_IDS: process.env.ADMIN_TELEGRAM_IDS,
+	LLM_PROVIDER: process.env.LLM_PROVIDER,
 	SPARK_AGENT_ACCESS_PROFILE: process.env.SPARK_AGENT_ACCESS_PROFILE,
 	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
+	SPARK_CHAT_LLM_PROVIDER: process.env.SPARK_CHAT_LLM_PROVIDER,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
+	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
+	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
 	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
 	SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO: process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO,
 	SPAWNER_UI_PUBLIC_URL: process.env.SPAWNER_UI_PUBLIC_URL,
 	SPAWNER_UI_URL: process.env.SPAWNER_UI_URL
 };
+
+function applyDeterministicProviderDefaults(): void {
+	process.env.LLM_PROVIDER = 'disabled-for-test';
+	process.env.SPARK_CHAT_LLM_PROVIDER = 'disabled-for-test';
+	process.env.SPARK_LLM_PROVIDER = 'disabled-for-test';
+	process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER = '0';
+}
 
 function restoreAxios(): void {
 	(axios as any).post = originalPost;
@@ -62,6 +73,7 @@ function restoreEnv(): void {
 		if (v === undefined) delete (process.env as Record<string, string | undefined>)[k];
 		else (process.env as Record<string, string>)[k] = v;
 	}
+	applyDeterministicProviderDefaults();
 }
 
 interface CapturedCall {
@@ -124,6 +136,8 @@ async function callHandleBuildIntent(opts: {
 }
 
 async function run(): Promise<void> {
+	applyDeterministicProviderDefaults();
+
 	await test('getTierForUser: admin always pro', () => {
 		process.env.ADMIN_TELEGRAM_IDS = '1278511160,8319079055';
 		process.env.BOT_DEFAULT_TIER = 'base';

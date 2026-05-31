@@ -60,7 +60,8 @@ test('allows explicit project build only when route and envelope both authorize 
 
 test('allows explicit no-edit Spawner missions while preserving the file-edit constraint', () => {
   const text = 'Run a tiny mission through Spawner that only replies: SPARK_TURNINTENT_QA_OK_6. Do not edit files.';
-  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+  const envelope = envelopeFor(text);
+  const result = authorizeTelegramActionFromEnvelope(envelope, {
     route: 'spawner.build',
     text,
     toolName: 'spawner.run',
@@ -70,6 +71,56 @@ test('allows explicit no-edit Spawner missions while preserving the file-edit co
 
   assert.equal(result.allow, true);
   assert.equal(result.routeVerdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(result.toolAuthorization.verdict, 'allowed');
+  assert.equal(envelope.directive.noExecution, false);
+  assert.equal(envelope.executionPolicy.canLaunchMission, true);
+  assert.equal(envelope.executionPolicy.canMutateFiles, false);
+
+  const fileEditResult = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.files',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'writes_files'
+  });
+  assert.equal(fileEditResult.allow, false);
+  assert.ok(fileEditResult.reasonCodes.includes('tool_not_allowed_by_policy'));
+  assert.ok(fileEditResult.reasonCodes.includes('mutation_class_not_authorized'));
+});
+
+test('allows explicit no-edit Mission Control diagnostics through Spawner', () => {
+  const text = 'Run a deliberately slow no-edit Mission Control diagnostic through Spawner. It should only prove live running-state UI and reply with SPARK_E2E_SLOW_NO_EDIT_OK after waiting about 30 seconds. Do not create files, do not edit files, and share Canvas/Kanban/View Execution if it starts.';
+  const envelope = envelopeFor(text);
+  const result = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.allow, true);
+  assert.equal(result.routeVerdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(result.toolAuthorization.verdict, 'allowed');
+  assert.equal(envelope.directive.noExecution, false);
+  assert.equal(envelope.executionPolicy.canLaunchMission, true);
+  assert.equal(envelope.executionPolicy.canMutateFiles, false);
+});
+
+test('lets benchmark-pack creation own stale score wording', () => {
+  const text = 'create a level 10 benchmark pack for Spark QA Operator that tests stale scores, wrong Workspace evidence, route drift, natural-language context hijack, no-op loops, and private review boundary mistakes';
+  const envelope = envelopeFor(text);
+  const result = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'creator.mission',
+    text,
+    toolName: 'domain_chip.create',
+    ownerSystem: 'domain-chip',
+    mutationClass: 'creates_chip'
+  });
+
+  assert.equal(envelope.selectedIntent.ownerSystem, 'domain-chip');
+  assert.equal(result.allow, true);
+  assert.equal(result.routeVerdict.reason, 'explicit_creator_artifact');
   assert.equal(result.toolAuthorization.verdict, 'allowed');
 });
 

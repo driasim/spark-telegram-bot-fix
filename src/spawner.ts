@@ -910,7 +910,11 @@ function countValidationResults(run: CreatorValidationRun | null, status: Creato
 function formatValidationResultLine(result: CreatorValidationCommandResult): string {
   const artifact = result.artifact_id || result.artifact_type || 'unknown artifact';
   const status = result.status || 'unknown';
-  const suffix = result.error ? ` (${result.error})` : '';
+  const error = result.error || '';
+  const safeError = /(?:repository path not found|required path not found|no such file|enoent).*(?:\/Users\/|\.spark\/modules|[A-Z]:\\)/i.test(error)
+    ? 'required local artifact path is not available'
+    : error;
+  const suffix = safeError ? ` (${safeError})` : '';
   return `${status}: ${artifact}${suffix}`;
 }
 
@@ -1072,9 +1076,16 @@ export function formatCreatorMissionValidationSummary(
   const canvasUrl = absoluteSpawnerUrl(trace.links?.canvas, baseUrl);
   const failedOrSkipped = results.filter((item) => item.status === 'failed' || item.status === 'skipped').slice(0, 5);
   const status = result.status || run?.status || 'unknown';
+  const blockers = Array.isArray(trace.blockers) ? trace.blockers.filter((blocker) => String(blocker).trim()) : [];
+  const promotionBlocked = blockers.length > 0 ||
+    /block/.test(String(trace.stage_status || '').toLowerCase()) ||
+    /promotion[_-\s]*blocked/.test(String(trace.current_stage || '').toLowerCase());
+  const headline = status === 'passed' && promotionBlocked
+    ? '🟡 Creator artifact validation passed; promotion is still blocked.'
+    : `${creatorValidationIcon(status)} Creator validation ${formatCreatorReadiness(status)}.`;
 
   return [
-    `${creatorValidationIcon(status)} Creator validation ${formatCreatorReadiness(status)}.`,
+    headline,
     '',
     'Checks',
     `${results.length} command${results.length === 1 ? '' : 's'}`,
@@ -1084,9 +1095,10 @@ export function formatCreatorMissionValidationSummary(
     ...(failedOrSkipped.length > 0 ? ['', 'Needs attention', ...failedOrSkipped.map(formatValidationResultLine)] : []),
     '',
     'Ability',
-    status === 'passed'
+    status === 'passed' && !promotionBlocked
       ? 'The path can claim improvement only where the benchmark pack shows a before/after gain.'
-      : 'No higher-ability claim yet; fix the checks or rerun the benchmark pack first.',
+      : 'No higher-ability claim yet; promotion needs baseline, candidate, delta, held-out/trap verdicts, and benchmark refs.',
+    ...(promotionBlocked && blockers.length > 0 ? ['', 'Promotion blocker', blockers[0]] : []),
     '',
     'Workspace',
     ...(canvasUrl ? [`Canvas: ${canvasUrl}`] : []),

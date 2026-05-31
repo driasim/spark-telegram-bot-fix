@@ -62,6 +62,10 @@ export function parseTelegramIntentConstraintsV2(text: string): TelegramIntentCo
     /\b(?:just explain|explain only|only explain|we can talk here|talk here|stay in chat)\b/
   ].some((pattern) => pattern.test(normalized)) || (hasMetaLanguageBoundary && hasExecutionKeyword);
 
+  if (constraints.noExecution && isExplicitSpawnerNoEditMissionRequest(normalized)) {
+    constraints.noExecution = false;
+  }
+
   constraints.noPublish = [
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:publish|share|deploy|ship)\b/,
     /\bno\s+(?:publish|publication|sharing|deployment|shipping)\b/,
@@ -149,17 +153,22 @@ function isExplicitSpawnerBuildRequest(text: string): boolean {
 function isExplicitSpawnerNoEditMissionRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (/\b(?:do\s+not|don't|dont|no\s+need\s+to|without)\s+(?:start|run|launch|queue|dispatch|execute)\b/.test(normalized)) return false;
+  const missionLike = /\bmission\b/.test(normalized) ||
+    /\bmission\s+control\b/.test(normalized) ||
+    /\bdiagnostic\b/.test(normalized) ||
+    /\bproof\b/.test(normalized);
   return /\bspawner\b/.test(normalized) &&
     /\b(?:run|start|launch|queue|execute)\b/.test(normalized) &&
-    /\bmission\b/.test(normalized) &&
+    missionLike &&
     (/\bno[-\s]*edit\b/.test(normalized) || /\brepl(?:y|ies)\s+with\b/.test(normalized) || /\bspark_[a-z0-9_]{4,}\b/.test(normalized));
 }
 
 function isExplicitSparkQaRunRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (isCreatorBenchmarkPackRequest(normalized)) return false;
   return /\bspark\s+qa\s+operator\b/.test(normalized) &&
     /\b(?:benchmark|autoloop|proof|score|scores)\b/.test(normalized) &&
-    /\b(?:run|start|execute|perform)\b/.test(normalized);
+    /\b(?:run|start|execute|perform|show|check|report|score|scores|what(?:'s| is)|where)\b/.test(normalized);
 }
 
 function isExplicitSparkQaPauseRequest(text: string): boolean {
@@ -350,6 +359,7 @@ export function classifyTelegramIntentV2(text: string, context: TelegramIntentGa
     });
   }
 
+  const explicitSpawnerNoEditMission = isExplicitSpawnerNoEditMissionRequest(normalized);
   if (isExplicitSpawnerBuildRequest(normalized)) {
     return makeDecision({
       kind: 'build_or_spawner',
@@ -358,8 +368,11 @@ export function classifyTelegramIntentV2(text: string, context: TelegramIntentGa
       action: 'spawner.build',
       confidence: constraints.noExecution ? 'blocked' : 'explicit',
       constraints,
-      payload: basePayload(naturalRoute),
-      matched_signals: ['explicit_spawner_build'],
+      payload: {
+        ...basePayload(naturalRoute),
+        ...(explicitSpawnerNoEditMission ? { noFileMutation: true } : {})
+      },
+      matched_signals: [explicitSpawnerNoEditMission ? 'explicit_spawner_no_edit_mission' : 'explicit_spawner_build'],
       blocked_candidates: naturalRoute && naturalRoute.route !== 'spawner.build'
         ? [candidate(kindForNaturalRoute(naturalRoute.route), naturalRoute.route, naturalRoute.owner_system, 'Explicit project build request owns the turn over incidental routing signals.')]
         : [],
