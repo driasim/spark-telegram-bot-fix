@@ -27,4 +27,5 @@ ops/reports/
 .spark-gateway-state.db
 .spark-gateway-state.db-shm
 .spark-gateway-state.db-wal
+.spark-harness-core-tool-ledger.jsonl
 nul

@@ -8,8 +8,10 @@ import {
   authorizeHarnessCoreTelegramAction,
   type AuthorizationDecisionV1,
   type HarnessCoreProposedAction,
+  type ToolCallLedgerV1,
   type TurnIntentEnvelopeVNext
 } from './harnessCoreVNext';
+import { recordHarnessCoreAuthorizationLedger } from './harnessCoreLedger';
 import { evaluateDeterministicRoute, type DeterministicRouteId, type RouteFirewallVerdict } from './routeFirewall';
 
 export interface TelegramActionAuthorityInput extends ToolAuthorizationInput {
@@ -26,6 +28,7 @@ export interface TelegramActionAuthorityResult {
     action: HarnessCoreProposedAction;
     authorization: AuthorizationDecisionV1;
   };
+  harnessCoreLedger?: ToolCallLedgerV1;
   reasonCodes: string[];
 }
 
@@ -49,6 +52,14 @@ export function authorizeTelegramActionFromEnvelope(
         routeVerdict.allow
       )
     : null;
+  const allow = routeVerdict.allow && toolAuthorization.verdict === 'allowed' && harnessCore?.authorization.verdict === 'allow';
+  const harnessCoreLedger = harnessCore
+    ? recordHarnessCoreAuthorizationLedger({
+        bundle: harnessCore,
+        toolName: input.toolName,
+        allowed: allow
+      })
+    : null;
   const reasonCodes = [
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
     ...toolAuthorization.reasonCodes,
@@ -59,10 +70,11 @@ export function authorizeTelegramActionFromEnvelope(
   ];
 
   return {
-    allow: routeVerdict.allow && toolAuthorization.verdict === 'allowed' && harnessCore?.authorization.verdict === 'allow',
+    allow,
     routeVerdict,
     toolAuthorization,
     ...(harnessCore ? { harnessCore } : {}),
+    ...(harnessCoreLedger ? { harnessCoreLedger } : {}),
     reasonCodes
   };
 }
