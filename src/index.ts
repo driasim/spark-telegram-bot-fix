@@ -103,7 +103,8 @@ import {
   stageRecursivePromotionPacket,
   stageRecursiveSwarmPacket,
   syncBuilderChipLoopToWorkspace,
-  syncRecursiveArtifactToWorkspace
+  syncRecursiveArtifactToWorkspace,
+  type RecursiveCommand
 } from './recursive';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveSpawnerUiUrl } from './spawnerUrl';
@@ -271,6 +272,7 @@ import {
 import {
   authorizeToolCallFromEnvelope,
   buildTelegramTurnIntentEnvelope,
+  type SparkHarnessMutationClass,
   type ToolAuthorizationInput,
   type TurnIntentEnvelopeV1
 } from './harnessContract';
@@ -4227,6 +4229,41 @@ function isValidCreatorMissionId(missionId: string): boolean {
   return /^mission-creator-[A-Za-z0-9_-]+$/.test(missionId);
 }
 
+function authorizeCreatorPlanCommand(ctx: any, text: string): TelegramActionAuthorityResult {
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'creator',
+    route: 'creator.mission',
+    text,
+    toolName: 'spawner.creator_mission',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'creator.mission.plan',
+    kind: 'creator_or_domain_chip'
+  });
+}
+
+function authorizeCreatorControlCommand(
+  ctx: any,
+  text: string,
+  action: ParsedCreatorMissionControlCommand['action']
+): TelegramActionAuthorityResult {
+  const readOnly = action === 'status';
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'creator',
+    route: 'creator.mission',
+    text,
+    toolName: `spawner.creator_mission.${action}`,
+    ownerSystem: 'spawner-ui',
+    mutationClass: readOnly ? 'read_only' : 'launches_mission',
+    action: `creator.mission.${action}`,
+    kind: 'creator_or_domain_chip'
+  });
+}
+
+function creatorExecutionStatus(success: boolean | undefined): 'success' | 'failure' {
+  return success ? 'success' : 'failure';
+}
+
 function pendingCreatorMissionKey(ctx: any): string {
   return `${ctx.chat.id}-${ctx.from.id}`;
 }
@@ -4583,11 +4620,21 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
   return true;
 }
 
-async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand): Promise<void> {
+async function handleCreatorMissionPlan(
+  ctx: any,
+  parsed: ParsedCreatorCommand,
+  authorization?: TelegramActionAuthorityResult
+): Promise<{ status: 'success' | 'failure'; summary: string }> {
   const accessProfile = await getSparkAccessProfile(ctx.chat.id);
   if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
     await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
-    return;
+    const summary = 'Creator mission planning blocked by Spark access policy.';
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spawner.creator_mission',
+      status: 'failure',
+      summary
+    });
+    return { status: 'failure', summary };
   }
 
   await safeSendChatAction(ctx, 'typing');
@@ -4601,6 +4648,13 @@ async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand):
   });
 
   await ctx.reply(formatCreatorMissionSummary(result));
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'spawner.creator_mission',
+    status: creatorExecutionStatus(result.success),
+    summary: result.success
+      ? `Creator mission ${result.missionId || requestId} was staged through Spawner.`
+      : `Creator mission staging failed: ${result.error || 'unknown error'}`
+  });
   if (result.success && result.missionId && result.trace?.execution_policy !== 'read_only') {
     pendingCreatorMissions.set(pendingCreatorMissionKey(ctx), {
       missionId: result.missionId,
@@ -4611,6 +4665,12 @@ async function handleCreatorMissionPlan(ctx: any, parsed: ParsedCreatorCommand):
       `Planned creator mission ${result.missionId} for ${parsed.brief.slice(0, 220)}`
     ).catch(() => {});
   }
+  return {
+    status: creatorExecutionStatus(result.success),
+    summary: result.success
+      ? `Creator mission ${result.missionId || requestId} was staged through Spawner.`
+      : `Creator mission staging failed: ${result.error || 'unknown error'}`
+  };
 }
 
 async function handlePendingCreatorMissionControl(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
@@ -4639,25 +4699,57 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
   }
 
   if (action === 'validate') {
+    const validateAuthorization = envelope
+      ? telegramBranchActionAuthorityDecision(envelope, {
+          route: 'creator.mission',
+          text,
+          toolName: 'spawner.creator_mission.validate',
+          ownerSystem: 'spawner-ui',
+          mutationClass: 'launches_mission',
+          action: 'creator.mission.validate',
+          kind: 'creator_or_domain_chip',
+          confidence: 'contextual'
+        })
+      : null;
+    if (validateAuthorization && !validateAuthorization.allow) {
+      return false;
+    }
     const result = await spawner.creatorMissionValidate({ missionId: pending.missionId });
+    recordTelegramHarnessCoreExecution(validateAuthorization, {
+      toolName: 'spawner.creator_mission.validate',
+      status: creatorExecutionStatus(result.success),
+      summary: result.success
+        ? `Creator mission ${result.missionId || pending.missionId} validation ran from pending control.`
+        : `Creator mission validation failed: ${result.error || 'unknown error'}`
+    });
     await ctx.reply(formatCreatorMissionValidationSummary(result));
     return true;
   }
 
-  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
-    route: 'creator.mission',
-    text,
-    toolName: 'spawner.run',
-    ownerSystem: 'spawner-ui',
-    mutationClass: 'launches_mission',
-    action: 'creator.mission.execute',
-    kind: 'creator_or_domain_chip',
-    confidence: 'contextual'
-  })) {
+  const executeAuthorization = envelope
+    ? telegramBranchActionAuthorityDecision(envelope, {
+        route: 'creator.mission',
+        text,
+        toolName: 'spawner.creator_mission.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'creator.mission.execute',
+        kind: 'creator_or_domain_chip',
+        confidence: 'contextual'
+      })
+    : null;
+  if (executeAuthorization && !executeAuthorization.allow) {
     return false;
   }
 
   const result = await spawner.creatorMissionExecute({ missionId: pending.missionId });
+  recordTelegramHarnessCoreExecution(executeAuthorization, {
+    toolName: 'spawner.creator_mission.run',
+    status: creatorExecutionStatus(result.success),
+    summary: result.success
+      ? `Creator mission ${result.missionId || pending.missionId} execution started from pending control.`
+      : `Creator mission execution failed: ${result.error || 'unknown error'}`
+  });
   await ctx.reply(formatCreatorMissionExecutionSummary(result));
   return true;
 }
@@ -5869,6 +5961,11 @@ bot.command('creator', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
 
   if (control) {
+    const authorization = authorizeCreatorControlCommand(ctx, ctx.message.text, control.action);
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const missionId = control.missionId.trim();
     if (missionId.includes('<') || missionId.includes('>')) {
       return ctx.reply('Use the real creator mission ID, for example: /creator run mission-creator-1776768300668');
@@ -5879,6 +5976,13 @@ bot.command('creator', async (ctx) => {
 
     if (control.action === 'status') {
       const result = await spawner.creatorMissionStatus({ missionId });
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'spawner.creator_mission.status',
+        status: creatorExecutionStatus(result.success),
+        summary: result.success
+          ? `Creator mission ${result.missionId || missionId} status was read.`
+          : `Creator mission status failed: ${result.error || 'unknown error'}`
+      });
       await ctx.reply(formatCreatorMissionStatusSummary(result));
       return;
     }
@@ -5886,6 +5990,13 @@ bot.command('creator', async (ctx) => {
     if (control.action === 'validate') {
       await ctx.reply('Running creator mission validation through Spawner...');
       const result = await spawner.creatorMissionValidate({ missionId, maxCommands: control.maxCommands });
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'spawner.creator_mission.validate',
+        status: creatorExecutionStatus(result.success),
+        summary: result.success
+          ? `Creator mission ${result.missionId || missionId} validation ran.`
+          : `Creator mission validation failed: ${result.error || 'unknown error'}`
+      });
       await ctx.reply(formatCreatorMissionValidationSummary(result));
       if (result.success && result.missionId) {
         await conversation.learnAboutUser(
@@ -5899,6 +6010,13 @@ bot.command('creator', async (ctx) => {
     if (control.action === 'run') {
       await ctx.reply('Starting creator mission execution through Spawner...');
       const result = await spawner.creatorMissionExecute({ missionId });
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'spawner.creator_mission.run',
+        status: creatorExecutionStatus(result.success),
+        summary: result.success
+          ? `Creator mission ${result.missionId || missionId} execution started.`
+          : `Creator mission execution failed: ${result.error || 'unknown error'}`
+      });
       await ctx.reply(formatCreatorMissionExecutionSummary(result));
       if (result.success && result.missionId) {
         await conversation.learnAboutUser(
@@ -5914,8 +6032,13 @@ bot.command('creator', async (ctx) => {
     return ctx.reply(CREATOR_USAGE);
   }
 
+  const authorization = authorizeCreatorPlanCommand(ctx, ctx.message.text);
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
   await ctx.reply('I will stage the creator mission first. No run or publishing yet.');
-  await handleCreatorMissionPlan(ctx, parsed);
+  await handleCreatorMissionPlan(ctx, parsed, authorization);
 });
 
 bot.command('chip', async (ctx) => {
@@ -5930,10 +6053,31 @@ bot.command('chip', async (ctx) => {
     return ctx.reply('Usage: /chip create <natural language description>');
   }
 
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'chip',
+    route: 'domain_chip.create',
+    text: ctx.message.text,
+    toolName: 'domain_chip.create',
+    ownerSystem: 'domain-chip',
+    mutationClass: 'creates_chip',
+    action: 'domain_chip.create',
+    kind: 'creator_or_domain_chip'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
   await safeSendChatAction(ctx, 'typing');
   await ctx.reply('Scaffolding new domain chip from your brief...');
 
   const result = await createChipFromPrompt(prompt);
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'domain_chip.create',
+    status: result.ok ? 'success' : 'failure',
+    summary: result.ok
+      ? `Domain chip ${result.chipKey} was created from Telegram slash command.`
+      : `Domain chip creation failed: ${result.error || 'unknown error'}`
+  });
 
   if (!result.ok) {
     return ctx.reply(renderTelegramError('Chip create failed', result.error));
@@ -5966,9 +6110,28 @@ bot.command('loop', async (ctx) => {
       'Example: /loop startup-yc 3');
   }
 
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'loop',
+    route: 'recursive.start',
+    text: ctx.message.text,
+    toolName: 'recursive.loop',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'launches_mission',
+    action: 'recursive.loop.start',
+    kind: 'recursive_or_swarm'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
   const chatId = ctx.chat.id;
   await safeSendChatAction(ctx, 'typing');
   await ctx.reply(`Starting autoloop on ${chipKey} for ${rounds} round(s). This may take several minutes - I'll post the summary when it finishes.`);
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'recursive.loop',
+    status: 'partial',
+    summary: `Recursive chip loop ${chipKey} started asynchronously for ${rounds} round(s).`
+  });
 
   // Detach the heavy work so the Telegraf handler returns instantly;
   // the loop can exceed the handler timeout without failing the turn.
@@ -6007,27 +6170,73 @@ export async function handleSparkQaCommand(ctx: any, rawOverride?: string): Prom
   const raw = rawOverride ?? ctx.message.text.replace('/sparkqa', '').trim();
   const parsed = parseSparkQaCommand(raw);
   if (!parsed || parsed.action === 'help') return ctx.reply(renderSparkQaHelp());
+  const commandText = rawOverride ? `/sparkqa ${raw}` : ctx.message.text;
+  const mutationClass: SparkHarnessMutationClass =
+    parsed.action === 'status' || parsed.action === 'startup' ? 'read_only' : 'writes_files';
+  const route: TelegramCommandActionAuthorityInput['route'] = parsed.action === 'status' || parsed.action === 'startup'
+    ? 'sparkqa.status'
+    : parsed.action === 'benchmark'
+      ? 'sparkqa.benchmark'
+      : 'sparkqa.run';
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'sparkqa',
+    route,
+    text: commandText,
+    toolName: `sparkqa.${parsed.action}`,
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass,
+    action: `sparkqa.${parsed.action}`,
+    kind: 'diagnostic_or_self_awareness'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
 
   await safeSendChatAction(ctx, 'typing');
   if (parsed.action === 'status') {
-    return ctx.reply(renderSparkQaAutoloopRound(await readLatestSparkQaAutoloopRound()));
+    const reply = renderSparkQaAutoloopRound(await readLatestSparkQaAutoloopRound());
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'sparkqa.status',
+      status: 'success',
+      summary: 'Spark QA latest autoloop status was read.'
+    });
+    return ctx.reply(reply);
   }
 
   if (parsed.action === 'startup') {
-    return ctx.reply(renderStartupReleaseVerdict(await readStartupReleaseVerdict()));
+    const reply = renderStartupReleaseVerdict(await readStartupReleaseVerdict());
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'sparkqa.startup',
+      status: 'success',
+      summary: 'Startup release verdict was read.'
+    });
+    return ctx.reply(reply);
   }
 
   if (parsed.action === 'run') {
     await ctx.reply('Starting the Spark QA benchmark/autoloop proof now. I will only report a score if the dossier clears it.');
-    return ctx.reply(renderSparkQaAutoloopRound(await runSparkQaAutoloopRound()));
+    const reply = renderSparkQaAutoloopRound(await runSparkQaAutoloopRound());
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'sparkqa.run',
+      status: 'success',
+      summary: 'Spark QA benchmark/autoloop proof ran from slash command.'
+    });
+    return ctx.reply(reply);
   }
 
   if (parsed.action === 'benchmark') {
-    return ctx.reply(renderSparkQaBenchmarkCreator(await runSparkQaBenchmarkCreator({
+    const reply = renderSparkQaBenchmarkCreator(await runSparkQaBenchmarkCreator({
       specializationPath: parsed.specializationPath || 'Spark QA Operator',
       level: parsed.level || 10,
       prompt: parsed.prompt,
-    })));
+    }));
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'sparkqa.benchmark',
+      status: 'success',
+      summary: 'Spark QA benchmark creator ran from slash command.'
+    });
+    return ctx.reply(reply);
   }
 
   return ctx.reply(renderSparkQaHelp());
@@ -6035,16 +6244,68 @@ export async function handleSparkQaCommand(ctx: any, rawOverride?: string): Prom
 
 bot.command('sparkqa', async (ctx) => handleSparkQaCommand(ctx));
 
+function recursiveCommandMutationClass(parsed: RecursiveCommand): SparkHarnessMutationClass {
+  if (['sessions', 'paths', 'session', 'status', 'benchmark', 'compare', 'evidence', 'report', 'review', 'trace'].includes(parsed.action)) {
+    return 'read_only';
+  }
+  if (parsed.action === 'start') {
+    return 'launches_mission';
+  }
+  return 'writes_files';
+}
+
+function recursiveCommandRoute(parsed: RecursiveCommand): TelegramCommandActionAuthorityInput['route'] {
+  if (parsed.action === 'start') return 'recursive.start';
+  if (parsed.action === 'propose') return 'recursive.proposal';
+  return 'recursive.command';
+}
+
+function recursiveCommandToolName(parsed: RecursiveCommand): string {
+  if (parsed.action === 'start') return 'recursive.loop';
+  if (parsed.action === 'propose') return 'recursive.propose';
+  if (parsed.action === 'sync') return 'recursive.sync';
+  if (parsed.action === 'package') return 'recursive.package';
+  if (parsed.action === 'promote') return 'recursive.promote';
+  if (parsed.action === 'canvas') return 'recursive.canvas';
+  if (['approve', 'defer', 'reject', 'more-eval'].includes(parsed.action)) return 'recursive.decision';
+  return `recursive.${parsed.action}`;
+}
+
+function authorizeRecursiveCommand(
+  ctx: any,
+  text: string,
+  parsed: RecursiveCommand
+): TelegramActionAuthorityResult {
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'recursive',
+    route: recursiveCommandRoute(parsed),
+    text,
+    toolName: recursiveCommandToolName(parsed),
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: recursiveCommandMutationClass(parsed),
+    action: `recursive.${parsed.action}`,
+    kind: 'recursive_or_swarm',
+    externalNetwork: parsed.action === 'propose' && (parsed.proposeArgs || []).some((arg) => /submit|swarm|network/i.test(arg))
+  });
+}
+
 export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Promise<unknown> {
   if (!requireAdmin(ctx)) return;
 
   const raw = rawOverride ?? ctx.message.text.replace('/recursive', '').trim();
   const parsed = parseRecursiveCommand(raw);
   if (!parsed) return ctx.reply(renderRecursiveHelp());
+  const commandText = rawOverride ? `/recursive ${raw}` : ctx.message.text;
 
   try {
     if (parsed.action === 'help') {
       return ctx.reply(renderRecursiveHelp());
+    }
+
+    const authorization = authorizeRecursiveCommand(ctx, commandText, parsed);
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
     }
 
     if (parsed.action === 'sessions') {
@@ -6100,7 +6361,15 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (target.kind !== 'path') {
         return ctx.reply(`${parsed.id} does not look like an attached specialization path yet. Use /recursive paths to pick a loop.`);
       }
-      return ctx.reply(renderSpecializationLoopPackage(await packageSpecializationPathLoop(target)));
+      const result = await packageSpecializationPathLoop(target);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.package',
+        status: result.ok ? 'success' : 'failure',
+        summary: result.ok
+          ? `Recursive package was prepared for ${target.key}.`
+          : `Recursive package failed for ${target.key}: ${result.error || 'unknown error'}`
+      });
+      return ctx.reply(renderSpecializationLoopPackage(result));
     }
 
     if (parsed.action === 'report') {
@@ -6143,6 +6412,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
         actor,
         rationale: parsed.rationale
       });
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.decision',
+        status: 'success',
+        summary: `Recursive review decision ${parsed.action} was recorded for ${parsed.id}.`
+      });
       return ctx.reply(renderRecursiveDecision(decision));
     }
 
@@ -6150,6 +6424,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (!parsed.id) return ctx.reply('Usage: /recursive promote <id>');
       await safeSendChatAction(ctx, 'typing');
       const packet = await stageRecursivePromotionPacket(parsed.id);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.promote',
+        status: 'success',
+        summary: `Recursive promotion packet was staged for ${parsed.id}.`
+      });
       return ctx.reply(renderRecursivePromotionPacket(packet));
     }
 
@@ -6160,11 +6439,23 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
           kind: parsed.syncKind,
           args: parsed.syncArgs || []
         });
+        recordTelegramHarnessCoreExecution(authorization, {
+          toolName: 'recursive.sync',
+          status: result.synced ? 'success' : 'failure',
+          summary: result.synced
+            ? `Recursive ${parsed.syncKind} artifact sync completed.`
+            : `Recursive ${parsed.syncKind} artifact sync did not complete: ${result.detail || 'unknown result'}`
+        });
         return ctx.reply(renderRecursiveArtifactSyncCompletion(result));
       }
       if (!parsed.id) return ctx.reply('Usage: /recursive sync <id>');
       await safeSendChatAction(ctx, 'typing');
       const packet = await stageRecursiveSwarmPacket(parsed.id);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.sync',
+        status: 'success',
+        summary: `Recursive swarm packet was staged for ${parsed.id}.`
+      });
       return ctx.reply(renderRecursiveSwarmPacket(packet));
     }
 
@@ -6172,6 +6463,15 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
       if (!parsed.id) return ctx.reply('Usage: /recursive propose <chip-or-path-name> [submit]');
       await safeSendChatAction(ctx, 'typing');
       const result = await proposeRecursiveWorkspaceEvidence(parsed.id, parsed.proposeArgs || []);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.propose',
+        status: result.submitError ? 'failure' : 'success',
+        summary: result.submitError
+          ? `Recursive workspace evidence proposal failed for ${parsed.id}: ${result.submitError}`
+          : result.submitted
+            ? `Recursive workspace evidence proposal was submitted for ${parsed.id}.`
+            : `Recursive workspace evidence proposal was prepared for ${parsed.id}.`
+      });
       return ctx.reply(renderRecursiveNetworkProposal(result));
     }
 
@@ -6186,6 +6486,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
         ? `🧪 I’m starting ${startTarget.key} for ${rounds} benchmark round(s). I’ll keep the raw evidence local and send the summary when the loop settles.`
         : `🧪 I’m starting ${targetLabel} on ${startTarget.key} for ${rounds} round(s). I’ll send the summary when it settles.`;
       await ctx.reply(startLine);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.loop',
+        status: 'partial',
+        summary: `Recursive loop ${startTarget.key} started asynchronously for ${rounds} round(s).`
+      });
 
       void (async () => {
         try {
@@ -7332,19 +7637,21 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const explicitBenchmarkCreatorIntent = !earlyBuildIntent && conversation.isAdmin(ctx.from)
     ? parseNaturalCreatorMissionIntent(text, [])
     : null;
-  if (
-    explicitBenchmarkCreatorIntent?.artifactLabel === 'benchmark pack' &&
-    telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'creator.mission',
-      text,
-      toolName: 'domain_chip.create',
-      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
-      mutationClass: 'creates_chip'
-    })
-  ) {
+  const explicitBenchmarkCreatorAuthorization = explicitBenchmarkCreatorIntent?.artifactLabel === 'benchmark pack'
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'creator.mission',
+        text,
+        toolName: 'spawner.creator_mission',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'creator.mission.plan',
+        kind: 'creator_or_domain_chip'
+      })
+    : null;
+  if (explicitBenchmarkCreatorIntent?.artifactLabel === 'benchmark pack' && explicitBenchmarkCreatorAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply('I will stage the level 10 Benchmark Creator PRD privately first. It should cover Canvas, Kanban, Spark Swarm review, research evidence, and Auto Loop improvement; scoring stays blocked until fresh artifacts exist.');
-    await handleCreatorMissionPlan(ctx, explicitBenchmarkCreatorIntent);
+    await handleCreatorMissionPlan(ctx, explicitBenchmarkCreatorIntent, explicitBenchmarkCreatorAuthorization);
     return;
   }
 
@@ -7464,16 +7771,21 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       /\b(?:create|update|attach|add|link)\b.{0,24}\b(?:domain[-\s]*chip|chip)\b/i.test(text)
     );
   const earlyNaturalChipBrief = conversation.isAdmin(ctx.from) ? parseNaturalChipCreateIntent(text) : null;
-  if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-    route: 'creator.mission',
-    text,
-    toolName: 'domain_chip.create',
-    ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
-    mutationClass: 'creates_chip'
-  })) {
+  const naturalCreatorAuthorization = naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup)
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'creator.mission',
+        text,
+        toolName: 'spawner.creator_mission',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'creator.mission.plan',
+        kind: 'creator_or_domain_chip'
+      })
+    : null;
+  if (naturalCreatorIntent && (!earlyNaturalChipBrief || creatorLoopDomainChipFollowup) && naturalCreatorAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     await ctx.reply(`I will stage the ${naturalCreatorIntent.artifactLabel} privately first. No run or publishing yet.`);
-    await handleCreatorMissionPlan(ctx, naturalCreatorIntent);
+    await handleCreatorMissionPlan(ctx, naturalCreatorIntent, naturalCreatorAuthorization);
     return;
   }
   if (earlyNaturalChipBrief && telegramActionAuthorityAllowed(turnIntentEnvelope, {

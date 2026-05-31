@@ -18,7 +18,9 @@ export type DeterministicRouteId =
   | 'diagnostics.followup_test'
   | 'domain_chip.create'
   | 'creator.mission'
+  | 'recursive.command'
   | 'recursive.proposal'
+  | 'recursive.start'
   | 'spark.self_improvement'
   | 'spark.chip_status'
   | 'spark.wiki'
@@ -29,7 +31,9 @@ export type DeterministicRouteId =
   | 'pending_task.recovery'
   | 'local_workspace.inspect'
   | 'mission_updates.preference'
+  | 'sparkqa.status'
   | 'sparkqa.run'
+  | 'sparkqa.benchmark'
   | 'sparkqa.pause'
   | 'domain_chip.pending';
 
@@ -54,6 +58,7 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'domain_chip.create',
   'creator.mission',
   'recursive.proposal',
+  'recursive.start',
   'spark.self_improvement',
   'memory.write',
   'schedule.create',
@@ -63,6 +68,7 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'local_workspace.inspect',
   'mission_updates.preference',
   'sparkqa.run',
+  'sparkqa.benchmark',
   'sparkqa.pause',
   'domain_chip.pending'
 ]);
@@ -77,6 +83,7 @@ const MISSION_OR_BUILD_ROUTES = new Set<DeterministicRouteId>([
   'domain_chip.create',
   'creator.mission',
   'recursive.proposal',
+  'recursive.start',
   'spark.self_improvement',
   'domain_chip.pending'
 ]);
@@ -355,6 +362,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
     return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
   }
+  if (route === 'recursive.start' && /\b(?:run|start|launch|kick\s+off|do)\b.*\b(?:recursive|recursion|loop|round|autoloop)\b/.test(normalized)) {
+    return { allow: true, reason: 'explicit_recursive_start', confidence: 'explicit' };
+  }
 
   if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
     return { allow: false, reason: 'no_execution_boundary', confidence: 'blocked' };
@@ -401,6 +411,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (route === 'sparkqa.run' && isExplicitSparkQaRun(normalized)) {
     return { allow: true, reason: 'explicit_sparkqa_run', confidence: 'explicit' };
+  }
+  if (route === 'sparkqa.benchmark' && isExplicitSparkQaRun(normalized)) {
+    return { allow: true, reason: 'explicit_sparkqa_benchmark', confidence: 'explicit' };
   }
   if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
     return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };

@@ -210,3 +210,89 @@ test('access action commands and callbacks authorize operator tools', () => {
   assert.equal(callback.allow, true);
   assert.equal(level5Confirm.allow, true);
 });
+
+test('creator plan commands allow plan-only no-run language', () => {
+  const result = commandAuth({
+    text: '/creator plan private risk medium create a Startup YC benchmark path; do not run or publish it yet',
+    commandName: 'creator',
+    route: 'creator.mission',
+    toolName: 'spawner.creator_mission',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'creator.mission.plan',
+    kind: 'creator_or_domain_chip'
+  });
+
+  assert.equal(result.allow, true);
+  assert.equal(result.harnessCore?.authorization.verdict, 'allow');
+});
+
+test('chip create commands block contradictory no-create language', () => {
+  const result = commandAuth({
+    text: '/chip create a pricing objection coach but do not create a chip',
+    commandName: 'chip',
+    route: 'domain_chip.create',
+    toolName: 'domain_chip.create',
+    ownerSystem: 'domain-chip',
+    mutationClass: 'creates_chip',
+    action: 'domain_chip.create',
+    kind: 'creator_or_domain_chip'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('recursive and Spark QA slash actions authorize through command envelopes', () => {
+  const recursiveStart = commandAuth({
+    text: '/recursive start startup-yc rounds 1',
+    commandName: 'recursive',
+    route: 'recursive.start',
+    toolName: 'recursive.loop',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'launches_mission',
+    action: 'recursive.start',
+    kind: 'recursive_or_swarm'
+  });
+  const recursiveRead = commandAuth({
+    text: '/recursive report startup-yc',
+    commandName: 'recursive',
+    route: 'recursive.command',
+    toolName: 'recursive.report',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only',
+    action: 'recursive.report',
+    kind: 'recursive_or_swarm'
+  });
+  const sparkQaBenchmark = commandAuth({
+    text: '/sparkqa benchmark Spark QA Operator level 7',
+    commandName: 'sparkqa',
+    route: 'sparkqa.benchmark',
+    toolName: 'sparkqa.benchmark',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'sparkqa.benchmark',
+    kind: 'diagnostic_or_self_awareness'
+  });
+
+  assert.equal(recursiveStart.allow, true);
+  assert.equal(recursiveRead.allow, true);
+  assert.equal(recursiveRead.harnessCore?.envelope.selected_move, 'read_current_state');
+  assert.equal(sparkQaBenchmark.allow, true);
+});
+
+test('recursive start commands block contradictory no-run language', () => {
+  const result = commandAuth({
+    text: '/recursive start startup-yc rounds 1 but do not run it',
+    commandName: 'recursive',
+    route: 'recursive.start',
+    toolName: 'recursive.loop',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'launches_mission',
+    action: 'recursive.start',
+    kind: 'recursive_or_swarm'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});

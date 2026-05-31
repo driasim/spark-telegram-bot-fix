@@ -248,13 +248,13 @@ function executionPolicyForDecision(
   const noExecution = noExecutionBoundary || decision.constraints.noExecution || decision.enforcement === 'blocked';
   const route = decision.route;
   const canPublish = !decision.constraints.noPublish && !decision.constraints.localOnly;
-  const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|sparkqa\.|recursive\.propose|recursive\.proposal)/.test(route);
+  const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|sparkqa\.|recursive\.)/.test(route);
   const fileMutationBlocked = decision.payload?.noFileMutation === true ||
     decision.matched_signals.includes('explicit_spawner_no_edit_mission');
 
   return {
     canMutateFiles: !noExecution && !fileMutationBlocked && localMutationRoute,
-    canLaunchMission: !noExecution && /(?:spawner|mission|creator|domain_chip|startup\.answer_improvement_canary|natural_run|external_research)/.test(route),
+    canLaunchMission: !noExecution && /(?:spawner|mission|creator|domain_chip|recursive\.start|startup\.answer_improvement_canary|natural_run|external_research)/.test(route),
     canWriteMemory: !noExecution && (route === 'memory.write' || route === 'spark_wiki.promote' || route === 'spark.wiki'),
     canCreateSchedule: !noExecution && /schedule\.create/.test(route),
     canDeleteSchedule: !noExecution && /schedule\.delete/.test(route),
@@ -290,7 +290,30 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'spark.self_improvement') tools.push('spark.self_improvement');
   if (decision.route === 'mission_updates.preference') tools.push('mission_updates.preference');
   if (/^sparkqa\./.test(decision.route)) tools.push(decision.route);
-  if (/^recursive\.(?:propose|proposal)/.test(decision.route)) tools.push('recursive.propose');
+  if (decision.route === 'creator.mission') {
+    tools.push('spawner.creator_mission', 'spawner.creator_mission.status', 'spawner.creator_mission.validate', 'spawner.creator_mission.run');
+  }
+  if (/^recursive\./.test(decision.route)) {
+    tools.push(
+      'recursive.loop',
+      'recursive.propose',
+      'recursive.sync',
+      'recursive.package',
+      'recursive.promote',
+      'recursive.canvas',
+      'recursive.decision',
+      'recursive.sessions',
+      'recursive.paths',
+      'recursive.session',
+      'recursive.status',
+      'recursive.benchmark',
+      'recursive.compare',
+      'recursive.evidence',
+      'recursive.report',
+      'recursive.review',
+      'recursive.trace'
+    );
+  }
   if (decision.route === 'spawner.mission_control') tools.push('spawner.mission_control');
   if (policy.canLaunchMission) tools.push('spawner.run');
   if (decision.route === 'natural_run') tools.push('provider.run');
@@ -323,8 +346,18 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'spark_wiki.promote',
       'mission_updates.preference',
       'sparkqa.run',
+      'sparkqa.benchmark',
       'sparkqa.pause',
-      'recursive.propose'
+      'spawner.creator_mission',
+      'spawner.creator_mission.validate',
+      'spawner.creator_mission.run',
+      'recursive.loop',
+      'recursive.propose',
+      'recursive.sync',
+      'recursive.package',
+      'recursive.promote',
+      'recursive.canvas',
+      'recursive.decision'
     ].forEach((tool) => denied.add(tool));
   }
   if (!policy.canPublish) denied.add('publish.run');
