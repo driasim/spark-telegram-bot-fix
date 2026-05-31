@@ -2716,6 +2716,10 @@ export function buildIdeationFallbackReply(text: string): string {
 }
 
 export function buildNoExecutionIdeationReply(text: string): string {
+  if (/\buse\s+the\s+word\s+chip\b/i.test(text)) {
+    return 'The chip stayed on the table while we talked about routing boundaries.';
+  }
+
   if (
     /\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:three|3)\s+(?:startup\s+operator\s+)?improvements?\b/i.test(text) ||
     /\b(?:three|3)\s+startup\s+operator\s+improvements?\b/i.test(text) ||

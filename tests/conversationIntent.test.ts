@@ -1783,6 +1783,12 @@ test('no-loop startup operator ideation preserves requested improvement count', 
   assert.doesNotMatch(reply, /Got it, staying in chat/i);
 });
 
+test('no-create chip word usage stays literal', () => {
+  const reply = buildNoExecutionIdeationReply('Use the word chip in a sentence. Do not create a chip or domain chip.');
+  assert.match(reply, /\bchip\b/i);
+  assert.doesNotMatch(reply, /domain chip is useful|specialization package|trigger/i);
+});
+
 test('resolves contextual access change follow-ups from recent access turns', () => {
   const recent = [
     'User: Change my access level to three please',
