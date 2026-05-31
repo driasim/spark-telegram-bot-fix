@@ -205,6 +205,7 @@ import {
 	  isAccessCapabilityMismatchQuestion,
 	  isAccessCapabilityRepairRequest,
 	  isAccessHelpQuestion,
+  isAccessProductRuleQuestion,
   isAccessStatusQuestion,
   isBuildContextRecallQuestion,
   isUserMemoryRecallQuestion,
@@ -243,6 +244,7 @@ import {
   parseSpawnerBoardNaturalIntent,
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
+  renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
@@ -1829,6 +1831,13 @@ async function handleTelegramIntentGateV2SafeRoute(
       return false;
     }
     await conversation.remember(user, text).catch(() => {});
+    if (isAccessProductRuleQuestion(text)) {
+      const reply = renderAccessProductRuleReply();
+      await ctx.reply(reply);
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.access_product_rule', 'spark-telegram-bot', 'plain_chat.product_rule');
+      await conversation.rememberAssistantReply(user, reply).catch(() => {});
+      return true;
+    }
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
     await ctx.reply(reply);
@@ -6911,6 +6920,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         summary: 'Telegram answered access status from the Spark CLI access state and runner writability preflight.'
       }
     ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isAccessProductRuleQuestion(text)) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = renderAccessProductRuleReply();
+    await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }

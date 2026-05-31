@@ -2935,6 +2935,38 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('access level documentation comparison stays product-rule chat', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-access-product-rule-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079070, 8319079055, 620, replies);
+		ctx.message.text = 'In docs, I am comparing access level 3 and access level 5. Do not change my access. What is the product rule?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /descriptive unless/i);
+		assert.match(reply, /real access change needs fresh explicit intent/i);
+		assert.doesNotMatch(reply, /This chat is on Access Level|Change it with/i);
+		assert.equal(captured.length, 0, 'access product-rule chat must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

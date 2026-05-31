@@ -1680,7 +1680,7 @@ export function isAccessStatusQuestion(text: string): boolean {
 export function parseNaturalAccessChangeIntent(text: string): string | null {
   const normalized = text.replace(/\s+/g, ' ').trim();
   const lower = normalized.toLowerCase();
-  if (!lower || isExplicitMemoryWriteLikeRequest(lower)) {
+  if (!lower || isExplicitMemoryWriteLikeRequest(lower) || isAccessProductRuleQuestion(normalized)) {
     return null;
   }
 
@@ -1865,6 +1865,29 @@ export function isAccessHelpQuestion(text: string): boolean {
     /\b(?:is|are|does|do|can|could|would|how|what|which|where|why)\b/.test(normalized) ||
     /\b(?:unlock|allow|permission|permissions|tier|tiers|level|levels|management|surface|system)\b/.test(normalized)
   );
+}
+
+export function isAccessProductRuleQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
+    return false;
+  }
+  const mentionsAccessLevels =
+    /\baccess\s+levels?\b/.test(normalized) ||
+    /\baccess\s+level\s*[1-5]\b/.test(normalized);
+  const conceptualContext =
+    /\b(?:docs?|documentation|product\s+rule|product\s+concept|comparing|compare|difference|rule)\b/.test(normalized);
+  const blocksMutation =
+    /\b(?:do not|don't|dont|please don't|please dont)\s+(?:change|set|switch|update|raise|lower)\s+(?:my\s+|this\s+|the\s+)?access\b/.test(normalized) ||
+    /\bnot\s+asking\s+(?:you\s+)?to\s+(?:change|set|switch|update)\s+(?:my\s+|this\s+|the\s+)?access\b/.test(normalized);
+  return mentionsAccessLevels && conceptualContext && blocksMutation;
+}
+
+export function renderAccessProductRuleReply(): string {
+  return [
+    'The product rule is: access-level words are descriptive unless the user clearly asks to change access or asks for current access status.',
+    'Docs comparisons should stay in chat and explain the boundary. A real access change needs fresh explicit intent like “change my access to level 4,” and status needs a status-shaped question.'
+  ].join('\n');
 }
 
 function isExplicitMemoryWriteLikeRequest(normalized: string): boolean {

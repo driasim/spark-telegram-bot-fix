@@ -33,6 +33,7 @@ import {
   isAccessCapabilityMismatchQuestion,
   isContextualAccessCapabilityMismatchQuestion,
   isAccessHelpQuestion,
+  isAccessProductRuleQuestion,
   isAccessStatusQuestion,
   builderReplySuppressionReason,
   isBuildContextRecallQuestion,
@@ -45,6 +46,7 @@ import {
   isSparkWorkflowBugHuntRequest,
   isSparkThreadQaGoldenCaseRequest,
   renderSparkThreadQaGoldenCaseReply,
+  renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
@@ -1795,6 +1797,11 @@ test('recognizes fuzzy access system help questions', () => {
   assert.equal(isAccessHelpQuestion('does Spark have access levels or something like that?'), true);
   assert.equal(isAccessHelpQuestion('what access tiers unlock local files?'), true);
   assert.equal(isAccessHelpQuestion('is there a permission management surface for this chat?'), true);
+  const productRule = 'In docs, I am comparing access level 3 and access level 5. Do not change my access. What is the product rule?';
+  assert.equal(isAccessProductRuleQuestion(productRule), true);
+  assert.equal(isAccessHelpQuestion(productRule), true);
+  assert.equal(parseNaturalAccessChangeIntent(productRule), null);
+  assert.match(renderAccessProductRuleReply(), /descriptive unless/i);
   assert.equal(isAccessHelpQuestion('please remember that access levels matter to me'), false);
   assert.equal(isAccessHelpQuestion('I like access to clean design tools'), false);
 });
