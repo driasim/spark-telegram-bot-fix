@@ -5218,6 +5218,27 @@ export async function buildDispatchRouteConfidenceAllows(input: {
       });
       return true;
     }
+    if (
+      decision === 'ask' &&
+      input.confirmationState === 'confirmed' &&
+      buildDispatchConsequenceRisk(input.prd) === 'medium' &&
+      routeConfidenceGateCompatibilityAllows({
+        latestInstruction: input.latestInstruction || 'allow_execution',
+        confirmationState: input.confirmationState,
+        spawnerAvailable,
+        runnerWritable
+      })
+    ) {
+      recordRouteConfidenceDispatchOutcome({
+        route: 'spawner.build',
+        decision: 'act',
+        outcome: 'acted',
+        requestId: input.requestId,
+        traceRef: input.traceRef,
+        policy: 'confirmed_local_compatibility_after_gate_ask'
+      });
+      return true;
+    }
     recordRouteConfidenceDispatchOutcome({
       route: 'spawner.build',
       decision,
