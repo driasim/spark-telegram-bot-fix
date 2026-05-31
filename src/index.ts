@@ -160,7 +160,10 @@ import {
 } from './missionRelay';
 import { buildDiagnoseReport } from './diagnose';
 import { readAuthorityStatusSummary, renderAuthorityStatusSummary } from './authorityStatus';
-import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './capabilityGarden';
+import {
+  readCapabilityGardenSummaryEnsuringCompiled,
+  renderCapabilityGardenSummary
+} from './capabilityGarden';
 import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
 import { parseBuildIntent, polishBuildProjectName, type BuildLane } from './buildIntent';
@@ -2717,8 +2720,8 @@ async function handleCapabilityGardenCommand(ctx: any): Promise<void> {
   if (!requireAdmin(ctx)) return;
   await safeSendChatAction(ctx, 'typing');
   try {
-    const summary = await readCapabilityGardenSummary();
-    await ctx.reply(renderCapabilityGardenSummary(summary));
+    const { summary, compile } = await readCapabilityGardenSummaryEnsuringCompiled();
+    await ctx.reply(renderCapabilityGardenSummary(summary, compile));
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
   }
