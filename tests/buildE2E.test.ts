@@ -3000,6 +3000,39 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('no-loop startup operator ideation gives requested three improvements', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-no-loop-three-improvements-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079071, 8319079055, 622, replies);
+		ctx.message.text = 'Give me three startup operator improvements. Do not start a loop.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Three startup-operator improvements/i);
+		assert.match(reply, /1\./);
+		assert.match(reply, /2\./);
+		assert.match(reply, /3\./);
+		assert.doesNotMatch(reply, /Mission:|I will run|Got it, staying in chat/i);
+		assert.equal(captured.length, 0, 'no-loop ideation must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

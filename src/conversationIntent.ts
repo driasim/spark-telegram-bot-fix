@@ -1583,6 +1583,13 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 			'Because this is a product discussion, Spark should not open Mission Control or start a mission.'
 		].join('\n');
 	}
+	if (
+		/\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:three|3)\s+(?:startup\s+operator\s+)?improvements?\b/.test(normalized) ||
+		/\b(?:three|3)\s+startup\s+operator\s+improvements?\b/.test(normalized) ||
+		/\b(?:three|3)\s+improvements?\s+for\s+(?:the\s+)?startup\s+operator\b/.test(normalized)
+	) {
+		return buildNoExecutionIdeationReply(_text);
+	}
 	if (/\bstartup\s+operator\b/.test(normalized) || /\bstartup self[-\s]*improvement\b/.test(normalized)) {
 		return [
 			'For the startup operator, the next useful test is answer-quality proof: give it founder scenarios, compare baseline and improved replies blindly, and check whether the recommendation gets sharper without launching work.',
@@ -2709,6 +2716,22 @@ export function buildIdeationFallbackReply(text: string): string {
 }
 
 export function buildNoExecutionIdeationReply(text: string): string {
+  if (
+    /\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:three|3)\s+(?:startup\s+operator\s+)?improvements?\b/i.test(text) ||
+    /\b(?:three|3)\s+startup\s+operator\s+improvements?\b/i.test(text) ||
+    /\b(?:three|3)\s+improvements?\s+for\s+(?:the\s+)?startup\s+operator\b/i.test(text)
+  ) {
+    return [
+      'Three startup-operator improvements, staying in chat:',
+      '',
+      '1. Blind Answer Jury: compare baseline and improved replies without labels, then store only the winning reasoning pattern.',
+      '2. Founder Proof Ledger: track claims, evidence, buyer signal, and next experiment so the operator gets sharper from real startup outcomes.',
+      '3. Intent Boundary Replay: rerun risky phrases like build, loop, mission, chip, and provider against past conversations before any new routing rule ships.',
+      '',
+      'No loop starts until you explicitly ask for one.'
+    ].join('\n');
+  }
+
   if (/\b(?:give|show|suggest|list)\s+(?:me\s+)?(?:three|3)\s+(?:build\s+)?ideas?\b/i.test(text)) {
     if (/\bfounder\s+onboarding\b/i.test(text)) {
       return [

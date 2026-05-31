@@ -1700,6 +1700,14 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(startupAdvice, /answer-quality proof/i);
   assert.doesNotMatch(startupAdvice, /current turn is explicitly no-action/i);
 
+  const startupThree = renderMissionRoutingFailureClassReply(
+    'Give me three startup operator improvements. Do not start a loop.'
+  );
+  assert.match(startupThree, /Three startup-operator improvements/i);
+  assert.match(startupThree, /1\./);
+  assert.match(startupThree, /2\./);
+  assert.match(startupThree, /3\./);
+
   const answerPairScore = renderMissionRoutingFailureClassReply(
     'Score this startup answer pair in chat only. Baseline: "keep nurturing." Candidate: "ask for paid commitment this week." Which is better and why? Do not run a loop.'
   );
@@ -1762,6 +1770,16 @@ test('no-build ideation preserves requested idea count', () => {
   assert.match(reply, /2\./);
   assert.match(reply, /3\./);
   assert.match(reply, /No build starts/i);
+  assert.doesNotMatch(reply, /Got it, staying in chat/i);
+});
+
+test('no-loop startup operator ideation preserves requested improvement count', () => {
+  const reply = buildNoExecutionIdeationReply('Give me three startup operator improvements. Do not start a loop.');
+  assert.match(reply, /Three startup-operator improvements/i);
+  assert.match(reply, /1\./);
+  assert.match(reply, /2\./);
+  assert.match(reply, /3\./);
+  assert.match(reply, /No loop starts/i);
   assert.doesNotMatch(reply, /Got it, staying in chat/i);
 });
 
