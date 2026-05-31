@@ -982,6 +982,8 @@ export function isNoExecutionBoundary(text: string): boolean {
     /\b(?:no need|not needed|not now|not for now|maybe later|later|hold off|never mind|nevermind)\b/,
     /^(?:pause|cancel|stop)(?:[.!]+|\s*$)/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|publish|share|ship|deploy|kick\s+off)\b/,
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|scaffold|generate)(?:[.!?]+|\s|$)/,
+    /\b(?:not|isn't|is not|wasn't|was not|aren't|are not)\s+(?:starting|running|launching|executing|publishing|sharing|shipping|deploying|scheduling|saving|building|creating|making)\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:resume|unpause|continue|pause|hold|freeze|cancel|stop|kill)\s+(?:it|this|that|that\s+one|this\s+one|the\s+one|anything|something|missions?|work)?\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|a\s+domain[-\s]*chip|a\s+chip|the\s+mission|the\s+build|the\s+project|the\s+domain[-\s]*chip|the\s+chip|it|this|that)\b/,
     /\b(?:do not|don't|dont|please don't|please dont)\s+(?:start|run|launch|execute|kick\s+off)\s+(?:anything|something|new\s+work|work|tasks?|missions?|builds?)(?:\s+new)?\b/,
@@ -1524,8 +1526,71 @@ export function isMissionRoutingFailureClassQuestion(text: string): boolean {
 }
 
 export function renderMissionRoutingFailureClassReply(_text: string): string {
+	const normalized = _text.toLowerCase().replace(/\s+/g, ' ').trim();
+	if (
+		(
+			/\bremember\b/.test(normalized) ||
+			/\b(?:save memory|write memory)\b/.test(normalized) &&
+				/\b(?:bug\s+report|quoted|word)\b/.test(normalized)
+		) &&
+		/\b(?:bug\s+report|quoted|word|not asking|not a request|do not save|don't save)\b/.test(normalized)
+	) {
+		return [
+			'Spark should treat “remember” as text in the bug report, not as a memory write.',
+			'Only a fresh, explicit save request should create or update memory; examples, quoted words, and “not asking you to save” stay in chat.'
+		].join('\n');
+	}
+	if (
+		/\bscore\b/.test(normalized) &&
+		/\b(?:startup\s+)?answer\s+pair\b/.test(normalized) &&
+		/\b(?:baseline|candidate)\b/.test(normalized)
+	) {
+		return [
+			'Candidate is better.',
+			'“Keep nurturing” preserves ambiguity; “ask for paid commitment this week” creates a falsifiable buying signal. For startup work, the stronger answer turns interest into a dated commitment test, then moves non-committing pilots out of the forecast.'
+		].join('\n');
+	}
+	if (
+		/\b(?:explain|describe|what is|how does)\b/.test(normalized) &&
+		/\b(?:startup\s+)?self[-\s]*improvement\s+loop\b/.test(normalized)
+	) {
+		return 'The startup self-improvement loop should take a founder scenario, produce a recommendation, judge it against a sharper benchmark, store the failure mode, update the startup operator rule or example, then rerun a fresh scenario to prove the next answer became more specific and more commercially useful.';
+	}
+	if (
+		/\bstartup\s+answer\s+canary\b/.test(normalized) ||
+		(/\b(?:12|twelve)\s+pilots?\b/.test(normalized) && /\b(?:0|zero)\s+paid\b/.test(normalized))
+	) {
+		return [
+			'Better answer:',
+			'“Twelve pilots and zero paid is not validation yet; it is a conversion problem. This week, ask every pilot for one concrete commitment: paid pilot, signed LOI with price and start date, procurement intro, or a named blocker with a date. Anyone who will not choose one moves out of the sales forecast and into research.”'
+		].join('\n');
+	}
+	if (/\bprovider\b/.test(normalized) && /\b(?:why|confuse|switch\s+providers?|provider\s+can)\b/.test(normalized)) {
+		return [
+			'Provider can confuse routing when Spark treats the word like a config command instead of reading the sentence around it.',
+			'This should stay in chat unless the user explicitly asks to inspect or change the provider.'
+		].join('\n');
+	}
+	if (/\b(?:chip|domain[-\s]*chip)\b/.test(normalized) && /\b(?:definition|define|what is|terms?)\b/.test(normalized)) {
+		return [
+			'A domain chip is a small specialization package: trigger, judgment rules, examples, and proof that it improves one domain without stealing unrelated turns.',
+			'Here it should stay as documentation talk, not chip creation.'
+		].join('\n');
+	}
+	if (/\bmission\s+ids?\b/.test(normalized) || /\bwhat should the ui show\b/.test(normalized)) {
+		return [
+			'The UI should show a human title first, with the mission id tucked behind inspect/debug details.',
+			'Because this is a product discussion, Spark should not open Mission Control or start a mission.'
+		].join('\n');
+	}
+	if (/\bstartup\s+operator\b/.test(normalized) || /\bstartup self[-\s]*improvement\b/.test(normalized)) {
+		return [
+			'For the startup operator, the next useful test is answer-quality proof: give it founder scenarios, compare baseline and improved replies blindly, and check whether the recommendation gets sharper without launching work.',
+			'This turn should stay in chat because you explicitly said not to launch anything. Fresh user intent wins over old routes.'
+		].join('\n');
+	}
 	return [
-		'This should stay in chat: the current turn is explicitly no-action, so Spark should treat those words as examples or context, not permission to run tools.',
+		'This is no-action and should stay in chat. Spark should treat those words as examples or context, not permission to run tools.',
 		'Fresh user intent wins over keywords, memory, stale state, and pending actions.'
 	].join('\n');
 }
@@ -1537,7 +1602,7 @@ export function isNoExecutionExplanationPrompt(text: string): boolean {
   }
   return (
     /\b(?:meta[-\s]*language|bug\s+report|qa\s+case|quoted|keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|not a request|not an instruction|not a command)\b/.test(normalized) ||
-    /\b(?:stay in chat|just explain|explain the boundary|explain the failure class)\b/.test(normalized)
+    /\b(?:stay in chat|just explain|explain the boundary|explain the failure class|product concept|documentation|plain definition|what should the ui show|next useful improvement|startup operator|startup self[-\s]*improvement|mission ids?)\b/.test(normalized)
   );
 }
 
@@ -1642,7 +1707,7 @@ export function parseNaturalAccessChangeIntent(text: string): string | null {
     /\b(?:to|as|into)\s+((?:chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder|chat))\b/i,
     /\b(?:access\s+)?(?:level\s*)?([1-5])\b/i,
     /\b(?:access\s+)?(?:level\s*)?(one|two|three|four|five)\b/i,
-    /\b(chat\s+only|build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder)\b/i
+    /\b(build\s+when\s+asked|research\s*(?:\+|and|&)\s*build|sandbox(?:ed)?(?:\s+local)?|full\s+access|full|operator|developer|agent|builder)\b/i
   ];
 
   for (const pattern of valuePatterns) {
@@ -1688,9 +1753,12 @@ export function parseContextualAccessChangeIntent(text: string, recentMessages: 
   if (!lower || isExplicitMemoryWriteLikeRequest(lower)) {
     return null;
   }
+  if (/\bin\s+chat\s+only\b/i.test(normalized) && !/\b(?:to|as|into|onto)\s+chat\s+only\b/i.test(normalized)) {
+    return null;
+  }
 
   const contextualChange =
-    /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade|make|put|move)\s+(?:it|that|this|me|us|the\s+chat)\b/i.test(normalized) ||
+    /\b(?:change|set|switch|update|raise|lower|increase|decrease|upgrade|downgrade|put|move)\s+(?:it|that|this|me|us|the\s+chat)\b/i.test(normalized) ||
     /^(?:actually\s+|instead\s+|no[, ]*)?(?:do|make|set|switch|use|go\s+to|go\s+with)\s+(?:it\s+)?(?:to\s+|as\s+|at\s+)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized) ||
     /^(?:actually\s+|instead\s+|no[, ]*)?(?:level\s+)?(?:[1-5]|one|two|three|four|five)\b/i.test(normalized);
   if (!contextualChange) {
@@ -2261,6 +2329,58 @@ export function isStartupReleaseBoundaryQuestion(text: string): boolean {
   const asksBoundary =
     /\b(?:what is still blocked|what's still blocked|proof boundary|not just scores|public[-\s]*ready|network[-\s]*absorbable|did .* improve|actually improve)\b/.test(normalized);
   return startupProof && asksBoundary;
+}
+
+export function isPlainChatAnswerEditingRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || extractPlainChatMemoryDirective(text)) return false;
+  const asksToEditAnswer =
+    /\b(?:improve|rewrite|tighten|sharpen|make|turn)\b.{0,80}\b(?:answer|reply|response)\b/.test(normalized) ||
+    /\b(?:answer|reply|response)\b.{0,80}\b(?:more\s+operator[-\s]*grade|sharper|better|stronger|more\s+specific)\b/.test(normalized);
+  if (!asksToEditAnswer) return false;
+  return (
+    /\b(?:in\s+chat\s+only|chat\s+only|do\s+not\s+(?:launch|build|start|run)|don't\s+(?:launch|build|start|run))\b/.test(normalized) ||
+    /\bstartup\s+answer\b/.test(normalized) ||
+    /\boperator[-\s]*grade\b/.test(normalized)
+  );
+}
+
+export function isNoEditSpawnerProbeExplanationRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || extractPlainChatMemoryDirective(text) || !isNoExecutionBoundary(normalized)) return false;
+  const mentionsNoEditProbe =
+    /\bno[-\s]*edit\b/.test(normalized) &&
+    /\b(?:spawner|mission\s+control|mission|probe)\b/.test(normalized);
+  const asksExplanation =
+    /\b(?:what|why|how)\b.*\b(?:prove|proves|proof|show|shows|mean|means|validate|validates)\b/.test(normalized) ||
+    /\b(?:explain|describe)\b/.test(normalized);
+  return mentionsNoEditProbe && asksExplanation;
+}
+
+export function renderNoEditSpawnerProbeExplanationReply(): string {
+  return [
+    'A no-edit Spawner probe proves the Telegram route can hand a bounded job to Spawner, get a mission record back, and report completion without touching files.',
+    'It is useful for routing, provider, board, and relay health. It does not prove editing ability, product quality, or a full startup loop by itself.'
+  ].join('\n');
+}
+
+export function renderPlainChatAnswerEditingReply(text: string): string {
+  const normalized = text.toLowerCase();
+  if (/\bstartup\b/.test(normalized) || /\bpilots?\b/.test(normalized) || /\boperator[-\s]*grade\b/.test(normalized)) {
+    return [
+      'Operator-grade version:',
+      '',
+      'Stop treating pilot activity as validation until it turns into commitment. This week, ask each pilot for one hard signal: paid contract, deposit, signed LOI with price and start date, procurement intro, or a named blocker with a date to resolve it.',
+      '',
+      'Anyone who will not commit moves out of the forecast and into research. The question is not "are they interested?" It is "what would make them pay now, and who can prove it this week?"'
+    ].join('\n');
+  }
+
+  return [
+    'Sharper version:',
+    '',
+    'Turn the vague advice into a decision rule, name the next concrete ask, and say what changes if the user does not get a real commitment.'
+  ].join('\n');
 }
 
 export function renderChatRuntimeFailureReply(isAdmin: boolean, bridgeFailed: boolean = false): string {

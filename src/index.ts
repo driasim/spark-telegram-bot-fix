@@ -216,8 +216,10 @@ import {
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
   isMissionRoutingFailureClassQuestion,
+  isNoEditSpawnerProbeExplanationRequest,
   isNoExecutionExplanationPrompt,
   isNoExecutionBoundary,
+  isPlainChatAnswerEditingRequest,
   isProtectedMissionCancelPronounIntent,
   isProtectedMissionPausePronounIntent,
   isProtectedMissionResumePronounIntent,
@@ -242,6 +244,8 @@ import {
   parseMissionUpdatePreferenceIntent,
   renderChatRuntimeFailureReply,
   renderMissionRoutingFailureClassReply,
+  renderNoEditSpawnerProbeExplanationReply,
+  renderPlainChatAnswerEditingReply,
   renderSparkThreadQaGoldenCaseReply,
   renderSparkWorkflowBugHuntReply,
   renderXContentCredentialBoundaryReply,
@@ -6187,7 +6191,10 @@ bot.command('access', async (ctx) => {
     return;
   }
 
-  const next = normalizeSparkAccessProfile(raw);
+  const rawProfile = accessLevelChangeConfirmed(raw)
+    ? raw.replace(/\bconfirm\b/ig, ' ').replace(/\s+/g, ' ').trim()
+    : raw;
+  const next = normalizeSparkAccessProfile(rawProfile);
   if (!next) {
     await ctx.reply('Choose an access level: /access 1 chat/memory/diagnostics, /access 2 requested builds, /access 3 public research plus builds, /access 4 sandboxed local projects, or /access 5 whole-computer operator mode.');
     return;
@@ -6248,31 +6255,20 @@ async function applySparkAccessProfileChange(ctx: any, next: SparkAccessProfile)
   }
 
   const current = await getSparkAccessProfile(ctx.chat.id);
-  let level5DisableResult: Awaited<ReturnType<typeof runSparkAccessActionDetailed>> | null = null;
-  if (next !== 'operator' && (current === 'operator' || await isLevel5ServiceEnabled())) {
-    level5DisableResult = await runSparkAccessActionDetailed('level5_disable');
-    if (level5DisableResult.payload?.ok === false) {
-      await ctx.reply(level5DisableResult.reply);
-      return;
-    }
-  }
+  const level5ServiceStillEnabled = next !== 'operator' && (current === 'operator' || await isLevel5ServiceEnabled());
 
   await setSparkAccessProfile(ctx.chat.id, next);
   await conversation.learnAboutUser(ctx.from, `Spark access profile for this chat is ${next}. ${describeSparkAccessProfile(next)}`).catch(() => {});
   const baseReply = await renderSparkAccessChangeReply(next);
-  const reply = level5DisableResult
+  const reply = level5ServiceStillEnabled
     ? [
         baseReply,
         '',
-        'I also disabled Level 5 service guardrails so Spark returns to the workspace sandbox.',
-        level5DisableResult.needsSparkRestart ? formatSparkAccessAutomaticRestartNotice('level5_disable') : ''
+        'I lowered this Telegram chat setting. The Level 5 service lane may still be enabled underneath until an interactive terminal runs `spark access disable-level5` and Spark Live restarts.'
       ].filter(Boolean).join('\n')
     : baseReply;
   await ctx.reply(reply, buildSparkAccessChangeKeyboard(next));
   await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
-  if (level5DisableResult?.needsSparkRestart) {
-    scheduleSparkRestartAfterAccessChange();
-  }
 }
 
 async function prepareLevel5AndApplyAccess(ctx: any): Promise<void> {
@@ -6538,6 +6534,22 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderMissionRoutingFailureClassReply(text);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_execution_meta_trigger', 'spark-telegram-bot', 'plain_chat.qa_boundary');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (isPlainChatAnswerEditingRequest(text)) {
+    const reply = renderPlainChatAnswerEditingReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.answer_editing', 'spark-telegram-bot', 'plain_chat.answer_editing');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && isNoEditSpawnerProbeExplanationRequest(text)) {
+    const reply = renderNoEditSpawnerProbeExplanationReply();
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_edit_spawner_probe_explanation', 'spark-telegram-bot', 'plain_chat.probe_explanation');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

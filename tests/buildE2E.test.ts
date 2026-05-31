@@ -2651,7 +2651,7 @@ async function run(): Promise<void> {
 
 		const reply = replies[0] || '';
 		assert.match(reply, /stay in chat/i);
-		assert.match(reply, /examples or context/i);
+		assert.match(reply, /examples or context|quoted words|memory write/i);
 		assert.doesNotMatch(reply, /Spark is healthy right now|No restart needed|Live loop/i);
 		assert.equal(captured.length, 0, 'meta trigger discussion must not call Spawner or PRD bridge');
 
@@ -2716,6 +2716,219 @@ async function run(): Promise<void> {
 		assert.match(reply, /Fresh user intent wins/i);
 		assert.equal(replies.length, 1, 'startup architecture boundary should answer once in chat');
 		assert.equal(captured.length, 0, 'startup architecture boundary must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('startup operator no-launch advice answers in chat', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-operator-no-launch-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 612, replies);
+		ctx.message.text = 'For the startup operator, what is the next useful improvement to test? Do not launch anything.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /answer-quality proof/i);
+		assert.equal(replies.length, 1, 'startup no-launch advice should answer once in chat');
+		assert.equal(captured.length, 0, 'startup no-launch advice must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('startup answer editing in chat does not become access or mission execution', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-answer-edit-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const accessCtx = makeFakeCtx(8319079066, 8319079055, 615, replies);
+		accessCtx.message.text = 'Change my access level to three please';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(accessCtx);
+
+		const editCtx = makeFakeCtx(8319079066, 8319079055, 616, replies);
+		editCtx.message.text = 'Improve this startup answer in chat only: "Keep nurturing the pilots and wait for stronger usage." Make it more operator-grade.';
+		await indexModule.handleTextMessage(editCtx);
+
+		const reply = replies[1] || '';
+		assert.match(reply, /Operator-grade version/i);
+		assert.doesNotMatch(reply, /Access level|internal error|Spawner|Mission/i);
+		assert.equal(captured.length, 0, 'plain answer editing must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('startup answer pair scoring in chat does not become a loop', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-answer-score-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079067, 8319079055, 617, replies);
+		ctx.message.text = 'Score this startup answer pair in chat only. Baseline: "keep nurturing." Candidate: "ask for paid commitment this week." Which is better and why? Do not run a loop.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Candidate is better/i);
+		assert.match(reply, /falsifiable buying signal/i);
+		assert.doesNotMatch(reply, /internal error|Spawner|Mission|loop started/i);
+		assert.equal(captured.length, 0, 'startup answer scoring in chat must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('startup answer canary in chat answers without launching tools', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-answer-canary-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079068, 8319079055, 618, replies);
+		ctx.message.text = 'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Better answer/i);
+		assert.match(reply, /zero paid is not validation/i);
+		assert.doesNotMatch(reply, /internal error|Spawner|Mission|loop started/i);
+		assert.equal(captured.length, 0, 'startup answer canary in chat must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('no-edit Spawner probe explanation answers before board or bridge routes', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-no-edit-probe-explain-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079069, 8319079055, 619, replies);
+		ctx.message.text = 'Do not build. What would a no-edit Spawner probe prove?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /bounded job to Spawner/i);
+		assert.match(reply, /does not prove editing ability/i);
+		assert.doesNotMatch(reply, /Board failed|internal error|Mission:/i);
+		assert.equal(captured.length, 0, 'no-edit probe explanation must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('mission-id product concept does not become Mission Control status', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-mission-id-product-boundary-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 613, replies);
+		ctx.message.text = 'We are discussing mission IDs as a product concept, not launching a mission. What should the UI show?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /human title first/i);
+		assert.doesNotMatch(reply, /Spawner UI|Mission Control is running|diagnostic-agent/i);
+		assert.equal(captured.length, 0, 'mission-id product concept must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('natural access lowering updates chat setting without running noninteractive Level 5 CLI action', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-lower-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079056, 8319079055, 614, replies);
+		ctx.message.text = 'Change my access level to three please';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Access level 3|Level 3/i);
+		assert.match(reply, /chat setting/i);
+		assert.doesNotMatch(reply, /configuration problem|disable-level5 --json/i);
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();

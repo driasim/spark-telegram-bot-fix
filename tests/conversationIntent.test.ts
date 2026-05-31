@@ -45,6 +45,9 @@ import {
   isSparkWorkflowBugHuntRequest,
   isSparkThreadQaGoldenCaseRequest,
   renderSparkThreadQaGoldenCaseReply,
+  renderMissionRoutingFailureClassReply,
+  renderNoEditSpawnerProbeExplanationReply,
+  renderPlainChatAnswerEditingReply,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isXContentCredentialBoundaryQuestion,
@@ -52,6 +55,8 @@ import {
   isProjectImprovementRequest,
   isLocalSparkServiceRequest,
   isMissionExecutionConfirmation,
+  isNoEditSpawnerProbeExplanationRequest,
+  isPlainChatAnswerEditingRequest,
   isMemoryAcknowledgementReply,
   isMemoryDoctorRequest,
   isNoExecutionBoundary,
@@ -1666,6 +1671,87 @@ test('parses natural access change requests', () => {
   assert.equal(parseNaturalAccessChangeIntent('how should access 4 setup work for users?'), null);
 });
 
+test('no-execution boundary catches negated ongoing action wording', () => {
+  assert.equal(
+    isNoExecutionBoundary('We are discussing mission IDs as a product concept, not launching a mission. What should the UI show?'),
+    true
+  );
+});
+
+test('no-execution replies answer the actual product question', () => {
+  const missionUi = renderMissionRoutingFailureClassReply(
+    'We are discussing mission IDs as a product concept, not launching a mission. What should the UI show?'
+  );
+  assert.match(missionUi, /human title first/i);
+  assert.doesNotMatch(missionUi, /Spawner UI \/ Mission Control is running/i);
+
+  const chipDefinition = renderMissionRoutingFailureClassReply(
+    'I am comparing the terms chip and domain chip in documentation. Do not create a chip. Give a plain definition.'
+  );
+  assert.match(chipDefinition, /small specialization package/i);
+  assert.doesNotMatch(chipDefinition, /current turn is explicitly no-action/i);
+
+  const startupAdvice = renderMissionRoutingFailureClassReply(
+    'For the startup operator, what is the next useful improvement to test? Do not launch anything.'
+  );
+  assert.match(startupAdvice, /answer-quality proof/i);
+  assert.doesNotMatch(startupAdvice, /current turn is explicitly no-action/i);
+
+  const answerPairScore = renderMissionRoutingFailureClassReply(
+    'Score this startup answer pair in chat only. Baseline: "keep nurturing." Candidate: "ask for paid commitment this week." Which is better and why? Do not run a loop.'
+  );
+  assert.match(answerPairScore, /Candidate is better/i);
+  assert.match(answerPairScore, /falsifiable buying signal/i);
+  assert.doesNotMatch(answerPairScore, /should stay in chat/i);
+
+  const loopExplanation = renderMissionRoutingFailureClassReply(
+    'Do not start a loop. Explain the startup self-improvement loop in one paragraph.'
+  );
+  assert.match(loopExplanation, /founder scenario/i);
+  assert.match(loopExplanation, /rerun a fresh scenario/i);
+  assert.doesNotMatch(loopExplanation, /should stay in chat/i);
+
+  const chatCanary = renderMissionRoutingFailureClassReply(
+    'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.'
+  );
+  assert.match(chatCanary, /Better answer/i);
+  assert.match(chatCanary, /zero paid is not validation/i);
+  assert.doesNotMatch(chatCanary, /should stay in chat/i);
+
+  const memoryWordBug = renderMissionRoutingFailureClassReply(
+    'I am saying "remember" as a word in a bug report, not asking you to save memory. What should Spark do?'
+  );
+  assert.match(memoryWordBug, /not as a memory write/i);
+  assert.match(memoryWordBug, /fresh, explicit save request/i);
+  assert.doesNotMatch(memoryWordBug, /run tools/i);
+});
+
+test('plain chat answer editing does not become access or mission execution', () => {
+  const prompt = 'Improve this startup answer in chat only: "Keep nurturing the pilots." Make it more operator-grade.';
+  assert.equal(isPlainChatAnswerEditingRequest(prompt), true);
+  assert.equal(isExplicitContextualBuildRequest(prompt), false);
+  assert.equal(parseContextualAccessChangeIntent(prompt, [
+    'User: Change my access level to three please',
+    'Spark: Done - I changed this chat to Access level 3.'
+  ]), null);
+
+  const reply = renderPlainChatAnswerEditingReply(prompt);
+  assert.match(reply, /Operator-grade version/i);
+  assert.match(reply, /hard signal|paid contract|deposit/i);
+  assert.doesNotMatch(reply, /Access level|Spawner|Mission/i);
+});
+
+test('no-edit Spawner probe explanation stays in chat', () => {
+  const prompt = 'Do not build. What would a no-edit Spawner probe prove?';
+  assert.equal(isNoEditSpawnerProbeExplanationRequest(prompt), true);
+  assert.equal(parseSpawnerBoardNaturalIntent(prompt), null);
+
+  const reply = renderNoEditSpawnerProbeExplanationReply();
+  assert.match(reply, /bounded job to Spawner/i);
+  assert.match(reply, /does not prove editing ability/i);
+  assert.doesNotMatch(reply, /Mission:/i);
+});
+
 test('resolves contextual access change follow-ups from recent access turns', () => {
   const recent = [
     'User: Change my access level to three please',
@@ -1678,6 +1764,13 @@ test('resolves contextual access change follow-ups from recent access turns', ()
   assert.equal(parseContextualAccessChangeIntent('Actually make it four', recent), '4');
   assert.equal(parseContextualAccessChangeIntent('4', recent), '4');
   assert.equal(parseContextualAccessChangeIntent('do four instead', recent), '4');
+  assert.equal(
+    parseContextualAccessChangeIntent(
+      'Improve this startup answer in chat only: "Keep nurturing the pilots." Make it more operator-grade.',
+      recent
+    ),
+    null
+  );
   assert.equal(parseContextualAccessChangeIntent('Change it to 4', ['User: I like the fourth design']), null);
   assert.equal(inferRecentConversationFocus(['User: I like the fourth design']), null);
   assert.equal(parseContextualAccessChangeIntent('Remember that I like level 4', recent), null);

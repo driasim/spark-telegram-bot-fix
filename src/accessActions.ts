@@ -181,7 +181,32 @@ export async function runSparkAccessActionDetailed(
   runner: SparkCommandRunner = defaultSparkCommandRunner
 ): Promise<SparkAccessActionExecution> {
   const action = SPARK_ACCESS_ACTIONS[actionId];
-  const result = await runner(action.command, action.timeoutMs);
+  let result: { stdout: string; stderr: string };
+  try {
+    result = await runner(action.command, action.timeoutMs);
+  } catch (error) {
+    const anyError = error as { stdout?: unknown; stderr?: unknown; message?: unknown };
+    const output = redactText([
+      anyError.stdout,
+      anyError.stderr,
+      anyError.message,
+    ].filter(Boolean).map(String).join('\n').trim());
+    const nonInteractive = /non-interactive|interactive terminal|requires?.*confirmation/i.test(output);
+    const reply = nonInteractive
+      ? [
+          'Spark could not change the Level 5 service lane from this Telegram process because the Spark CLI requires an interactive confirmation.',
+          'Run `spark access disable-level5` in a trusted local terminal, then restart Spark Live. The Telegram chat access setting can still be lowered separately.'
+        ].join('\n')
+      : [`Spark access action failed: ${action.id}`, output || 'No output.'].join('\n');
+    return {
+      reply,
+      payload: {
+        ok: false,
+        error: nonInteractive ? 'non_interactive_confirmation_required' : 'command_failed'
+      },
+      needsSparkRestart: false,
+    };
+  }
   const payload = parseSparkJson(result.stdout);
   if (!payload) {
     const output = redactText([result.stdout, result.stderr].filter(Boolean).join('\n').trim());
