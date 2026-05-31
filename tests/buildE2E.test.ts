@@ -3063,6 +3063,38 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('chat-only domain chip proposal stays useful without creating', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-chat-only-chip-proposal-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079071, 8319079055, 624, replies);
+		ctx.message.text = 'Create a tiny domain chip proposal in chat only for startup pricing objections. Do not create files or launch a mission.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Startup Pricing Objection Coach/i);
+		assert.match(reply, /Trigger:/i);
+		assert.match(reply, /Proof:/i);
+		assert.doesNotMatch(reply, /Mission:|I will run|permission to run tools/i);
+		assert.equal(captured.length, 0, 'chat-only chip proposal must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

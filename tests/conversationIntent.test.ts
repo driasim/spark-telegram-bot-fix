@@ -1694,6 +1694,14 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(chipDefinition, /small specialization package/i);
   assert.doesNotMatch(chipDefinition, /current turn is explicitly no-action/i);
 
+  const chipProposal = renderMissionRoutingFailureClassReply(
+    'Create a tiny domain chip proposal in chat only for startup pricing objections. Do not create files or launch a mission.'
+  );
+  assert.match(chipProposal, /Startup Pricing Objection Coach/i);
+  assert.match(chipProposal, /Trigger:/i);
+  assert.match(chipProposal, /Proof:/i);
+  assert.doesNotMatch(chipProposal, /permission to run tools/i);
+
   const startupAdvice = renderMissionRoutingFailureClassReply(
     'For the startup operator, what is the next useful improvement to test? Do not launch anything.'
   );

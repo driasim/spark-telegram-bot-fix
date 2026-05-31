@@ -1571,6 +1571,19 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 			'This should stay in chat unless the user explicitly asks to inspect or change the provider.'
 		].join('\n');
 	}
+	if (
+		/\bdomain[-\s]*chip\b/.test(normalized) &&
+		/\bproposal\b/.test(normalized) &&
+		/\bchat\s+only\b/.test(normalized)
+	) {
+		return [
+			'Chat-only domain chip proposal: Startup Pricing Objection Coach',
+			'Trigger: founder asks how to answer pricing pushback, discount pressure, budget delays, or “too expensive” objections.',
+			'Judgment rules: separate willingness-to-pay from timing, ask for a priced commitment instead of vague interest, and turn discount requests into scope or proof tradeoffs.',
+			'Example output: “If price is the blocker, offer a smaller paid pilot with a fixed success condition instead of lowering the main price.”',
+			'Proof: compare baseline and improved objection replies blindly, then track whether the improved answer creates clearer paid next steps.'
+		].join('\n');
+	}
 	if (/\b(?:chip|domain[-\s]*chip)\b/.test(normalized) && /\b(?:definition|define|what is|terms?)\b/.test(normalized)) {
 		return [
 			'A domain chip is a small specialization package: trigger, judgment rules, examples, and proof that it improves one domain without stealing unrelated turns.',
