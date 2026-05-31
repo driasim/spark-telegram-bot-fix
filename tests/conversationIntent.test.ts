@@ -63,6 +63,7 @@ import {
   isMemoryAcknowledgementReply,
   isMemoryDoctorRequest,
   isNoExecutionBoundary,
+  isNoExecutionExplanationPrompt,
   isLowInformationLlmReply,
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
@@ -1744,6 +1745,14 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(loopExplanation, /rerun a fresh scenario/i);
   assert.doesNotMatch(loopExplanation, /should stay in chat/i);
 
+  const releaseEvidence = renderMissionRoutingFailureClassReply(
+    'Before publishing the TurnIntent fixes, what release evidence should we require? Do not publish, deploy, or open a PR from this message.'
+  );
+  assert.match(releaseEvidence, /focused route tests/i);
+  assert.match(releaseEvidence, /live Telegram negative plus positive prompts/i);
+  assert.match(releaseEvidence, /no publishing, deploy, or PR action/i);
+  assert.doesNotMatch(releaseEvidence, /Spawner UI \/ Mission Control is running/i);
+
   const chatCanary = renderMissionRoutingFailureClassReply(
     'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.'
   );
@@ -1764,6 +1773,20 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(accessDocs, /descriptive, not permission changes/i);
   assert.match(accessDocs, /current access status/i);
   assert.doesNotMatch(accessDocs, /permission to run tools/i);
+});
+
+test('release evidence questions with no-action language stay conversational', () => {
+  const prompt = 'Before publishing the TurnIntent fixes, what release evidence should we require? Do not publish, deploy, or open a PR from this message.';
+
+  assert.equal(isNoExecutionBoundary(prompt), true);
+  assert.equal(isNoExecutionExplanationPrompt(prompt), true);
+  assert.equal(
+    isLocalSparkServiceRequest(
+      prompt,
+      'Completed Spawner mission spark-123. Result: Built the first-pass Spark Diagnostic Agent.'
+    ),
+    false
+  );
 });
 
 test('plain chat answer editing does not become access or mission execution', () => {

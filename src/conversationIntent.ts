@@ -1203,6 +1203,9 @@ export function isLocalSparkServiceRequest(text: string, context: string = ''): 
   }
 
   const normalized = text.trim().toLowerCase();
+  if (isNoExecutionBoundary(normalized)) {
+    return false;
+  }
   if (shouldPreferConversationalIdeation(text)) {
     return false;
   }
@@ -1559,6 +1562,16 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 		].join('\n');
 	}
 	if (
+		/\b(?:release|publish|deploy|open\s+a\s+pr|prs?)\b/.test(normalized) &&
+		/\b(?:evidence|proof|checks?|gate|require|required|before)\b/.test(normalized) &&
+		/\b(?:do\s+not|don't|dont|not\s+asking|without)\b.{0,100}\b(?:publish|deploy|open\s+a\s+pr|prs?|release)\b/.test(normalized)
+	) {
+		return [
+			'For TurnIntent fixes, require evidence from the actual surfaces before release: focused route tests, build/typecheck, runtime sync, Spark Live health, and live Telegram negative plus positive prompts.',
+			'The release boundary is still closed from this message: no publishing, deploy, or PR action without a fresh explicit release request after the evidence packet is clean.'
+		].join('\n');
+	}
+	if (
 		/\bscore\b/.test(normalized) &&
 		/\b(?:startup\s+)?answer\s+pair\b/.test(normalized) &&
 		/\b(?:baseline|candidate)\b/.test(normalized)
@@ -1648,10 +1661,14 @@ export function isNoExecutionExplanationPrompt(text: string): boolean {
   if (!normalized || parseBuildIntent(normalized) || !isNoExecutionBoundary(normalized)) {
     return false;
   }
-  return (
-    /\b(?:meta[-\s]*language|bug\s+report|qa\s+case|quoted|keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|not a request|not an instruction|not a command)\b/.test(normalized) ||
-    /\b(?:stay in chat|just explain|explain the boundary|explain the failure class|product concept|documentation|plain definition|what should the ui show|next useful improvement|startup operator|startup self[-\s]*improvement|mission ids?)\b/.test(normalized)
-  );
+	return (
+		/\b(?:meta[-\s]*language|bug\s+report|qa\s+case|quoted|keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|not a request|not an instruction|not a command)\b/.test(normalized) ||
+		/\b(?:stay in chat|just explain|explain the boundary|explain the failure class|product concept|documentation|plain definition|what should the ui show|next useful improvement|startup operator|startup self[-\s]*improvement|mission ids?)\b/.test(normalized) ||
+		(
+			/\b(?:release|publish|deploy|open\s+a\s+pr|prs?)\b/.test(normalized) &&
+			/\b(?:evidence|proof|checks?|gate|require|required|before)\b/.test(normalized)
+		)
+	);
 }
 
 function isProductMemoryMissionBoundaryQuestion(normalized: string): boolean {
