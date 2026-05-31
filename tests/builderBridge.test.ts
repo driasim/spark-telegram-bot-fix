@@ -136,6 +136,7 @@ test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action prefligh
   const bridgeSource = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
   const indexSource = readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
   const gateBlock = indexSource.match(/async function buildDispatchRouteConfidenceAllows[\s\S]*?\n}\n\ninterface RunCommandOptions/)?.[0] || '';
+  const pendingDomainChipBlock = indexSource.match(/async function handlePendingDomainChipBuild[\s\S]*?\n}\n\nasync function handleCreatorMissionPlan/)?.[0] || '';
 
   assert.match(bridgeSource, /routeContext\?: Record<string, unknown>/);
   assert.match(bridgeSource, /--route-context-json/);
@@ -146,6 +147,7 @@ test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action prefligh
   assert.match(indexSource, /exports_chat_id: false/);
   assert.match(indexSource, /exports_memory_body: false/);
   assert.doesNotMatch(gateBlock, /currentMessage|user_message|raw_provider_output|raw_memory_body/);
+  assert.match(pendingDomainChipBlock, /confirmationState: 'confirmed'/);
 });
 
 test('route confidence route context sanitizer keeps only allowlisted metadata', () => {

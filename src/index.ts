@@ -4496,7 +4496,10 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     null,
     pending.buildMode,
     pending.buildModeReason,
-    pending.capabilityProposalPacket
+    pending.capabilityProposalPacket,
+    undefined,
+    undefined,
+    { confirmationState: 'confirmed' }
   );
   return true;
 }
@@ -5444,7 +5447,8 @@ export async function handleBuildIntent(
   buildModeReason: string,
   capabilityProposalPacket?: Record<string, unknown>,
   buildLane: BuildLane = buildLaneForMode(buildMode),
-  buildLaneReason = 'Build lane inferred from build mode.'
+  buildLaneReason = 'Build lane inferred from build mode.',
+  options: { confirmationState?: 'not_required' | 'confirmed' | 'missing' } = {}
 ): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -5483,7 +5487,15 @@ export async function handleBuildIntent(
     userIntent: buildMode === 'advanced_prd' ? 'telegram_run_advanced_prd_build' : 'telegram_run_direct_build',
     reason: `Telegram access gate passed for build /run; dispatching to Spawner PRD bridge with ${buildLane} lane.`
   });
-  if (!(await buildDispatchRouteConfidenceAllows({ ctx, accessRequirement, prd, requestId, traceRef, runnerPreflight }))) {
+  if (!(await buildDispatchRouteConfidenceAllows({
+    ctx,
+    accessRequirement,
+    prd,
+    requestId,
+    traceRef,
+    runnerPreflight,
+    confirmationState: options.confirmationState || 'not_required'
+  }))) {
     return;
   }
 
