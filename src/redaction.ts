@@ -84,6 +84,10 @@ export function redactIdentifier(value: string | number | null | undefined, pref
   return `${safePrefix}_${digest}`;
 }
 
+export function isConsoleRedactionInstalled(): boolean {
+  return consoleRedactionInstalled;
+}
+
 export function installConsoleRedaction(): void {
   if (consoleRedactionInstalled) return;
   consoleRedactionInstalled = true;

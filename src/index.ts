@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './earlyConsoleRedaction';
 import { config as loadEnv } from 'dotenv';
 import { execFile } from 'node:child_process';
 import { appendFile, mkdir } from 'node:fs/promises';
@@ -43,7 +44,7 @@ import { spark } from './spark';
 import { generateBuildClarificationMicrocopy, llm, type BuildClarificationMicrocopy } from './llm';
 import { sanitizeAndSplitTelegramText } from './outboundSanitize';
 import { applyPlainWordsSurfaceRequest } from './telegramSurface';
-import { installConsoleRedaction, redactIdentifier, redactText } from './redaction';
+import { redactIdentifier, redactText } from './redaction';
 import { readJsonFile } from './jsonState';
 import {
   formatCreatorMissionExecutionSummary,
@@ -284,8 +285,6 @@ import { extractStartSession, recordTelegramFirstMessage } from './onboardingBri
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 const execFileAsync = promisify(execFile);
-
-installConsoleRedaction();
 
 // Validate environment
 if (!process.env.BOT_TOKEN && !TELEGRAM_SMOKE_MODE) {
