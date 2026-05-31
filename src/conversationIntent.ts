@@ -1886,6 +1886,9 @@ export function isAccessHelpQuestion(text: string): boolean {
   if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) {
     return false;
   }
+  if (parseNaturalAccessChangeIntent(normalized)) {
+    return false;
+  }
 
   if (isAccessCapabilityMismatchQuestion(normalized)) {
     return false;

@@ -1861,6 +1861,8 @@ test('recognizes fuzzy access system help questions', () => {
   assert.equal(isAccessHelpQuestion('does Spark have access levels or something like that?'), true);
   assert.equal(isAccessHelpQuestion('what access tiers unlock local files?'), true);
   assert.equal(isAccessHelpQuestion('is there a permission management surface for this chat?'), true);
+  assert.equal(isAccessHelpQuestion('Change this chat access level to 4.'), false);
+  assert.equal(parseNaturalAccessChangeIntent('Change this chat access level to 4.'), '4');
   const productRule = 'In docs, I am comparing access level 3 and access level 5. Do not change my access. What is the product rule?';
   assert.equal(isAccessProductRuleQuestion(productRule), true);
   assert.equal(isAccessHelpQuestion(productRule), true);
