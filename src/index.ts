@@ -278,6 +278,11 @@ import {
   type TelegramActionAuthorityInput,
   type TelegramActionAuthorityResult
 } from './telegramActionAuthority';
+import {
+  authorizeTelegramCommandAction,
+  commandRouteForRunVariant,
+  type TelegramCommandActionAuthorityInput
+} from './telegramCommandAuthority';
 import { recordHarnessCoreExecutionLedger } from './harnessCoreLedger';
 import { renderNaturalRouteDecisionReply } from './naturalRouteTelemetry';
 import {
@@ -1724,6 +1729,35 @@ function recordTelegramHarnessCoreExecution(
   } catch (error) {
     console.warn('[HarnessCoreLedger] failed to record execution ledger:', error);
   }
+}
+
+function telegramCommandActionAuthorityDecision(
+  ctx: any,
+  input: Omit<TelegramCommandActionAuthorityInput, 'userRef' | 'chatRef' | 'accessProfile' | 'conversationKind'>
+): TelegramActionAuthorityResult {
+  const authorization = authorizeTelegramCommandAction({
+    ...input,
+    userRef: userRef(ctx.from?.id),
+    chatRef: chatRef(ctx.chat?.id),
+    accessProfile: conversation.isAdmin(ctx.from) ? 'admin' : 'standard',
+    conversationKind: 'command'
+  });
+  queueRouteArbiterShadow({
+    route: input.route,
+    text: input.text,
+    verdict: authorization.routeVerdict,
+    profile: activeTelegramProfile()
+  });
+  if (!authorization.allow) {
+    console.log(
+      `[TelegramCommandAuthority] blocked command=${input.commandName} route=${input.route} tool=${input.toolName} reasons=${authorization.reasonCodes.join(',')} textLen=${input.text.length}`
+    );
+  }
+  return authorization;
+}
+
+async function replyTelegramCommandAuthorityBlocked(ctx: any): Promise<void> {
+  await ctx.reply('I did not start that command because the fresh command text does not authorize this action.');
 }
 
 function telegramActionEnvelope(
@@ -5391,6 +5425,7 @@ interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
   relayGoal?: string;
+  onBuildDispatchResult?: (result: BuildIntentDispatchResult) => void;
 }
 
 interface BuildIntentDispatchResult {
@@ -5410,7 +5445,7 @@ export async function handleRunCommand(
 ): Promise<string | null> {
   const buildIntent = options.allowBuildIntent ? parseBuildIntent(goal) : null;
   if (buildIntent) {
-    await handleBuildIntent(
+    const dispatch = await handleBuildIntent(
       ctx,
       buildIntent.prd,
       buildIntent.projectName,
@@ -5421,6 +5456,7 @@ export async function handleRunCommand(
       buildIntent.buildLane,
       buildIntent.buildLaneReason
     );
+    options.onBuildDispatchResult?.(dispatch);
     return null;
   }
 
@@ -5711,7 +5747,37 @@ for (const variant of RUN_VARIANTS) {
       return ctx.reply(`Usage: ${variant.usage}`);
     }
     const providers = variant.name === 'run' ? [missionDefaultProvider()] : variant.providers;
-    await handleRunCommand(ctx, goal, providers, undefined, { allowBuildIntent: variant.name === 'run' });
+    const isBuild = variant.name === 'run' && Boolean(parseBuildIntent(goal));
+    const authorization = telegramCommandActionAuthorityDecision(ctx, {
+      commandName: variant.name,
+      route: commandRouteForRunVariant({ commandName: variant.name, isBuild }),
+      text: ctx.message.text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission',
+      action: isBuild ? 'spawner.build' : 'spawner.run',
+      kind: isBuild ? 'build_or_spawner' : 'slash_command'
+    });
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
+    const buildDispatchRef: { current?: BuildIntentDispatchResult } = {};
+    const missionId = await handleRunCommand(ctx, goal, providers, undefined, {
+      allowBuildIntent: variant.name === 'run',
+      onBuildDispatchResult: (result) => {
+        buildDispatchRef.current = result;
+      }
+    });
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spawner.run',
+      status: buildDispatchRef.current?.status || (missionId ? 'success' : 'failure'),
+      summary: buildDispatchRef.current?.summary || (
+        missionId
+          ? `Slash /${variant.name} started Spawner mission ${missionId}.`
+          : `Slash /${variant.name} did not return a mission id.`
+      )
+    });
   });
 }
 
@@ -6191,11 +6257,32 @@ bot.command('schedule', async (ctx) => {
   if (action === 'mission') {
     const goal = rest.join(' ').trim();
     if (!goal) return ctx.reply('Missing mission goal.');
+    const authorization = telegramCommandActionAuthorityDecision(ctx, {
+      commandName: 'schedule',
+      route: 'schedule.create',
+      text: ctx.message.text,
+      toolName: 'schedule.create',
+      ownerSystem: 'spark-intelligence-builder',
+      mutationClass: 'creates_schedule',
+      action: 'schedule.create',
+      kind: 'schedule_mutation'
+    });
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const res = await createSchedule({
       cron,
       action: 'mission',
       payload: { goal },
       chatId: String(ctx.chat.id),
+    });
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'schedule.create',
+      status: res.ok && res.schedule ? 'success' : 'failure',
+      summary: res.ok && res.schedule
+        ? `Slash /schedule created mission schedule ${res.schedule.id}.`
+        : `Slash /schedule mission creation failed: ${res.error || 'unknown error'}.`
     });
     if (!res.ok || !res.schedule) return ctx.reply(`Schedule failed: ${res.error || 'unknown error'}`);
     return ctx.reply(
@@ -6206,11 +6293,32 @@ bot.command('schedule', async (ctx) => {
     const chipKey = rest.shift();
     const rounds = Math.max(1, Math.min(10, Number.parseInt(rest[0] ?? '2', 10) || 2));
     if (!chipKey) return ctx.reply('Missing chipKey.');
+    const authorization = telegramCommandActionAuthorityDecision(ctx, {
+      commandName: 'schedule',
+      route: 'schedule.create',
+      text: ctx.message.text,
+      toolName: 'schedule.create',
+      ownerSystem: 'spark-intelligence-builder',
+      mutationClass: 'creates_schedule',
+      action: 'schedule.create',
+      kind: 'schedule_mutation'
+    });
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const res = await createSchedule({
       cron,
       action: 'loop',
       payload: { chipKey, rounds },
       chatId: String(ctx.chat.id),
+    });
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'schedule.create',
+      status: res.ok && res.schedule ? 'success' : 'failure',
+      summary: res.ok && res.schedule
+        ? `Slash /schedule created loop schedule ${res.schedule.id}.`
+        : `Slash /schedule loop creation failed: ${res.error || 'unknown error'}.`
     });
     if (!res.ok || !res.schedule) return ctx.reply(`Schedule failed: ${res.error || 'unknown error'}`);
     return ctx.reply(
@@ -6228,7 +6336,28 @@ bot.command('schedules', async (ctx) => {
   if (sub === 'delete') {
     const id = parts.shift();
     if (!id) return ctx.reply('Usage: /schedules delete <id>');
+    const authorization = telegramCommandActionAuthorityDecision(ctx, {
+      commandName: 'schedules',
+      route: 'schedule.delete',
+      text: ctx.message.text,
+      toolName: 'schedule.delete',
+      ownerSystem: 'spark-intelligence-builder',
+      mutationClass: 'deletes_schedule',
+      action: 'schedule.delete',
+      kind: 'schedule_mutation'
+    });
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const res = await deleteSchedule(id);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'schedule.delete',
+      status: res.ok ? 'success' : 'failure',
+      summary: res.ok
+        ? `Slash /schedules deleted schedule ${id}.`
+        : `Slash /schedules delete failed for ${id}: ${res.error || 'not found'}.`
+    });
     return ctx.reply(res.ok ? `Deleted ${id}` : `Delete failed: ${res.error || 'not found'}`);
   }
   const res = await listSchedules();
@@ -6577,8 +6706,30 @@ bot.command('mission', async (ctx) => {
     return;
   }
 
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'mission',
+    route: 'spawner.mission_control',
+    text: ctx.message.text,
+    toolName: 'spawner.mission_control',
+    ownerSystem: 'spawner-ui',
+    mutationClass: action === 'status' ? 'read_only' : 'launches_mission',
+    action: `spawner.mission_${action}`,
+    kind: 'build_or_spawner'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
+
   await safeSendChatAction(ctx, 'typing');
   const result = await spawner.missionCommand(action, missionId);
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'spawner.mission_control',
+    status: result.success ? 'success' : 'failure',
+    summary: result.success
+      ? `Slash /mission ${action} completed for ${missionId}.`
+      : `Slash /mission ${action} failed for ${missionId}: ${result.message}.`
+  });
   if (result.success && action === 'kill') {
     markMissionRelayCancelled(missionId);
   }

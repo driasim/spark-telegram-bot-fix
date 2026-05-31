@@ -135,6 +135,7 @@ export interface SparkHarnessExecutionPolicy {
   canMutateFiles: boolean;
   canLaunchMission: boolean;
   canWriteMemory: boolean;
+  canCreateSchedule: boolean;
   canDeleteSchedule: boolean;
   canCreateChip: boolean;
   canPublish: boolean;
@@ -255,6 +256,7 @@ function executionPolicyForDecision(
     canMutateFiles: !noExecution && !fileMutationBlocked && localMutationRoute,
     canLaunchMission: !noExecution && /(?:spawner|mission|creator|domain_chip|startup\.answer_improvement_canary|natural_run|external_research)/.test(route),
     canWriteMemory: !noExecution && (route === 'memory.write' || route === 'spark_wiki.promote' || route === 'spark.wiki'),
+    canCreateSchedule: !noExecution && /schedule\.create/.test(route),
     canDeleteSchedule: !noExecution && /schedule\.delete/.test(route),
     canCreateChip: !noExecution && /(?:domain_chip|creator)/.test(route),
     canPublish: !noExecution && canPublish && /(?:publish|deploy|ship)/.test(route),
@@ -267,6 +269,7 @@ function mutationClassesForPolicy(policy: SparkHarnessExecutionPolicy): SparkHar
   if (policy.canWriteMemory) classes.push('writes_memory');
   if (policy.canMutateFiles) classes.push('writes_files');
   if (policy.canLaunchMission) classes.push('launches_mission');
+  if (policy.canCreateSchedule) classes.push('creates_schedule');
   if (policy.canDeleteSchedule) classes.push('deletes_schedule');
   if (policy.canCreateChip) classes.push('creates_chip');
   if (policy.canPublish) classes.push('publishes');
@@ -293,6 +296,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'natural_run') tools.push('provider.run');
   if (policy.canMutateFiles) tools.push('spawner.files');
   if (policy.canCreateChip) tools.push('domain_chip.create');
+  if (policy.canCreateSchedule) tools.push('schedule.create');
   if (policy.canDeleteSchedule) tools.push('schedule.delete');
   if (policy.canPublish) tools.push('publish.run');
   if (policy.canUseExternalNetwork) tools.push('external.fetch');
@@ -307,6 +311,7 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'spawner.files',
       'spawner.mission_control',
       'domain_chip.create',
+      'schedule.create',
       'schedule.delete',
       'publish.run',
       'external.fetch',
@@ -325,6 +330,7 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
   if (!policy.canPublish) denied.add('publish.run');
   if (!policy.canUseExternalNetwork) denied.add('external.fetch');
   if (!policy.canUseExternalNetwork) denied.add('provider.run');
+  if (!policy.canCreateSchedule) denied.add('schedule.create');
   if (!policy.canDeleteSchedule) denied.add('schedule.delete');
   return Array.from(denied);
 }
