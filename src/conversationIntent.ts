@@ -1550,6 +1550,15 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 		].join('\n');
 	}
 	if (
+		/\b(?:publish|deploy)\b/.test(normalized) &&
+		/\b(?:bug\s+report|examples?|quoted|words?\s+(?:publish|deploy)|(?:publish|deploy)\s+words?)\b/.test(normalized)
+	) {
+		return [
+			'Spark should treat “publish” and “deploy” as text inside the bug report, not release commands.',
+			'Only a fresh, explicit release request with target, environment, and confirmation should publish or deploy. Examples, quoted phrases, and “do not publish/deploy” stay in chat.'
+		].join('\n');
+	}
+	if (
 		/\bscore\b/.test(normalized) &&
 		/\b(?:startup\s+)?answer\s+pair\b/.test(normalized) &&
 		/\b(?:baseline|candidate)\b/.test(normalized)

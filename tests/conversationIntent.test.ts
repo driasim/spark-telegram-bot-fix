@@ -1701,6 +1701,13 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(scheduleBug, /fresh, explicit schedule request/i);
   assert.doesNotMatch(scheduleBug, /permission to run tools/i);
 
+  const releaseBug = renderMissionRoutingFailureClassReply(
+    'Bug report: the words publish and deploy are examples here, not commands. Do not publish or deploy. What should Spark do?'
+  );
+  assert.match(releaseBug, /text inside the bug report/i);
+  assert.match(releaseBug, /fresh, explicit release request/i);
+  assert.doesNotMatch(releaseBug, /permission to run tools/i);
+
   const chipProposal = renderMissionRoutingFailureClassReply(
     'Create a tiny domain chip proposal in chat only for startup pricing objections. Do not create files or launch a mission.'
   );
