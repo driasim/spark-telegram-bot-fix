@@ -156,6 +156,7 @@ function isExplicitSpawnerNoEditMissionRequest(text: string): boolean {
   const missionLike = /\bmission\b/.test(normalized) ||
     /\bmission\s+control\b/.test(normalized) ||
     /\bdiagnostic\b/.test(normalized) ||
+    /\bprobe\b/.test(normalized) ||
     /\bproof\b/.test(normalized);
   return /\bspawner\b/.test(normalized) &&
     /\b(?:run|start|launch|queue|execute)\b/.test(normalized) &&

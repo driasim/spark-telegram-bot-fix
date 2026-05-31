@@ -43,6 +43,14 @@ test('allows explicit no-edit Spawner missions through the firewall', () => {
   assert.equal(verdict.allow, true);
   assert.equal(verdict.reason, 'explicit_spawner_no_edit_mission');
   assert.equal(verdict.confidence, 'explicit');
+
+  const probeVerdict = evaluateDeterministicRoute(
+    'spawner.build',
+    'Run a tiny no-edit Spawner probe that only replies SPARK_TURNINTENT_QA_067_OK. Do not edit files.'
+  );
+  assert.equal(probeVerdict.allow, true);
+  assert.equal(probeVerdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(probeVerdict.confidence, 'explicit');
 });
 
 test('allows explicit memory updates even when they mention plans', () => {

@@ -76,6 +76,21 @@ test('allows explicit no-edit Spawner missions while preserving the file-edit co
   assert.equal(envelope.executionPolicy.canLaunchMission, true);
   assert.equal(envelope.executionPolicy.canMutateFiles, false);
 
+  const probeText = 'Run a tiny no-edit Spawner probe that only replies SPARK_TURNINTENT_QA_067_OK. Do not edit files.';
+  const probeEnvelope = envelopeFor(probeText);
+  const probeResult = authorizeTelegramActionFromEnvelope(probeEnvelope, {
+    route: 'spawner.build',
+    text: probeText,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+  assert.equal(probeResult.allow, true);
+  assert.equal(probeResult.routeVerdict.reason, 'explicit_spawner_no_edit_mission');
+  assert.equal(probeEnvelope.directive.noExecution, false);
+  assert.equal(probeEnvelope.executionPolicy.canLaunchMission, true);
+  assert.equal(probeEnvelope.executionPolicy.canMutateFiles, false);
+
   const fileEditResult = authorizeTelegramActionFromEnvelope(envelope, {
     route: 'spawner.build',
     text,
