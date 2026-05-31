@@ -2618,8 +2618,8 @@ async function run(): Promise<void> {
 		await indexModule.handleTextMessage(ctx);
 
 		const reply = replies[0] || '';
-		assert.match(reply, /route hijack/i);
-		assert.match(reply, /asked to explain only/i);
+		assert.match(reply, /stay in chat/i);
+		assert.match(reply, /no-action/i);
 		assert.doesNotMatch(reply, /latest canvas|H70 Orbit Proof|Mission board|Canvas|Kanban/i);
 		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
 		assert.equal(captured.length, 0, 'failure-class probe must not call Spawner or PRD bridge');

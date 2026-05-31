@@ -1525,8 +1525,8 @@ export function isMissionRoutingFailureClassQuestion(text: string): boolean {
 
 export function renderMissionRoutingFailureClassReply(_text: string): string {
 	return [
-		'That sounds like route hijack: mission or build words are pulling the conversation toward execution even though the user asked to explain only.',
-		'Fresh user intent should outrank keywords, memory, stale mission state, and pending mission context.'
+		'This should stay in chat: the current turn is explicitly no-action, so Spark should treat those words as examples or context, not permission to run tools.',
+		'Fresh user intent wins over keywords, memory, stale state, and pending actions.'
 	].join('\n');
 }
 

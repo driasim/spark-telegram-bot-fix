@@ -177,10 +177,28 @@ test('bug hunt: mission routing failure-class prompts stay short and non-executi
   assertNoBuild(prompt);
 
   const reply = renderMissionRoutingFailureClassReply(prompt);
-  assert.match(reply, /route hijack/i);
-  assert.match(reply, /asked to explain only/i);
+  assert.match(reply, /stay in chat/i);
+  assert.match(reply, /no-action/i);
+  assert.match(reply, /Fresh user intent wins/i);
   assert.doesNotMatch(reply, /Canvas|Kanban|Mission board|latest canvas|H70 Orbit Proof/i);
   assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected compact reply, got: ${reply}`);
+});
+
+test('bug hunt: no-action explanation reply does not reuse stale mission/build wording', () => {
+  const staleGoReply = renderMissionRoutingFailureClassReply(
+    'go. There is no active pending action in this turn. Do not continue an old mission. Just tell me whether this word alone is enough to act.'
+  );
+  assert.match(staleGoReply, /stay in chat/i);
+  assert.match(staleGoReply, /not permission to run tools/i);
+  assert.doesNotMatch(staleGoReply, /mission or build words/i);
+  assert.doesNotMatch(staleGoReply, /asked to explain only/i);
+
+  const publishReply = renderMissionRoutingFailureClassReply(
+    'This is not a command. I am discussing remember, publish, deploy, schedule, provider, and chip as risky triggers. Do not save memory or publish anything.'
+  );
+  assert.match(publishReply, /examples or context/i);
+  assert.match(publishReply, /Fresh user intent wins/i);
+  assert.doesNotMatch(publishReply, /mission or build words/i);
 });
 
 test('bug hunt: mission utility requests do not become project builds', () => {
