@@ -1694,6 +1694,13 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(chipDefinition, /small specialization package/i);
   assert.doesNotMatch(chipDefinition, /current turn is explicitly no-action/i);
 
+  const scheduleBug = renderMissionRoutingFailureClassReply(
+    'In this bug report, the word schedule appears as an example: schedule the launch. Do not schedule anything. What should Spark do?'
+  );
+  assert.match(scheduleBug, /text inside the bug report/i);
+  assert.match(scheduleBug, /fresh, explicit schedule request/i);
+  assert.doesNotMatch(scheduleBug, /permission to run tools/i);
+
   const chipProposal = renderMissionRoutingFailureClassReply(
     'Create a tiny domain chip proposal in chat only for startup pricing objections. Do not create files or launch a mission.'
   );

@@ -1541,6 +1541,15 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 		].join('\n');
 	}
 	if (
+		/\bschedule\b/.test(normalized) &&
+		/\b(?:bug\s+report|example|quoted|word\s+schedule|schedule\s+word)\b/.test(normalized)
+	) {
+		return [
+			'Spark should treat “schedule” as text inside the bug report, not as a scheduling command.',
+			'Only a fresh, explicit schedule request with timing and target should create a schedule. Examples, quoted phrases, and “do not schedule” stay in chat.'
+		].join('\n');
+	}
+	if (
 		/\bscore\b/.test(normalized) &&
 		/\b(?:startup\s+)?answer\s+pair\b/.test(normalized) &&
 		/\b(?:baseline|candidate)\b/.test(normalized)

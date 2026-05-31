@@ -3095,6 +3095,37 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('schedule word in bug report stays schedule-specific chat', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-schedule-word-report-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079071, 8319079055, 626, replies);
+		ctx.message.text = 'In this bug report, the word schedule appears as an example: schedule the launch. Do not schedule anything. What should Spark do?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /text inside the bug report/i);
+		assert.match(reply, /fresh, explicit schedule request/i);
+		assert.doesNotMatch(reply, /Mission:|I will run|permission to run tools/i);
+		assert.equal(captured.length, 0, 'schedule bug-report wording must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('confirmed pending build proceeds when route-confidence gate asks again', async () => {
 		restoreAxios();
 		restoreEnv();
