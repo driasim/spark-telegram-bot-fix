@@ -23,7 +23,7 @@ This repo does not own:
 ## Start-of-Work Protocol
 
 1. Run `git status --short --branch`.
-2. Read this file plus the relevant command, route, or adapter doc before edits.
+2. Read this file plus `docs/TURNINTENT_HARNESS_RULESET.md` and the relevant command, route, or adapter doc before edits.
 3. Identify whether the change is Telegram-owned or belongs in Builder, CLI, Spawner, memory, Cockpit, voice, Labs, or Swarm.
 4. Define the smallest user-visible behavior and stop-ship gate.
 5. Add focused tests for routing, composition, access, bridge serialization, or relay metadata.
@@ -54,6 +54,9 @@ Use allowlisted serializers for route context, audits, final-answer metadata, an
 
 ## Route and Composition Rules
 
+- Raw words may propose candidates; fresh user intent authorizes action.
+- Every high-agency Telegram route must be `envelope_verified` or explicit `machine_origin_policy`; any high-agency `legacy_local_gate` is a release blocker.
+- Quoted examples, bug reports, meta-language, no-action turns, and "just explain" boundaries block interruptive routes.
 - Builder owns RouteConfidenceGateV1. Telegram asks Builder whether to `act`, `ask`, `explain`, or `refuse`.
 - The action gate can be deterministic; the user-facing sentence should stay natural and context-aware.
 - Explicit no-execution constraints beat action keywords.
