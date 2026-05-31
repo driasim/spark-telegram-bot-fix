@@ -105,8 +105,16 @@ const LEGACY_REGISTRY_PATH = resolveStatePath('.spark-spawner-missions.json');
 const PREFERENCES_PATH = resolveStatePath('.spark-telegram-preferences.json');
 const deliveryCache = new Map<string, number>();
 const openTaskStartCache = new Map<string, { taskKey: string; timestamp: number }>();
-const completionDeliveryCache = new Set<string>();
+const completionDeliveryCache = new Map<string, number>();
+const COMPLETION_CACHE_TTL_MS = 24 * 60 * 60_000;
 const completionDeliveryInFlight = new Set<string>();
+
+function pruneCompletionDeliveryCache(now = Date.now()): void {
+  for (const [key, ts] of completionDeliveryCache) {
+    if (now - ts > COMPLETION_CACHE_TTL_MS) completionDeliveryCache.delete(key);
+  }
+}
+
 const verboseNarrationCounts = new Map<string, number>();
 const cancelledMissionCache = new Map<string, number>();
 const pausedMissionCache = new Map<string, number>();
@@ -796,7 +804,7 @@ async function sendFetchedCompletionSummary(
         missionRelayTraceExtra(subscription, event, 'mission_completion')
       );
     }
-    completionDeliveryCache.add(event.missionId);
+    completionDeliveryCache.set(event.missionId, Date.now());
     await saveCompletionDeliveryCache();
     await handleMissionCompletionMemory(bot, chatId, subscription, event, completion.providerLabel, completion.response);
     return chunks.length;
@@ -1684,14 +1692,15 @@ export function releaseCompletionDeliveryClaimForTests(missionId: string): void 
 }
 
 async function saveCompletionDeliveryCache(): Promise<void> {
-  await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.values()));
+  pruneCompletionDeliveryCache();
+  await writeJsonAtomic(completionDeliveryPathForCurrentRelay(), Array.from(completionDeliveryCache.keys()));
 }
 
 export async function loadCompletionDeliveryCacheForTests(): Promise<void> {
   const entries = (await readJsonFile<string[]>(completionDeliveryPathForCurrentRelay())) || [];
   for (const missionId of entries) {
     if (typeof missionId === 'string' && missionId.trim()) {
-      completionDeliveryCache.add(missionId.trim());
+      completionDeliveryCache.set(missionId.trim(), Date.now());
     }
   }
 }
