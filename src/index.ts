@@ -1337,7 +1337,7 @@ function isMetaNoActionTriggerDiscussion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
   const saysNoAction = /\b(?:not\s+a\s+command|not\s+an\s+instruction|not\s+a\s+request|do\s+not|don't|dont|no\s+need\s+to)\b/.test(normalized);
-  const framesAsLanguage = /\b(?:risky\s+triggers?|examples?|quoted|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|discussing\s+the\s+words?)\b/.test(normalized);
+  const framesAsLanguage = /\b(?:risky\s+(?:triggers?|words?)|trigger\s+words?|examples?|quoted|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|discussing\s+(?:the\s+)?words?)\b/.test(normalized);
   const mentionsActionWords = /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas|restart)\b/.test(normalized);
   return saysNoAction && framesAsLanguage && mentionsActionWords;
 }
