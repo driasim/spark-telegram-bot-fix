@@ -1757,6 +1757,13 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(memoryWordBug, /not as a memory write/i);
   assert.match(memoryWordBug, /fresh, explicit save request/i);
   assert.doesNotMatch(memoryWordBug, /run tools/i);
+
+  const accessDocs = renderMissionRoutingFailureClassReply(
+    'I am writing docs with access 5, operator access, and admin access as examples. Do not change access. What rule should Spark follow here?'
+  );
+  assert.match(accessDocs, /descriptive, not permission changes/i);
+  assert.match(accessDocs, /current access status/i);
+  assert.doesNotMatch(accessDocs, /permission to run tools/i);
 });
 
 test('plain chat answer editing does not become access or mission execution', () => {

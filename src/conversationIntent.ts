@@ -1590,6 +1590,16 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 		].join('\n');
 	}
 	if (
+		/\baccess\b/.test(normalized) &&
+		/\b(?:docs?|documentation|examples?|example|product\s+rule|rule|writing)\b/.test(normalized) &&
+		/\b(?:do\s+not|don't|dont|not\s+asking)\b.{0,80}\b(?:change|set|switch|update|raise|lower)\s+(?:my\s+|this\s+|the\s+)?access\b/.test(normalized)
+	) {
+		return [
+			'Access words in docs are descriptive, not permission changes.',
+			'This should stay in chat unless the user explicitly asks for current access status or says to change this chat to a specific access level.'
+		].join('\n');
+	}
+	if (
 		/\bdomain[-\s]*chip\b/.test(normalized) &&
 		/\bproposal\b/.test(normalized) &&
 		/\bchat\s+only\b/.test(normalized)
