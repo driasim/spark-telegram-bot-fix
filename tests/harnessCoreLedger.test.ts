@@ -6,6 +6,7 @@ import { buildTelegramTurnIntentEnvelope } from '../src/harnessContract';
 import {
   harnessCoreToolLedgerPath,
   readHarnessCoreToolLedger,
+  recordHarnessCoreExecutionLedger,
   shouldWriteHarnessCoreLedger
 } from '../src/harnessCoreLedger';
 import { authorizeTelegramActionFromEnvelope } from '../src/telegramActionAuthority';
@@ -82,6 +83,35 @@ test('records allowed Telegram Harness Core authorization ledgers', () => {
   });
 });
 
+test('records post-execution Harness Core outcome ledgers', () => {
+  withLedgerPath((filePath) => {
+    const text = 'Build a private local-first dashboard for memory reports with stale context labels.';
+    const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+      route: 'spawner.build',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    });
+
+    assert.equal(result.allow, true);
+    assert.ok(result.harnessCore);
+    recordHarnessCoreExecutionLedger({
+      bundle: result.harnessCore,
+      toolName: 'spawner.run',
+      status: 'success',
+      summary: 'Spawner accepted the authorized build dispatch.'
+    });
+
+    const records = readHarnessCoreToolLedger(filePath);
+    assert.equal(records.length, 2);
+    assert.equal(records[0].result.status, 'not_started');
+    assert.equal(records[1].result.status, 'success');
+    assert.equal(records[1].result.summary, 'Spawner accepted the authorized build dispatch.');
+    assert.ok(records[1].lifecycle.some((stage) => stage.stage === 'execute' && stage.verdict === 'passed'));
+  });
+});
+
 test('records blocked Telegram Harness Core authorization ledgers', () => {
   withLedgerPath((filePath) => {
     const text = 'I am mentioning build and mission, but do not start anything. Just explain the risk.';
@@ -121,4 +151,3 @@ test('allows ledger writes to be disabled explicitly', () => {
     assert.equal(readHarnessCoreToolLedger(filePath).length, 0);
   });
 });
-

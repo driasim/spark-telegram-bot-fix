@@ -46,6 +46,27 @@ export function recordHarnessCoreAuthorizationLedger(input: {
   return ledger;
 }
 
+export function recordHarnessCoreExecutionLedger(input: {
+  bundle: HarnessCoreAuthorizationBundle;
+  toolName: string;
+  status: ToolCallLedgerV1['result']['status'];
+  summary: string;
+  env?: NodeJS.ProcessEnv;
+}): ToolCallLedgerV1 {
+  const ledger = recordHarnessCoreToolLedger({
+    envelope: input.bundle.envelope,
+    action: input.bundle.action,
+    authorization: input.bundle.authorization,
+    toolName: input.toolName,
+    status: input.status,
+    summary: input.summary
+  });
+  if (shouldWriteHarnessCoreLedger(input.env)) {
+    appendHarnessCoreToolLedgerRecord(ledger, harnessCoreToolLedgerPath(input.env));
+  }
+  return ledger;
+}
+
 export function parseHarnessCoreToolLedger(jsonl: string): ToolCallLedgerV1[] {
   return jsonl
     .split(/\r?\n/)
@@ -58,4 +79,3 @@ export function readHarnessCoreToolLedger(filePath = harnessCoreToolLedgerPath()
   if (!existsSync(filePath)) return [];
   return parseHarnessCoreToolLedger(readFileSync(filePath, 'utf-8'));
 }
-

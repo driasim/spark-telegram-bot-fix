@@ -208,3 +208,21 @@ test('text handler checks latest-project iteration before generic build intent',
   assert.ok(projectIterationIndex > 0, 'expected latest-project iteration guard in text handler');
   assert.ok(genericBuildIndex > projectIterationIndex, 'latest-project iteration must beat broad parseBuildIntent matches');
 });
+
+test('generic build intent is gated by Harness Core authority before dispatch', () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
+  const textHandlerIndex = indexSource.indexOf('const buildIntent = earlyBuildIntent;');
+  const genericBuildIndex = indexSource.indexOf('if (buildIntent) {', textHandlerIndex);
+  const localInspectionIndex = indexSource.indexOf('if (isLocalWorkspaceInspectionOnlyRequest(text)', genericBuildIndex);
+  const buildBlock = indexSource.slice(genericBuildIndex, localInspectionIndex);
+
+  assert.ok(textHandlerIndex > 0, 'expected text-handler build intent binding');
+  assert.match(buildBlock, /telegramActionAuthorityDecision\(turnIntentEnvelope/);
+  assert.match(buildBlock, /if \(!buildAuthorization\.allow\)/);
+  assert.match(buildBlock, /handleBuildIntent\(/);
+  assert.match(buildBlock, /recordTelegramHarnessCoreExecution\(buildAuthorization/);
+  assert.ok(
+    buildBlock.indexOf('telegramActionAuthorityDecision(turnIntentEnvelope') < buildBlock.indexOf('handleBuildIntent('),
+    'authority decision must happen before the generic build branch dispatches to Spawner'
+  );
+});
