@@ -140,3 +140,73 @@ test('slash schedule command blocks contradictory no-schedule text', () => {
   assert.equal(result.allow, false);
   assert.ok(result.reasonCodes.includes('no_execution_boundary'));
 });
+
+test('slash access changes authorize through access tool policy', () => {
+  const result = commandAuth({
+    text: '/access 4',
+    commandName: 'access',
+    route: 'access.change',
+    toolName: 'access.change',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'access.change',
+    kind: 'access_help'
+  });
+
+  assert.equal(result.allow, true);
+  assert.equal(result.toolAuthorization.verdict, 'allowed');
+  assert.equal(result.harnessCore?.authorization.verdict, 'allow');
+});
+
+test('slash access changes block contradictory no-change text', () => {
+  const result = commandAuth({
+    text: '/access 4 but do not change access yet',
+    commandName: 'access',
+    route: 'access.change',
+    toolName: 'access.change',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'access.change',
+    kind: 'access_help'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('access action commands and callbacks authorize operator tools', () => {
+  const doctor = commandAuth({
+    text: '/docker_doctor',
+    commandName: 'docker_doctor',
+    route: 'operator.safe_action',
+    toolName: 'operator.safe_action',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only',
+    action: 'operator.safe_action.docker_doctor',
+    kind: 'runtime_truth_or_operator'
+  });
+  const callback = commandAuth({
+    text: 'spark_access:workspace_setup:confirm',
+    commandName: 'callback:workspace_setup',
+    route: 'operator.safe_action',
+    toolName: 'operator.safe_action',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'operator.safe_action.workspace_setup',
+    kind: 'runtime_truth_or_operator'
+  });
+  const level5Confirm = commandAuth({
+    text: 'spark_access_level:operator:confirm',
+    commandName: 'access',
+    route: 'access.change',
+    toolName: 'access.change',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'access.change.operator_confirm',
+    kind: 'access_help'
+  });
+
+  assert.equal(doctor.allow, true);
+  assert.equal(callback.allow, true);
+  assert.equal(level5Confirm.allow, true);
+});

@@ -25,8 +25,8 @@ export interface TelegramCommandActionAuthorityInput extends TelegramActionAutho
 function commandExecutionStopBoundary(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   return (
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:run|start|launch|execute|queue|dispatch|kick\s+off|schedule)\b/.test(normalized) ||
-    /\b(?:no|not)\s+(?:run|execution|launch|schedule|scheduling)(?:ning)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized)
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:run|start|launch|execute|queue|dispatch|kick\s+off|schedule|change|set|switch|raise|lower|enable|disable)\b/.test(normalized) ||
+    /\b(?:no|not)\s+(?:run|execution|launch|schedule|scheduling|access\s+change|setup|enable|disable)(?:ning)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized)
   );
 }
 

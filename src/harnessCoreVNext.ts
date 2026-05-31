@@ -498,7 +498,8 @@ export function authorizeHarnessCoreAction(
     verdict = 'deny';
     reasons.push(...legacyAuthorization.reasonCodes);
   }
-  if (envelope.action_authority.state !== 'executable') {
+  const readOnlyAllowed = envelope.action_authority.state === 'read_only' && action.action_type === 'read';
+  if (envelope.action_authority.state !== 'executable' && !readOnlyAllowed) {
     verdict = envelope.action_authority.state === 'confirmation_required' ? 'interrupt' : 'deny';
     reasons.push(`authority_state_${envelope.action_authority.state}`);
   }
@@ -582,4 +583,3 @@ export function recordHarnessCoreToolLedger(input: {
     trace: traceRef(input.envelope.trace.id, 'Harness Core tool ledger for Telegram action.')
   };
 }
-
