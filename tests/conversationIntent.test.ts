@@ -1753,6 +1753,20 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(releaseEvidence, /no publishing, deploy, or PR action/i);
   assert.doesNotMatch(releaseEvidence, /Spawner UI \/ Mission Control is running/i);
 
+  const releaseNotes = renderMissionRoutingFailureClassReply(
+    'I am drafting release notes with the phrase open a PR. Do not open a PR. What should Spark do with this wording?'
+  );
+  assert.match(releaseNotes, /release-note wording/i);
+  assert.match(releaseNotes, /wait for a fresh explicit request/i);
+  assert.doesNotMatch(releaseNotes, /Spawner UI \/ Mission Control is running/i);
+
+  const chatOnlyDraft = renderMissionRoutingFailureClassReply(
+    'Draft a two-line startup follow-up message in chat only. Do not create files, save drafts, or launch tools.'
+  );
+  assert.match(chatOnlyDraft, /two-line follow-up/i);
+  assert.match(chatOnlyDraft, /paid pilot, signed LOI, procurement intro/i);
+  assert.doesNotMatch(chatOnlyDraft, /should stay in chat/i);
+
   const chatCanary = renderMissionRoutingFailureClassReply(
     'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.'
   );
@@ -1777,6 +1791,20 @@ test('no-execution replies answer the actual product question', () => {
 
 test('release evidence questions with no-action language stay conversational', () => {
   const prompt = 'Before publishing the TurnIntent fixes, what release evidence should we require? Do not publish, deploy, or open a PR from this message.';
+
+  assert.equal(isNoExecutionBoundary(prompt), true);
+  assert.equal(isNoExecutionExplanationPrompt(prompt), true);
+  assert.equal(
+    isLocalSparkServiceRequest(
+      prompt,
+      'Completed Spawner mission spark-123. Result: Built the first-pass Spark Diagnostic Agent.'
+    ),
+    false
+  );
+});
+
+test('PR release-note wording with no-action language is blocked from local service routes', () => {
+  const prompt = 'I am drafting release notes with the phrase open a PR. Do not open a PR. What should Spark do with this wording?';
 
   assert.equal(isNoExecutionBoundary(prompt), true);
   assert.equal(isNoExecutionExplanationPrompt(prompt), true);
