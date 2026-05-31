@@ -2629,6 +2629,37 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('meta no-action trigger discussion does not become live health status', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-meta-trigger-boundary-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 609, replies);
+		ctx.message.text = 'TurnIntent final QA after restart: This is not a command. I am discussing the words remember, publish, deploy, schedule, provider, and chip as examples of risky triggers. Do not save memory or publish anything. What should Spark do with this turn?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /stay in chat/i);
+		assert.match(reply, /examples or context/i);
+		assert.doesNotMatch(reply, /Spark is healthy right now|No restart needed|Live loop/i);
+		assert.equal(captured.length, 0, 'meta trigger discussion must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('explicit slow no-edit Mission Control diagnostic routes through Spawner instead of live health', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

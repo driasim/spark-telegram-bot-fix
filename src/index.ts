@@ -1333,8 +1333,18 @@ function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
   return signals.access || signals.live || signals.providers || signals.memory;
 }
 
+function isMetaNoActionTriggerDiscussion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const saysNoAction = /\b(?:not\s+a\s+command|not\s+an\s+instruction|not\s+a\s+request|do\s+not|don't|dont|no\s+need\s+to)\b/.test(normalized);
+  const framesAsLanguage = /\b(?:risky\s+triggers?|examples?|quoted|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|discussing\s+the\s+words?)\b/.test(normalized);
+  const mentionsActionWords = /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas|restart)\b/.test(normalized);
+  return saysNoAction && framesAsLanguage && mentionsActionWords;
+}
+
 function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (isMetaNoActionTriggerDiscussion(text)) return false;
   if (!runtimeTruthSignals(text).live) return false;
   return (
     /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
@@ -6524,6 +6534,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   })
     ? parsedEarlyBuildIntent
     : null;
+  if (isMetaNoActionTriggerDiscussion(text)) {
+    const reply = renderMissionRoutingFailureClassReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_execution_meta_trigger', 'spark-telegram-bot', 'plain_chat.qa_boundary');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
 	  if (!earlyBuildIntent && isNaturalSparkQaBenchmarkNoRunQuestion(text)) {
 	    const reply = renderSparkQaBenchmarkNoRunReply();
 	    await conversation.remember(user, text).catch(() => {});
