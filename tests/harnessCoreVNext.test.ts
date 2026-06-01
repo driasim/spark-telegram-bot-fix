@@ -67,6 +67,10 @@ test('Telegram action authority now requires Harness Core allow verdict', () => 
   assert.equal(result.harnessCore?.action.action_type, 'launch_mission');
   assert.equal(result.harnessCore?.authorization.schema_version, 'authorization-decision-v1');
   assert.equal(result.harnessCore?.authorization.verdict, 'allow');
+  assert.equal(result.governorDecision?.schema_version, 'governor-decision-v1');
+  assert.equal(result.governorDecision?.outcome, 'execute');
+  assert.equal(result.governorDecision?.execution_boundary.action_authorized, true);
+  assert.equal(result.governorDecision?.execution_boundary.legacy_authority_demoted, true);
 });
 
 test('Harness Core interrupts high-risk publish even when legacy evidence would allow', () => {
@@ -88,6 +92,23 @@ test('Harness Core interrupts high-risk publish even when legacy evidence would 
   assert.equal(bundle.authorization.verdict, 'interrupt');
   assert.equal(bundle.authorization.approval.required, true);
   assert.ok(bundle.authorization.reasons.includes('authority_state_confirmation_required'));
+});
+
+test('Telegram action authority returns non-executing Governor outcome for meta action words', () => {
+  const text = 'I am mentioning build and mission as examples only; do not run anything.';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.allow, false);
+  assert.equal(result.governorDecision?.schema_version, 'governor-decision-v1');
+  assert.notEqual(result.governorDecision?.outcome, 'execute');
+  assert.equal(result.governorDecision?.execution_boundary.action_authorized, false);
+  assert.equal(result.governorDecision?.reply_contract.should_interrupt, false);
 });
 
 test('records Harness Core tool ledger for authorized execution', () => {
@@ -116,5 +137,5 @@ test('records Harness Core tool ledger for authorized execution', () => {
   assert.equal(ledger.authorization.verdict, 'allow');
   assert.equal(ledger.result.status, 'success');
   assert.ok(ledger.lifecycle.some((stage) => stage.stage === 'authorize' && stage.verdict === 'passed'));
+  assert.equal(result.governorDecision?.tool_ledgers[0].schema_version, 'tool-call-ledger-v1');
 });
-

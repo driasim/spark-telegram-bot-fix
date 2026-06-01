@@ -7,10 +7,12 @@ import {
 import {
   authorizeHarnessCoreTelegramAction,
   type AuthorizationDecisionV1,
+  type GovernorDecisionV1,
   type HarnessCoreProposedAction,
   type ToolCallLedgerV1,
   type TurnIntentEnvelopeVNext
 } from './harnessCoreVNext';
+import { createHarnessCoreGovernorDecision } from '@spark/harness-core';
 import { recordHarnessCoreAuthorizationLedger } from './harnessCoreLedger';
 import { evaluateDeterministicRoute, type DeterministicRouteId, type RouteFirewallVerdict } from './routeFirewall';
 
@@ -29,6 +31,7 @@ export interface TelegramActionAuthorityResult {
     authorization: AuthorizationDecisionV1;
   };
   harnessCoreLedger?: ToolCallLedgerV1;
+  governorDecision?: GovernorDecisionV1;
   reasonCodes: string[];
 }
 
@@ -52,14 +55,25 @@ export function authorizeTelegramActionFromEnvelope(
         routeVerdict.allow
       )
     : null;
-  const allow = routeVerdict.allow && toolAuthorization.verdict === 'allowed' && harnessCore?.authorization.verdict === 'allow';
+  const preliminaryAllow = routeVerdict.allow && toolAuthorization.verdict === 'allowed' && harnessCore?.authorization.verdict === 'allow';
   const harnessCoreLedger = harnessCore
     ? recordHarnessCoreAuthorizationLedger({
         bundle: harnessCore,
         toolName: input.toolName,
-        allowed: allow
+        allowed: preliminaryAllow
       })
     : null;
+  const governorDecision = harnessCore
+    ? createHarnessCoreGovernorDecision({
+        envelope: harnessCore.envelope,
+        authorizations: [harnessCore.authorization],
+        tool_ledgers: harnessCoreLedger ? [harnessCoreLedger] : []
+      })
+    : null;
+  const allow = Boolean(
+    governorDecision &&
+    ['execute', 'read_only', 'prepare'].includes(governorDecision.outcome)
+  );
   const reasonCodes = [
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
     ...toolAuthorization.reasonCodes,
@@ -75,6 +89,7 @@ export function authorizeTelegramActionFromEnvelope(
     toolAuthorization,
     ...(harnessCore ? { harnessCore } : {}),
     ...(harnessCoreLedger ? { harnessCoreLedger } : {}),
+    ...(governorDecision ? { governorDecision } : {}),
     reasonCodes
   };
 }

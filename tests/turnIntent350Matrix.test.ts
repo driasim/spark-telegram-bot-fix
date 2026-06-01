@@ -322,6 +322,8 @@ test('420-message matrix blocks word hijacks and preserves explicit actions', ()
       assert.notEqual(verdict.harnessCore?.authorization.verdict, 'allow', `${item.id} allowed ${probe.label} through Harness Core`);
       assert.equal(verdict.harnessCoreLedger?.schema_version, 'tool-call-ledger-v1', `${item.id} missing ledger for ${probe.label}`);
       assert.equal(verdict.harnessCoreLedger?.result.status, 'not_started', `${item.id} ledger should record no execution for ${probe.label}`);
+      assert.equal(verdict.governorDecision?.schema_version, 'governor-decision-v1', `${item.id} missing Governor decision for ${probe.label}`);
+      assert.notEqual(verdict.governorDecision?.outcome, 'execute', `${item.id} Governor executed ${probe.label}`);
       assert.equal(verdict.harnessCore?.envelope.freshness.stale_state_used_as_authority, false, `${item.id} used stale state as authority`);
       assert.equal(verdict.harnessCore?.envelope.freshness.memory_used_as_instruction, false, `${item.id} used memory as instruction`);
       assert.equal(verdict.harnessCore?.envelope.freshness.pending_state_used_as_authority, false, `${item.id} used pending state as authority`);
@@ -344,6 +346,11 @@ test('420-message matrix blocks word hijacks and preserves explicit actions', ()
     assert.equal(verdict.harnessCoreLedger?.schema_version, 'tool-call-ledger-v1', `${item.id} missing authorization ledger`);
     assert.equal(verdict.harnessCoreLedger?.authorization.verdict, 'allow', `${item.id} ledger did not preserve allow verdict`);
     assert.equal(verdict.harnessCoreLedger?.result.status, 'not_started', `${item.id} authorization ledger should precede owner execution`);
+    assert.equal(verdict.governorDecision?.schema_version, 'governor-decision-v1', `${item.id} missing Governor decision`);
+    assert.ok(
+      ['execute', 'read_only', 'prepare'].includes(String(verdict.governorDecision?.outcome)),
+      `${item.id} Governor did not authorize the positive action`
+    );
     assert.equal(verdict.harnessCore?.envelope.proposed_actions.length, 1, `${item.id} should propose exactly one action`);
   }
 });

@@ -10,10 +10,12 @@ import {
   createHarnessCoreActionEnvelopeVNext,
   createHarnessCoreArtifactRef,
   createHarnessCoreEvidenceRef,
+  createHarnessCoreGovernorDecision,
   createHarnessCoreTraceRef,
   riskTierForHarnessMutation,
   safeHarnessCoreId,
   type AuthorizationDecisionV1,
+  type GovernorDecisionV1,
   type HarnessCoreArtifactRef,
   type HarnessCoreAuthorityState,
   type HarnessCoreEvidenceRef,
@@ -28,6 +30,7 @@ import {
 
 export type {
   AuthorizationDecisionV1,
+  GovernorDecisionV1,
   HarnessCoreActionType,
   HarnessCoreArtifactRef,
   HarnessCoreAuthorityState,
@@ -45,6 +48,8 @@ export type {
   ToolCallLedgerV1,
   TurnIntentEnvelopeVNext
 } from '@spark/harness-core';
+
+export { createHarnessCoreGovernorDecision };
 
 export interface HarnessCoreActionInput extends ToolAuthorizationInput {
   route: string;
