@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  buildLiveNlEvidencePacket,
   formatLiveNlCopyPastePrompts,
   formatLiveNlVerdictReport,
   liveNlCaseTurns,
@@ -236,6 +237,47 @@ test('Genesis live Telegram prompt sheet hides route expectations', () => {
   assert.doesNotMatch(promptSheet, /Expected route|Expected outcome|execute_action_launch_mission|chat_debug_reasoning/);
 });
 
+test('Genesis live Telegram evidence packet is a structured untested run container', () => {
+  const catalogPath = resolve(__dirname, '../ops/genesis-live-telegram-100.json');
+  const actualCases = parseLiveNlCommandCases(JSON.parse(readFileSync(catalogPath, 'utf8')));
+  const selected = selectLiveNlCommandCases(actualCases, { includeRisky: true });
+  const packet = buildLiveNlEvidencePacket(selected, {
+    generatedAt: new Date('2026-06-02T00:00:00.000Z'),
+    catalog: 'genesis-live-telegram-100.json',
+    includeRisky: true,
+    title: 'Spark Genesis Telegram Live QA Evidence Packet'
+  }) as {
+    schema_version: string;
+    selection: { case_count: number; risk_counts: Record<string, number>; include_risky: boolean };
+    required_session_evidence: Record<string, unknown>;
+    authority_claim_boundary: string;
+    cases: Array<{
+      id: string;
+      expected_route: string;
+      verdict: string;
+      observed_turns: Array<{ prompt: string; reply: string | null }>;
+      side_effects: Record<string, unknown>;
+      evidence_refs: Record<string, unknown[]>;
+    }>;
+    summary: Record<string, number>;
+  };
+
+  assert.equal(packet.schema_version, 'spark.telegram_live_qa_evidence_packet.v1');
+  assert.equal(packet.selection.case_count, 100);
+  assert.equal(packet.selection.include_risky, true);
+  assert.deepEqual(packet.selection.risk_counts, { safe: 90, mission: 6, writes_files: 1, external: 3 });
+  assert.equal(packet.summary.untested, 100);
+  assert.equal(packet.cases[0].id, 'genesis-001');
+  assert.equal(packet.cases[0].verdict, 'untested');
+  assert.equal(packet.cases[0].observed_turns[0].reply, null);
+  assert.equal(packet.cases[99].id, 'genesis-100');
+  assert.equal(packet.cases[99].expected_route, 'execute_action_launch_mission');
+  assert.deepEqual(packet.cases[99].evidence_refs.authorization_ledgers, []);
+  assert.equal(packet.cases[99].side_effects.mission_started, null);
+  assert.equal(packet.required_session_evidence.overall_verdict, 'untested');
+  assert.match(packet.authority_claim_boundary, /does not prove release readiness/);
+});
+
 test('live NL CLI loads the Genesis 100-prompt catalog by name', () => {
   const result = spawnSync(
     process.execPath,
@@ -258,4 +300,32 @@ test('live NL CLI loads the Genesis 100-prompt catalog by name', () => {
   assert.equal(lines.length, 100);
   assert.match(lines[0], /^genesis-001\tgenesis_normal_conversation\tsafe\tchat_think_with_me$/);
   assert.match(lines[99], /^genesis-100\tgenesis_stale_recursive_swarm\tmission\texecute_action_launch_mission$/);
+});
+
+test('live NL verdict CLI emits a Genesis evidence packet', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      resolve(ROOT, 'node_modules/ts-node/dist/bin.js'),
+      'ops/liveNlVerdictReport.ts',
+      '--catalog',
+      'genesis100',
+      '--stdout',
+      '--json',
+      '--include-risky'
+    ],
+    {
+      cwd: ROOT,
+      encoding: 'utf8'
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schema_version, 'spark.telegram_live_qa_evidence_packet.v1');
+  assert.equal(packet.catalog, 'genesis-live-telegram-100.json');
+  assert.equal(packet.selection.case_count, 100);
+  assert.equal(packet.summary.untested, 100);
+  assert.equal(packet.cases[0].id, 'genesis-001');
+  assert.equal(packet.cases[99].id, 'genesis-100');
 });

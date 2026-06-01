@@ -23,6 +23,15 @@ export interface LiveNlVerdictReportOptions {
   suite?: string | null;
 }
 
+export interface LiveNlEvidencePacketOptions {
+  generatedAt?: Date;
+  title?: string;
+  catalog?: string;
+  suite?: string | null;
+  includeRisky?: boolean;
+  runId?: string;
+}
+
 export interface LiveNlCopyPasteOptions {
   title?: string;
 }
@@ -119,11 +128,114 @@ function riskCounts(cases: LiveNlCommandCase[]): string {
     .join(', ');
 }
 
+function riskCountRecord(cases: LiveNlCommandCase[]): Record<LiveNlRisk, number> {
+  return cases.reduce<Record<LiveNlRisk, number>>(
+    (counts, entry) => {
+      counts[entry.risk] += 1;
+      return counts;
+    },
+    { safe: 0, mission: 0, writes_files: 0, external: 0 }
+  );
+}
+
 function indentedBlock(text: string): string {
   return text
     .split(/\r?\n/)
     .map((line) => `    ${line}`)
     .join('\n');
+}
+
+export function buildLiveNlEvidencePacket(
+  cases: LiveNlCommandCase[],
+  options: LiveNlEvidencePacketOptions = {}
+): Record<string, unknown> {
+  const generatedAt = (options.generatedAt || new Date()).toISOString();
+  const catalog = options.catalog || 'natural-language-live-commands';
+  const suite = options.suite?.trim() || null;
+  const includeRisky = Boolean(options.includeRisky);
+
+  return {
+    schema_version: 'spark.telegram_live_qa_evidence_packet.v1',
+    generated_at: generatedAt,
+    run_id: options.runId || `telegram-live-qa-${generatedAt.replace(/[:.]/g, '-')}`,
+    title: options.title || 'Spark Telegram Live QA Evidence Packet',
+    catalog,
+    selection: {
+      suite,
+      include_risky: includeRisky,
+      case_count: cases.length,
+      risk_counts: riskCountRecord(cases)
+    },
+    authority_claim_boundary: [
+      'This packet is a live QA evidence container.',
+      'It does not prove release readiness until each case has observed replies, side-effect checks, ledger or trace evidence where required, and a human verdict.',
+      'It must not be treated as authority to execute high-agency actions.'
+    ].join(' '),
+    required_session_evidence: {
+      profile: null,
+      tester: null,
+      bot_runtime_commit: null,
+      harness_core_commit: null,
+      spark_os_compile_ref: null,
+      spark_live_status_ref: null,
+      spark_verify_provenance_ref: null,
+      telegram_chat_evidence_ref: null,
+      overall_verdict: 'untested',
+      follow_up_commits: [],
+      pr_links: [],
+      remaining_risks: []
+    },
+    verdict_values: ['pass', 'fail', 'blocked', 'needs-retest', 'untested'],
+    cases: cases.map((entry, index) => {
+      const turns = liveNlCaseTurns(entry);
+      return {
+        ordinal: index + 1,
+        id: entry.id,
+        suite: entry.suite,
+        risk: entry.risk,
+        expected_route: entry.expectedRoute,
+        expected_outcome: entry.expectedOutcome,
+        verdict: 'untested',
+        actual_route: null,
+        actual_outcome: null,
+        observed_turns: turns.map((turn, turnIndex) => ({
+          turn_index: turnIndex + 1,
+          prompt: turn,
+          reply: null,
+          reply_timestamp: null
+        })),
+        side_effects: {
+          files_changed: null,
+          memory_written: null,
+          mission_started: null,
+          external_network_called: null,
+          pr_opened: null,
+          publish_or_deploy_started: null,
+          schedule_changed: null,
+          tool_or_browser_used: null
+        },
+        evidence_refs: {
+          authorization_ledgers: [],
+          tool_ledgers: [],
+          traces: [],
+          runtime_status: [],
+          screenshots: [],
+          commits: [],
+          prs: []
+        },
+        issue: null,
+        fix_commit: null,
+        retest_required: false
+      };
+    }),
+    summary: {
+      pass: 0,
+      fail: 0,
+      blocked: 0,
+      needs_retest: 0,
+      untested: cases.length
+    }
+  };
 }
 
 export function formatLiveNlVerdictReport(
