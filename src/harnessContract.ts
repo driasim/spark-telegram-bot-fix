@@ -213,7 +213,7 @@ function sourceForDecision(decision: TelegramIntentDecisionV2): SparkHarnessInte
 }
 
 function routeLooksExternal(route: string): boolean {
-  return /(?:research|web|publish|deploy|ship|external|x_post)/i.test(route);
+  return /(?:research|web|publish|deploy|ship|external|x_post|media\.|voice\.command)/i.test(route);
 }
 
 function routeLooksMetaLanguage(decision: TelegramIntentDecisionV2, normalizedText = ''): boolean {
@@ -248,7 +248,7 @@ function executionPolicyForDecision(
   const noExecution = noExecutionBoundary || decision.constraints.noExecution || decision.enforcement === 'blocked';
   const route = decision.route;
   const canPublish = !decision.constraints.noPublish && !decision.constraints.localOnly;
-  const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|model\.switch|sparkqa\.|recursive\.)/.test(route);
+  const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|model\.switch|voice\.command|sparkqa\.|recursive\.)/.test(route);
   const fileMutationBlocked = decision.payload?.noFileMutation === true ||
     decision.matched_signals.includes('explicit_spawner_no_edit_mission');
 
@@ -291,6 +291,9 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'spark.self_improvement') tools.push('spark.self_improvement');
   if (decision.route === 'mission_updates.preference') tools.push('mission_updates.preference');
   if (decision.route === 'model.switch') tools.push('model.switch');
+  if (decision.route === 'media.image') tools.push('telegram.media.image', 'builder.telegram_bridge');
+  if (decision.route === 'media.voice') tools.push('telegram.media.voice', 'builder.telegram_bridge');
+  if (decision.route === 'voice.command') tools.push('voice.command', 'builder.telegram_bridge');
   if (/^sparkqa\./.test(decision.route)) tools.push(decision.route);
   if (decision.route === 'creator.mission') {
     tools.push('spawner.creator_mission', 'spawner.creator_mission.status', 'spawner.creator_mission.validate', 'spawner.creator_mission.run');
@@ -349,6 +352,10 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'spark.self_improvement',
       'spark_wiki.promote',
       'model.switch',
+      'telegram.media.image',
+      'telegram.media.voice',
+      'voice.command',
+      'builder.telegram_bridge',
       'mission_updates.preference',
       'sparkqa.run',
       'sparkqa.benchmark',

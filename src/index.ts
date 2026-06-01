@@ -286,6 +286,7 @@ import {
   commandRouteForRunVariant,
   type TelegramCommandActionAuthorityInput
 } from './telegramCommandAuthority';
+import { authorizeTelegramMediaAction } from './telegramMediaAuthority';
 import { recordHarnessCoreExecutionLedger } from './harnessCoreLedger';
 import { renderNaturalRouteDecisionReply } from './naturalRouteTelemetry';
 import {
@@ -1759,8 +1760,46 @@ function telegramCommandActionAuthorityDecision(
   return authorization;
 }
 
+function telegramMediaActionAuthorityDecision(
+  ctx: any,
+  input: {
+    route: 'media.image' | 'media.voice';
+    text: string;
+    toolName: 'telegram.media.image' | 'telegram.media.voice';
+    action: string;
+  }
+): TelegramActionAuthorityResult {
+  const authorization = authorizeTelegramMediaAction({
+    ...input,
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'read_only',
+    externalNetwork: true,
+    userRef: userRef(ctx.from?.id),
+    chatRef: chatRef(ctx.chat?.id),
+    accessProfile: conversation.isAdmin(ctx.from) ? 'admin' : 'standard',
+    conversationKind: 'dm',
+    kind: 'runtime_truth_or_operator'
+  });
+  queueRouteArbiterShadow({
+    route: input.route,
+    text: input.text,
+    verdict: authorization.routeVerdict,
+    profile: activeTelegramProfile()
+  });
+  if (!authorization.allow) {
+    console.log(
+      `[TelegramMediaAuthority] blocked route=${input.route} tool=${input.toolName} reasons=${authorization.reasonCodes.join(',')} textLen=${input.text.length}`
+    );
+  }
+  return authorization;
+}
+
 async function replyTelegramCommandAuthorityBlocked(ctx: any): Promise<void> {
   await ctx.reply('I did not start that command because the fresh command text does not authorize this action.');
+}
+
+async function replyTelegramMediaAuthorityBlocked(ctx: any): Promise<void> {
+  await ctx.reply('I did not route that media because the fresh caption does not authorize analysis.');
 }
 
 function telegramActionEnvelope(
@@ -3982,19 +4021,52 @@ bot.command('insights', async (ctx) => {
   await ctx.reply(insights);
 });
 
+function voiceCommandMutatesRuntime(text: string): boolean {
+  return /\b(?:onboard|onboarding|setup|set\s+up|install|configure|enable|disable|reset|prepare|connect|write|save)\b/i.test(text);
+}
+
 // /voice - Builder-owned voice status/onboarding. Do not fall back to the
 // deferred dashboard placeholder; voice is a Builder/chip capability now.
 bot.command('voice', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
   console.log(`[Voice] /voice command received user=${userRef(ctx.from?.id)} chat_type=${ctx.chat?.type || 'unknown'}`);
+  const voiceText = ctx.message?.text || '/voice';
+  const mutatesVoice = voiceCommandMutatesRuntime(voiceText);
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'voice',
+    route: 'voice.command',
+    text: voiceText,
+    toolName: 'voice.command',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: mutatesVoice ? 'writes_files' : 'read_only',
+    action: mutatesVoice ? 'voice.configure' : 'voice.status_or_reply',
+    kind: 'runtime_truth_or_operator',
+    externalNetwork: true
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
   try {
-    const routed = await replyViaBuilder(ctx, ctx.message?.text || '/voice');
+    const routed = await replyViaBuilder(ctx, voiceText);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'voice.command',
+      status: routed ? 'success' : 'failure',
+      summary: routed
+        ? 'Telegram /voice routed through Builder voice capability.'
+        : 'Telegram /voice did not receive a Builder voice response.'
+    });
     if (routed) {
       console.log('[Voice] Builder voice route replied');
       return;
     }
     console.log('[Voice] Builder voice route unavailable');
   } catch (err) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'voice.command',
+      status: 'failure',
+      summary: `Telegram /voice failed: ${err instanceof Error ? err.message : String(err)}`
+    });
     console.warn('[Bridge] /voice Builder route failed:', err);
   }
   await ctx.reply('Voice is routed through Builder now, but the Builder voice route did not answer this turn. Run `/diagnose`, then try `/voice` again.');
@@ -8922,6 +8994,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 export async function handleImageMessage(ctx: any): Promise<void> {
   const user = ctx.from;
   const imageMemoryText = telegramImageMemoryText(ctx.message);
+  const authorization = telegramMediaActionAuthorityDecision(ctx, {
+    route: 'media.image',
+    text: imageMemoryText,
+    toolName: 'telegram.media.image',
+    action: 'media.image.analyze'
+  });
+  if (!authorization.allow) {
+    await replyTelegramMediaAuthorityBlocked(ctx);
+    return;
+  }
 
   await conversation.remember(user, imageMemoryText).catch(() => {});
   await safeSendChatAction(ctx, 'typing');
@@ -8937,12 +9019,22 @@ export async function handleImageMessage(ctx: any): Promise<void> {
     console.log(`[ImageBridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && builderReply.responseText) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'telegram.media.image',
+        status: 'success',
+        summary: 'Telegram image input was routed through Builder media analysis.'
+      });
       await ctx.reply(builderReply.responseText);
       await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
       return;
     }
 
     const fallback = 'I received the image, but Spark did not return an image analysis. Run `/diagnose`, then ask the operator to run `spark-intelligence auth verify-image-input --live --json`.';
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'telegram.media.image',
+      status: 'failure',
+      summary: 'Telegram image input did not receive a usable Builder media response.'
+    });
     await ctx.reply(fallback);
     await conversation.recordInterruptedTask(user, {
       message: imageMemoryText,
@@ -8952,6 +9044,11 @@ export async function handleImageMessage(ctx: any): Promise<void> {
   } catch (err) {
     console.error('Image handling error:', err);
     const detail = err instanceof Error ? err.message : String(err);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'telegram.media.image',
+      status: 'failure',
+      summary: `Telegram image handling failed: ${detail}`
+    });
     await conversation.recordInterruptedTask(user, {
       message: imageMemoryText,
       failure: detail,
@@ -8964,8 +9061,21 @@ export async function handleImageMessage(ctx: any): Promise<void> {
 export async function handleVoiceMessage(ctx: any): Promise<void> {
   const user = ctx.from;
   const startedAt = Date.now();
+  const voiceMemoryText = typeof ctx.message?.caption === 'string' && ctx.message.caption.trim()
+    ? `[voice] ${ctx.message.caption.trim()}`
+    : '[voice message]';
+  const authorization = telegramMediaActionAuthorityDecision(ctx, {
+    route: 'media.voice',
+    text: voiceMemoryText,
+    toolName: 'telegram.media.voice',
+    action: 'media.voice.transcribe'
+  });
+  if (!authorization.allow) {
+    await replyTelegramMediaAuthorityBlocked(ctx);
+    return;
+  }
 
-  await conversation.remember(user, '[voice message]').catch(() => {});
+  await conversation.remember(user, voiceMemoryText).catch(() => {});
   const rememberedAt = Date.now();
   await safeSendChatAction(ctx, 'typing');
 
@@ -8980,6 +9090,11 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
     console.log(`[VoiceBridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}${voiceTiming}`);
 
     if (builderReply.used && builderReply.bridgeMode !== 'bridge_error' && (builderReply.responseText || builderReply.voiceMedia)) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'telegram.media.voice',
+        status: 'success',
+        summary: 'Telegram voice input was routed through Builder voice media handling.'
+      });
       await deliverBuilderReply(ctx, builderReply);
       const deliveredAt = Date.now();
       console.log(
@@ -8992,17 +9107,27 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
     }
 
     const fallback = 'I received the voice note, but Spark did not return a transcription or voice reply. Run `/voice`, then try one short voice note again.';
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'telegram.media.voice',
+      status: 'failure',
+      summary: 'Telegram voice input did not receive a usable Builder voice response.'
+    });
     await ctx.reply(fallback);
     await conversation.recordInterruptedTask(user, {
-      message: '[voice message]',
+      message: voiceMemoryText,
       failure: `Builder voice bridge returned no usable response. mode=${builderReply.bridgeMode || 'none'} routing=${builderReply.routingDecision || 'none'}`,
       stage: 'telegram_voice_handler'
     }).catch(() => {});
   } catch (err) {
     console.error('Voice handling error:', err);
     const detail = err instanceof Error ? err.message : String(err);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'telegram.media.voice',
+      status: 'failure',
+      summary: `Telegram voice handling failed: ${detail}`
+    });
     await conversation.recordInterruptedTask(user, {
-      message: '[voice message]',
+      message: voiceMemoryText,
       failure: detail,
       stage: 'telegram_voice_handler'
     }).catch(() => {});

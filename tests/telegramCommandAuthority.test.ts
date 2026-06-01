@@ -24,6 +24,7 @@ function commandAuth(input: {
   mutationClass: Parameters<typeof authorizeTelegramCommandAction>[0]['mutationClass'];
   action?: string;
   kind?: Parameters<typeof authorizeTelegramCommandAction>[0]['kind'];
+  externalNetwork?: boolean;
 }) {
   return authorizeTelegramCommandAction({
     ...input,
@@ -388,6 +389,36 @@ test('self improvement and model switch commands authorize through command envel
   assert.equal(modelSwitch.allow, true);
 });
 
+test('voice commands authorize status and setup through command envelopes', () => {
+  const status = commandAuth({
+    text: '/voice status',
+    commandName: 'voice',
+    route: 'voice.command',
+    toolName: 'voice.command',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'read_only',
+    action: 'voice.status_or_reply',
+    kind: 'runtime_truth_or_operator',
+    externalNetwork: true
+  });
+  const setup = commandAuth({
+    text: '/voice onboard local',
+    commandName: 'voice',
+    route: 'voice.command',
+    toolName: 'voice.command',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_files',
+    action: 'voice.configure',
+    kind: 'runtime_truth_or_operator',
+    externalNetwork: true
+  });
+
+  assert.equal(status.allow, true);
+  assert.equal(setup.allow, true);
+  assert.equal(status.harnessCore?.authorization.restrictions.write_allowed, false);
+  assert.equal(setup.harnessCore?.authorization.restrictions.write_allowed, true);
+});
+
 test('self improvement and model switch commands block contradictory no-action language', () => {
   const selfImprove = commandAuth({
     text: '/self improve routing evidence summaries but do not improve anything',
@@ -414,4 +445,21 @@ test('self improvement and model switch commands block contradictory no-action l
   assert.equal(modelSwitch.allow, false);
   assert.ok(selfImprove.reasonCodes.includes('no_execution_boundary'));
   assert.ok(modelSwitch.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('voice setup commands block contradictory no-setup language', () => {
+  const result = commandAuth({
+    text: '/voice onboard local but do not set up voice yet',
+    commandName: 'voice',
+    route: 'voice.command',
+    toolName: 'voice.command',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_files',
+    action: 'voice.configure',
+    kind: 'runtime_truth_or_operator',
+    externalNetwork: true
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
 });
