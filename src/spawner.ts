@@ -1132,7 +1132,14 @@ export const spawner = {
           ...(input.tier ? { tier: input.tier } : {}),
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
           ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
-          ...(input.promptMode ? { promptMode: input.promptMode } : {})
+          ...(input.promptMode ? { promptMode: input.promptMode } : {}),
+          executionAuthority: machineOriginPolicy({
+            origin: 'spark-telegram-bot.run-goal',
+            source: 'telegram_spawner_run_bridge',
+            reason: 'Telegram run bridge requested Spawner mission execution.',
+            allowedTools: ['spawner.run'],
+            mutationClassesAllowed: ['launches_mission']
+          })
         },
         localServiceTimeoutMs('SPARK_SPAWNER_RUN_TIMEOUT_MS')
       );
