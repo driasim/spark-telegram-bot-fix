@@ -152,6 +152,32 @@ test('allows Spark QA pause control even when it blocks more rounds', () => {
   assert.equal(verdict.confidence, 'explicit');
 });
 
+test('blocks capability-evaluation discussion from self-improvement execution', () => {
+  const samples = [
+    'Tell me the best way to evaluate a build capability before using it.',
+    'Would build be a good startup operator capability, or should it stay advisory first?',
+    'Before using memory in Telegram, what evidence should the harness require?'
+  ];
+
+  for (const prompt of samples) {
+    const verdict = evaluateDeterministicRoute('spark.self_improvement', prompt);
+    assert.equal(verdict.allow, false, prompt);
+    assert.equal(verdict.reason, 'plain_chat_protected', prompt);
+    assert.equal(verdict.confidence, 'blocked', prompt);
+  }
+});
+
+test('blocks broad do-not action-word phrasings from self-improvement execution', () => {
+  const verdict = evaluateDeterministicRoute(
+    'spark.self_improvement',
+    'Do not mission anything. Just tell me what Spark would have done before this fix.'
+  );
+
+  assert.equal(verdict.allow, false);
+  assert.equal(verdict.reason, 'no_execution_boundary');
+  assert.equal(verdict.confidence, 'blocked');
+});
+
 test('allows explicit no-edit Mission Control diagnostics through Spawner', () => {
   const verdict = evaluateDeterministicRoute(
     'spawner.build',

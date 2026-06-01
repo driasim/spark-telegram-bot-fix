@@ -202,6 +202,7 @@ function isExplicitDomainChipCreate(normalized: string): boolean {
 }
 
 function isExplicitSparkSelfImprovementRequest(normalized: string): boolean {
+  if (isCapabilityEvaluationDiscussion(normalized)) return false;
   return (
     /\b(?:run|start|perform|execute|pick|choose|decide)\b.{0,100}\b(?:spark\s+)?self[-\s]*improvement\b/.test(normalized) ||
     /\b(?:what|which)\b.{0,80}\b(?:you|spark|agent)\b.{0,80}\b(?:improve|upgrade|repair|fix|work\s+on)\b/.test(normalized) ||
@@ -253,6 +254,7 @@ function isExplicitExternalResearch(normalized: string): boolean {
 
 function isNoExecutionBoundary(normalized: string): boolean {
   return [
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|scaffold|generate|start|run|launch|execute|dispatch|mission|spawner|codex|provider|schedule|loop|chip|publish|deploy|ship|save|remember|route|memory|wiki|access|draft|canvas)\b(?:\s+(?:it|this|that|anything|something|yet|for\s+now|now))?/,
     /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
     /\bno\s+(?:build|mission|execution|new\s+work)\s+for\s+now\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|publish|share|ship|deploy|kick\s+off)\b/,
@@ -269,6 +271,7 @@ function isNoExecutionBoundary(normalized: string): boolean {
 
 function hasExecutionStopBoundary(normalized: string): boolean {
   return [
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|scaffold|generate|start|run|launch|execute|dispatch|mission|spawner|codex|provider|schedule|loop|chip|publish|deploy|ship|save|remember|route|memory|wiki|access|draft|canvas)\b(?:\s+(?:it|this|that|anything|something|yet|for\s+now|now))?/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:start|run|launch|execute|kick\s+off)\b/,
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|a\s+domain[-\s]*chip|a\s+chip|the\s+mission|the\s+build|the\s+project|the\s+domain[-\s]*chip|the\s+chip|it|this|that)\b/,
     /\b(?:no need|not needed|not now|not for now|maybe later|hold off|pause|cancel|stop|never mind|nevermind)\b/,
@@ -335,11 +338,25 @@ function isProtectedPlainChat(normalized: string): boolean {
   if (!normalized) return false;
   if (isReadoutOrCriticRequest(normalized)) return true;
   if (isMetaDiscussion(normalized)) return true;
+  if (isCapabilityEvaluationDiscussion(normalized)) return true;
   if (mentionsSparkSystem(normalized) && isQuestionLike(normalized)) return true;
   if (/\b(?:what|which|anything|something|else|other)\b.*\b(?:build|building|create|creating|make|making)\b.*\b(?:updates?|upgrades?|systems?|spark|capabilit(?:y|ies)|improvements?|missing)\b/.test(normalized)) {
     return true;
   }
   return false;
+}
+
+function isCapabilityEvaluationDiscussion(normalized: string): boolean {
+  const mentionsCapabilitySurface =
+    /\b(?:capabilit(?:y|ies)|tooling|tools?|route|routing|harness|telegram|startup\s+operator|operator|agent|spark|codex|provider|memory|schedule|chip|mission|build|publish|deploy|browser|computer[-\s]*use)\b/.test(normalized);
+  if (!mentionsCapabilitySurface) return false;
+  return (
+    /\b(?:how|what|when|whether|would|should|can|could)\b.{0,80}\b(?:evaluate|test|score|compare|reason\s+about|think\s+through|decide|tell\s+whether|know\s+whether)\b/.test(normalized) ||
+    /\b(?:evaluate|test|score|compare)\b.{0,80}\b(?:before|prior\s+to)\b.{0,80}\b(?:using|enabling|running|launching|shipping)\b/.test(normalized) ||
+    /\b(?:would|should|could)\b.{0,80}\b(?:be|stay|remain)\b.{0,80}\b(?:advisory|conversation(?:al)?|chat[-\s]*only|read[-\s]*only|planning)\b/.test(normalized) ||
+    /\b(?:conversation|chat|discussion|advisory|planning)\b.{0,80}\b(?:versus|vs\.?|instead\s+of)\b.{0,80}\b(?:action|execution|tool\s+call|mission|build|route)\b/.test(normalized) ||
+    /\b(?:before|prior\s+to)\b.{0,80}\b(?:using|enabling|running|launching|shipping)\b.{0,80}\b(?:what|which|how)\b.{0,80}\b(?:evidence|proof|test|benchmark|gate|boundary)\b/.test(normalized)
+  );
 }
 
 export function evaluateDeterministicRoute(route: DeterministicRouteId, text: string): RouteFirewallVerdict {

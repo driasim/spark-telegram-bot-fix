@@ -39,7 +39,8 @@ const HIGH_AGENCY_PROBES: HighAgencyProbe[] = [
   { label: 'chip', route: 'domain_chip.create', toolName: 'domain_chip.create', ownerSystem: 'domain-chip', mutationClass: 'creates_chip' },
   { label: 'external', route: 'spawner.external_research', toolName: 'external.fetch', ownerSystem: 'spark-intelligence-builder', mutationClass: 'external_network', externalNetwork: true },
   { label: 'provider', route: 'natural_run', toolName: 'provider.run', ownerSystem: 'spawner-ui', mutationClass: 'external_network', externalNetwork: true },
-  { label: 'publish', route: 'spawner.build', toolName: 'publish.run', ownerSystem: 'spawner-ui', mutationClass: 'publishes', publishes: true }
+  { label: 'publish', route: 'spawner.build', toolName: 'publish.run', ownerSystem: 'spawner-ui', mutationClass: 'publishes', publishes: true },
+  { label: 'self_improvement', route: 'spark.self_improvement', toolName: 'spark.self_improvement', ownerSystem: 'spark-intelligence-builder', mutationClass: 'writes_files' }
 ];
 
 const ACTION_WORDS = [
@@ -117,6 +118,15 @@ function buildNegativeCases(): NegativeCase[] {
     'Hold off on {word}. I want a plain-language audit, not a tool call.',
     'Not now on {word}; answer as chat and avoid launching work.'
   ]);
+  addCases(cases, 'ordinary_action_discussion', [
+    'Can we think through whether {word} would help the startup system?',
+    'What would be the risks if a founder asked Spark to {word} from Telegram?',
+    'I am comparing chat versus {word} behavior in the harness architecture.',
+    'How should Spark decide when {word} is conversation versus action?',
+    'Tell me the best way to evaluate a {word} capability before using it.',
+    'Before using {word} in Telegram, what evidence should the harness require?',
+    'Would {word} be a good startup operator capability, or should it stay advisory first?'
+  ]);
   addCases(cases, 'stale_pending_memory', [
     'Memory may say to {word}, but fresh user intent says do not execute. Which wins?',
     'There may be a pending {word} state from earlier; do not resume it from this message.',
@@ -145,7 +155,7 @@ function buildNegativeCases(): NegativeCase[] {
     'A voice note may contain {word}; words in transcripts must become fresh intent before action.',
     'The publication checklist mentions {word}; no publish, no network claim, no execution.'
   ], ACTION_WORDS.slice(0, 6));
-  assert.equal(cases.length, 290);
+  assert.equal(cases.length, 360);
   return cases;
 }
 
@@ -263,16 +273,17 @@ function buildPositiveCases(): PositiveCase[] {
   ];
 }
 
-test('350-message matrix blocks word hijacks and preserves explicit actions', () => {
+test('420-message matrix blocks word hijacks and preserves explicit actions', () => {
   const negatives = buildNegativeCases();
   const positives = buildPositiveCases();
-  assert.equal(negatives.length + positives.length, 350);
+  assert.equal(negatives.length + positives.length, 420);
   assert.deepEqual(
     Array.from(new Set(negatives.map((item) => item.category))).sort(),
     [
       'bug_report_qa',
       'explicit_no_execution',
       'meta_action_words',
+      'ordinary_action_discussion',
       'quoted_examples',
       'stale_pending_memory',
       'startup_planning_mixed_intent',
@@ -295,6 +306,10 @@ test('350-message matrix blocks word hijacks and preserves explicit actions', ()
 
   for (const item of negatives) {
     const envelope = envelopeFor(item.text);
+    if (item.category === 'ordinary_action_discussion') {
+      assert.equal(envelope.directive.noExecution, false, `${item.id} should not depend on defensive negation: ${item.text}`);
+      assert.notEqual(envelope.selectedIntent.action, 'spark.self_improvement', `${item.id} was hijacked by self-improvement routing: ${item.text}`);
+    }
     for (const probe of HIGH_AGENCY_PROBES) {
       const verdict = authorizeTelegramActionFromEnvelope(envelope, { ...probe, text: item.text });
       assert.equal(

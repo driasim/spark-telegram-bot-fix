@@ -205,6 +205,9 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   if (shouldPreferConversationalIdeation(normalized)) {
     return null;
   }
+  if (isCapabilityEvaluationDiscussion(normalized)) {
+    return null;
+  }
   if (
     /\bwhere\s+(?:do|does|are|is)\b/i.test(normalized) &&
     /\b(?:lack|lacks|weak|weakness|weaknesses|missing|limitations?)\b/i.test(normalized) &&
@@ -250,6 +253,21 @@ export function extractSparkSelfImprovementGoal(text: string): string | null {
   }
 
   return null;
+}
+
+function isCapabilityEvaluationDiscussion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const mentionsCapabilitySurface =
+    /\b(?:capabilit(?:y|ies)|tooling|tools?|route|routing|harness|telegram|startup\s+operator|operator|agent|spark|codex|provider|memory|schedule|chip|mission|build|publish|deploy|browser|computer[-\s]*use)\b/.test(normalized);
+  if (!mentionsCapabilitySurface) return false;
+  return (
+    /\b(?:how|what|when|whether|would|should|can|could)\b.{0,80}\b(?:evaluate|test|score|compare|reason\s+about|think\s+through|decide|tell\s+whether|know\s+whether)\b/.test(normalized) ||
+    /\b(?:evaluate|test|score|compare)\b.{0,80}\b(?:before|prior\s+to)\b.{0,80}\b(?:using|enabling|running|launching|shipping)\b/.test(normalized) ||
+    /\b(?:would|should|could)\b.{0,80}\b(?:be|stay|remain)\b.{0,80}\b(?:advisory|conversation(?:al)?|chat[-\s]*only|read[-\s]*only|planning)\b/.test(normalized) ||
+    /\b(?:conversation|chat|discussion|advisory|planning)\b.{0,80}\b(?:versus|vs\.?|instead\s+of)\b.{0,80}\b(?:action|execution|tool\s+call|mission|build|route)\b/.test(normalized) ||
+    /\b(?:before|prior\s+to)\b.{0,80}\b(?:using|enabling|running|launching|shipping)\b.{0,80}\b(?:what|which|how)\b.{0,80}\b(?:evidence|proof|test|benchmark|gate|boundary)\b/.test(normalized)
+  );
 }
 
 export function isStartupSelfImprovementCanaryRequest(text: string): boolean {
