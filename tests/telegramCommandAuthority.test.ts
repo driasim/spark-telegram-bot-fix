@@ -419,6 +419,56 @@ test('voice commands authorize status and setup through command envelopes', () =
   assert.equal(setup.harnessCore?.authorization.restrictions.write_allowed, true);
 });
 
+test('route probe commands authorize through command envelopes', () => {
+  const browserProbe = commandAuth({
+    text: '/probe browser',
+    commandName: 'probe',
+    route: 'route.probe',
+    toolName: 'route.probe',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'route.probe.spark_browser',
+    kind: 'diagnostic_or_self_awareness',
+    externalNetwork: true
+  });
+  const coreProbe = commandAuth({
+    text: '/probe core',
+    commandName: 'probe',
+    route: 'route.probe',
+    toolName: 'route.probe',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'route.probe.core',
+    kind: 'diagnostic_or_self_awareness'
+  });
+
+  assert.equal(browserProbe.allow, true);
+  assert.equal(browserProbe.harnessCore?.authorization.restrictions.network_allowed, true);
+  assert.equal(browserProbe.harnessCore?.authorization.restrictions.write_allowed, true);
+  assert.equal(coreProbe.allow, true);
+  assert.equal(coreProbe.harnessCore?.envelope.selected_move, 'execute_action');
+  assert.equal(coreProbe.harnessCore?.authorization.restrictions.network_allowed, false);
+  assert.equal(coreProbe.harnessCore?.authorization.restrictions.write_allowed, true);
+});
+
+test('route probe commands block contradictory no-probe language', () => {
+  const result = commandAuth({
+    text: '/probe browser but do not probe or test browser right now',
+    commandName: 'probe',
+    route: 'route.probe',
+    toolName: 'route.probe',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'route.probe.spark_browser',
+    kind: 'diagnostic_or_self_awareness',
+    externalNetwork: true
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(result.reasonCodes.includes('harness_core:authority_state_chat_only'));
+});
+
 test('legacy Spark process and reflect commands authorize through command envelopes', () => {
   const processQueue = commandAuth({
     text: '/process',

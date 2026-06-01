@@ -3510,19 +3510,69 @@ function aocProbeSummaryLine(routeKey: string, payload: Record<string, unknown>)
   return `- ${label}: ${status}${latency}${evidence}`;
 }
 
-async function runAocProbeBatch(ctx: any, routeKeys: string[]): Promise<void> {
+function routeProbeRequiresExternalNetwork(routeKeys: string[]): boolean {
+  return routeKeys.includes('spark_browser');
+}
+
+function routeProbeLedgerStatus(payload: Record<string, unknown>): 'success' | 'failure' | 'partial' {
+  const status = String(payload.status || '').trim().toLowerCase();
+  const failure = String(payload.failure_reason || '').trim();
+  if (failure || /(?:fail|error|blocked|unavailable)/.test(status)) return 'failure';
+  if (/^(?:success|ready|ok|healthy)$/.test(status)) return 'success';
+  return 'partial';
+}
+
+function routeProbeBatchLedgerStatus(statuses: Array<'success' | 'failure' | 'partial'>): 'success' | 'failure' | 'partial' {
+  if (!statuses.length) return 'failure';
+  if (statuses.every((status) => status === 'success')) return 'success';
+  if (statuses.every((status) => status === 'failure')) return 'failure';
+  return 'partial';
+}
+
+function authorizeRouteProbeCommand(
+  ctx: any,
+  text: string,
+  routeKeys: string[]
+): TelegramActionAuthorityResult {
+  const externalNetwork = routeProbeRequiresExternalNetwork(routeKeys);
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'probe',
+    route: 'route.probe',
+    text,
+    toolName: 'route.probe',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: `route.probe.${routeKeys.join('+')}`,
+    kind: 'diagnostic_or_self_awareness',
+    externalNetwork
+  });
+}
+
+async function runAocProbeBatch(
+  ctx: any,
+  routeKeys: string[],
+  authorization: TelegramActionAuthorityResult
+): Promise<void> {
   await ctx.reply(`Running ${routeKeys.length} route probes. This can take a little while...`);
   const lines = ['Route probes'];
+  const statuses: Array<'success' | 'failure' | 'partial'> = [];
   for (const routeKey of routeKeys) {
     await safeSendChatAction(ctx, 'typing');
     try {
       const result = await runBuilderRouteProbe(routeKey);
+      statuses.push(routeProbeLedgerStatus(result.payload));
       lines.push(aocProbeSummaryLine(routeKey, result.payload));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      statuses.push('failure');
       lines.push(`- ${AOC_ROUTE_LABELS[routeKey] || routeKey}: failed - ${message.slice(0, 120)}`);
     }
   }
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'route.probe',
+    status: routeProbeBatchLedgerStatus(statuses),
+    summary: `Route probe batch completed for ${routeKeys.join(', ')}.`
+  });
   lines.push('', 'Run /aoc to see the refreshed Agent Operating Context.');
   await ctx.reply(lines.join('\n'));
 }
@@ -3539,11 +3589,21 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     }
     const firstArg = routeArg.split(/\s+/)[0]?.trim().toLowerCase().replace(/-/g, '_') || '';
     if (firstArg === 'core') {
-      await runAocProbeBatch(ctx, AOC_CORE_ROUTE_KEYS);
+      const authorization = authorizeRouteProbeCommand(ctx, text, AOC_CORE_ROUTE_KEYS);
+      if (!authorization.allow) {
+        await replyTelegramCommandAuthorityBlocked(ctx);
+        return;
+      }
+      await runAocProbeBatch(ctx, AOC_CORE_ROUTE_KEYS, authorization);
       return;
     }
     if (firstArg === 'all') {
-      await runAocProbeBatch(ctx, AOC_ALL_ROUTE_KEYS);
+      const authorization = authorizeRouteProbeCommand(ctx, text, AOC_ALL_ROUTE_KEYS);
+      if (!authorization.allow) {
+        await replyTelegramCommandAuthorityBlocked(ctx);
+        return;
+      }
+      await runAocProbeBatch(ctx, AOC_ALL_ROUTE_KEYS, authorization);
       return;
     }
     const routeKey = normalizeAocProbeRoute(firstArg);
@@ -3551,7 +3611,27 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
       await ctx.reply(renderAocProbeHelp());
       return;
     }
-    const result = await runBuilderRouteProbe(routeKey);
+    const authorization = authorizeRouteProbeCommand(ctx, text, [routeKey]);
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
+    let result: Awaited<ReturnType<typeof runBuilderRouteProbe>>;
+    try {
+      result = await runBuilderRouteProbe(routeKey);
+    } catch (error) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'route.probe',
+        status: 'failure',
+        summary: `Route probe failed for ${routeKey}.`
+      });
+      throw error;
+    }
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'route.probe',
+      status: routeProbeLedgerStatus(result.payload),
+      summary: `Route probe completed for ${routeKey}.`
+    });
     await ctx.reply(result.replyText);
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));

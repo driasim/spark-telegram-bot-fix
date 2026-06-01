@@ -4,6 +4,7 @@ export type DeterministicRouteId =
   | 'access.help'
   | 'access.capability_status'
   | 'operator.safe_action'
+  | 'route.probe'
   | 'spawner.build'
   | 'spawner.pending_clarification'
   | 'spawner.default_build'
@@ -52,6 +53,7 @@ export interface RouteFirewallVerdict {
 
 const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'access.change',
+  'route.probe',
   'spawner.build',
   'spawner.pending_clarification',
   'spawner.default_build',

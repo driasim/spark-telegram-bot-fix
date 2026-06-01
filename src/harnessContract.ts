@@ -251,16 +251,17 @@ function executionPolicyForDecision(
   const localMutationRoute = /(?:build|spawner|creator|domain_chip|canvas|prd|operator\.safe_action|diagnostics\.scan|spark\.self_improvement|spark\.process|spark\.reflect|spark_wiki\.promote|spark\.wiki|access\.change|mission_updates\.preference|model\.switch|voice\.command|sparkqa\.|recursive\.)/.test(route);
   const fileMutationBlocked = decision.payload?.noFileMutation === true ||
     decision.matched_signals.includes('explicit_spawner_no_edit_mission');
+  const routeProbeExternalNetwork = route === 'route.probe' && decision.payload?.externalNetwork === true;
 
   return {
     canMutateFiles: !noExecution && !fileMutationBlocked && localMutationRoute,
     canLaunchMission: !noExecution && /(?:spawner|mission|creator|domain_chip|recursive\.start|startup\.answer_improvement_canary|natural_run|external_research)/.test(route),
-    canWriteMemory: !noExecution && (route === 'memory.write' || route === 'memory.delete' || route === 'spark_wiki.promote' || route === 'spark.wiki' || route === 'spark.process' || route === 'spark.reflect'),
+    canWriteMemory: !noExecution && (route === 'memory.write' || route === 'memory.delete' || route === 'spark_wiki.promote' || route === 'spark.wiki' || route === 'spark.process' || route === 'spark.reflect' || route === 'route.probe'),
     canCreateSchedule: !noExecution && /schedule\.create/.test(route),
     canDeleteSchedule: !noExecution && /schedule\.delete/.test(route),
     canCreateChip: !noExecution && /(?:domain_chip|creator)/.test(route),
     canPublish: !noExecution && canPublish && /(?:publish|deploy|ship)/.test(route),
-    canUseExternalNetwork: !noExecution && !decision.constraints.localOnly && (routeLooksExternal(route) || route === 'natural_run')
+    canUseExternalNetwork: !noExecution && !decision.constraints.localOnly && (routeLooksExternal(route) || routeProbeExternalNetwork || route === 'natural_run')
   };
 }
 
@@ -287,6 +288,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (/access/.test(decision.route)) tools.push('access.status');
   if (decision.route === 'access.change') tools.push('access.change');
   if (decision.route === 'operator.safe_action') tools.push('operator.safe_action');
+  if (decision.route === 'route.probe') tools.push('route.probe', 'builder.telegram_bridge');
   if (decision.route === 'diagnostics.scan') tools.push('diagnostics.scan');
   if (decision.route === 'spark.self_improvement') tools.push('spark.self_improvement');
   if (decision.route === 'spark.process') tools.push('spark.process_queue');
@@ -350,6 +352,7 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'memory.delete',
       'access.change',
       'operator.safe_action',
+      'route.probe',
       'diagnostics.scan',
       'spark.self_improvement',
       'spark.process_queue',

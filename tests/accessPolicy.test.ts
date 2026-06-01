@@ -418,6 +418,9 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.hears\(\/\^\\\/black-box/);
     assert.match(indexSource, /bot\.command\('probe', handleAgentRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('route_probe', handleAgentRouteProbeCommand\)/);
+    assert.match(indexSource, /authorizeRouteProbeCommand/);
+    assert.match(indexSource, /route: 'route\.probe'/);
+    assert.match(indexSource, /recordTelegramHarnessCoreExecution\(authorization, \{[\s\S]{0,260}toolName: 'route\.probe'/);
     assert.match(indexSource, /bot\.command\('nl_route', handleNaturalRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('natural_route', handleNaturalRouteProbeCommand\)/);
     assert.match(indexSource, /bot\.command\('ledger', handleCapabilityLedgerReviewCommand\)/);

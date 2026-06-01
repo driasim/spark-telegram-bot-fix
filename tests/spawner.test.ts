@@ -93,7 +93,16 @@ async function run(): Promise<void> {
       traceRef: 'trace:telegram-run:tg-req-1',
       telegramRelay: { port: 8799, profile: 'spark-agi' },
       providers: ['codex', 'claude'],
-      promptMode: 'orchestrator'
+      promptMode: 'orchestrator',
+      executionAuthority: {
+        schema: 'spark.machine_origin_policy.v1',
+        origin: 'spark-telegram-bot.run-goal',
+        source: 'telegram_spawner_run_bridge',
+        reason: 'Telegram run bridge requested Spawner mission execution.',
+        allowedTools: ['spawner.run'],
+        mutationClassesAllowed: ['launches_mission'],
+        networkPolicy: 'local_only'
+      }
     });
     assert.equal(capturedOptions.timeout, 1800000);
     assert.equal(capturedOptions.headers['x-api-key'], 'bridge-secret-for-tests');
