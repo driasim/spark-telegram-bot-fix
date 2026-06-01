@@ -1,3 +1,8 @@
+import {
+  createTelegramLiveQaEvidencePacket,
+  type TelegramLiveQaEvidencePacketV1
+} from '@spark/harness-core';
+
 export type LiveNlRisk = 'safe' | 'mission' | 'writes_files' | 'external';
 
 export interface LiveNlCommandCase {
@@ -128,16 +133,6 @@ function riskCounts(cases: LiveNlCommandCase[]): string {
     .join(', ');
 }
 
-function riskCountRecord(cases: LiveNlCommandCase[]): Record<LiveNlRisk, number> {
-  return cases.reduce<Record<LiveNlRisk, number>>(
-    (counts, entry) => {
-      counts[entry.risk] += 1;
-      return counts;
-    },
-    { safe: 0, mission: 0, writes_files: 0, external: 0 }
-  );
-}
-
 function indentedBlock(text: string): string {
   return text
     .split(/\r?\n/)
@@ -148,44 +143,19 @@ function indentedBlock(text: string): string {
 export function buildLiveNlEvidencePacket(
   cases: LiveNlCommandCase[],
   options: LiveNlEvidencePacketOptions = {}
-): Record<string, unknown> {
+): TelegramLiveQaEvidencePacketV1 {
   const generatedAt = (options.generatedAt || new Date()).toISOString();
   const catalog = options.catalog || 'natural-language-live-commands';
   const suite = options.suite?.trim() || null;
   const includeRisky = Boolean(options.includeRisky);
 
-  return {
-    schema_version: 'spark.telegram_live_qa_evidence_packet.v1',
+  return createTelegramLiveQaEvidencePacket({
     generated_at: generatedAt,
-    run_id: options.runId || `telegram-live-qa-${generatedAt.replace(/[:.]/g, '-')}`,
+    run_id: options.runId,
     title: options.title || 'Spark Telegram Live QA Evidence Packet',
     catalog,
-    selection: {
-      suite,
-      include_risky: includeRisky,
-      case_count: cases.length,
-      risk_counts: riskCountRecord(cases)
-    },
-    authority_claim_boundary: [
-      'This packet is a live QA evidence container.',
-      'It does not prove release readiness until each case has observed replies, side-effect checks, ledger or trace evidence where required, and a human verdict.',
-      'It must not be treated as authority to execute high-agency actions.'
-    ].join(' '),
-    required_session_evidence: {
-      profile: null,
-      tester: null,
-      bot_runtime_commit: null,
-      harness_core_commit: null,
-      spark_os_compile_ref: null,
-      spark_live_status_ref: null,
-      spark_verify_provenance_ref: null,
-      telegram_chat_evidence_ref: null,
-      overall_verdict: 'untested',
-      follow_up_commits: [],
-      pr_links: [],
-      remaining_risks: []
-    },
-    verdict_values: ['pass', 'fail', 'blocked', 'needs-retest', 'untested'],
+    suite,
+    include_risky: includeRisky,
     cases: cases.map((entry, index) => {
       const turns = liveNlCaseTurns(entry);
       return {
@@ -227,15 +197,8 @@ export function buildLiveNlEvidencePacket(
         fix_commit: null,
         retest_required: false
       };
-    }),
-    summary: {
-      pass: 0,
-      fail: 0,
-      blocked: 0,
-      needs_retest: 0,
-      untested: cases.length
-    }
-  };
+    })
+  });
 }
 
 export function formatLiveNlVerdictReport(
