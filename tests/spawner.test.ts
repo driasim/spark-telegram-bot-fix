@@ -109,6 +109,40 @@ async function run(): Promise<void> {
     assert.equal(capturedOptions.headers['x-spawner-ui-key'], 'ui-secret-for-tests');
   });
 
+  await test('runGoal forwards native Harness Core VNext authority when supplied', async () => {
+    restoreAxios();
+    process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
+
+    const executionAuthority = {
+      schema_version: 'turn-intent-envelope-vnext',
+      turn_id: 'turn:telegram-spawner-run',
+      selected_move: 'execute_action',
+      action_authority: { state: 'executable' },
+      proposed_actions: [
+        {
+          capability_id: 'capability:spawner-ui:spawner.run',
+          action_type: 'launch_mission'
+        }
+      ]
+    };
+    let capturedBody: any = null;
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return { data: { success: true, missionId: 'spark-vnext-run' } };
+    };
+
+    const result = await spawner.runGoal({
+      goal: 'Run a no-edit Spawner proof mission.',
+      chatId: '123',
+      userId: '456',
+      requestId: 'tg-vnext-run',
+      executionAuthority
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
+  });
+
   await test('runGoal falls back to the bridge key for hosted UI auth when no UI key is configured', async () => {
     restoreAxios();
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';

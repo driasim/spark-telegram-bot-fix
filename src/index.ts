@@ -5863,6 +5863,7 @@ interface RunCommandOptions {
   allowBuildIntent?: boolean;
   missionName?: string;
   relayGoal?: string;
+  executionAuthority?: unknown;
   onBuildDispatchResult?: (result: BuildIntentDispatchResult) => void;
 }
 
@@ -5933,7 +5934,8 @@ export async function handleRunCommand(
     tier: getTierForUser(ctx.from.id),
     providers,
     promptMode: 'simple',
-    missionName: options.missionName
+    missionName: options.missionName,
+    executionAuthority: options.executionAuthority
   });
 
   if (!result.success || !result.missionId) {
@@ -6208,6 +6210,7 @@ for (const variant of RUN_VARIANTS) {
     const buildDispatchRef: { current?: BuildIntentDispatchResult } = {};
     const missionId = await handleRunCommand(ctx, goal, providers, undefined, {
       allowBuildIntent: variant.name === 'run',
+      executionAuthority: authorization.harnessCore?.envelope,
       onBuildDispatchResult: (result) => {
         buildDispatchRef.current = result;
       }

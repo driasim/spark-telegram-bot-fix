@@ -20,6 +20,7 @@ interface RunGoalInput {
   userId: string;
   requestId: string;
   traceRef?: string;
+  executionAuthority?: unknown;
   tier?: SkillTier;
   providers?: string[];
   promptMode?: 'simple' | 'orchestrator';
@@ -1133,7 +1134,7 @@ export const spawner = {
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
           ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
           ...(input.promptMode ? { promptMode: input.promptMode } : {}),
-          executionAuthority: machineOriginPolicy({
+          executionAuthority: input.executionAuthority ?? machineOriginPolicy({
             origin: 'spark-telegram-bot.run-goal',
             source: 'telegram_spawner_run_bridge',
             reason: 'Telegram run bridge requested Spawner mission execution.',
