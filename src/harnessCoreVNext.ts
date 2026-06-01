@@ -6,12 +6,14 @@ import type {
 } from './harnessContract';
 import {
   HARNESS_CORE_RISK_ORDER,
+  actionTypeForHarnessMutation,
+  createHarnessCoreActionEnvelopeVNext,
   createHarnessCoreArtifactRef,
   createHarnessCoreEvidenceRef,
   createHarnessCoreTraceRef,
+  riskTierForHarnessMutation,
   safeHarnessCoreId,
   type AuthorizationDecisionV1,
-  type HarnessCoreActionType,
   type HarnessCoreArtifactRef,
   type HarnessCoreAuthorityState,
   type HarnessCoreEvidenceRef,
@@ -99,57 +101,12 @@ function evidenceRef(
   return createHarnessCoreEvidenceRef({ id, kind, source, summary, confidence, trace_refs });
 }
 
-function capabilityIdForAction(action: HarnessCoreActionInput): string {
-  const owner = String(action.ownerSystem || 'unknown').replace(/[^a-zA-Z0-9_.:-]+/g, '-').toLowerCase();
-  const tool = action.toolName.replace(/[^a-zA-Z0-9_.:-]+/g, '-').toLowerCase();
-  return safeId('capability', `${owner}:${tool}`);
-}
-
-function actionTypeForMutation(action: HarnessCoreActionInput): HarnessCoreActionType {
-  if (action.publishes) return 'publish';
-  switch (action.mutationClass) {
-    case 'none':
-    case 'read_only':
-      return 'read';
-    case 'writes_memory':
-      return 'write_memory';
-    case 'writes_files':
-      return 'edit_file';
-    case 'launches_mission':
-      return 'launch_mission';
-    case 'creates_schedule':
-    case 'deletes_schedule':
-      return 'schedule';
-    case 'creates_chip':
-      return 'create_domain_chip';
-    case 'publishes':
-      return 'publish';
-    case 'external_network':
-      return 'external_api_call';
-    default:
-      return 'run_command';
-  }
-}
-
 function riskTierForAction(action: HarnessCoreActionInput): HarnessCoreRiskTier {
-  if (action.publishes || action.mutationClass === 'publishes') return 'high';
-  if (action.externalNetwork || action.mutationClass === 'external_network') return 'medium';
-  switch (action.mutationClass) {
-    case 'none':
-      return 'none';
-    case 'read_only':
-      return 'read';
-    case 'writes_memory':
-      return 'low';
-    case 'writes_files':
-    case 'launches_mission':
-    case 'creates_schedule':
-    case 'deletes_schedule':
-    case 'creates_chip':
-      return 'medium';
-    default:
-      return 'medium';
-  }
+  return riskTierForHarnessMutation({
+    mutationClass: action.mutationClass,
+    publishes: action.publishes,
+    externalNetwork: action.externalNetwork
+  });
 }
 
 function moveForEnvelope(
@@ -214,17 +171,24 @@ function routeEvidence(envelope: TurnIntentEnvelopeV1): HarnessCoreEvidenceRef[]
 }
 
 export function buildHarnessCoreAction(input: HarnessCoreActionInput, turnId: string): HarnessCoreProposedAction {
-  const actionType = actionTypeForMutation(input);
+  const actionType = actionTypeForHarnessMutation(input.mutationClass, input.publishes);
   const riskTier = riskTierForAction(input);
-  return {
-    action_id: safeId('action', `${turnId}:${input.route}:${input.toolName}`),
-    capability_id: capabilityIdForAction(input),
-    action_type: actionType,
-    risk_tier: riskTier,
-    summary: `Telegram proposed ${actionType} via ${input.toolName} for route ${input.route}.`,
-    args_ref: artifactRef(`${turnId}:args:${input.toolName}`, 'tool_args', `telegram://turns/${encodeURIComponent(turnId)}/actions/${encodeURIComponent(input.toolName)}`, 'Telegram action arguments are retained by the surface adapter.'),
-    requires_confirmation: RISK_ORDER[riskTier] >= RISK_ORDER.high
-  };
+  const actionEnvelope = createHarnessCoreActionEnvelopeVNext({
+    surface: 'telegram',
+    ownerSystem: String(input.ownerSystem || 'spark-telegram-bot'),
+    toolName: input.toolName,
+    mutationClass: input.mutationClass,
+    source: input.route,
+    reason: `Telegram proposed ${actionType} via ${input.toolName} for route ${input.route}.`,
+    requestId: turnId,
+    actorIdRef: 'telegram-human',
+    target: input.route,
+    riskTier,
+    publishes: input.publishes,
+    externalNetwork: input.externalNetwork,
+    requiresHumanConfirmation: RISK_ORDER[riskTier] >= RISK_ORDER.high
+  });
+  return actionEnvelope.proposed_actions[0];
 }
 
 export function buildTurnIntentEnvelopeVNextFromTelegram(
@@ -234,16 +198,32 @@ export function buildTurnIntentEnvelopeVNextFromTelegram(
 ): TurnIntentEnvelopeVNext {
   const riskTier = action ? riskTierForAction(action) : envelope.executionPolicy.canLaunchMission ? 'medium' : 'none';
   const move = moveForEnvelope(envelope, action, legacyAllowed, riskTier);
-  const proposedAction = action && !move.startsWith('chat_')
-    ? buildHarnessCoreAction(action, envelope.turnId)
+  const actionEnvelope = action && !move.startsWith('chat_')
+    ? createHarnessCoreActionEnvelopeVNext({
+        surface: 'telegram',
+        ownerSystem: String(action.ownerSystem || 'spark-telegram-bot'),
+        toolName: action.toolName,
+        mutationClass: action.mutationClass,
+        source: action.route,
+        reason: `Telegram proposed ${actionTypeForHarnessMutation(action.mutationClass, action.publishes)} via ${action.toolName} for route ${action.route}.`,
+        requestId: envelope.turnId,
+        actorIdRef: envelope.user.userRef,
+        target: action.route,
+        confidence: confidenceValue(envelope),
+        riskTier,
+        publishes: action.publishes,
+        externalNetwork: action.externalNetwork,
+        requiresHumanConfirmation: RISK_ORDER[riskTier] >= RISK_ORDER.high
+      })
     : null;
+  const proposedAction = actionEnvelope?.proposed_actions[0] || null;
   const evidence = routeEvidence(envelope);
   const authorityState = authorityStateForMove(move);
 
   return {
     schema_version: 'turn-intent-envelope-vnext',
-    turn_id: safeId('turn', envelope.turnId),
-    created_at: nowIso(),
+    turn_id: actionEnvelope?.turn_id || safeId('turn', envelope.turnId),
+    created_at: actionEnvelope?.created_at || nowIso(),
     surface: 'telegram',
     actor: {
       kind: 'human',
@@ -259,7 +239,7 @@ export function buildTurnIntentEnvelopeVNextFromTelegram(
       memory_used_as_instruction: false,
       pending_state_used_as_authority: false
     },
-    evidence,
+    evidence: actionEnvelope ? [...evidence, ...actionEnvelope.evidence] : evidence,
     action_authority: {
       state: authorityState,
       risk_tier: riskTier,
