@@ -296,3 +296,122 @@ test('recursive start commands block contradictory no-run language', () => {
   assert.equal(result.allow, false);
   assert.ok(result.reasonCodes.includes('no_execution_boundary'));
 });
+
+test('memory and wiki mutation commands authorize through command envelopes', () => {
+  const remember = commandAuth({
+    text: '/remember startup operator prefers benchmark-backed claims',
+    commandName: 'remember',
+    route: 'memory.write',
+    toolName: 'memory.write',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory',
+    action: 'memory.write',
+    kind: 'memory_write'
+  });
+  const forget = commandAuth({
+    text: '/forget stale startup operator score',
+    commandName: 'forget',
+    route: 'memory.delete',
+    toolName: 'memory.delete',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory',
+    action: 'memory.delete',
+    kind: 'memory_write'
+  });
+  const wiki = commandAuth({
+    text: '/wiki promote verified Harness Core owns action authority',
+    commandName: 'wiki',
+    route: 'spark.wiki',
+    toolName: 'spark_wiki.promote',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'spark_wiki.promote',
+    kind: 'wiki_or_knowledge'
+  });
+
+  assert.equal(remember.allow, true);
+  assert.equal(forget.allow, true);
+  assert.equal(wiki.allow, true);
+});
+
+test('memory and wiki mutation commands block contradictory no-write language', () => {
+  const remember = commandAuth({
+    text: '/remember startup operator note but do not remember anything',
+    commandName: 'remember',
+    route: 'memory.write',
+    toolName: 'memory.write',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory',
+    action: 'memory.write',
+    kind: 'memory_write'
+  });
+  const wiki = commandAuth({
+    text: '/wiki promote Harness Core owns action authority but do not promote it',
+    commandName: 'wiki',
+    route: 'spark.wiki',
+    toolName: 'spark_wiki.promote',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'spark_wiki.promote',
+    kind: 'wiki_or_knowledge'
+  });
+
+  assert.equal(remember.allow, false);
+  assert.equal(wiki.allow, false);
+  assert.ok(remember.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(wiki.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('self improvement and model switch commands authorize through command envelopes', () => {
+  const selfImprove = commandAuth({
+    text: '/self improve routing evidence summaries',
+    commandName: 'self',
+    route: 'spark.self_improvement',
+    toolName: 'spark.self_improvement',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_files',
+    action: 'spark.self_improvement',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  const modelSwitch = commandAuth({
+    text: '/model agent codex',
+    commandName: 'model',
+    route: 'model.switch',
+    toolName: 'model.switch',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'model.switch',
+    kind: 'runtime_truth_or_operator'
+  });
+
+  assert.equal(selfImprove.allow, true);
+  assert.equal(modelSwitch.allow, true);
+});
+
+test('self improvement and model switch commands block contradictory no-action language', () => {
+  const selfImprove = commandAuth({
+    text: '/self improve routing evidence summaries but do not improve anything',
+    commandName: 'self',
+    route: 'spark.self_improvement',
+    toolName: 'spark.self_improvement',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_files',
+    action: 'spark.self_improvement',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  const modelSwitch = commandAuth({
+    text: '/model agent codex but do not switch models',
+    commandName: 'model',
+    route: 'model.switch',
+    toolName: 'model.switch',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'model.switch',
+    kind: 'runtime_truth_or_operator'
+  });
+
+  assert.equal(selfImprove.allow, false);
+  assert.equal(modelSwitch.allow, false);
+  assert.ok(selfImprove.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(modelSwitch.reasonCodes.includes('no_execution_boundary'));
+});

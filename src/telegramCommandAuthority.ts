@@ -25,14 +25,14 @@ export interface TelegramCommandActionAuthorityInput extends TelegramActionAutho
 function commandExecutionStopBoundary(text: string, action = ''): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   const stopsExecution =
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:run|start|launch|execute|queue|dispatch|kick\s+off|schedule|change|set|switch|raise|lower|enable|disable)\b/.test(normalized) ||
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:run|start|launch|execute|queue|dispatch|kick\s+off|schedule|change|set|switch|raise|lower|enable|disable|promote|improve|upgrade|fix|repair|reflect)\b/.test(normalized) ||
     /\b(?:no|not)\s+(?:run|execution|launch|schedule|scheduling|access\s+change|setup|enable|disable)(?:ning)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized);
   const stopsCreation =
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:build|create|make|scaffold|generate)\s+(?:yet|for\s+now|anything|something|new\s+work|a\s+mission|a\s+build|a\s+project|a\s+domain[-\s]*chip|a\s+chip|the\s+mission|the\s+build|the\s+project|the\s+domain[-\s]*chip|the\s+chip|it|this|that)\b/.test(normalized) ||
     /\b(?:no|not)\s+(?:build|create|creation|scaffold|generation)(?:ing)?\s+(?:yet|for\s+now|right\s+now)\b/.test(normalized);
   const stopsMemoryWrite =
-    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:save|write|remember|store)\s+(?:memory|this|that|anything|something)\b/.test(normalized) ||
-    /\b(?:no|not)\s+(?:memory\s+write|memory\s+save|remembering|saving)(?:\s+(?:yet|for\s+now|right\s+now))?\b/.test(normalized);
+    /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:save|write|remember|store|forget|delete)\s+(?:memory|this|that|anything|something)\b/.test(normalized) ||
+    /\b(?:no|not)\s+(?:memory\s+write|memory\s+save|memory\s+delete|remembering|saving|forgetting|deleting)(?:\s+(?:yet|for\s+now|right\s+now))?\b/.test(normalized);
   const stopsPlanning =
     /\b(?:do not|don't|dont|please don't|please dont|no need to)\s+(?:plan|stage|prepare)\b/.test(normalized);
   const planOnlyAction = /\b(?:plan|stage|prepare)\b/i.test(action);

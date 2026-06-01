@@ -2796,6 +2796,37 @@ async function buildNaturalLocalMemoryRecallReply(user: any, text: string): Prom
   return buildLocalRecallReply(user, query);
 }
 
+function authorizeMemoryWriteCommand(
+  ctx: any,
+  text: string,
+  action = 'memory.write',
+  commandName = 'remember'
+): TelegramActionAuthorityResult {
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName,
+    route: 'memory.write',
+    text,
+    toolName: 'memory.write',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory',
+    action,
+    kind: 'memory_write'
+  });
+}
+
+function authorizeMemoryDeleteCommand(ctx: any, text: string): TelegramActionAuthorityResult {
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'forget',
+    route: 'memory.delete',
+    text,
+    toolName: 'memory.delete',
+    ownerSystem: 'domain-chip-memory',
+    mutationClass: 'writes_memory',
+    action: 'memory.delete',
+    kind: 'memory_write'
+  });
+}
+
 export async function handleRememberCommand(ctx: any): Promise<void> {
   const text = ctx.message.text.replace('/remember', '').trim();
 
@@ -2803,18 +2834,42 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     return ctx.reply('Usage: /remember <something to remember>');
   }
 
+  const authorization = authorizeMemoryWriteCommand(ctx, ctx.message.text);
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
+
   try {
     const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
     if (missionLessonReply) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'memory.write',
+        status: 'success',
+        summary: 'Pending mission lesson was approved through /remember.'
+      });
       await ctx.reply(missionLessonReply);
       return;
     }
     const localSaved = await saveSlashRememberLocally(ctx.from, text);
-    if (await replyViaBuilder(ctx, `Please remember this: ${text}`)) {
+    const builderRouted = await replyViaBuilder(ctx, `Please remember this: ${text}`);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'memory.write',
+      status: localSaved || builderRouted ? 'success' : 'failure',
+      summary: localSaved || builderRouted
+        ? 'Telegram /remember persisted or routed a memory write.'
+        : 'Telegram /remember could not persist through local memory or Builder.'
+    });
+    if (builderRouted) {
       return;
     }
     await ctx.reply(localSaved ? formatLocalMemoryDirectiveAcknowledgement(text) : buildMemoryBridgeUnavailableReply('remember'));
   } catch (err) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'memory.write',
+      status: 'failure',
+      summary: `Telegram /remember failed: ${err instanceof Error ? err.message : String(err)}`
+    });
     console.error('Failed to remember:', err);
     await ctx.reply(renderSparkErrorReply(err, 'memory', conversation.isAdmin(ctx.from)));
   }
@@ -3035,9 +3090,26 @@ bot.command('diagnose', async (ctx) => {
 
 bot.command('self', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
+  let improveAuthorization: TelegramActionAuthorityResult | null = null;
   try {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const improveMatch = text.match(/^\/self(?:@\w+)?\s+(?:improve|upgrade|fix)\s*(.*)$/i);
+    improveAuthorization = improveMatch
+      ? telegramCommandActionAuthorityDecision(ctx, {
+          commandName: 'self',
+          route: 'spark.self_improvement',
+          text,
+          toolName: 'spark.self_improvement',
+          ownerSystem: 'spark-intelligence-builder',
+          mutationClass: 'writes_files',
+          action: 'spark.self_improvement',
+          kind: 'diagnostic_or_self_awareness'
+        })
+      : null;
+    if (improveAuthorization && !improveAuthorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const result = improveMatch
       ? await runBuilderSelfImprovementPlan({
           userId: ctx.from.id,
@@ -3050,20 +3122,53 @@ bot.command('self', async (ctx) => {
       chatId: ctx.chat.id,
       currentMessage: text,
     });
+    if (improveAuthorization) {
+      recordTelegramHarnessCoreExecution(improveAuthorization, {
+        toolName: 'spark.self_improvement',
+        status: 'success',
+        summary: 'Telegram /self improvement plan ran through Builder.'
+      });
+    }
     await ctx.reply(result.replyText);
   } catch (err: any) {
+    if (improveAuthorization) {
+      recordTelegramHarnessCoreExecution(improveAuthorization, {
+        toolName: 'spark.self_improvement',
+        status: 'failure',
+        summary: `Telegram /self improvement plan failed: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
   }
 });
 
+function authorizeWikiPromoteCommand(ctx: any, text: string): TelegramActionAuthorityResult {
+  return telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'wiki',
+    route: 'spark.wiki',
+    text,
+    toolName: 'spark_wiki.promote',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'writes_memory',
+    action: 'spark_wiki.promote',
+    kind: 'wiki_or_knowledge'
+  });
+}
+
 bot.command('wiki', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
+  let promoteAuthorization: TelegramActionAuthorityResult | null = null;
   try {
     const text = 'text' in (ctx.message || {}) ? String((ctx.message as any).text || '') : '';
     const promoteMatch = text.match(/^\/wiki(?:@\w+)?\s+promote(?:\s+(candidate|verified))?\s+(.+)$/i);
     const answerMatch = text.match(/^\/wiki(?:@\w+)?\s+answer\s+(.+)$/i);
     const queryMatch = text.match(/^\/wiki(?:@\w+)?\s+(?:search|query|find)\s+(.+)$/i);
     const wantsInventory = /\b(?:pages?|files?|notes?|inventory|index|contents?|vault|list|map)\b/i.test(text);
+    promoteAuthorization = promoteMatch?.[2]?.trim() ? authorizeWikiPromoteCommand(ctx, text) : null;
+    if (promoteAuthorization && !promoteAuthorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const result = promoteMatch?.[2]?.trim()
       ? await runBuilderWikiPromoteImprovement({
           title: promoteMatch[2].trim(),
@@ -3087,8 +3192,22 @@ bot.command('wiki', async (ctx) => {
       : wantsInventory
       ? await runBuilderWikiInventory({ refresh: true, limit: 12 })
       : await runBuilderWikiStatus({ refresh: true });
+    if (promoteAuthorization) {
+      recordTelegramHarnessCoreExecution(promoteAuthorization, {
+        toolName: 'spark_wiki.promote',
+        status: 'success',
+        summary: 'Telegram /wiki promote routed a knowledge promotion through Builder.'
+      });
+    }
     await ctx.reply(result.replyText);
   } catch (err: any) {
+    if (promoteAuthorization) {
+      recordTelegramHarnessCoreExecution(promoteAuthorization, {
+        toolName: 'spark_wiki.promote',
+        status: 'failure',
+        summary: `Telegram /wiki promote failed: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
   }
 });
@@ -3808,11 +3927,29 @@ bot.command('about', async (ctx) => {
 bot.command('forget', async (ctx) => {
   const target = ctx.message.text.replace('/forget', '').trim();
   if (target) {
+    const authorization = authorizeMemoryDeleteCommand(ctx, ctx.message.text);
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     try {
-      if (await replyViaBuilder(ctx, `Forget ${target}.`)) {
+      const routed = await replyViaBuilder(ctx, `Forget ${target}.`);
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'memory.delete',
+        status: routed ? 'success' : 'failure',
+        summary: routed
+          ? 'Telegram /forget routed a memory delete request through Builder.'
+          : 'Telegram /forget could not route the memory delete request through Builder.'
+      });
+      if (routed) {
         return;
       }
     } catch (err) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'memory.delete',
+        status: 'failure',
+        summary: `Telegram /forget failed: ${err instanceof Error ? err.message : String(err)}`
+      });
       console.error('Failed to forget via Builder bridge:', err);
     }
   }
@@ -5894,7 +6031,29 @@ bot.command('model', async (ctx) => {
       await ctx.reply(codexClientConfig.error);
       return;
     }
+    const mutatesCodexConfig = codexClientConfig.args.length > 2;
+    const authorization = mutatesCodexConfig
+      ? telegramCommandActionAuthorityDecision(ctx, {
+          commandName: 'model',
+          route: 'model.switch',
+          text: ctx.message.text,
+          toolName: 'model.switch',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'writes_files',
+          action: 'model.switch.codex',
+          kind: 'runtime_truth_or_operator'
+        })
+      : null;
+    if (authorization && !authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
     const reply = await runSparkCli(codexClientConfig.args, 45_000);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'model.switch',
+      status: 'success',
+      summary: 'Telegram /model updated Codex client routing through Spark CLI.'
+    });
     await ctx.reply(reply);
     return;
   }
@@ -5916,7 +6075,28 @@ bot.command('model', async (ctx) => {
     return;
   }
 
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'model',
+    route: 'model.switch',
+    text: ctx.message.text,
+    toolName: 'model.switch',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files',
+    action: 'model.switch',
+    kind: 'runtime_truth_or_operator'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
   const reply = await switchModelRoute(role, provider, modelToken);
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'model.switch',
+    status: /now uses/i.test(reply) ? 'success' : 'failure',
+    summary: /now uses/i.test(reply)
+      ? `Telegram /model switched ${role} routing to ${provider}.`
+      : `Telegram /model did not switch ${role} routing: ${reply.split('\n')[0] || 'unknown result'}`
+  });
   await ctx.reply(reply);
 });
 
