@@ -1130,6 +1130,10 @@ test('extracts natural recursive commands for QA Operator loops', () => {
     parseNaturalRecursiveCommandIntent('Do not start a mission or build anything. Just answer in chat. I am setting up Spark with Codex CLI. I already signed in to Codex CLI, but Spark is asking about provider setup or API keys. Does signed-in Codex CLI use mean I still need an OpenAI API key for Spark? Please explain the difference clearly, and give me the safest recovery path if Spark cannot find Codex CLI or says the provider key is missing.'),
     null
   );
+  assert.equal(
+    parseNaturalRecursiveCommandIntent('Do not start a mission or build anything. Just answer in chat. I want to test named Telegram profile setup in a disposable or read-only lane. How should I safely set up and verify a separate Telegram profile without disturbing the primary bot? Please cover using /myid safely, keeping env/config separate, keeping logs separate, warning signs, and what to do if I cannot isolate a disposable lane cleanly.'),
+    null
+  );
 });
 
 test('extracts contextual recursive commands from conversational follow-ups', () => {
