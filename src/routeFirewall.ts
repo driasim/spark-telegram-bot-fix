@@ -22,6 +22,8 @@ export type DeterministicRouteId =
   | 'recursive.proposal'
   | 'recursive.start'
   | 'spark.self_improvement'
+  | 'spark.process'
+  | 'spark.reflect'
   | 'spark.chip_status'
   | 'spark.wiki'
   | 'media.image'
@@ -65,6 +67,8 @@ const INTERRUPTIVE_ROUTES = new Set<DeterministicRouteId>([
   'recursive.proposal',
   'recursive.start',
   'spark.self_improvement',
+  'spark.process',
+  'spark.reflect',
   'spark.wiki',
   'voice.command',
   'memory.write',

@@ -419,6 +419,34 @@ test('voice commands authorize status and setup through command envelopes', () =
   assert.equal(setup.harnessCore?.authorization.restrictions.write_allowed, true);
 });
 
+test('legacy Spark process and reflect commands authorize through command envelopes', () => {
+  const processQueue = commandAuth({
+    text: '/process',
+    commandName: 'process',
+    route: 'spark.process',
+    toolName: 'spark.process_queue',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.process_queue',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  const reflect = commandAuth({
+    text: '/reflect',
+    commandName: 'reflect',
+    route: 'spark.reflect',
+    toolName: 'spark.reflect',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.reflect',
+    kind: 'diagnostic_or_self_awareness'
+  });
+
+  assert.equal(processQueue.allow, true);
+  assert.equal(reflect.allow, true);
+  assert.equal(processQueue.harnessCore?.authorization.restrictions.write_allowed, true);
+  assert.equal(reflect.harnessCore?.authorization.restrictions.write_allowed, true);
+});
+
 test('self improvement and model switch commands block contradictory no-action language', () => {
   const selfImprove = commandAuth({
     text: '/self improve routing evidence summaries but do not improve anything',
@@ -462,4 +490,32 @@ test('voice setup commands block contradictory no-setup language', () => {
 
   assert.equal(result.allow, false);
   assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('legacy Spark process and reflect commands block contradictory no-action language', () => {
+  const processQueue = commandAuth({
+    text: '/process but do not process anything',
+    commandName: 'process',
+    route: 'spark.process',
+    toolName: 'spark.process_queue',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.process_queue',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  const reflect = commandAuth({
+    text: '/reflect but do not reflect right now',
+    commandName: 'reflect',
+    route: 'spark.reflect',
+    toolName: 'spark.reflect',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.reflect',
+    kind: 'diagnostic_or_self_awareness'
+  });
+
+  assert.equal(processQueue.allow, false);
+  assert.equal(reflect.allow, false);
+  assert.ok(processQueue.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(reflect.reasonCodes.includes('no_execution_boundary'));
 });

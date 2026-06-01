@@ -4081,18 +4081,74 @@ bot.command('lessons', async (ctx) => {
 
 // /process - process pending events
 bot.command('process', async (ctx) => {
-  await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Processing queue...');
-  const result = await spark.processQueue();
-  await ctx.reply(result);
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'process',
+    route: 'spark.process',
+    text: ctx.message?.text || '/process',
+    toolName: 'spark.process_queue',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.process_queue',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
+  try {
+    await safeSendChatAction(ctx, 'typing');
+    await ctx.reply('Processing queue...');
+    const result = await spark.processQueue();
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spark.process_queue',
+      status: 'success',
+      summary: 'Telegram /process ran through Spark legacy queue processing.'
+    });
+    await ctx.reply(result);
+  } catch (err) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spark.process_queue',
+      status: 'failure',
+      summary: `Telegram /process failed: ${err instanceof Error ? err.message : String(err)}`
+    });
+    await ctx.reply(renderSparkErrorReply(err, 'telegram', conversation.isAdmin(ctx.from)));
+  }
 });
 
 // /reflect - trigger deep reflection
 bot.command('reflect', async (ctx) => {
-  await safeSendChatAction(ctx, 'typing');
-  await ctx.reply('Starting deep reflection...');
-  const result = await spark.reflect();
-  await ctx.reply(result);
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'reflect',
+    route: 'spark.reflect',
+    text: ctx.message?.text || '/reflect',
+    toolName: 'spark.reflect',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_memory',
+    action: 'spark.reflect',
+    kind: 'diagnostic_or_self_awareness'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
+  try {
+    await safeSendChatAction(ctx, 'typing');
+    await ctx.reply('Starting deep reflection...');
+    const result = await spark.reflect();
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spark.reflect',
+      status: 'success',
+      summary: 'Telegram /reflect ran through Spark legacy reflection.'
+    });
+    await ctx.reply(result);
+  } catch (err) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spark.reflect',
+      status: 'failure',
+      summary: `Telegram /reflect failed: ${err instanceof Error ? err.message : String(err)}`
+    });
+    await ctx.reply(renderSparkErrorReply(err, 'telegram', conversation.isAdmin(ctx.from)));
+  }
 });
 
 const PROVIDER_LABELS: Record<string, string> = {
