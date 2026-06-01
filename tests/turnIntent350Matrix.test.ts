@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
-import {
-  authorizeToolCallFromEnvelope,
-  buildTelegramTurnIntentEnvelope,
-  type ToolAuthorizationInput
-} from '../src/harnessContract';
+import { buildTelegramTurnIntentEnvelope } from '../src/harnessContract';
 import { authorizeTelegramActionFromEnvelope, type TelegramActionAuthorityInput } from '../src/telegramActionAuthority';
 import { classifyTelegramIntentV2 } from '../src/telegramIntentGate';
+
+process.env.SPARK_HARNESS_CORE_LEDGER = '0';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -30,14 +28,18 @@ type PositiveCase = {
   action: TelegramActionAuthorityInput;
 };
 
-const HIGH_AGENCY_TOOLS: Array<ToolAuthorizationInput & { label: string }> = [
-  { label: 'mission', toolName: 'spawner.run', ownerSystem: 'spawner-ui', mutationClass: 'launches_mission' },
-  { label: 'memory', toolName: 'memory.write', ownerSystem: 'domain-chip-memory', mutationClass: 'writes_memory' },
-  { label: 'schedule', toolName: 'schedule.delete', ownerSystem: 'spark-intelligence-builder', mutationClass: 'deletes_schedule' },
-  { label: 'chip', toolName: 'domain_chip.create', ownerSystem: 'domain-chip', mutationClass: 'creates_chip' },
-  { label: 'external', toolName: 'external.fetch', ownerSystem: 'spark-intelligence-builder', mutationClass: 'external_network', externalNetwork: true },
-  { label: 'provider', toolName: 'provider.run', ownerSystem: 'spawner-ui', mutationClass: 'external_network', externalNetwork: true },
-  { label: 'publish', toolName: 'publish.run', ownerSystem: 'spawner-ui', mutationClass: 'publishes', publishes: true }
+type HighAgencyProbe = Omit<TelegramActionAuthorityInput, 'text'> & {
+  label: string;
+};
+
+const HIGH_AGENCY_PROBES: HighAgencyProbe[] = [
+  { label: 'mission', route: 'spawner.build', toolName: 'spawner.run', ownerSystem: 'spawner-ui', mutationClass: 'launches_mission' },
+  { label: 'memory', route: 'memory.write', toolName: 'memory.write', ownerSystem: 'domain-chip-memory', mutationClass: 'writes_memory' },
+  { label: 'schedule', route: 'schedule.delete', toolName: 'schedule.delete', ownerSystem: 'spark-intelligence-builder', mutationClass: 'deletes_schedule' },
+  { label: 'chip', route: 'domain_chip.create', toolName: 'domain_chip.create', ownerSystem: 'domain-chip', mutationClass: 'creates_chip' },
+  { label: 'external', route: 'spawner.external_research', toolName: 'external.fetch', ownerSystem: 'spark-intelligence-builder', mutationClass: 'external_network', externalNetwork: true },
+  { label: 'provider', route: 'natural_run', toolName: 'provider.run', ownerSystem: 'spawner-ui', mutationClass: 'external_network', externalNetwork: true },
+  { label: 'publish', route: 'spawner.build', toolName: 'publish.run', ownerSystem: 'spawner-ui', mutationClass: 'publishes', publishes: true }
 ];
 
 const ACTION_WORDS = [
@@ -129,12 +131,12 @@ function buildNegativeCases(): NegativeCase[] {
     'Audit the {word} detector without running it. What surface owns the boundary?',
     'Test phrase "{word}" used to trigger a deterministic branch. Explain the fix.'
   ], ACTION_WORDS.slice(0, 8));
-  addCases(cases, 'ideation_mixed_intent', [
-    'Should we {word} later, or is it better to design the harness first?',
-    'Can we talk through whether {word} makes sense before doing anything?',
-    'Maybe {word} is the right next step, but do not start it yet.',
-    'I am thinking about {word}; help me reason, no tool call.',
-    'Before we {word}, what would a reliable agent harness check?'
+  addCases(cases, 'startup_planning_mixed_intent', [
+    'For the startup operator, should we {word} later or design the harness proof first?',
+    'Can we talk through whether the startup system should {word} before doing anything?',
+    'Maybe {word} is the right next startup step, but do not start it yet.',
+    'I am thinking about startup {word}; help me reason, no tool call.',
+    'Before the startup operator can {word}, what would a reliable agent harness check?'
   ], ACTION_WORDS.slice(0, 6));
   addCases(cases, 'voice_network_publication', [
     'Voice transcript says "{word}" but this transcript is diagnostic only. Do not route it.',
@@ -265,16 +267,49 @@ test('350-message matrix blocks word hijacks and preserves explicit actions', ()
   const negatives = buildNegativeCases();
   const positives = buildPositiveCases();
   assert.equal(negatives.length + positives.length, 350);
+  assert.deepEqual(
+    Array.from(new Set(negatives.map((item) => item.category))).sort(),
+    [
+      'bug_report_qa',
+      'explicit_no_execution',
+      'meta_action_words',
+      'quoted_examples',
+      'stale_pending_memory',
+      'startup_planning_mixed_intent',
+      'voice_network_publication'
+    ],
+    'negative matrix must preserve the intended Harness Core release categories'
+  );
+  assert.deepEqual(
+    Array.from(new Set(positives.map((item) => item.category))).sort(),
+    [
+      'positive_build',
+      'positive_chip',
+      'positive_memory',
+      'positive_provider',
+      'positive_research',
+      'positive_schedule'
+    ],
+    'positive matrix must cover explicit action families'
+  );
 
   for (const item of negatives) {
     const envelope = envelopeFor(item.text);
-    for (const tool of HIGH_AGENCY_TOOLS) {
-      const verdict = authorizeToolCallFromEnvelope(envelope, tool);
+    for (const probe of HIGH_AGENCY_PROBES) {
+      const verdict = authorizeTelegramActionFromEnvelope(envelope, { ...probe, text: item.text });
       assert.equal(
-        verdict.verdict,
-        'blocked',
-        `${item.id} (${item.category}) unexpectedly authorized ${tool.label}: ${item.text}`
+        verdict.allow,
+        false,
+        `${item.id} (${item.category}) unexpectedly authorized ${probe.label}: ${item.text}`
       );
+      assert.equal(verdict.harnessCore?.envelope.schema_version, 'turn-intent-envelope-vnext', `${item.id} missing VNext envelope for ${probe.label}`);
+      assert.equal(verdict.harnessCore?.authorization.schema_version, 'authorization-decision-v1', `${item.id} missing authorization decision for ${probe.label}`);
+      assert.notEqual(verdict.harnessCore?.authorization.verdict, 'allow', `${item.id} allowed ${probe.label} through Harness Core`);
+      assert.equal(verdict.harnessCoreLedger?.schema_version, 'tool-call-ledger-v1', `${item.id} missing ledger for ${probe.label}`);
+      assert.equal(verdict.harnessCoreLedger?.result.status, 'not_started', `${item.id} ledger should record no execution for ${probe.label}`);
+      assert.equal(verdict.harnessCore?.envelope.freshness.stale_state_used_as_authority, false, `${item.id} used stale state as authority`);
+      assert.equal(verdict.harnessCore?.envelope.freshness.memory_used_as_instruction, false, `${item.id} used memory as instruction`);
+      assert.equal(verdict.harnessCore?.envelope.freshness.pending_state_used_as_authority, false, `${item.id} used pending state as authority`);
     }
   }
 
@@ -286,5 +321,14 @@ test('350-message matrix blocks word hijacks and preserves explicit actions', ()
       true,
       `${item.id} (${item.category}) did not authorize explicit action: ${item.text} :: ${verdict.reasonCodes.join(',')}`
     );
+    assert.equal(verdict.harnessCore?.envelope.schema_version, 'turn-intent-envelope-vnext', `${item.id} missing VNext envelope`);
+    assert.equal(verdict.harnessCore?.envelope.selected_move, 'execute_action', `${item.id} did not become an executable move`);
+    assert.equal(verdict.harnessCore?.envelope.action_authority.state, 'executable', `${item.id} did not receive executable authority`);
+    assert.equal(verdict.harnessCore?.authorization.schema_version, 'authorization-decision-v1', `${item.id} missing authorization decision`);
+    assert.equal(verdict.harnessCore?.authorization.verdict, 'allow', `${item.id} was not allowed by Harness Core`);
+    assert.equal(verdict.harnessCoreLedger?.schema_version, 'tool-call-ledger-v1', `${item.id} missing authorization ledger`);
+    assert.equal(verdict.harnessCoreLedger?.authorization.verdict, 'allow', `${item.id} ledger did not preserve allow verdict`);
+    assert.equal(verdict.harnessCoreLedger?.result.status, 'not_started', `${item.id} authorization ledger should precede owner execution`);
+    assert.equal(verdict.harnessCore?.envelope.proposed_actions.length, 1, `${item.id} should propose exactly one action`);
   }
 });
