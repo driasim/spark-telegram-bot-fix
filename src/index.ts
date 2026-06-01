@@ -6210,7 +6210,7 @@ for (const variant of RUN_VARIANTS) {
     const buildDispatchRef: { current?: BuildIntentDispatchResult } = {};
     const missionId = await handleRunCommand(ctx, goal, providers, undefined, {
       allowBuildIntent: variant.name === 'run',
-      executionAuthority: authorization.harnessCore?.envelope,
+      executionAuthority: authorization.governorDecision || authorization.harnessCore?.envelope,
       onBuildDispatchResult: (result) => {
         buildDispatchRef.current = result;
       }
