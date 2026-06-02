@@ -331,6 +331,7 @@ import {
 } from './memoryDoctorBridge';
 import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
 import { formatVoiceMediaCaption } from './voiceCaption';
+import { writeTelegramVoiceBridgeRuntimeState } from './voiceRuntimeState';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
@@ -2634,6 +2635,11 @@ function voiceMediaCaption(
   });
 }
 
+function voiceRuntimeStatePath(): string {
+  const sparkHome = process.env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  return path.join(sparkHome, 'state', 'spark-voice-comms', 'voice-runtime-state.json');
+}
+
 async function sendBuilderVoiceMedia(
   ctx: any,
   voiceMedia: NonNullable<Awaited<ReturnType<typeof runBuilderTelegramBridge>>['voiceMedia']>,
@@ -2649,11 +2655,26 @@ async function sendBuilderVoiceMedia(
   console.log(
     `[BridgeVoice] delivering media filename=${voiceMedia.filename} mime=${voiceMedia.mimeType} voiceCompatible=${voiceMedia.voiceCompatible} bytes=${audioBuffer.length} captionChars=${caption?.length || 0} spokenChars=${(voiceMedia.spokenText || '').length}`
   );
+  let telegramResult: unknown;
+  let sendMethod: 'sendVoice' | 'sendAudio';
   if (voiceMedia.voiceCompatible) {
-    await ctx.replyWithVoice(inputFile, options);
-    return;
+    telegramResult = await ctx.replyWithVoice(inputFile, options);
+    sendMethod = 'sendVoice';
+  } else {
+    telegramResult = await ctx.replyWithAudio(inputFile, options);
+    sendMethod = 'sendAudio';
   }
-  await ctx.replyWithAudio(inputFile, options);
+  await writeTelegramVoiceBridgeRuntimeState(
+    voiceRuntimeStatePath(),
+    {
+      voiceMedia,
+      sendMethod,
+      telegramResult,
+      audioBytes: audioBuffer.length,
+    }
+  ).catch((error) => {
+    console.warn('[BridgeVoice] failed to export voice runtime state:', error);
+  });
 }
 
 function formatLocalMemoryDirectiveAcknowledgement(directive: string): string {
