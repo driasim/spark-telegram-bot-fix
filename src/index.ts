@@ -3375,6 +3375,18 @@ export function formatBrowserProofQuestionAnswer(query: string): string {
   const normalized = query.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
   const asksAboutBrowser = /\b(browser|browse|browsing|web pages?|pages?)\b/.test(normalized);
+  const asksAboutComputerUse = /\bcomputer[-\s]*use\b/.test(normalized);
+  const asksAuthorization = /\b(?:authori[sz]e|authori[sz]ed|authorization|permission|approval|approve|tool approval|how should)\b/.test(normalized);
+  const blocksUseNow = /\b(?:do\s+not|don't|dont|without|not)\s+(?:use|open|call|run)\b/.test(normalized);
+  if (asksAboutBrowser && (asksAboutComputerUse || asksAuthorization) && (asksAuthorization || blocksUseNow)) {
+    return [
+      'Browser and computer-use should be authorized as tools, not triggered by capability names.',
+      '',
+      'The path is: fresh explicit request, Governor-selected capability and scope, access/policy check, tool-call ledger, then only the approved action executes.',
+      '',
+      'A probe can supply evidence about what is available, but this message stays chat-only because you explicitly said not to use those capabilities.'
+    ].join('\n');
+  }
   const asksForProof = /\b(capabilit(?:y|ies)|available|definitely|prove|proof|proven|right now|can you)\b/.test(normalized);
   if (!asksAboutBrowser || !asksForProof) return '';
 

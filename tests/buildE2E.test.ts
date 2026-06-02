@@ -1639,6 +1639,39 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('browser and computer-use authorization question stays chat-only', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-tool-auth-boundary-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 614, replies);
+		ctx.message.text = 'Do not use browser or computer-use. How should those capabilities be authorized?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /Browser and computer-use should be authorized as tools/i);
+		assert.match(reply, /Governor-selected capability and scope/i);
+		assert.match(reply, /tool-call ledger/i);
+		assert.match(reply, /stays chat-only/i);
+		assert.doesNotMatch(reply, /Run `\/probe browser`/i);
+		assert.equal(captured.length, 0, 'tool authorization discussion must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
