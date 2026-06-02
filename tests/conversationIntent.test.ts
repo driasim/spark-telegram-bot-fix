@@ -50,6 +50,7 @@ import {
   renderSparkThreadQaGoldenCaseReply,
   renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
+  renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
   isSparkWikiInventoryQuestion,
@@ -59,6 +60,7 @@ import {
   isProjectImprovementRequest,
   isLocalSparkServiceRequest,
   isMissionExecutionConfirmation,
+  isModelSwitchGateExplanationRequest,
   isNoEditSpawnerProbeExplanationRequest,
   isPlainChatAnswerEditingRequest,
   isMemoryAcknowledgementReply,
@@ -1976,9 +1978,33 @@ test('no-edit Spawner probe explanation stays in chat', () => {
   assert.equal(parseSpawnerBoardNaturalIntent(prompt), null);
 
   const reply = renderNoEditSpawnerProbeExplanationReply();
+  assert.match(reply, /smallest useful no-edit test/i);
   assert.match(reply, /bounded job to Spawner/i);
   assert.match(reply, /does not prove editing ability/i);
   assert.doesNotMatch(reply, /Mission:/i);
+});
+
+test('smallest no-edit test question stays in chat', () => {
+  const prompt = 'No run yet; what would be the smallest no-edit test?';
+  assert.equal(isNoEditSpawnerProbeExplanationRequest(prompt), true);
+  assert.equal(parseSpawnerBoardNaturalIntent(prompt), null);
+
+  const reply = renderNoEditSpawnerProbeExplanationReply();
+  assert.match(reply, /tiny Spawner probe/i);
+  assert.match(reply, /does not create or edit files/i);
+  assert.doesNotMatch(reply, /Mission:/i);
+});
+
+test('model switch gate explanation stays in chat', () => {
+  const prompt = 'Do not change settings. Explain how model-switch commands are gated.';
+  assert.equal(isModelSwitchGateExplanationRequest(prompt), true);
+  assert.equal(parseNaturalAccessChangeIntent(prompt), null);
+
+  const reply = renderModelSwitchGateExplanationReply();
+  assert.match(reply, /settings mutations/i);
+  assert.match(reply, /explicit `\/model` request/i);
+  assert.match(reply, /stay chat-only/i);
+  assert.doesNotMatch(reply, /now uses|switched/i);
 });
 
 test('no-build ideation preserves requested idea count', () => {

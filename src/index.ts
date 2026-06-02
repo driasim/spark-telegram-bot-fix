@@ -264,6 +264,7 @@ import {
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
   isMissionRoutingFailureClassQuestion,
+  isModelSwitchGateExplanationRequest,
   isNoEditSpawnerProbeExplanationRequest,
   isNoExecutionExplanationPrompt,
   isNoExecutionBoundary,
@@ -293,6 +294,7 @@ import {
   renderChatRuntimeFailureReply,
   renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
+  renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
   renderSparkThreadQaGoldenCaseReply,
@@ -7683,6 +7685,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderNoEditSpawnerProbeExplanationReply();
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_edit_spawner_probe_explanation', 'spark-telegram-bot', 'plain_chat.probe_explanation');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && isModelSwitchGateExplanationRequest(text)) {
+    const reply = renderModelSwitchGateExplanationReply();
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.model_switch_gate_explanation', 'spark-telegram-bot', 'plain_chat.model_switch_gate');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

@@ -2614,17 +2614,42 @@ export function isNoEditSpawnerProbeExplanationRequest(text: string): boolean {
   if (!normalized || extractPlainChatMemoryDirective(text) || !isNoExecutionBoundary(normalized)) return false;
   const mentionsNoEditProbe =
     /\bno[-\s]*edit\b/.test(normalized) &&
-    /\b(?:spawner|mission\s+control|mission|probe)\b/.test(normalized);
+    /\b(?:spawner|mission\s+control|mission|probe|test|proof)\b/.test(normalized);
   const asksExplanation =
     /\b(?:what|why|how)\b.*\b(?:prove|proves|proof|show|shows|mean|means|validate|validates)\b/.test(normalized) ||
+    /\b(?:what|which|how)\b.*\b(?:smallest|tiny|minimal|safe|bounded)\b.*\b(?:test|probe|proof)\b/.test(normalized) ||
     /\b(?:explain|describe)\b/.test(normalized);
   return mentionsNoEditProbe && asksExplanation;
 }
 
 export function renderNoEditSpawnerProbeExplanationReply(): string {
   return [
-    'A no-edit Spawner probe proves the Telegram route can hand a bounded job to Spawner, get a mission record back, and report completion without touching files.',
-    'It is useful for routing, provider, board, and relay health. It does not prove editing ability, product quality, or a full startup loop by itself.'
+    'The smallest useful no-edit test is a tiny Spawner probe that only returns a fixed phrase, records the mission, and does not create or edit files.',
+    'It proves the Telegram route can hand a bounded job to Spawner, get a mission record back, and report completion. It does not prove editing ability, product quality, or a full startup loop by itself.'
+  ].join('\n');
+}
+
+export function isModelSwitchGateExplanationRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || extractPlainChatMemoryDirective(text)) return false;
+  const mentionsModelSwitch =
+    /\bmodel[-\s]*(?:switch|switching|change|change\s+commands?|commands?)\b/.test(normalized) ||
+    /\b(?:provider|model)\s+(?:switch|switching|change|commands?)\b/.test(normalized) ||
+    /\b\/model\b/.test(normalized);
+  const asksGate =
+    /\b(?:gate|gated|gating|authorize|authorized|authorization|authority|permission|allowed|guarded)\b/.test(normalized) ||
+    /\b(?:how|when|what)\b.*\b(?:change|switch|mutate|settings?|config)\b/.test(normalized);
+  const chatOnly =
+    isNoExecutionBoundary(normalized) ||
+    /\b(?:do not|don't|dont|no need to)\s+(?:change|switch|mutate|update|write)\s+(?:settings?|config|providers?|models?)\b/.test(normalized);
+  return mentionsModelSwitch && asksGate && chatOnly;
+}
+
+export function renderModelSwitchGateExplanationReply(): string {
+  return [
+    'Model-switch commands are gated as settings mutations, not triggered by model names in conversation.',
+    '',
+    'A real switch needs an explicit `/model` request with role and provider, then the Governor checks access, policy, and mutation scope before writing config. Explanation turns like this stay chat-only, so no provider or model setting changes here.'
   ].join('\n');
 }
 

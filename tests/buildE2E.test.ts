@@ -3052,6 +3052,70 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('smallest no-edit test question answers before Builder bridge routes', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-smallest-no-edit-test-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079078, 8319079055, 628, replies);
+		ctx.message.text = 'No run yet; what would be the smallest no-edit test?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /smallest useful no-edit test/i);
+		assert.match(reply, /tiny Spawner probe/i);
+		assert.match(reply, /does not create or edit files/i);
+		assert.doesNotMatch(reply, /Run `\/probe|Mission:|internal error/i);
+		assert.equal(captured.length, 0, 'smallest no-edit test question must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('model switch gate explanation answers before Builder bridge routes', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-model-switch-gate-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079079, 8319079055, 629, replies);
+		ctx.message.text = 'Do not change settings. Explain how model-switch commands are gated.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /settings mutations/i);
+		assert.match(reply, /explicit `\/model` request/i);
+		assert.match(reply, /stay chat-only/i);
+		assert.doesNotMatch(reply, /now uses|switched|internal error/i);
+		assert.equal(captured.length, 0, 'model-switch gate explanation must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('mission-id product concept does not become Mission Control status', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
