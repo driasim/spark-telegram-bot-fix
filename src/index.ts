@@ -6540,9 +6540,19 @@ bot.command('loop', async (ctx) => {
     try {
       const result = await runChipLoop(chipKey, rounds, 3);
       if (!result.ok) {
+        recordTelegramHarnessCoreExecution(authorization, {
+          toolName: 'recursive.loop',
+          status: 'failure',
+          summary: `Recursive chip loop ${chipKey} failed after asynchronous start: ${result.error || 'unknown error'}.`
+        });
         await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop failed', result.error));
         return;
       }
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.loop',
+        status: 'success',
+        summary: `Recursive chip loop ${chipKey} completed ${result.roundsCompleted}/${result.totalRounds} round(s).`
+      });
       const lines = [
         `Loop complete: ${result.chipKey}`,
         `Rounds: ${result.roundsCompleted}/${result.totalRounds}`,
@@ -6560,6 +6570,11 @@ bot.command('loop', async (ctx) => {
       if (result.statusPath) lines.push(`Status file: ${result.statusPath}`);
       await ctx.telegram.sendMessage(chatId, lines.join('\n'));
     } catch (err: any) {
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'recursive.loop',
+        status: 'failure',
+        summary: `Recursive chip loop ${chipKey} crashed after asynchronous start: ${redactText(err?.message || String(err))}.`
+      });
       await ctx.telegram.sendMessage(chatId, renderTelegramError('Loop crashed', err));
     }
   })();
@@ -6897,17 +6912,35 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
         try {
           if (startTarget.kind === 'path') {
             if (isSparkQaOperatorKey(startTarget.key)) {
-              await ctx.telegram.sendMessage(chatId, renderSparkQaAutoloopRound(await runSparkQaAutoloopRound({
+              const qaResult = await runSparkQaAutoloopRound({
                 repoRoot: startTarget.repoRoot,
-              })));
+              });
+              recordTelegramHarnessCoreExecution(authorization, {
+                toolName: 'recursive.loop',
+                status: 'success',
+                summary: `Recursive Spark QA path loop ${startTarget.key} completed from asynchronous start.`
+              });
+              await ctx.telegram.sendMessage(chatId, renderSparkQaAutoloopRound(qaResult));
               return;
             }
             const result = await runSpecializationPathAutoloop(startTarget, rounds, sparkWorkspaceBridgeHints());
             if (!result.ok) {
+              recordTelegramHarnessCoreExecution(authorization, {
+                toolName: 'recursive.loop',
+                status: 'failure',
+                summary: `Recursive specialization path loop ${startTarget.key} failed after asynchronous start: ${result.error || 'unknown error'}.`
+              });
               await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive path loop failed', result.error));
               return;
             }
             const insights = await readSpecializationPathLoopInsights(startTarget);
+            recordTelegramHarnessCoreExecution(authorization, {
+              toolName: 'recursive.loop',
+              status: insights.ok ? 'success' : 'partial',
+              summary: insights.ok
+                ? `Recursive specialization path loop ${startTarget.key} completed and insights were read.`
+                : `Recursive specialization path loop ${startTarget.key} completed, but insight readout was incomplete.`
+            });
             await ctx.telegram.sendMessage(
               chatId,
               insights.ok ? renderSpecializationLoopInsights(insights) : renderSpecializationPathLoopCompletion(result)
@@ -6917,6 +6950,11 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
 
           const result = await runChipLoop(parsed.chipKey!, rounds, 3);
           if (!result.ok) {
+            recordTelegramHarnessCoreExecution(authorization, {
+              toolName: 'recursive.loop',
+              status: 'failure',
+              summary: `Recursive Builder chip loop ${startTarget.key} failed after asynchronous start: ${result.error || 'unknown error'}.`
+            });
             await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop failed', result.error));
             return;
           }
@@ -6929,8 +6967,20 @@ export async function handleRecursiveCommand(ctx: any, rawOverride?: string): Pr
               syncError = syncErr?.message || String(syncErr);
             }
           }
+          recordTelegramHarnessCoreExecution(authorization, {
+            toolName: 'recursive.loop',
+            status: syncError ? 'partial' : 'success',
+            summary: syncError
+              ? `Recursive Builder chip loop ${startTarget.key} completed, but Workspace sync failed: ${redactText(syncError)}.`
+              : `Recursive Builder chip loop ${startTarget.key} completed successfully.`
+          });
           await ctx.telegram.sendMessage(chatId, renderBuilderChipLoopCompletion(result, sync, syncError));
         } catch (err: any) {
+          recordTelegramHarnessCoreExecution(authorization, {
+            toolName: 'recursive.loop',
+            status: 'failure',
+            summary: `Recursive loop ${parsed.chipKey || 'unknown'} crashed after asynchronous start: ${redactText(err?.message || String(err))}.`
+          });
           await ctx.telegram.sendMessage(chatId, renderTelegramError('Recursive loop crashed', err));
         }
       })();
