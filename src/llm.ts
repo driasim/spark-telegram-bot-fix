@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { renderSparkErrorReply } from './errorExplain';
 import { spawnHidden } from './hiddenProcess';
-import { chatCommandTimeoutMs } from './timeoutConfig';
+import { chatCommandTimeoutMs, parsePositiveIntegerEnvValue } from './timeoutConfig';
 
 loadEnv({ path: path.join(os.homedir(), '.env.zai'), override: false, quiet: true });
 
@@ -597,7 +597,7 @@ export function buildClarificationMicrocopyPrompt(input: BuildClarificationMicro
 
 export async function generateBuildClarificationMicrocopy(
   input: BuildClarificationMicrocopyInput,
-  timeoutMs: number = Number(process.env.SPARK_CLARIFICATION_COPY_TIMEOUT_MS || 8000)
+  timeoutMs: number = parsePositiveIntegerEnvValue(process.env.SPARK_CLARIFICATION_COPY_TIMEOUT_MS, 8000)
 ): Promise<BuildClarificationMicrocopy | null> {
   if (process.env.SPARK_CLARIFICATION_COPY_LLM === '0') return null;
   const prompt = buildClarificationMicrocopyPrompt(input);
