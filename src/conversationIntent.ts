@@ -1617,6 +1617,15 @@ function renderContextualHarnessBoundaryReply(_text: string, normalized: string)
 			'The word can be evidence for the Governor, but it should not route the turn by itself.'
 		].join('\n');
 	}
+	if (
+		/\bstartup\s+(?:self[-\s]*improvement\s+)?loop\b/.test(normalized) &&
+		/\b(?:ready|release[-\s]*ready|done)\b/.test(normalized)
+	) {
+		return [
+			'I would treat the startup loop as ready for bounded proof runs, not unsupervised launch from this message.',
+			'Before calling it fully ready, Spark should show the evidence packet, startup answer-quality benchmark, blind-jury comparison, and live negative/positive Telegram checks, then wait for a fresh explicit run request.'
+		].join('\n');
+	}
 	if (/\bgovernor\b/.test(normalized) && /\b(?:run|schedule|deploy|chip|memory)\b/.test(normalized)) {
 		return [
 			'The Governor should read those words as route evidence, then decide whether the sentence actually asks for work.',

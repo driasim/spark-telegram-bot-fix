@@ -1818,6 +1818,15 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(startupThree, /2\./);
   assert.match(startupThree, /3\./);
 
+  const startupLoopReady = renderMissionRoutingFailureClassReply(
+    'Stay in chat and tell me whether the startup loop is ready.'
+  );
+  assert.match(startupLoopReady, /bounded proof runs/i);
+  assert.match(startupLoopReady, /not unsupervised launch/i);
+  assert.match(startupLoopReady, /fresh explicit run request/i);
+  assert.doesNotMatch(startupLoopReady, /Treat the action words as evidence/i);
+  assert.doesNotMatch(startupLoopReady, /This is no-action|no-action/i);
+
   const answerPairScore = renderMissionRoutingFailureClassReply(
     'Score this startup answer pair in chat only. Baseline: "keep nurturing." Candidate: "ask for paid commitment this week." Which is better and why? Do not run a loop.'
   );

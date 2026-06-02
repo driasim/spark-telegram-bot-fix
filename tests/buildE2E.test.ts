@@ -2757,6 +2757,39 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('startup loop readiness question answers readiness in chat', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-loop-readiness-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 613, replies);
+		ctx.message.text = 'Stay in chat and tell me whether the startup loop is ready.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /bounded proof runs/i);
+		assert.match(reply, /not unsupervised launch/i);
+		assert.match(reply, /fresh explicit run request/i);
+		assert.doesNotMatch(reply, /Treat the action words as evidence/i);
+		assert.equal(replies.length, 1, 'startup loop readiness should answer once in chat');
+		assert.equal(captured.length, 0, 'startup loop readiness must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('natural startup operator usage question does not confirm a contextual mission', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
