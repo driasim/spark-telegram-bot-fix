@@ -2792,6 +2792,63 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('founder answer-quality planning does not attach Memory Doctor evidence', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-founder-answer-quality-boundary-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const capturedBridgeTexts: string[] = [];
+		(builderBridge as any).runBuilderTelegramBridge = async (updatePayload: Record<string, unknown>) => {
+			const messageText = String(((updatePayload as any).message || {}).text || '');
+			capturedBridgeTexts.push(messageText);
+			return {
+				used: true,
+				responseText: [
+					'Spark should measure founder answer quality by specificity, falsifiability, commercial next step, and whether the answer changes the founder decision.',
+					'That is planning evidence for the startup operator, so the reply should stay in chat.'
+				].join('\n'),
+				decision: 'test',
+				bridgeMode: 'test',
+				routingDecision: 'plain_chat'
+			};
+		};
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 614, replies);
+			ctx.message.text = 'I am thinking about founder answer quality. What should Spark measure first?';
+			(ctx as any).update = { update_id: 614, message: ctx.message };
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /founder answer quality/i);
+			assert.doesNotMatch(reply, /Memory Doctor|missing Spark authority for memory diagnostics|tool_not_allowed_by_policy/i);
+			assert.doesNotMatch(capturedBridgeTexts.join('\n'), /Spark Telegram Memory Doctor evidence|Route: memory\.doctor/i);
+			assert.equal(captured.length, 0, 'founder answer-quality planning must not call Spawner or PRD bridge');
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('startup answer editing in chat does not become access or mission execution', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

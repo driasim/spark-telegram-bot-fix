@@ -863,7 +863,11 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
 test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
   assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
   assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor for last request'), true);
   assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('I am thinking about founder answer quality. What should Spark measure first?'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('Compare a startup operator answer that feels generic with one that feels genuinely improved.'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('What would a great answer from Spark look like to a founder asking about retention?'), false);
 
   const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
     { role: 'user', text: 'do not build yet, help me think through a domain chip for route confidence' },

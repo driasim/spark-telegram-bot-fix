@@ -3,8 +3,14 @@ export interface MemoryDoctorEvidenceTurn {
   text: string;
 }
 
-const CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
-  /\b(?:previous|last|recent|current|turn|reply|answer|response|request|message|what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
+const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
+  /\b(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/i;
+const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_VERB_PATTERN =
+  /^(?:please\s+)?(?:audit|diagnose|diagnostic|debug|trace|inspect|explain)\s+(?:the\s+)?(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/i;
+const EXPLICIT_MEMORY_DOCTOR_INVOCATION_PATTERN =
+  /^(?:please\s+)?(?:run|start|use|invoke|call|ask|open)\s+(?:the\s+)?(?:memory\s+)?(?:doctor|audit|diagnostic)\b/i;
+const MEMORY_DOCTOR_BLANKNESS_PATTERN =
+  /\b(?:what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
 
 function compactEvidenceText(value: string, limit = 700): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -19,7 +25,15 @@ function normalizeEvidenceRole(role: string): 'user' | 'assistant' {
 }
 
 export function shouldAttachMemoryDoctorEvidence(text: string): boolean {
-  return CONTEXTUAL_MEMORY_DOCTOR_PATTERN.test(text.replace(/\s+/g, ' ').trim());
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  if (EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_VERB_PATTERN.test(normalized)) return true;
+  if (EXPLICIT_MEMORY_DOCTOR_INVOCATION_PATTERN.test(normalized)) {
+    return EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_PATTERN.test(normalized) ||
+      MEMORY_DOCTOR_BLANKNESS_PATTERN.test(normalized);
+  }
+  return MEMORY_DOCTOR_BLANKNESS_PATTERN.test(normalized) &&
+    /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/i.test(normalized);
 }
 
 function sameNormalizedText(a: string, b: string): boolean {
