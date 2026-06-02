@@ -190,6 +190,54 @@ export function buildLiveNlEvidencePacket(
   });
 }
 
+export function buildLiveNlObservationTemplate(
+  cases: LiveNlCommandCase[],
+  options: LiveNlEvidencePacketOptions = {}
+): LiveNlObservationFile {
+  const generatedAt = (options.generatedAt || new Date()).toISOString();
+
+  return {
+    generatedAt,
+    runId: options.runId,
+    title: options.title || 'Spark Telegram Live QA Observation Template',
+    session: options.requiredSessionEvidence,
+    cases: cases.map((entry) => ({
+      id: entry.id,
+      verdict: 'untested',
+      actualRoute: null,
+      actualOutcome: null,
+      observedTurns: liveNlCaseTurns(entry).map((turn, index) => ({
+        turnIndex: index + 1,
+        prompt: turn,
+        reply: null,
+        reply_timestamp: null
+      })),
+      sideEffects: {
+        files_changed: null,
+        memory_written: null,
+        mission_started: null,
+        external_network_called: null,
+        pr_opened: null,
+        publish_or_deploy_started: null,
+        schedule_changed: null,
+        tool_or_browser_used: null
+      },
+      evidenceRefs: {
+        authorization_ledgers: [],
+        tool_ledgers: [],
+        traces: [],
+        runtime_status: [],
+        screenshots: [],
+        commits: [],
+        prs: []
+      },
+      issue: null,
+      fixCommit: null,
+      retestRequired: false
+    }))
+  };
+}
+
 function buildLiveNlPacketCases(cases: LiveNlCommandCase[]): LiveNlPacketCase[] {
   return cases.map((entry, index) => {
     const turns = liveNlCaseTurns(entry);

@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import {
   buildObservedLiveNlEvidencePacket,
   buildLiveNlEvidencePacket,
+  buildLiveNlObservationTemplate,
   formatLiveNlCopyPastePrompts,
   formatLiveNlVerdictReport,
   liveNlCaseTurns,
@@ -281,6 +282,33 @@ test('Genesis live Telegram evidence packet is a structured untested run contain
   assert.match(packet.authority_claim_boundary, /does not prove release readiness/);
 });
 
+test('Genesis live Telegram observation template hides scoring expectations', () => {
+  const catalogPath = resolve(__dirname, '../ops/genesis-live-telegram-100.json');
+  const actualCases = parseLiveNlCommandCases(JSON.parse(readFileSync(catalogPath, 'utf8')));
+  const selected = selectLiveNlCommandCases(actualCases, { caseIds: ['genesis-002', 'genesis-010'] });
+  const template = buildLiveNlObservationTemplate(selected, {
+    generatedAt: new Date('2026-06-02T00:00:00.000Z'),
+    title: 'Spark Genesis Telegram Live QA Observation Template'
+  });
+  const serialized = JSON.stringify(template);
+
+  assert.equal(template.generatedAt, '2026-06-02T00:00:00.000Z');
+  assert.equal(template.title, 'Spark Genesis Telegram Live QA Observation Template');
+  assert.equal(template.cases.length, 2);
+  assert.equal(template.cases[0].id, 'genesis-002');
+  assert.equal(template.cases[0].verdict, 'untested');
+  assert.equal(template.cases[0].actualRoute, null);
+  assert.equal(template.cases[0].observedTurns?.[0].prompt, selected[0].prompt);
+  assert.equal(template.cases[0].observedTurns?.[0].reply, null);
+  assert.equal(template.cases[0].sideEffects?.mission_started, null);
+  assert.deepEqual(template.cases[0].evidenceRefs?.screenshots, []);
+  assert.doesNotMatch(serialized, /expectedRoute|expected_route|expectedOutcome|expected_outcome/);
+  assert.doesNotMatch(serialized, /chat_plan|chat_draft_text/);
+
+  const parsed = parseLiveNlObservationFile(template);
+  assert.deepEqual(parsed.cases.map((entry) => entry.id), ['genesis-002', 'genesis-010']);
+});
+
 test('observed live QA packet imports replies, side effects, evidence refs, and session evidence', () => {
   const observations = parseLiveNlObservationFile({
     generatedAt: '2026-06-02T09:30:00.000Z',
@@ -419,6 +447,38 @@ test('live NL verdict CLI emits a Genesis evidence packet', () => {
   assert.equal(packet.summary.untested, 100);
   assert.equal(packet.cases[0].id, 'genesis-001');
   assert.equal(packet.cases[99].id, 'genesis-100');
+});
+
+test('live NL verdict CLI emits a Genesis observation template', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      resolve(ROOT, 'node_modules/ts-node/dist/bin.js'),
+      'ops/liveNlVerdictReport.ts',
+      '--catalog',
+      'genesis100',
+      '--case',
+      'genesis-002',
+      '--stdout',
+      '--observation-template'
+    ],
+    {
+      cwd: ROOT,
+      encoding: 'utf8'
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const template = JSON.parse(result.stdout);
+  const serialized = JSON.stringify(template);
+  assert.equal(template.title, 'Spark Genesis Telegram Live QA Observation Template');
+  assert.equal(template.cases.length, 1);
+  assert.equal(template.cases[0].id, 'genesis-002');
+  assert.equal(template.cases[0].verdict, 'untested');
+  assert.equal(template.cases[0].observedTurns[0].reply, null);
+  assert.equal(template.cases[0].sideEffects.mission_started, null);
+  assert.deepEqual(template.cases[0].evidenceRefs.screenshots, []);
+  assert.doesNotMatch(serialized, /expectedRoute|expected_route|expectedOutcome|expected_outcome/);
 });
 
 test('live NL verdict CLI emits an observed Genesis evidence packet from observations', () => {

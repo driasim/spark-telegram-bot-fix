@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   buildObservedLiveNlEvidencePacket,
   buildLiveNlEvidencePacket,
+  buildLiveNlObservationTemplate,
   formatLiveNlVerdictReport,
   parseLiveNlCommandCases,
   parseLiveNlObservationFile,
@@ -63,28 +64,41 @@ async function main(): Promise<void> {
   }
 
   const observationsPath = argValue(args, 'observations');
+  const observationTemplate = hasFlag(args, 'observation-template') || hasFlag(args, 'observations-template');
+  if (observationsPath && observationTemplate) {
+    throw new Error('Use either --observations or --observation-template, not both.');
+  }
   const observations = observationsPath
     ? parseLiveNlObservationFile(JSON.parse(fs.readFileSync(path.resolve(observationsPath), 'utf8')))
     : null;
-  const outputJson = hasFlag(args, 'json') || Boolean(observations);
+  const outputJson = hasFlag(args, 'json') || Boolean(observations) || observationTemplate;
+  const packetTitle = catalogName === 'genesis-live-telegram-100.json'
+    ? 'Spark Genesis Telegram Live QA Evidence Packet'
+    : 'Spark Telegram Live QA Evidence Packet';
+  const observationTitle = catalogName === 'genesis-live-telegram-100.json'
+    ? 'Spark Genesis Telegram Live QA Observation Template'
+    : 'Spark Telegram Live QA Observation Template';
   const report = outputJson
     ? `${JSON.stringify(
-      observations
+      observationTemplate
+        ? buildLiveNlObservationTemplate(selected, {
+          catalog: catalogName,
+          suite,
+          includeRisky,
+          title: observationTitle
+        })
+        : observations
         ? buildObservedLiveNlEvidencePacket(selected, observations, {
           catalog: catalogName,
           suite,
           includeRisky,
-          title: catalogName === 'genesis-live-telegram-100.json'
-            ? 'Spark Genesis Telegram Live QA Evidence Packet'
-            : 'Spark Telegram Live QA Evidence Packet'
+          title: packetTitle
         })
         : buildLiveNlEvidencePacket(selected, {
           catalog: catalogName,
           suite,
           includeRisky,
-          title: catalogName === 'genesis-live-telegram-100.json'
-            ? 'Spark Genesis Telegram Live QA Evidence Packet'
-            : 'Spark Telegram Live QA Evidence Packet'
+          title: packetTitle
         }),
       null,
       2
@@ -96,14 +110,16 @@ async function main(): Promise<void> {
   }
 
   const defaultName = outputJson
-    ? `telegram-live-evidence-${timestampForFile()}.json`
+    ? observationTemplate
+      ? `telegram-live-observation-template-${timestampForFile()}.json`
+      : `telegram-live-evidence-${timestampForFile()}.json`
     : `natural-language-live-verdict-${timestampForFile()}.md`;
   const outPath = path.resolve(
     argValue(args, 'out') || path.join(__dirname, 'reports', defaultName)
   );
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, report, 'utf8');
-  console.log(`Wrote ${selected.length} verdict case(s) to ${outPath}`);
+  console.log(`Wrote ${selected.length} ${observationTemplate ? 'observation template' : 'verdict'} case(s) to ${outPath}`);
 }
 
 void main().catch((error) => {
