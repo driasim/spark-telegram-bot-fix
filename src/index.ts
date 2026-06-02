@@ -190,6 +190,20 @@ import {
   telegramPendingBuildKey,
   type PendingBuildClarification
 } from './telegramPendingBuildEvidence';
+import {
+  cleanupPendingDomainChipBuilds,
+  deletePendingDomainChipBuild,
+  getPendingDomainChipBuild,
+  isBareDomainChipPendingYes,
+  isDomainChipPendingCancel,
+  isDomainChipPendingDirection,
+  isDomainChipPendingStart,
+  isPendingDomainChipBuildExpired,
+  pendingDomainChipPrdWithUserDirection,
+  rememberPendingDomainChipBuild,
+  telegramPendingDomainChipKey,
+  type PendingDomainChipBuild
+} from './telegramPendingDomainChipEvidence';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { queueRouteArbiterShadow } from './routeArbiter';
 import { routeEvidenceAllowed } from './telegramRouteEvidence';
@@ -351,6 +365,7 @@ export {
   isPendingClarificationFollowup,
   shouldUsePendingClarificationForMessage
 } from './telegramPendingBuildEvidence';
+export { isDomainChipPendingDirection } from './telegramPendingDomainChipEvidence';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 const execFileAsync = promisify(execFile);
@@ -2318,7 +2333,6 @@ rateLimitCleanupTimer.unref?.();
 const MAP_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const LAST_NO_EDIT_PROBE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const LATEST_CANVAS_PLAN_TTL_MS = 60 * 60 * 1000; // 1 hour
-const DOMAIN_CHIP_BUILD_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 const lastNoEditProbeMissions = new Map<string, NoEditProbeMission>();
 
@@ -2346,16 +2360,6 @@ function canvasPlanKey(chatId: string | number | undefined, userId: string | num
   return `${chatId ?? 'unknown'}-${userId ?? 'unknown'}`;
 }
 
-interface PendingDomainChipBuild {
-  brief: string;
-  prd: string;
-  projectName: string;
-  buildMode: 'direct' | 'advanced_prd';
-  buildModeReason: string;
-  capabilityProposalPacket?: Record<string, unknown>;
-  timestamp: number;
-}
-const pendingDomainChipBuilds = new Map<string, PendingDomainChipBuild>();
 interface PendingMissionCancelConfirmation {
   missionId: string;
   title: string;
@@ -2379,11 +2383,7 @@ const mapCleanupTimer = setInterval(() => {
     }
   }
   cleanupPendingBuildClarifications(now);
-  for (const [key, entry] of pendingDomainChipBuilds) {
-    if (now - entry.timestamp > DOMAIN_CHIP_BUILD_TTL_MS) {
-      pendingDomainChipBuilds.delete(key);
-    }
-  }
+  cleanupPendingDomainChipBuilds(now);
   for (const [key, entry] of pendingMissionCancelConfirmations) {
     if (now - entry.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
       pendingMissionCancelConfirmations.delete(key);
@@ -2398,7 +2398,7 @@ let pollingActive = false;
 
 function clearPendingExecutionState(key: string): boolean {
   const hadClarification = deletePendingBuildClarification(key);
-  const hadDomainChip = pendingDomainChipBuilds.delete(key);
+  const hadDomainChip = deletePendingDomainChipBuild(key);
   const hadCreatorMission = pendingCreatorMissions.delete(key);
   const hadMissionCancel = pendingMissionCancelConfirmations.delete(key);
   return hadClarification || hadDomainChip || hadCreatorMission || hadMissionCancel;
@@ -4927,51 +4927,19 @@ export function formatDomainChipBuildPreview(brief: string): string {
   ].join('\n');
 }
 
-function isDomainChipPendingStart(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  return /^(?:go|start|run|build|create|make|ship|do it|build it|create it|make it|start it)$/i.test(normalized) ||
-    isMissionExecutionConfirmation(text);
-}
-
-function isBareDomainChipPendingYes(text: string): boolean {
-  return /^(?:yes|yeah|yep|ok|okay|sure|perfect)$/i.test(text.trim());
-}
-
-function isDomainChipPendingCancel(text: string): boolean {
-  return isNoExecutionBoundary(text) || /^(?:cancel|stop|never mind|nevermind|not now|no)$/i.test(text.trim());
-}
-
-export function isDomainChipPendingDirection(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized || normalized.length > 260) return false;
-  if (isDomainChipPendingStart(normalized) || isDomainChipPendingCancel(normalized)) return true;
-  if (/^(?:what|which|how|why|can|could|should|would|do|does|did|is|are|will)\b/.test(normalized)) return false;
-  if (/\b(?:test|tests|testing|unit\s+test|qa|bug\s+hunter|bug\s+hunt|edge\s+cases?|spawner|mission\s+control|workflow|prs?|publish|merge|ship)\b/.test(normalized)) {
-    return false;
-  }
-  return /\b(?:names?|rationale|usage\s+angle|vibe|style|tone|output|outputs?|luxury|absurd|consumer|sci[-\s]*fi|surreal|weird|funny|serious|enterprise|developer|technical|visual|image|poster|prompt|prompts)\b/.test(normalized);
-}
-
-function domainChipPrdWithUserDirection(pending: PendingDomainChipBuild, text: string): string {
-  if (isDomainChipPendingStart(text)) {
-    return `${pending.prd}\n\n## Pre-build direction\n\nUse the default direction: surreal-but-usable outputs, short rationale, usage angle, and router-safe tests.`;
-  }
-  return `${pending.prd}\n\n## User direction before build\n\n${text.trim()}`;
-}
-
 async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
-  const key = `${ctx.chat.id}-${ctx.from.id}`;
-  const pending = pendingDomainChipBuilds.get(key);
+  const key = telegramPendingDomainChipKey(ctx.chat.id, ctx.from.id);
+  const pending = getPendingDomainChipBuild(key);
   if (!pending) return false;
 
-  if (Date.now() - pending.timestamp > DOMAIN_CHIP_BUILD_TTL_MS) {
-    pendingDomainChipBuilds.delete(key);
+  if (isPendingDomainChipBuildExpired(pending)) {
+    deletePendingDomainChipBuild(key);
     await ctx.reply('That domain-chip draft expired. Send the idea again and I will shape it before starting.');
     return true;
   }
 
   if (isDomainChipPendingCancel(text)) {
-    pendingDomainChipBuilds.delete(key);
+    deletePendingDomainChipBuild(key);
     await ctx.reply('No problem. I will hold off on creating that domain chip.');
     return true;
   }
@@ -4998,8 +4966,8 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     return false;
   }
 
-  pendingDomainChipBuilds.delete(key);
-  const prd = domainChipPrdWithUserDirection(pending, text);
+  deletePendingDomainChipBuild(key);
+  const prd = pendingDomainChipPrdWithUserDirection(pending, text);
   await ctx.reply(isDomainChipPendingStart(text)
     ? `Starting ${pending.projectName} with the recommended defaults.`
     : `Got it. I will use that direction and start ${pending.projectName}.`);
@@ -8277,7 +8245,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   })) {
     await conversation.remember(user, text).catch(() => {});
     const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
-    pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
+    rememberPendingDomainChipBuild(telegramPendingDomainChipKey(ctx.chat.id, ctx.from.id), {
       brief: earlyNaturalChipBrief,
       prd: buildDomainChipPrd(earlyNaturalChipBrief),
       projectName: projectNameForDomainChipBrief(earlyNaturalChipBrief),
@@ -8844,7 +8812,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     })) {
       await conversation.remember(user, text).catch(() => {});
       const mode = domainChipBuildModeForBrief(naturalChipBrief);
-      pendingDomainChipBuilds.set(`${ctx.chat.id}-${ctx.from.id}`, {
+      rememberPendingDomainChipBuild(telegramPendingDomainChipKey(ctx.chat.id, ctx.from.id), {
         brief: naturalChipBrief,
         prd: buildDomainChipPrd(naturalChipBrief),
         projectName: projectNameForDomainChipBrief(naturalChipBrief),

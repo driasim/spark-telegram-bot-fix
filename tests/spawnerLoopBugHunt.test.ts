@@ -171,6 +171,18 @@ test('bug hunt: pending domain-chip drafts only accept explicit confirmation or 
   assert.equal(isDomainChipPendingDirection('what else should we test in the Spawner loop?'), false);
 });
 
+test('bug hunt: pending domain-chip draft state lives behind evidence adapter', () => {
+  const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
+  const adapterSource = readFileSync(resolve(__dirname, '../src/telegramPendingDomainChipEvidence.ts'), 'utf8');
+
+  assert.match(indexSource, /telegramPendingDomainChipEvidence/);
+  assert.match(indexSource, /getPendingDomainChipBuild/);
+  assert.doesNotMatch(indexSource, /const pendingDomainChipBuilds = new Map/);
+  assert.doesNotMatch(indexSource, /export function isDomainChipPendingDirection/);
+  assert.match(adapterSource, /const domainChipBuilds = new Map/);
+  assert.match(adapterSource, /export function isDomainChipPendingDirection/);
+});
+
 test('bug hunt: Spark workflow QA prompts get a local plan, not invented execution claims', () => {
   const prompt = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
   assert.equal(isSparkWorkflowBugHuntRequest(prompt), true);
