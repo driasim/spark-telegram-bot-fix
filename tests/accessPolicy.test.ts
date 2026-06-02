@@ -196,7 +196,7 @@ async function main(): Promise<void> {
     assert.match(operatorStatus, /Use `\/access 4`/);
 
     const operatorChange = renderSparkAccessChangeSummary('operator', { runnerWritable: 'yes' });
-    assert.match(operatorChange, /Done - I changed this chat to Access level 5/);
+    assert.match(operatorChange, /Done - I changed this chat setting to Access level 5/);
     assert.match(operatorChange, /trusted local machine/);
     assert.match(operatorChange, /still ask before deleting important files/);
     assert.doesNotMatch(operatorChange, /Important distinction/);
@@ -206,11 +206,11 @@ async function main(): Promise<void> {
     assert.doesNotMatch(developerChange, /Current runner: writable preflight/);
 
     const confirmations = [
-      ['chat', 'Done - I changed this chat to Access level 1.'],
-      ['builder', 'Done - I changed this chat to Access level 2.'],
-      ['agent', 'Done - I changed this chat to Access level 3.'],
-      ['developer', 'Done - I changed this chat to Access level 4.'],
-      ['operator', 'Done - I changed this chat to Access level 5.']
+      ['chat', 'Done - I changed this chat setting to Access level 1.'],
+      ['builder', 'Done - I changed this chat setting to Access level 2.'],
+      ['agent', 'Done - I changed this chat setting to Access level 3.'],
+      ['developer', 'Done - I changed this chat setting to Access level 4.'],
+      ['operator', 'Done - I changed this chat setting to Access level 5.']
     ] as const;
     for (const [profile, expected] of confirmations) {
       const changed = renderSparkAccessChangeConfirmation(profile);

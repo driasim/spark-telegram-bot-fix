@@ -428,7 +428,7 @@ export function renderSparkAccessLevel5ConfirmationPrompt(): string {
 }
 
 export function renderSparkAccessChangeConfirmation(profile: SparkAccessProfile): string {
-  return `Done - I changed this chat to ${sparkAccessLabel(profile)}.`;
+  return `Done - I changed this chat setting to ${sparkAccessLabel(profile)}.`;
 }
 
 export function renderSparkAccessConversationHelp(profile: SparkAccessProfile): string {

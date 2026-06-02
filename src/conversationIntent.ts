@@ -1846,7 +1846,7 @@ export function inferRecentConversationFocus(recentMessages: string[]): RecentCo
       return (
         /\bspark access\b/.test(normalized) ||
         /\baccess\s+(?:level|levels|profile|profiles)\b/.test(normalized) ||
-        /\bchanged this chat to level [1-5]\b/.test(normalized) ||
+        /\bchanged this chat(?: setting)? to (?:access )?level [1-5]\b/.test(normalized) ||
         /\byou are on level [1-5]\b/.test(normalized)
       );
     });
