@@ -179,8 +179,8 @@ import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memory
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
 import { parseBuildIntent, polishBuildProjectName, type BuildLane } from './buildIntent';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
-import { evaluateDeterministicRoute, type DeterministicRouteId } from './routeFirewall';
 import { queueRouteArbiterShadow } from './routeArbiter';
+import { routeEvidenceAllowed } from './telegramRouteEvidence';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
@@ -1675,20 +1675,6 @@ async function handleNaturalRecursiveRoute(
   return true;
 }
 
-function deterministicRouteAllowed(route: DeterministicRouteId, text: string): boolean {
-  const verdict = evaluateDeterministicRoute(route, text);
-  queueRouteArbiterShadow({
-    route,
-    text,
-    verdict,
-    profile: activeTelegramProfile()
-  });
-  if (!verdict.allow) {
-    console.log(`[RouteFirewall] blocked route=${route} reason=${verdict.reason} textLen=${text.length}`);
-  }
-  return verdict.allow;
-}
-
 function telegramActionAuthorityDecision(
   envelope: TurnIntentEnvelopeV1,
   input: TelegramActionAuthorityInput
@@ -1927,7 +1913,7 @@ async function handleTelegramIntentGateV2SafeRoute(
   }
 
   if (decision.route === 'access.status') {
-    if (!deterministicRouteAllowed('access.status', text)) {
+    if (!routeEvidenceAllowed({ route: 'access.status', text, profile: activeTelegramProfile() })) {
       return false;
     }
     await conversation.remember(user, text).catch(() => {});
@@ -1948,7 +1934,7 @@ async function handleTelegramIntentGateV2SafeRoute(
   }
 
   if (decision.route === 'access.help') {
-    if (!deterministicRouteAllowed('access.help', text)) {
+    if (!routeEvidenceAllowed({ route: 'access.help', text, profile: activeTelegramProfile() })) {
       return false;
     }
     await conversation.remember(user, text).catch(() => {});
@@ -7864,7 +7850,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     !earlyBuildIntent &&
     !shouldAttachMemoryDoctorEvidence(text) &&
     isPendingTaskRecoveryQuestion(text) &&
-    deterministicRouteAllowed('pending_task.recovery', text)
+    routeEvidenceAllowed({ route: 'pending_task.recovery', text, profile: activeTelegramProfile() })
   ) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
@@ -8118,7 +8104,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
   }
 
-  if (!earlyBuildIntent && isAccessStatusQuestion(text) && deterministicRouteAllowed('access.status', text)) {
+  if (!earlyBuildIntent && isAccessStatusQuestion(text) && routeEvidenceAllowed({ route: 'access.status', text, profile: activeTelegramProfile() })) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
     await ctx.reply(reply);
@@ -8143,7 +8129,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isAccessHelpQuestion(text) && deterministicRouteAllowed('access.help', text)) {
+  if (!earlyBuildIntent && isAccessHelpQuestion(text) && routeEvidenceAllowed({ route: 'access.help', text, profile: activeTelegramProfile() })) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
@@ -8744,7 +8730,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isLocalWorkspaceInspectionOnlyRequest(text) && deterministicRouteAllowed('local_workspace.inspect', text)) {
+    if (isLocalWorkspaceInspectionOnlyRequest(text) && routeEvidenceAllowed({ route: 'local_workspace.inspect', text, profile: activeTelegramProfile() })) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'operating_system')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
@@ -8932,7 +8918,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent(text, contextualTurns);
-    if (spawnerBoardIntent && deterministicRouteAllowed('spawner.board', text)) {
+    if (spawnerBoardIntent && routeEvidenceAllowed({ route: 'spawner.board', text, profile: activeTelegramProfile() })) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
@@ -8960,13 +8946,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
+    if (isLocalSparkServiceRequest(text, localServiceContext) && routeEvidenceAllowed({ route: 'spawner.local_service', text, profile: activeTelegramProfile() })) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(buildLocalSparkServiceReply(await spawner.isAvailable()));
       return;
     }
 
-    if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext) && deterministicRouteAllowed('spawner.local_service', text)) {
+    if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext) && routeEvidenceAllowed({ route: 'spawner.local_service', text, profile: activeTelegramProfile() })) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(buildLocalSparkServiceClarificationReply());
       return;
@@ -8980,7 +8966,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isDiagnosticFollowupTestQuestion(text) && deterministicRouteAllowed('diagnostics.followup_test', text)) {
+    if (isDiagnosticFollowupTestQuestion(text) && routeEvidenceAllowed({ route: 'diagnostics.followup_test', text, profile: activeTelegramProfile() })) {
       const reply = buildDiagnosticFollowupTestReply(sessionContext);
       if (reply) {
         await conversation.remember(user, text).catch(() => {});

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   createRouteArbiterRecord,
   parseRouteArbiterResponse,
@@ -80,4 +82,12 @@ test('route arbiter records keep raw prompt text out of the ledger', () => {
   assert.equal(record.arbiter_intent, 'design');
   assert.equal(record.arbiter_allow, false);
   assert.doesNotMatch(serialized, /access level 4 creates|really 4/i);
+});
+
+test('top-level Telegram handler consumes route evidence instead of local deterministic authority', () => {
+  const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
+
+  assert.match(indexSource, /routeEvidenceAllowed/);
+  assert.doesNotMatch(indexSource, /deterministicRouteAllowed/);
+  assert.doesNotMatch(indexSource, /evaluateDeterministicRoute/);
 });
