@@ -46,8 +46,9 @@ export async function readJsonFile<T>(filePath: string): Promise<T | null> {
     const parsed = JSON.parse(raw) as T;
     await writeJsonAtomic(filePath, parsed);
     return parsed;
-  } catch {
-    return null;
+  } catch (e) { // JSONSTATE-PATCH: propagate to prevent silent state wipe
+    console.error("[jsonState] Parse error - refusing to return null", e);
+    throw e;
   }
 }
 
