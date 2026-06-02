@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  buildObservedLiveNlEvidencePacket,
   buildLiveNlEvidencePacket,
   formatLiveNlCopyPastePrompts,
   formatLiveNlVerdictReport,
   liveNlCaseTurns,
   parseLiveNlCommandCases,
+  parseLiveNlObservationFile,
   selectLiveNlCommandCases
 } from '../src/liveNlVerdict';
 
@@ -278,6 +281,94 @@ test('Genesis live Telegram evidence packet is a structured untested run contain
   assert.match(packet.authority_claim_boundary, /does not prove release readiness/);
 });
 
+test('observed live QA packet imports replies, side effects, evidence refs, and session evidence', () => {
+  const observations = parseLiveNlObservationFile({
+    generatedAt: '2026-06-02T09:30:00.000Z',
+    runId: 'telegram-live-qa-fixture',
+    session: {
+      profile: 'sparkqa-bot',
+      tester: 'codex',
+      bot_runtime_commit: '167b640',
+      harness_core_commit: '0971b52',
+      spark_os_compile_ref: '/tmp/spark-os-compile.json',
+      spark_live_status_ref: '/tmp/spark-live-status.json',
+      spark_verify_provenance_ref: '/tmp/spark-verify.json',
+      telegram_chat_evidence_ref: '/tmp/telegram.png',
+      follow_up_commits: ['167b640'],
+      pr_links: [],
+      remaining_risks: ['full 100-case run still incomplete']
+    },
+    cases: [
+      {
+        id: 'safe-001',
+        verdict: 'pass',
+        actualRoute: 'execute_action_write_memory',
+        actualOutcome: 'Saved the concise reply preference with memory authority.',
+        observedTurns: [{ turnIndex: 1, reply: 'Saved that preference.', replyTimestamp: '2026-06-02T09:31:00Z' }],
+        sideEffects: { memoryWritten: true, missionStarted: false, filesChanged: false },
+        evidenceRefs: {
+          authorizationLedgers: ['ledger:memory-safe-001'],
+          screenshots: ['/tmp/safe-001.png'],
+          runtimeStatus: ['/tmp/live-status.json']
+        }
+      },
+      {
+        id: 'wiki-001',
+        verdict: 'fail',
+        actual_route: 'chat_only',
+        actual_outcome: 'Answered generically instead of listing pages.',
+        replies: ['I can help with that, but I did not inspect the wiki.'],
+        side_effects: { memory_written: false, mission_started: false },
+        evidence_refs: { traces: ['trace:wiki-001'] },
+        issue: 'Missed read-only wiki inventory route.',
+        retest_required: true
+      }
+    ]
+  });
+  const packet = buildObservedLiveNlEvidencePacket(cases, observations, {
+    catalog: 'fixture-live-catalog.json',
+    includeRisky: true,
+    title: 'Fixture Observed Packet'
+  });
+
+  assert.equal(packet.generated_at, '2026-06-02T09:30:00.000Z');
+  assert.equal(packet.run_id, 'telegram-live-qa-fixture');
+  assert.equal(packet.summary.pass, 1);
+  assert.equal(packet.summary.fail, 1);
+  assert.equal(packet.summary.untested, 1);
+  assert.equal(packet.required_session_evidence.profile, 'sparkqa-bot');
+  assert.equal(packet.required_session_evidence.overall_verdict, 'fail');
+  assert.deepEqual(packet.required_session_evidence.remaining_risks, ['full 100-case run still incomplete']);
+
+  const safeCase = packet.cases.find((entry) => entry.id === 'safe-001');
+  assert.ok(safeCase);
+  assert.equal(safeCase.verdict, 'pass');
+  assert.equal(safeCase.actual_route, 'execute_action_write_memory');
+  assert.equal(safeCase.observed_turns[0].reply, 'Saved that preference.');
+  assert.equal(safeCase.side_effects.memory_written, true);
+  assert.equal(safeCase.side_effects.mission_started, false);
+  assert.deepEqual(safeCase.evidence_refs.authorization_ledgers, ['ledger:memory-safe-001']);
+  assert.deepEqual(safeCase.evidence_refs.screenshots, ['/tmp/safe-001.png']);
+
+  const wikiCase = packet.cases.find((entry) => entry.id === 'wiki-001');
+  assert.ok(wikiCase);
+  assert.equal(wikiCase.verdict, 'fail');
+  assert.equal(wikiCase.retest_required, true);
+  assert.equal(wikiCase.issue, 'Missed read-only wiki inventory route.');
+  assert.deepEqual(wikiCase.evidence_refs.traces, ['trace:wiki-001']);
+});
+
+test('observed live QA packet rejects unknown observation case ids', () => {
+  const observations = parseLiveNlObservationFile({
+    cases: [{ id: 'missing-001', verdict: 'pass', replies: ['ok'] }]
+  });
+
+  assert.throws(
+    () => buildObservedLiveNlEvidencePacket(cases, observations, { catalog: 'fixture-live-catalog.json' }),
+    /unknown case missing-001/
+  );
+});
+
 test('live NL CLI loads the Genesis 100-prompt catalog by name', () => {
   const result = spawnSync(
     process.execPath,
@@ -328,4 +419,77 @@ test('live NL verdict CLI emits a Genesis evidence packet', () => {
   assert.equal(packet.summary.untested, 100);
   assert.equal(packet.cases[0].id, 'genesis-001');
   assert.equal(packet.cases[99].id, 'genesis-100');
+});
+
+test('live NL verdict CLI emits an observed Genesis evidence packet from observations', () => {
+  const tempDir = mkdtempSync(resolve(tmpdir(), 'spark-live-nl-observations-'));
+  const observationsPath = resolve(tempDir, 'observations.json');
+  try {
+    writeFileSync(
+      observationsPath,
+      JSON.stringify({
+        generatedAt: '2026-06-02T09:35:00.000Z',
+        runId: 'telegram-live-qa-cli-fixture',
+        session: {
+          profile: 'sparkqa-bot',
+          tester: 'codex',
+          bot_runtime_commit: '167b640',
+          harness_core_commit: '0971b52',
+          overall_verdict: 'pass'
+        },
+        cases: [
+          {
+            id: 'genesis-001',
+            verdict: 'pass',
+            actualRoute: 'chat_think_with_me',
+            actualOutcome: 'Answered conversationally and did not launch anything.',
+            replies: ['Yes, use it when you have a concrete startup proof target.'],
+            sideEffects: {
+              filesChanged: false,
+              memoryWritten: false,
+              missionStarted: false,
+              externalNetworkCalled: false,
+              prOpened: false,
+              publishOrDeployStarted: false,
+              scheduleChanged: false,
+              toolOrBrowserUsed: false
+            },
+            evidenceRefs: { screenshots: ['/tmp/genesis-001.png'] }
+          }
+        ]
+      }),
+      'utf8'
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve(ROOT, 'node_modules/ts-node/dist/bin.js'),
+        'ops/liveNlVerdictReport.ts',
+        '--catalog',
+        'genesis100',
+        '--case',
+        'genesis-001',
+        '--stdout',
+        '--observations',
+        observationsPath
+      ],
+      {
+        cwd: ROOT,
+        encoding: 'utf8'
+      }
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    const packet = JSON.parse(result.stdout);
+    assert.equal(packet.schema_version, 'spark.telegram_live_qa_evidence_packet.v1');
+    assert.equal(packet.run_id, 'telegram-live-qa-cli-fixture');
+    assert.equal(packet.summary.pass, 1);
+    assert.equal(packet.summary.untested, 0);
+    assert.equal(packet.required_session_evidence.profile, 'sparkqa-bot');
+    assert.equal(packet.cases[0].observed_turns[0].reply, 'Yes, use it when you have a concrete startup proof target.');
+    assert.equal(packet.cases[0].side_effects.mission_started, false);
+    assert.deepEqual(packet.cases[0].evidence_refs.screenshots, ['/tmp/genesis-001.png']);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });

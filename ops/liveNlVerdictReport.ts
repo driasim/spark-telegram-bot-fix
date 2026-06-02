@@ -2,9 +2,11 @@ import fs from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  buildObservedLiveNlEvidencePacket,
   buildLiveNlEvidencePacket,
   formatLiveNlVerdictReport,
   parseLiveNlCommandCases,
+  parseLiveNlObservationFile,
   selectLiveNlCommandCases
 } from '../src/liveNlVerdict';
 
@@ -60,17 +62,30 @@ async function main(): Promise<void> {
     throw new Error('No matching command cases.');
   }
 
-  const outputJson = hasFlag(args, 'json');
+  const observationsPath = argValue(args, 'observations');
+  const observations = observationsPath
+    ? parseLiveNlObservationFile(JSON.parse(fs.readFileSync(path.resolve(observationsPath), 'utf8')))
+    : null;
+  const outputJson = hasFlag(args, 'json') || Boolean(observations);
   const report = outputJson
     ? `${JSON.stringify(
-      buildLiveNlEvidencePacket(selected, {
-        catalog: catalogName,
-        suite,
-        includeRisky,
-        title: catalogName === 'genesis-live-telegram-100.json'
-          ? 'Spark Genesis Telegram Live QA Evidence Packet'
-          : 'Spark Telegram Live QA Evidence Packet'
-      }),
+      observations
+        ? buildObservedLiveNlEvidencePacket(selected, observations, {
+          catalog: catalogName,
+          suite,
+          includeRisky,
+          title: catalogName === 'genesis-live-telegram-100.json'
+            ? 'Spark Genesis Telegram Live QA Evidence Packet'
+            : 'Spark Telegram Live QA Evidence Packet'
+        })
+        : buildLiveNlEvidencePacket(selected, {
+          catalog: catalogName,
+          suite,
+          includeRisky,
+          title: catalogName === 'genesis-live-telegram-100.json'
+            ? 'Spark Genesis Telegram Live QA Evidence Packet'
+            : 'Spark Telegram Live QA Evidence Packet'
+        }),
       null,
       2
     )}\n`
