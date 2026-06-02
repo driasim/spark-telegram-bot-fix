@@ -105,24 +105,6 @@ interface CreatorMissionExecutionInput {
   executionAuthority?: unknown;
 }
 
-function machineOriginPolicy(input: {
-  origin: string;
-  source: string;
-  reason: string;
-  allowedTools: string[];
-  mutationClassesAllowed: string[];
-}) {
-  return {
-    schema: 'spark.machine_origin_policy.v1',
-    origin: input.origin,
-    source: input.source,
-    reason: input.reason,
-    allowedTools: input.allowedTools,
-    mutationClassesAllowed: input.mutationClassesAllowed,
-    networkPolicy: 'local_only'
-  };
-}
-
 function governorDecisionAuthority(input: {
   source: string;
   reason: string;
@@ -1173,12 +1155,13 @@ export const spawner = {
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
           ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
           ...(input.promptMode ? { promptMode: input.promptMode } : {}),
-          executionAuthority: input.executionAuthority ?? machineOriginPolicy({
-            origin: 'spark-telegram-bot.run-goal',
+          executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
             source: 'telegram_spawner_run_bridge',
             reason: 'Telegram run bridge requested Spawner mission execution.',
-            allowedTools: ['spawner.run'],
-            mutationClassesAllowed: ['launches_mission']
+            toolName: 'spawner.run',
+            mutationClass: 'launches_mission',
+            requestId: input.requestId,
+            target: input.goal
           })
         },
         localServiceTimeoutMs('SPARK_SPAWNER_RUN_TIMEOUT_MS')

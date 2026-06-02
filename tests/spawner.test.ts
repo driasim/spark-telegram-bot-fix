@@ -84,7 +84,8 @@ async function run(): Promise<void> {
     assert.equal(result.requestId, 'tg-req-1');
     assert.deepEqual(result.providers, ['codex', 'claude']);
     assert.match(capturedUrl, /\/api\/spark\/run$/);
-    assert.deepEqual(capturedBody, {
+    const { executionAuthority, ...capturedBodyWithoutAuthority } = capturedBody;
+    assert.deepEqual(capturedBodyWithoutAuthority, {
       goal: 'Build a Kanban board from this Telegram message.',
       missionName: 'Telegram Kanban Board',
       chatId: '123',
@@ -93,35 +94,37 @@ async function run(): Promise<void> {
       traceRef: 'trace:telegram-run:tg-req-1',
       telegramRelay: { port: 8799, profile: 'spark-agi' },
       providers: ['codex', 'claude'],
-      promptMode: 'orchestrator',
-      executionAuthority: {
-        schema: 'spark.machine_origin_policy.v1',
-        origin: 'spark-telegram-bot.run-goal',
-        source: 'telegram_spawner_run_bridge',
-        reason: 'Telegram run bridge requested Spawner mission execution.',
-        allowedTools: ['spawner.run'],
-        mutationClassesAllowed: ['launches_mission'],
-        networkPolicy: 'local_only'
-      }
+      promptMode: 'orchestrator'
     });
+    assert.equal(executionAuthority.schema_version, 'governor-decision-v1');
+    assert.equal(executionAuthority.outcome, 'execute');
+    assert.match(executionAuthority.envelope.proposed_actions[0].capability_id, /spawner-ui:spawner\.run$/);
+    assert.equal(executionAuthority.envelope.proposed_actions[0].action_type, 'launch_mission');
+    assert.equal(executionAuthority.tool_ledgers[0].tool_name, 'spawner.run');
+    assert.equal(executionAuthority.execution_boundary.action_authorized, true);
     assert.equal(capturedOptions.timeout, 1800000);
     assert.equal(capturedOptions.headers['x-api-key'], 'bridge-secret-for-tests');
     assert.equal(capturedOptions.headers['x-spawner-ui-key'], 'ui-secret-for-tests');
   });
 
-  await test('runGoal forwards native Harness Core VNext authority when supplied', async () => {
+  await test('runGoal forwards native Governor authority when supplied', async () => {
     restoreAxios();
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
 
     const executionAuthority = {
-      schema_version: 'turn-intent-envelope-vnext',
-      turn_id: 'turn:telegram-spawner-run',
-      selected_move: 'execute_action',
-      action_authority: { state: 'executable' },
-      proposed_actions: [
+      schema_version: 'governor-decision-v1',
+      outcome: 'execute',
+      envelope: {
+        schema_version: 'turn-intent-envelope-vnext',
+        turn_id: 'turn:telegram-spawner-run',
+        tool_name: 'spawner.run',
+        mutation_class: 'launches_mission'
+      },
+      execution_boundary: { action_authorized: true },
+      tool_ledgers: [
         {
-          capability_id: 'capability:spawner-ui:spawner.run',
-          action_type: 'launch_mission'
+          schema_version: 'tool-call-ledger-v1',
+          tool_name: 'spawner.run'
         }
       ]
     };
