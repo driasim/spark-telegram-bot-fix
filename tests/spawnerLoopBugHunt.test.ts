@@ -23,12 +23,16 @@ import {
   formatCanvasStillRunningSummary,
   formatLatestCanvasPlanReply,
   isLatestCanvasPlanQuestion,
+  isNamedTelegramProfileSetupQuestion,
   isDomainChipPendingDirection,
   isPendingClarificationAlternativeRequest,
   isPendingClarificationFollowup,
   isRouteConfidenceGateUnsupportedError,
   latestCanvasPlanFromLoadState,
   routeConfidenceGateCompatibilityAllows,
+  cleanupSlidingWindowRateLimit,
+  slidingWindowRateLimitAllows,
+  shouldAnswerAuthoritativeRuntimeStatus,
   shouldUsePendingClarificationForMessage
 } from '../src/index';
 
@@ -469,6 +473,16 @@ test('bug hunt: casual next-step questions do not recall stale canvas plans', ()
     isLatestCanvasPlanQuestion('Do not start a mission. If I say "Create a tiny maze game plan and build only a minimal playable prototype", what mission title would you use? Keep it natural and short.'),
     false
   );
+});
+
+test('bug hunt: named Telegram profile setup stays out of live health status', () => {
+  const prompt = [
+    'Spark Compete QA: Test named Telegram profile setup in a disposable or read-only lane.',
+    'Check /myid, env separation, log separation, and warnings not to disturb the primary bot.'
+  ].join(' ');
+
+  assert.equal(isNamedTelegramProfileSetupQuestion(prompt), true);
+  assert.equal(shouldAnswerAuthoritativeRuntimeStatus(prompt), false);
 });
 
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {

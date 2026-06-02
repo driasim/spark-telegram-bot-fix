@@ -1364,9 +1364,21 @@ type RuntimeTruthSignals = {
   memory: boolean;
 };
 
+export function isNamedTelegramProfileSetupQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const profileSetup = /\b(?:named\s+telegram\s+profile|telegram\s+profile|profile\s+setup|disposable\s+(?:lane|profile|bot|chat)|read[-\s]*only\s+lane|test\s+lane)\b/.test(normalized);
+  const separation = /\b(?:\/myid|env|config|logs?|log\s+separation|primary\s+bot|separate\s+(?:bot|token|chat|env|config|logs?))\b/.test(normalized);
+  const asksSetupGuidance = /\b(?:how|setup|set\s+up|verify|safely|safe|warn|warning|do\s+not\s+disturb|without\s+disturbing|isolate|isolation)\b/.test(normalized);
+  return /\btelegram\b/.test(normalized) && profileSetup && separation && asksSetupGuidance;
+}
+
 function runtimeTruthSignals(text: string): RuntimeTruthSignals {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) {
+    return { access: false, live: false, providers: false, memory: false };
+  }
+  if (isNamedTelegramProfileSetupQuestion(normalized)) {
     return { access: false, live: false, providers: false, memory: false };
   }
   const sourceCheck = /\b(?:old\s+memory|fresh\s+state|fresh\s+runtime|current\s+truth|using\s+memory|using\s+fresh)\b/.test(normalized);
@@ -1419,7 +1431,7 @@ function isMetaNoActionTriggerDiscussion(text: string): boolean {
   return framesAsLanguage && mentionsActionWords && (saysNoAction || asksBoundary);
 }
 
-function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
+export function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (isMetaNoActionTriggerDiscussion(text)) return false;
   if (!runtimeTruthSignals(text).live) return false;
@@ -5415,6 +5427,10 @@ function rememberLatestCanvasPlan(chatId: string | number, userId: string | numb
     readyCanvasUrl: input.readyCanvasUrl,
     recordedAt: new Date().toISOString()
   });
+  if (latestCanvasPlans.size > 200) {
+    const oldest = latestCanvasPlans.keys().next().value;
+    if (oldest !== undefined) latestCanvasPlans.delete(oldest);
+  }
 }
 
 function spawnerUiStatePath(filename: string): string {
@@ -7977,6 +7993,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       };
       const key = noEditProbeKey(ctx);
       lastNoEditProbeMissions.set(key, probeMission);
+      if (lastNoEditProbeMissions.size > 200) {
+        const oldest = lastNoEditProbeMissions.keys().next().value;
+        if (oldest !== undefined) lastNoEditProbeMissions.delete(oldest);
+      }
       await storeNoEditProbeMission(key, probeMission).catch((error) => {
         const detail = error instanceof Error ? error.message : String(error);
         console.warn(`[NoEditProbe] failed to persist mission ${missionId}: ${redactText(detail)}`);

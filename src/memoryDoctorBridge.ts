@@ -13,14 +13,12 @@ export interface MemoryDoctorEvidenceAuthority {
   }> | null;
 }
 
-const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
-  /\b(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/i;
-const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_VERB_PATTERN =
-  /^(?:please\s+)?(?:audit|diagnose|diagnostic|debug|trace|inspect|explain)\s+(?:the\s+)?(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/i;
 const EXPLICIT_MEMORY_DOCTOR_INVOCATION_PATTERN =
   /^(?:please\s+)?(?:run|start|use|invoke|call|ask|open)\s+(?:the\s+)?(?:memory\s+)?(?:doctor|audit|diagnostic)\b/i;
 const MEMORY_DOCTOR_BLANKNESS_PATTERN =
   /\b(?:what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about)\b/i;
+const CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
+  /\b(?:what\s+happened|went\s+blank|go(?:t|ing)?\s+blank|blankness|lost\s+(?:the\s+)?context|dropped\s+(?:the\s+)?context|forgot\s+(?:the\s+)?context|not\s+remember(?:ing)?\s+what\s+we\s+were\s+talking\s+about|what\s+(?:was|did)\s+(?:my|your)\s+(?:last|previous)\s+(?:answer|response|reply|message)|did\s+you\s+(?:forget|lose|drop)\s+(?:my|the|what)\s+(?:context|message|conversation)|(?:run|check|show|diagnose|audit)\s+(?:the\s+)?memory\s+doctor)\b/i;
 
 function compactEvidenceText(value: string, limit = 700): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -37,11 +35,8 @@ function normalizeEvidenceRole(role: string): 'user' | 'assistant' {
 export function shouldAttachMemoryDoctorEvidence(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
-  if (EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_VERB_PATTERN.test(normalized)) return true;
-  if (EXPLICIT_MEMORY_DOCTOR_INVOCATION_PATTERN.test(normalized)) {
-    return EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_PATTERN.test(normalized) ||
-      MEMORY_DOCTOR_BLANKNESS_PATTERN.test(normalized);
-  }
+  if (EXPLICIT_MEMORY_DOCTOR_INVOCATION_PATTERN.test(normalized)) return true;
+  if (CONTEXTUAL_MEMORY_DOCTOR_PATTERN.test(normalized)) return true;
   return MEMORY_DOCTOR_BLANKNESS_PATTERN.test(normalized) &&
     /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/i.test(normalized);
 }

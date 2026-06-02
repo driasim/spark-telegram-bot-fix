@@ -815,7 +815,10 @@ function extractBuildDescription(text: string): string | null {
       /\b(?:mentioning|saying|using|writing|typing)\b/.test(prefix) ||
       /\b(?:does\s+not|doesn't|doesnt|is\s+not|isn't|isnt)\s+mean\b/.test(prefix) ||
       /\b(?:best|right|safe|secure)\s+way\s+to\b/.test(prefix) ||
-      isNegatedBuildCommandPrefix(prefix)
+      isNegatedBuildCommandPrefix(prefix) ||
+      // Philosophical/hypothetical questions: "Can God create...", "Could gravity break..."
+      // Modal verb + subject other than "you/we" before the build verb = not a build request.
+      /\b(?:can|could|would|will|shall|should|may|might|must)\s+(?!you\b|we\b)[a-z]+\s/i.test(prefix)
     ) {
       return null;
     }

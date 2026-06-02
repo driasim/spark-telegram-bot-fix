@@ -863,20 +863,22 @@ test('keeps Memory Doctor and answer-audit requests out of stale creator context
 });
 
 test('builds recent-turn evidence for contextual Memory Doctor requests', () => {
-  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), true);
-  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('audit previous turn'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('diagnose last answer'), false);
   assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor for last request'), true);
-  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), false);
+  assert.equal(shouldAttachMemoryDoctorEvidence('run memory doctor'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('what was my previous answer'), true);
+  assert.equal(shouldAttachMemoryDoctorEvidence('did you lose my context'), true);
   assert.equal(shouldAttachMemoryDoctorEvidence('I am thinking about founder answer quality. What should Spark measure first?'), false);
   assert.equal(shouldAttachMemoryDoctorEvidence('Compare a startup operator answer that feels generic with one that feels genuinely improved.'), false);
   assert.equal(shouldAttachMemoryDoctorEvidence('What would a great answer from Spark look like to a founder asking about retention?'), false);
 
-  const prompt = buildMemoryDoctorEvidencePrompt('audit previous turn', [
+  const prompt = buildMemoryDoctorEvidencePrompt('what was my previous answer', [
     { role: 'user', text: 'do not build yet, help me think through a domain chip for route confidence' },
     { role: 'assistant', text: 'Good problem to formalize. Route confidence is currently implicit in Builder.' }
   ]);
 
-  assert.match(prompt, /^audit previous turn/);
+  assert.match(prompt, /^what was my previous answer/);
   assert.match(prompt, /Route: memory\.doctor/);
   assert.match(prompt, /Do not ask the user to paste the previous turn unless no recent turns are listed\./);
   assert.match(prompt, /- user: do not build yet, help me think through a domain chip for route confidence/);
@@ -1094,6 +1096,10 @@ test('extracts natural recursive commands for QA Operator loops', () => {
   assert.equal(
     isProviderRuntimeConfigQuestion('Are you using Codex high fast right now? Show only provider, model, reasoning effort, and service tier. No secrets, no paths, and do not start anything.'),
     true
+  );
+  assert.equal(
+    parseNaturalRecursiveCommandIntent('Do not start a mission or build anything. Just answer in chat. I want to test named Telegram profile setup in a disposable or read-only lane. How should I safely set up and verify a separate Telegram profile without disturbing the primary bot? Please cover using /myid safely, keeping env/config separate, keeping logs separate, warning signs, and what to do if I cannot isolate a disposable lane cleanly.'),
+    null
   );
 });
 

@@ -71,7 +71,7 @@ function joinUrl(baseUrl: string, pathName: string): string {
 
 function stripReasoningPreamble(text: string): string {
   return text
-    .replace(/<think>[\s\S]*?(?:<\/think>|<\/thin>|$)/gi, '')
+    .replace(/<think>[\s\S]*?(?:<\/think>|<\/thin>)/gi, '')
     .trim();
 }
 
@@ -699,7 +699,8 @@ async function readOpenAiCompatChatStream(stream: unknown, onProgress?: ChatProg
 
       const payload = line.slice('data:'.length).trim();
       if (!payload || payload === '[DONE]') continue;
-      const parsed = JSON.parse(payload) as OpenAiCompatStreamChunk;
+      let parsed: OpenAiCompatStreamChunk;
+      try { parsed = JSON.parse(payload) as OpenAiCompatStreamChunk; } catch { continue; }
       const delta = parsed.choices?.[0]?.delta;
       if (typeof delta?.content === 'string') content += delta.content;
       if (typeof delta?.reasoning_content === 'string') reasoningContent += delta.reasoning_content;
@@ -726,7 +727,8 @@ async function readOllamaChatStream(stream: unknown, onProgress?: ChatProgressCa
       newlineIndex = buffer.indexOf('\n');
       if (!line) continue;
 
-      const parsed = JSON.parse(line) as OllamaStreamChunk;
+      let parsed: OllamaStreamChunk;
+      try { parsed = JSON.parse(line) as OllamaStreamChunk; } catch { continue; }
       if (typeof parsed.response === 'string') {
         content += parsed.response;
         await emitChatProgress(onProgress, content);
@@ -858,7 +860,7 @@ export const llm = {
         { timeout: 30000 }
       );
 
-      return res.data.response.trim();
+      return (res.data.response || '').trim();
     } catch (err: any) {
       console.error('LLM error:', {
         provider: resolveChatProviderConfig().provider,
