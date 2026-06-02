@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import { buildTelegramTurnIntentEnvelope } from '../src/harnessContract';
 import { authorizeTelegramActionFromEnvelope, type TelegramActionAuthorityInput } from '../src/telegramActionAuthority';
 import { classifyTelegramIntentV2 } from '../src/telegramIntentGate';
@@ -353,4 +354,47 @@ test('420-message matrix blocks word hijacks and preserves explicit actions', ()
     );
     assert.equal(verdict.harnessCore?.envelope.proposed_actions.length, 1, `${item.id} should propose exactly one action`);
   }
+});
+
+test('420-message matrix stays within the local authority performance budget', () => {
+  const negatives = buildNegativeCases();
+  const positives = buildPositiveCases();
+  const startedAt = performance.now();
+  let deniedHighAgencyProbes = 0;
+  let notStartedLedgers = 0;
+  let allowedPositiveActions = 0;
+  let largestEnvelopeBytes = 0;
+  let largestLedgerBytes = 0;
+
+  for (const item of negatives) {
+    const envelope = envelopeFor(item.text);
+    largestEnvelopeBytes = Math.max(largestEnvelopeBytes, Buffer.byteLength(JSON.stringify(envelope)));
+    for (const probe of HIGH_AGENCY_PROBES) {
+      const verdict = authorizeTelegramActionFromEnvelope(envelope, { ...probe, text: item.text });
+      if (!verdict.allow) deniedHighAgencyProbes += 1;
+      if (verdict.harnessCoreLedger?.result.status === 'not_started') notStartedLedgers += 1;
+      largestLedgerBytes = Math.max(largestLedgerBytes, Buffer.byteLength(JSON.stringify(verdict.harnessCoreLedger || {})));
+    }
+  }
+
+  for (const item of positives) {
+    const envelope = envelopeFor(item.text);
+    largestEnvelopeBytes = Math.max(largestEnvelopeBytes, Buffer.byteLength(JSON.stringify(envelope)));
+    const verdict = authorizeTelegramActionFromEnvelope(envelope, item.action);
+    if (verdict.allow) allowedPositiveActions += 1;
+    largestLedgerBytes = Math.max(largestLedgerBytes, Buffer.byteLength(JSON.stringify(verdict.harnessCoreLedger || {})));
+  }
+
+  const elapsedMs = performance.now() - startedAt;
+  const authorizationCount = negatives.length * HIGH_AGENCY_PROBES.length + positives.length;
+  const averageMs = elapsedMs / authorizationCount;
+
+  assert.equal(authorizationCount, 2940);
+  assert.equal(deniedHighAgencyProbes, negatives.length * HIGH_AGENCY_PROBES.length);
+  assert.equal(notStartedLedgers, negatives.length * HIGH_AGENCY_PROBES.length);
+  assert.equal(allowedPositiveActions, positives.length);
+  assert.ok(elapsedMs < 5000, `Harness Core authority matrix took ${elapsedMs.toFixed(1)}ms`);
+  assert.ok(averageMs < 2, `Harness Core authority average took ${averageMs.toFixed(3)}ms per authorization`);
+  assert.ok(largestEnvelopeBytes < 9000, `largest envelope was ${largestEnvelopeBytes} bytes`);
+  assert.ok(largestLedgerBytes < 9000, `largest ledger was ${largestLedgerBytes} bytes`);
 });
