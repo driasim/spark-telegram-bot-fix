@@ -371,6 +371,7 @@ import {
   renderMemoryDoctorEvidenceFallback,
   selectMemoryDoctorEvidenceTurns,
   shouldAttachMemoryDoctorEvidence,
+  shouldAttachMemoryDoctorEvidenceWithAuthority,
   shouldPreferMemoryDoctorEvidenceFallback
 } from './memoryDoctorBridge';
 import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
@@ -7723,7 +7724,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
   if (
     !earlyBuildIntent &&
-    !shouldAttachMemoryDoctorEvidence(text) &&
+    telegramIntentGateV2.route === 'plain_chat' &&
+    !shouldAttachMemoryDoctorEvidenceWithAuthority(text, turnIntentEnvelope) &&
     isPendingTaskRecoveryQuestion(text) &&
     routeEvidenceAllowed({ route: 'pending_task.recovery', text, profile: activeTelegramProfile() })
   ) {
@@ -9036,7 +9038,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   await safeSendChatAction(ctx, 'typing');
 
   try {
-    const memoryDoctorEvidenceTurns = shouldAttachMemoryDoctorEvidence(text)
+    const memoryDoctorEvidenceTurns = shouldAttachMemoryDoctorEvidenceWithAuthority(text, turnIntentEnvelope)
       ? selectMemoryDoctorEvidenceTurns(text, await conversation.getRecentTurns(user, 8).catch(() => []))
       : [];
     await conversation.remember(user, text).catch(() => {});

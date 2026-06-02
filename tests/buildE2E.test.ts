@@ -2826,13 +2826,20 @@ async function run(): Promise<void> {
 		};
 
 		try {
-			const replies: string[] = [];
-			const ctx = makeFakeCtx(8319079055, 8319079055, 614, replies);
-			ctx.message.text = 'I am thinking about founder answer quality. What should Spark measure first?';
-			(ctx as any).update = { update_id: 614, message: ctx.message };
 			const indexModule: any = await import('../src/index');
 			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
-			await indexModule.handleTextMessage(ctx);
+
+			const prompts = [
+				'I am thinking about founder answer quality. What should Spark measure first?',
+				'Compare a startup operator answer that feels generic with one that feels genuinely improved.'
+			];
+			const replies: string[] = [];
+			for (const [index, prompt] of prompts.entries()) {
+				const ctx = makeFakeCtx(8319079055, 8319079055, 614 + index, replies);
+				ctx.message.text = prompt;
+				(ctx as any).update = { update_id: 614 + index, message: ctx.message };
+				await indexModule.handleTextMessage(ctx);
+			}
 
 			const reply = replies.join('\n');
 			assert.match(reply, /founder answer quality/i);

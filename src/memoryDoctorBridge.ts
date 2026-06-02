@@ -3,6 +3,16 @@ export interface MemoryDoctorEvidenceTurn {
   text: string;
 }
 
+export interface MemoryDoctorEvidenceAuthority {
+  selectedIntent?: {
+    ownerSystem?: string | null;
+    action?: string | null;
+  } | null;
+  candidates?: Array<{
+    route?: string | null;
+  }> | null;
+}
+
 const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_PATTERN =
   /\b(?:previous|last|recent|current)\s+(?:turn|reply|answer|response|request|message)\b/i;
 const EXPLICIT_CONTEXTUAL_MEMORY_DOCTOR_VERB_PATTERN =
@@ -34,6 +44,19 @@ export function shouldAttachMemoryDoctorEvidence(text: string): boolean {
   }
   return MEMORY_DOCTOR_BLANKNESS_PATTERN.test(normalized) &&
     /\b(?:memory|context|recall|trace|audit|diagnos|doctor|why|what\s+happened|previous|last|turn|reply|answer)\b/i.test(normalized);
+}
+
+export function shouldAttachMemoryDoctorEvidenceWithAuthority(
+  text: string,
+  authority: MemoryDoctorEvidenceAuthority | null | undefined
+): boolean {
+  if (!shouldAttachMemoryDoctorEvidence(text)) return false;
+  const selectedRoute = String(authority?.candidates?.[0]?.route || '').trim();
+  const selectedOwner = String(authority?.selectedIntent?.ownerSystem || '').trim();
+  const selectedAction = String(authority?.selectedIntent?.action || '').trim();
+  return selectedRoute === 'memory.doctor' &&
+    selectedOwner === 'spark-intelligence-builder' &&
+    selectedAction === 'memory.doctor';
 }
 
 function sameNormalizedText(a: string, b: string): boolean {

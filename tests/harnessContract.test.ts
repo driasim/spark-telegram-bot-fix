@@ -101,6 +101,23 @@ test('keeps memory authority evidence-only in the envelope', () => {
   assert.equal(envelope.executionPolicy.canLaunchMission, false);
 });
 
+test('authorizes explicit Memory Doctor as read-only diagnostics', () => {
+  const envelope = envelopeFor('run memory doctor for last request');
+
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spark-intelligence-builder');
+  assert.equal(envelope.selectedIntent.action, 'memory.doctor');
+  assert.equal(envelope.directive.mode, 'answer');
+  assert.ok(envelope.toolPolicy.allowedTools.includes('memory.diagnose'));
+
+  const authorization = authorizeToolCallFromEnvelope(envelope, {
+    toolName: 'memory.diagnose',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'read_only'
+  });
+
+  assert.deepEqual(authorization, { verdict: 'allowed', reasonCodes: [] });
+});
+
 test('authorizes explicit schedule delete for Builder bridge confirmation flow', () => {
   const envelope = envelopeFor('delete the nightly schedule');
 

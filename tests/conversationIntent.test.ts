@@ -91,7 +91,8 @@ import {
   renderMemoryDoctorEvidenceFallback,
   selectMemoryDoctorEvidenceTurns,
   shouldPreferMemoryDoctorEvidenceFallback,
-  shouldAttachMemoryDoctorEvidence
+  shouldAttachMemoryDoctorEvidence,
+  shouldAttachMemoryDoctorEvidenceWithAuthority
 } from '../src/memoryDoctorBridge';
 
 function test(name: string, fn: () => void): void {
@@ -879,6 +880,36 @@ test('builds recent-turn evidence for contextual Memory Doctor requests', () => 
   assert.match(prompt, /Do not ask the user to paste the previous turn unless no recent turns are listed\./);
   assert.match(prompt, /- user: do not build yet, help me think through a domain chip for route confidence/);
   assert.match(prompt, /- assistant: Good problem to formalize\./);
+});
+
+test('requires TurnIntent authority before attaching Memory Doctor evidence', () => {
+  const memoryDoctorAuthority = {
+    selectedIntent: {
+      ownerSystem: 'spark-intelligence-builder',
+      action: 'memory.doctor'
+    },
+    candidates: [{ route: 'memory.doctor' }]
+  };
+  const plainChatAuthority = {
+    selectedIntent: {
+      ownerSystem: 'none',
+      action: 'plain_chat'
+    },
+    candidates: [{ route: 'plain_chat' }]
+  };
+
+  assert.equal(
+    shouldAttachMemoryDoctorEvidenceWithAuthority('run memory doctor for last request', memoryDoctorAuthority),
+    true
+  );
+  assert.equal(
+    shouldAttachMemoryDoctorEvidenceWithAuthority('run memory doctor for last request', plainChatAuthority),
+    false
+  );
+  assert.equal(
+    shouldAttachMemoryDoctorEvidenceWithAuthority('audit previous turn', null),
+    false
+  );
 });
 
 test('selects immediate prior turns for contextual Memory Doctor evidence', () => {
