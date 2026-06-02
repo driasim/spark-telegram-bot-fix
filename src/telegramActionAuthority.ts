@@ -23,6 +23,7 @@ export interface TelegramActionAuthorityInput extends ToolAuthorizationInput {
 
 export interface TelegramActionAuthorityResult {
   allow: boolean;
+  legacyEnvelope?: TurnIntentEnvelopeV1;
   routeVerdict: RouteFirewallVerdict;
   toolAuthorization: ToolAuthorizationResult;
   harnessCore?: {
@@ -85,6 +86,7 @@ export function authorizeTelegramActionFromEnvelope(
 
   return {
     allow,
+    ...(envelope ? { legacyEnvelope: envelope } : {}),
     routeVerdict,
     toolAuthorization,
     ...(harnessCore ? { harnessCore } : {}),

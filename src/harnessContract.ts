@@ -297,7 +297,17 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'model.switch') tools.push('model.switch');
   if (decision.route === 'media.image') tools.push('telegram.media.image', 'builder.telegram_bridge');
   if (decision.route === 'media.voice') tools.push('telegram.media.voice', 'builder.telegram_bridge');
-  if (decision.route === 'voice.command') tools.push('voice.command', 'builder.telegram_bridge');
+  if (decision.route === 'voice.command') {
+    tools.push(
+      'voice.command',
+      'voice.status',
+      'voice.speak',
+      'voice.onboard',
+      'voice.install',
+      'voice.transcribe',
+      'builder.telegram_bridge'
+    );
+  }
   if (/^sparkqa\./.test(decision.route)) tools.push(decision.route);
   if (decision.route === 'creator.mission') {
     tools.push(
@@ -369,6 +379,11 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'telegram.media.image',
       'telegram.media.voice',
       'voice.command',
+      'voice.status',
+      'voice.speak',
+      'voice.onboard',
+      'voice.install',
+      'voice.transcribe',
       'builder.telegram_bridge',
       'mission_updates.preference',
       'sparkqa.run',

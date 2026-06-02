@@ -389,15 +389,26 @@ test('self improvement and model switch commands authorize through command envel
   assert.equal(modelSwitch.allow, true);
 });
 
-test('voice commands authorize status and setup through command envelopes', () => {
+test('voice commands authorize exact status, speak, and setup hook tools through command envelopes', () => {
   const status = commandAuth({
     text: '/voice status',
     commandName: 'voice',
     route: 'voice.command',
-    toolName: 'voice.command',
+    toolName: 'voice.status',
     ownerSystem: 'spark-intelligence-builder',
     mutationClass: 'read_only',
-    action: 'voice.status_or_reply',
+    action: 'voice.status',
+    kind: 'runtime_truth_or_operator',
+    externalNetwork: true
+  });
+  const speak = commandAuth({
+    text: '/voice speak SPARK_VOICE_QA_DELIVERY_OK',
+    commandName: 'voice',
+    route: 'voice.command',
+    toolName: 'voice.speak',
+    ownerSystem: 'spark-intelligence-builder',
+    mutationClass: 'external_network',
+    action: 'voice.speak',
     kind: 'runtime_truth_or_operator',
     externalNetwork: true
   });
@@ -405,17 +416,21 @@ test('voice commands authorize status and setup through command envelopes', () =
     text: '/voice onboard local',
     commandName: 'voice',
     route: 'voice.command',
-    toolName: 'voice.command',
+    toolName: 'voice.onboard',
     ownerSystem: 'spark-intelligence-builder',
     mutationClass: 'writes_files',
-    action: 'voice.configure',
+    action: 'voice.onboard',
     kind: 'runtime_truth_or_operator',
     externalNetwork: true
   });
 
   assert.equal(status.allow, true);
+  assert.equal(speak.allow, true);
   assert.equal(setup.allow, true);
+  assert.equal(speak.legacyEnvelope?.selectedIntent.action, 'voice.speak');
+  assert.equal(speak.governorDecision?.tool_ledgers[0]?.tool_name, 'voice.speak');
   assert.equal(status.harnessCore?.authorization.restrictions.write_allowed, false);
+  assert.equal(speak.harnessCore?.authorization.restrictions.network_allowed, true);
   assert.equal(setup.harnessCore?.authorization.restrictions.write_allowed, true);
 });
 

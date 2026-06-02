@@ -430,7 +430,7 @@ async function main(): Promise<void> {
     assert.match(indexSource, /bot\.command\('memory_movement', handleMemoryMovementCommand\)/);
     assert.match(indexSource, /bot\.command\('voice', async \(ctx\) => \{/);
     assert.match(indexSource, /telegramCommandActionAuthorityDecision\(ctx, \{[\s\S]{0,500}route: 'voice\.command'/);
-    assert.match(indexSource, /replyViaBuilder\(ctx, voiceText\)/);
+    assert.match(indexSource, /replyViaBuilder\(ctx, voiceText, authorization\.legacyEnvelope\)/);
     assert.doesNotMatch(indexSource, /spark\.getVoice\(\)/);
     const sparkSource = await readFile(path.join(__dirname, '..', 'src', 'spark.ts'), 'utf8');
     const distSparkSource = await readFile(path.join(__dirname, '..', 'dist', 'spark.js'), 'utf8');
@@ -438,7 +438,7 @@ async function main(): Promise<void> {
     assert.doesNotMatch(distSparkSource, /getVoice/);
     assert.match(distIndexSource, /bot\.command\('voice', async \(ctx\) => \{/);
     assert.match(distIndexSource, /telegramCommandActionAuthorityDecision\(ctx, \{[\s\S]{0,500}route: 'voice\.command'/);
-    assert.match(distIndexSource, /replyViaBuilder\(ctx, voiceText\)/);
+    assert.match(distIndexSource, /replyViaBuilder\(ctx, voiceText, authorization\.legacyEnvelope\)/);
     assert.doesNotMatch(distIndexSource, /spark_1\.spark\.getVoice\(\)/);
     assert.match(indexSource, /AOC_CORE_ROUTE_KEYS/);
     assert.match(indexSource, /firstArg === 'core'/);

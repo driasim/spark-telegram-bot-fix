@@ -2571,12 +2571,12 @@ function shouldBypassBuilderBridgeForTurnIntent(
   );
 }
 
-async function replyViaBuilder(ctx: any, text: string): Promise<boolean> {
+async function replyViaBuilder(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   const user = ctx.from;
   if (user) {
     await conversation.remember(user, text).catch(() => {});
   }
-  const builderReply = await builderBridgeRunner(buildUpdateWithText(ctx.update as Record<string, unknown>, text));
+  const builderReply = await builderBridgeRunner(buildUpdateWithText(ctx.update as Record<string, unknown>, text, envelope));
   if (!builderReply.used || builderReply.bridgeMode === 'bridge_error') {
     return false;
   }
@@ -4105,21 +4105,61 @@ function voiceCommandMutatesRuntime(text: string): boolean {
   return /\b(?:onboard|onboarding|setup|set\s+up|install|configure|enable|disable|reset|prepare|connect|write|save)\b/i.test(text);
 }
 
+function voiceCommandAuthoritySpec(text: string): {
+  toolName: string;
+  mutationClass: SparkHarnessMutationClass;
+  action: string;
+} {
+  if (/^\/voice\s+(?:speak|ask|answer)\b/i.test(text)) {
+    return {
+      toolName: 'voice.speak',
+      mutationClass: 'external_network',
+      action: 'voice.speak'
+    };
+  }
+  if (/^\/voice\s+(?:status|probe|diagnose)\b/i.test(text) || /^\/voice\s*$/i.test(text)) {
+    return {
+      toolName: 'voice.status',
+      mutationClass: 'read_only',
+      action: 'voice.status'
+    };
+  }
+  if (/^\/voice\s+(?:install)\b/i.test(text)) {
+    return {
+      toolName: 'voice.install',
+      mutationClass: 'writes_files',
+      action: 'voice.install'
+    };
+  }
+  if (/^\/voice\s+(?:onboard|onboarding|setup|set\s+up|configure|enable|disable|reset|prepare|connect)\b/i.test(text)) {
+    return {
+      toolName: 'voice.onboard',
+      mutationClass: 'writes_files',
+      action: 'voice.onboard'
+    };
+  }
+  return {
+    toolName: 'voice.command',
+    mutationClass: voiceCommandMutatesRuntime(text) ? 'writes_files' : 'read_only',
+    action: voiceCommandMutatesRuntime(text) ? 'voice.configure' : 'voice.status_or_reply'
+  };
+}
+
 // /voice - Builder-owned voice status/onboarding. Do not fall back to the
 // deferred dashboard placeholder; voice is a Builder/chip capability now.
 bot.command('voice', async (ctx) => {
   await safeSendChatAction(ctx, 'typing');
   console.log(`[Voice] /voice command received user=${userRef(ctx.from?.id)} chat_type=${ctx.chat?.type || 'unknown'}`);
   const voiceText = ctx.message?.text || '/voice';
-  const mutatesVoice = voiceCommandMutatesRuntime(voiceText);
+  const voiceAuthority = voiceCommandAuthoritySpec(voiceText);
   const authorization = telegramCommandActionAuthorityDecision(ctx, {
     commandName: 'voice',
     route: 'voice.command',
     text: voiceText,
-    toolName: 'voice.command',
+    toolName: voiceAuthority.toolName,
     ownerSystem: 'spark-intelligence-builder',
-    mutationClass: mutatesVoice ? 'writes_files' : 'read_only',
-    action: mutatesVoice ? 'voice.configure' : 'voice.status_or_reply',
+    mutationClass: voiceAuthority.mutationClass,
+    action: voiceAuthority.action,
     kind: 'runtime_truth_or_operator',
     externalNetwork: true
   });
@@ -4128,9 +4168,9 @@ bot.command('voice', async (ctx) => {
     return;
   }
   try {
-    const routed = await replyViaBuilder(ctx, voiceText);
+    const routed = await replyViaBuilder(ctx, voiceText, authorization.legacyEnvelope);
     recordTelegramHarnessCoreExecution(authorization, {
-      toolName: 'voice.command',
+      toolName: voiceAuthority.toolName,
       status: routed ? 'success' : 'failure',
       summary: routed
         ? 'Telegram /voice routed through Builder voice capability.'
@@ -4143,7 +4183,7 @@ bot.command('voice', async (ctx) => {
     console.log('[Voice] Builder voice route unavailable');
   } catch (err) {
     recordTelegramHarnessCoreExecution(authorization, {
-      toolName: 'voice.command',
+      toolName: voiceAuthority.toolName,
       status: 'failure',
       summary: `Telegram /voice failed: ${err instanceof Error ? err.message : String(err)}`
     });
