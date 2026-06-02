@@ -233,6 +233,7 @@ function modeForDecision(
   if (decision.confidence === 'blocked' || decision.enforcement === 'blocked') return 'deny';
   if (noExecution) return 'answer';
   if (decision.action === 'answer' || decision.action === 'plain_chat' || decision.route === 'plain_chat') return 'answer';
+  if (decision.route === 'memory.doctor') return 'inspect';
   if (/memory\.write/.test(decision.route)) return 'remember';
   if (/schedule/.test(decision.route)) return 'schedule';
   if (/diagnostic|status|proof|inventory|query|recall/.test(decision.route)) return 'inspect';

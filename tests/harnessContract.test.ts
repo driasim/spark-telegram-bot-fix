@@ -106,7 +106,7 @@ test('authorizes explicit Memory Doctor as read-only diagnostics', () => {
 
   assert.equal(envelope.selectedIntent.ownerSystem, 'spark-intelligence-builder');
   assert.equal(envelope.selectedIntent.action, 'memory.doctor');
-  assert.equal(envelope.directive.mode, 'answer');
+  assert.equal(envelope.directive.mode, 'inspect');
   assert.ok(envelope.toolPolicy.allowedTools.includes('memory.diagnose'));
 
   const authorization = authorizeToolCallFromEnvelope(envelope, {
