@@ -183,6 +183,23 @@ test('bug hunt: pending domain-chip draft state lives behind evidence adapter', 
   assert.match(adapterSource, /export function isDomainChipPendingDirection/);
 });
 
+test('bug hunt: pending creator and cancel state live behind evidence adapters', () => {
+  const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
+  const creatorAdapter = readFileSync(resolve(__dirname, '../src/telegramPendingCreatorMissionEvidence.ts'), 'utf8');
+  const cancelAdapter = readFileSync(resolve(__dirname, '../src/telegramPendingMissionCancelEvidence.ts'), 'utf8');
+
+  assert.match(indexSource, /telegramPendingCreatorMissionEvidence/);
+  assert.match(indexSource, /telegramPendingMissionCancelEvidence/);
+  assert.doesNotMatch(indexSource, /const pendingCreatorMissions = new Map/);
+  assert.doesNotMatch(indexSource, /const pendingMissionCancelConfirmations = new Map/);
+  assert.doesNotMatch(indexSource, /function parsePendingCreatorMissionAction/);
+  assert.doesNotMatch(indexSource, /function isMissionCancelConfirmationText/);
+  assert.match(creatorAdapter, /const creatorMissions = new Map/);
+  assert.match(creatorAdapter, /export function parsePendingCreatorMissionAction/);
+  assert.match(cancelAdapter, /const missionCancelConfirmations = new Map/);
+  assert.match(cancelAdapter, /export function isMissionCancelConfirmationText/);
+});
+
 test('bug hunt: Spark workflow QA prompts get a local plan, not invented execution claims', () => {
   const prompt = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
   assert.equal(isSparkWorkflowBugHuntRequest(prompt), true);

@@ -204,6 +204,24 @@ import {
   telegramPendingDomainChipKey,
   type PendingDomainChipBuild
 } from './telegramPendingDomainChipEvidence';
+import {
+  cleanupPendingCreatorMissions,
+  deletePendingCreatorMission,
+  getPendingCreatorMission,
+  isPendingCreatorMissionExpired,
+  parsePendingCreatorMissionAction,
+  rememberPendingCreatorMission,
+  telegramPendingCreatorMissionKey
+} from './telegramPendingCreatorMissionEvidence';
+import {
+  cleanupPendingMissionCancelConfirmations,
+  deletePendingMissionCancelConfirmation,
+  getPendingMissionCancelConfirmation,
+  isMissionCancelConfirmationText,
+  isPendingMissionCancelConfirmationExpired,
+  rememberPendingMissionCancelConfirmation,
+  telegramPendingMissionCancelKey
+} from './telegramPendingMissionCancelEvidence';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { queueRouteArbiterShadow } from './routeArbiter';
 import { routeEvidenceAllowed } from './telegramRouteEvidence';
@@ -2360,15 +2378,6 @@ function canvasPlanKey(chatId: string | number | undefined, userId: string | num
   return `${chatId ?? 'unknown'}-${userId ?? 'unknown'}`;
 }
 
-interface PendingMissionCancelConfirmation {
-  missionId: string;
-  title: string;
-  timestamp: number;
-}
-const pendingMissionCancelConfirmations = new Map<string, PendingMissionCancelConfirmation>();
-const PENDING_CREATOR_MISSION_TTL_MS = 30 * 60 * 1000;
-const MISSION_CANCEL_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
-
 // Periodic cleanup of stale entries in all unbounded maps
 const mapCleanupTimer = setInterval(() => {
   const now = Date.now();
@@ -2384,11 +2393,8 @@ const mapCleanupTimer = setInterval(() => {
   }
   cleanupPendingBuildClarifications(now);
   cleanupPendingDomainChipBuilds(now);
-  for (const [key, entry] of pendingMissionCancelConfirmations) {
-    if (now - entry.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
-      pendingMissionCancelConfirmations.delete(key);
-    }
-  }
+  cleanupPendingCreatorMissions(now);
+  cleanupPendingMissionCancelConfirmations(now);
 }, MAP_CLEANUP_INTERVAL_MS);
 mapCleanupTimer.unref?.();
 
@@ -2399,34 +2405,22 @@ let pollingActive = false;
 function clearPendingExecutionState(key: string): boolean {
   const hadClarification = deletePendingBuildClarification(key);
   const hadDomainChip = deletePendingDomainChipBuild(key);
-  const hadCreatorMission = pendingCreatorMissions.delete(key);
-  const hadMissionCancel = pendingMissionCancelConfirmations.delete(key);
+  const hadCreatorMission = deletePendingCreatorMission(key);
+  const hadMissionCancel = deletePendingMissionCancelConfirmation(key);
   return hadClarification || hadDomainChip || hadCreatorMission || hadMissionCancel;
-}
-
-function missionCancelConfirmationKey(ctx: any): string {
-  return `${ctx.chat?.id ?? 'unknown'}-${ctx.from?.id ?? 'unknown'}`;
-}
-
-function isMissionCancelConfirmationText(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  return (
-    /^(?:yes[,\s]+)?(?:cancel|kill|stop)\s+(?:it|that|that\s+mission|this\s+mission|the\s+mission)$/.test(normalized) ||
-    /^confirm\s+(?:cancel|kill|stop)(?:\s+(?:it|that|that\s+mission|this\s+mission|the\s+mission))?$/.test(normalized)
-  );
 }
 
 async function handlePendingMissionCancelConfirmation(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   if (!isMissionCancelConfirmationText(text)) return false;
 
-  const key = missionCancelConfirmationKey(ctx);
-  const pending = pendingMissionCancelConfirmations.get(key);
+  const key = telegramPendingMissionCancelKey(ctx.chat?.id, ctx.from?.id);
+  const pending = getPendingMissionCancelConfirmation(key);
   if (!pending) return false;
 
-  pendingMissionCancelConfirmations.delete(key);
+  deletePendingMissionCancelConfirmation(key);
   await conversation.remember(ctx.from, text).catch(() => {});
 
-  if (Date.now() - pending.timestamp > MISSION_CANCEL_CONFIRMATION_TTL_MS) {
+  if (isPendingMissionCancelConfirmationExpired(pending)) {
     await ctx.reply('That cancel confirmation expired. Ask me to cancel it again if you still want to stop it.');
     return true;
   }
@@ -4478,13 +4472,6 @@ type NaturalCreatorMissionIntent = ParsedCreatorCommand & {
   artifactLabel: string;
 };
 
-type PendingCreatorMission = {
-  missionId: string;
-  timestamp: number;
-};
-
-const pendingCreatorMissions = new Map<string, PendingCreatorMission>();
-
 const CREATOR_USAGE = [
   'Usage: /creator plan [private|github|swarm] [risk low|medium|high] <brief>',
   '       /creator run <mission-creator-id>',
@@ -4662,30 +4649,10 @@ function creatorExecutionStatus(success: boolean | undefined): 'success' | 'fail
   return success ? 'success' : 'failure';
 }
 
-function pendingCreatorMissionKey(ctx: any): string {
-  return `${ctx.chat.id}-${ctx.from.id}`;
-}
-
 function creatorExecutionPolicyForBrief(brief: string): 'manual_run' | 'read_only' {
   return /\b(?:stage\s+only|do\s+not\s+run|don't\s+run|no\s+run|without\s+running|do\s+not\s+start|don't\s+start|no\s+execution)\b/i.test(brief)
     ? 'read_only'
     : 'manual_run';
-}
-
-function parsePendingCreatorMissionAction(text: string): ParsedCreatorMissionControlCommand['action'] | null {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized) return null;
-  if (/^(?:run|start|execute|kick off|go|go ahead|do it|run it|start it|execute it|kick it off)(?:\s+(?:the\s+)?(?:(?:creator\s+)?mission|private\s+path|specialization\s+path|path|autoloop))?$/i.test(normalized)) {
-    return 'run';
-  }
-  if (/^(?:validate|verify|test)(?:\s+(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?|the\s+autoloop|the\s+evidence|the\s+capability\s+gain))?$/i.test(normalized) ||
-    /^(?:run|start)\s+(?:validation|checks?|benchmarks?|benchmark\s+validation|the\s+checks?)(?:\s+(?:on|for)\s+(?:it|the\s+path|the\s+specialization\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
-    return 'validate';
-  }
-  if (/^(?:status|show status|check|check status|what'?s happening|what happened|where are we|show me status|show me what improved|what improved|did it improve|is it better yet|prepare it for review)(?:\s+(?:for\s+)?(?:it|the\s+(?:creator\s+)?mission|the\s+private\s+path|the\s+specialization\s+path|the\s+path|the\s+benchmark(?:\s+pack)?))?$/i.test(normalized)) {
-    return 'status';
-  }
-  return null;
 }
 
 function normalizeNaturalCreatorText(text: string): string {
@@ -5023,7 +4990,7 @@ async function handleCreatorMissionPlan(
       : `Creator mission staging failed: ${result.error || 'unknown error'}`
   });
   if (result.success && result.missionId && result.trace?.execution_policy !== 'read_only') {
-    pendingCreatorMissions.set(pendingCreatorMissionKey(ctx), {
+    rememberPendingCreatorMission(telegramPendingCreatorMissionKey(ctx.chat?.id, ctx.from?.id), {
       missionId: result.missionId,
       timestamp: Date.now()
     });
@@ -5041,11 +5008,11 @@ async function handleCreatorMissionPlan(
 }
 
 async function handlePendingCreatorMissionControl(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
-  const key = pendingCreatorMissionKey(ctx);
-  const pending = pendingCreatorMissions.get(key);
+  const key = telegramPendingCreatorMissionKey(ctx.chat?.id, ctx.from?.id);
+  const pending = getPendingCreatorMission(key);
   if (!pending) return false;
-  if (Date.now() - pending.timestamp > PENDING_CREATOR_MISSION_TTL_MS) {
-    pendingCreatorMissions.delete(key);
+  if (isPendingCreatorMissionExpired(pending)) {
+    deletePendingCreatorMission(key);
     return false;
   }
 
@@ -8792,7 +8759,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         ? await spawner.describeContextualMissionCancelBoundary()
         : await spawner.prepareContextualMissionCancel();
       if (result.needsConfirmation && result.missionId && result.title) {
-        pendingMissionCancelConfirmations.set(missionCancelConfirmationKey(ctx), {
+        rememberPendingMissionCancelConfirmation(telegramPendingMissionCancelKey(ctx.chat?.id, ctx.from?.id), {
           missionId: result.missionId,
           title: result.title,
           timestamp: Date.now()
