@@ -3612,6 +3612,66 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('repair-needed current-status question answers from live status without repairing', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-repair-status-no-action-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const oldPath = process.env.PATH || '';
+		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
+				'  echo "[OK] Spark Live is ready."',
+				'  echo "Telegram profiles: 1 running, 0 stopped"',
+				'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
+				'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
+				'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
+				'  exit 0',
+				'fi',
+				'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
+				'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+
+		try {
+			const captured: CapturedCall[] = [];
+			(axios as any).post = async (url: string, body: any) => {
+				captured.push({ url, body });
+				return { data: { success: true } };
+			};
+
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 607, replies);
+			ctx.message.text = 'Do not repair anything. Is a repair needed from the current status?';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /Spark is healthy right now/);
+			assert.match(reply, /No repair action needed right now/);
+			assert.doesNotMatch(reply, /I will run|Mission:/i);
+			assert.equal(captured.length, 0, 'repair-needed status question must not launch or post work');
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('expired pending clarification does not steal a new voice request', async () => {
 		const indexModule: any = await import('../src/index');
 		const expiredPending = { timestamp: Date.now() - (31 * 60 * 1000) };

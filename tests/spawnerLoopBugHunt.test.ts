@@ -486,6 +486,13 @@ test('bug hunt: named Telegram profile setup stays out of live health status', (
   assert.equal(shouldAnswerAuthoritativeRuntimeStatus(prompt), false);
 });
 
+test('bug hunt: repair-needed current-status question uses live status instead of repair action', () => {
+  assert.equal(
+    shouldAnswerAuthoritativeRuntimeStatus('Do not repair anything. Is a repair needed from the current status?'),
+    true
+  );
+});
+
 test('bug hunt: latest canvas plan can be restored from persisted Spawner state after restart', () => {
   const plan = latestCanvasPlanFromLoadState({
     requestId: 'tg-build-d9318b7927c7-1778771867119',

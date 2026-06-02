@@ -1364,6 +1364,17 @@ type RuntimeTruthSignals = {
   memory: boolean;
 };
 
+function isRepairNeededStatusQuestion(normalized: string): boolean {
+  return (
+    /\brepair\b/.test(normalized) &&
+    /\b(?:needed|need|required|attention)\b/.test(normalized) &&
+    (
+      /\bfrom\s+the\s+(?:current|fresh|live)\s+(?:status|state|health)\b/.test(normalized) ||
+      /\b(?:current|fresh|live)\s+(?:status|state|health)\b/.test(normalized)
+    )
+  );
+}
+
 export function isNamedTelegramProfileSetupQuestion(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
@@ -1391,6 +1402,7 @@ function runtimeTruthSignals(text: string): RuntimeTruthSignals {
   );
   const live = (
     sourceCheck ||
+    isRepairNeededStatusQuestion(normalized) ||
     /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
     /\b(?:live|health|status|state)\b.*\b(?:raw|debug|details?|full|exact)\b/.test(normalized) ||
     /\bcurrent\s+(?:live\s+)?(?:state|status)\s+of\s+spark\b/.test(normalized) ||
@@ -1436,6 +1448,7 @@ export function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
   if (isMetaNoActionTriggerDiscussion(text)) return false;
   if (!runtimeTruthSignals(text).live) return false;
   return (
+    isRepairNeededStatusQuestion(normalized) ||
     /\b(?:raw|debug|details?|full|exact)\b.*\b(?:live|health|status|state)\b/.test(normalized) ||
     /\b(?:live|health|status|state)\b.*\b(?:raw|debug|details?|full|exact)\b/.test(normalized) ||
     isLiveSparkHealthQuestion(text) ||
