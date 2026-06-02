@@ -19,6 +19,8 @@ const COLLABORATIVE_IDEA_PATTERNS = [
   /\bwhat\s+would\s+(?:the\s+)?(?:first\s+version|mvp|v1)\s+be\b/i,
   /\bwhat\s+would\s+be\s+(?:the\s+)?(?:best\s+)?(?:first\s+version|mvp|v1)\b/i,
   /\b(?:first\s+version|mvp|v1)\b.*\b(?:be|look|feel|include|work)\b/i,
+  /\bshould\s+we\s+use\s+(?:the\s+)?startup\s+operator\b/i,
+  /\bstartup\s+operator\b.*\b(?:worthwhile|useful|what\s+would\s+make|when\s+should|how\s+should|should\s+we)\b/i,
   /\b(?:make|feel)\s+it\s+(?:more\s+)?(?:playful|game-like|fun|alive)\b/i,
   /\b(?:i\s+like|i\s+love)\s+.+\b(?:idea|dashboard|tool|game|chip)\b/i,
   /\b(?:not\s+just|more\s+than)\s+tasks\b/i,
@@ -983,10 +985,19 @@ export function parseNaturalRecursiveCommandIntent(text: string, context: Natura
 export function isMissionExecutionConfirmation(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  const normalized = trimmed.toLowerCase().replace(/\s+/g, ' ');
+  const reflectiveQuestion =
+    /^(?:what|why|how|when|where|which|should|would|could)\b/.test(normalized) ||
+    /\bwhat\s+would\s+make\s+(?:it|this|that)\b/.test(normalized);
+  const explicitExecutionStarter =
+    /^(?:yes|yeah|yep|yup|ok|okay|sure|perfect|please|go\s+ahead|actually|let'?s|lets|can\s+you|could\s+you|do)\b/.test(normalized);
+  if (reflectiveQuestion && !explicitExecutionStarter) return false;
+
   return [
     /^(?:yes|yeah|yep|yup|ok|okay|sure|sounds\s+good|perfect)[\s,!.]+(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
-    /^(?:let'?s\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
-    /\b(?:create|build|make|run|start|spin\s+up|kick\s+off)\s+(?:it|this|that|the\s+mission)\b/i
+    /^(?:let'?s\s+|lets\s+)?(?:do\s+it|build\s+it|create\s+it|make\s+it|spin\s+it\s+up|kick\s+it\s+off|run\s+it|start\s+it)\b/i,
+    /^(?:please\s+|can\s+you\s+|could\s+you\s+|go\s+ahead(?:\s+and)?\s+|actually\s+|(?:ok|okay|sure|yes|yeah|yep|yup)[,\s]+|do\s+)(?:create|build|make|run|start|spin\s+up|kick\s+off)\s+(?:it|this|that|the\s+mission)\b/i,
+    /\b(?:please|go\s+ahead(?:\s+and)?|(?:yes|yeah|yep|yup|ok|okay|sure)[,\s]+|let'?s|lets|do)\s+(?:create|build|make|run|start|spin\s+up|kick\s+off)\s+(?:it|this|that|the\s+mission)\b/i
   ].some((pattern) => pattern.test(trimmed));
 }
 
@@ -2250,11 +2261,14 @@ export function buildIdeationSystemHint(text: string): string {
   const domainChip = /\bdomain[-\s]*chip[-\w]*\b/i.test(text);
   const missionControl = /\bmission\s+control\b/i.test(text);
   const existingSpawnerSurface = /\bspawner\b/i.test(text) && /\b(?:kanban|canvas|mission\s+board|mission\s+control)\b/i.test(text);
+  const startupOperator = /\bstartup\s+operator\b/i.test(text);
 
   const modeLine = domainChip
     ? 'The user is exploring an advanced Spark domain chip. Help shape the chip before proposing files or execution.'
     : existingSpawnerSurface
       ? 'The user is improving existing Spawner UI surfaces. Assume Kanban and Canvas already exist inside spawner-ui.'
+      : startupOperator
+      ? 'The user is discussing when the startup operator is useful. Answer as startup-product advice and evidence design, not as an execution request.'
       : missionControl
       ? 'The user is exploring a mission-control style idea. Help shape the idea before invoking Mission Control.'
       : 'The user is exploring a build idea. Help shape the concept before turning it into a build request.';
@@ -2292,6 +2306,7 @@ export function isLowInformationLlmReply(reply: string): boolean {
     normalized === 'how can i help you?' ||
     normalized === "i'm here, but i couldn't generate a response right now." ||
     normalized === "i'm having trouble thinking right now. try again in a moment." ||
+    normalized.includes('spark hit an internal error before it could answer cleanly') ||
     normalized.includes('working memory') ||
     normalized.includes('returned no concrete guidance') ||
     normalized.includes('access is not authorized for this channel') ||
@@ -2781,6 +2796,16 @@ export function buildMemoryBridgeUnavailableReply(action: 'remember' | 'recall' 
 }
 
 export function buildIdeationFallbackReply(text: string): string {
+  if (/\bstartup\s+operator\b/i.test(text)) {
+    return [
+      'Yes, but only when it creates sharper startup decisions rather than more automation.',
+      '',
+      'Worthwhile proof would look like before/after founder scenarios: clearer buyer signal, tighter next experiment, better tradeoff reasoning, and a trace showing what changed in the operator.',
+      '',
+      'The next move is to benchmark one real founder situation, judge baseline vs improved answers blind, and promote the lesson only if the improved answer wins.'
+    ].join('\n');
+  }
+
   if (/\bdomain[-\s]*chip[-\w]*\b/i.test(text)) {
     return [
       'Yes. I would shape this as a real domain chip first, not jump straight into files.',

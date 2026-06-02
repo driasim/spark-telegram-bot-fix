@@ -129,9 +129,18 @@ test('keeps explicit build specs on the build path', () => {
 test('detects execution confirmation without treating every reply as a mission', () => {
   assert.equal(isMissionExecutionConfirmation("yes let's do it create it after analyzing our systems deeply please"), true);
   assert.equal(isMissionExecutionConfirmation('spin it up'), true);
+  assert.equal(isMissionExecutionConfirmation('can you build that'), true);
+  assert.equal(isMissionExecutionConfirmation('Should we use the startup operator more, and what would make that worthwhile?'), false);
   assert.equal(isMissionExecutionConfirmation('sure'), false);
   assert.equal(isMissionExecutionConfirmation('sounds good'), false);
   assert.equal(isMissionExecutionConfirmation('what do you think about this?'), false);
+  assert.equal(shouldPreferConversationalIdeation('Should we use the startup operator more, and what would make that worthwhile?'), true);
+  assert.equal(
+    inferMissionFromRecentContext('Should we use the startup operator more, and what would make that worthwhile?', [
+      'We should build a Spark bug-recognition domain chip from recent Telegram routing issues.'
+    ]),
+    null
+  );
 });
 
 test('detects no-execution boundaries before pending builds can launch', () => {

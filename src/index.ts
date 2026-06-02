@@ -7614,6 +7614,28 @@ function isShortResolvedListPick(text: string, frame: ConversationFrame): boolea
   return frame.referenceResolution.kind === 'list_item' && text.trim().length <= 40;
 }
 
+async function renderConversationalIdeationResponse(
+  text: string,
+  conversationFrame: ConversationFrame,
+  memories: string,
+  accessProfile: SparkAccessProfile
+): Promise<string> {
+  const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
+  try {
+    const llmResponse = await llm.chat(
+      ideationPrompt,
+      [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
+      memories
+    );
+    return applyPlainWordsSurfaceRequest(text, isLowInformationLlmReply(llmResponse)
+      ? buildIdeationFallbackReply(text)
+      : llmResponse);
+  } catch (error) {
+    console.warn(`[ConversationIntent] ideation fallback used textLen=${text.length}:`, error);
+    return applyPlainWordsSurfaceRequest(text, buildIdeationFallbackReply(text));
+  }
+}
+
 bot.command('mission', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
@@ -8028,15 +8050,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-	  if (!earlyBuildIntent && isSpawnerGoldenPathRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	    route: 'spawner.build',
-	    text,
-	    toolName: 'spawner.run',
-	    ownerSystem: 'spawner-ui',
-	    mutationClass: 'launches_mission',
-	    action: 'spawner.build',
-	    kind: 'build_or_spawner'
-	  })) {
+  const goldenPathAuthorization = !earlyBuildIntent && isSpawnerGoldenPathRequest(text)
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+      route: 'spawner.build',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission',
+      action: 'spawner.build',
+      kind: 'build_or_spawner'
+    })
+    : null;
+  if (goldenPathAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const replyPhrase = extractNoEditMissionReplyPhrase(text);
     const missionId = await handleRunCommand(
@@ -8044,8 +8069,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       noEditProbeGoal(replyPhrase, text),
       [missionDefaultProvider()],
       'spawner_build',
-      { missionName: 'Telegram Golden Path Probe', relayGoal: text }
+      {
+        missionName: 'Telegram Golden Path Probe',
+        relayGoal: text,
+        executionAuthority: goldenPathAuthorization.governorDecision
+      }
     );
+    recordTelegramHarnessCoreExecution(goldenPathAuthorization, {
+      toolName: 'spawner.run',
+      status: missionId ? 'success' : 'failure',
+      summary: missionId
+        ? `Natural no-edit Spawner probe started mission ${missionId}.`
+        : 'Natural no-edit Spawner probe did not return a mission id.'
+    });
     if (missionId) {
       const probeMission = {
         missionId,
@@ -8351,15 +8387,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
     const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-    const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
-    const llmResponse = await llm.chat(
-      ideationPrompt,
-      [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
-      memories
-    );
-    const response = applyPlainWordsSurfaceRequest(text, isLowInformationLlmReply(llmResponse)
-      ? buildIdeationFallbackReply(text)
-      : llmResponse);
+    const response = await renderConversationalIdeationResponse(text, conversationFrame, memories, accessProfile);
     await ctx.reply(response);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
     return;
@@ -8998,19 +9026,30 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isExplicitContextualBuildRequest(text) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'spawner.contextual_improvement',
-      text,
-      toolName: 'spawner.run',
-      ownerSystem: 'spawner-ui',
-      mutationClass: 'launches_mission'
-    })) {
+    const contextualImprovementAuthorization = isExplicitContextualBuildRequest(text)
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spawner.contextual_improvement',
+        text,
+        toolName: 'spawner.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission'
+      })
+      : null;
+    if (contextualImprovementAuthorization?.allow) {
       const improvementGoal = buildContextualImprovementGoal(text, contextualTurns);
       if (improvementGoal) {
         console.log(`[ConversationIntent] inferred contextual improvement mission user=${userRef(ctx.from?.id)} textLen=${text.length}`);
         await conversation.remember(user, text).catch(() => {});
         const missionId = await handleRunCommand(ctx, improvementGoal, [missionDefaultProvider()], undefined, {
-          missionName: 'Spark Diagnostic Agent Integration'
+          missionName: 'Spark Diagnostic Agent Integration',
+          executionAuthority: contextualImprovementAuthorization.governorDecision
+        });
+        recordTelegramHarnessCoreExecution(contextualImprovementAuthorization, {
+          toolName: 'spawner.run',
+          status: missionId ? 'success' : 'failure',
+          summary: missionId
+            ? `Natural contextual improvement started Spawner mission ${missionId}.`
+            : 'Natural contextual improvement did not return a mission id.'
         });
         if (missionId) {
           await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} to improve the Spark Diagnostic Agent integration from Telegram context.`).catch(() => {});
@@ -9019,21 +9058,38 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isExternalResearchRequest(text) && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'spawner.external_research',
-      text,
-      toolName: 'external.fetch',
-      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
-      mutationClass: 'external_network',
-      externalNetwork: true
-    })) {
+    const externalResearchAuthorization = isExternalResearchRequest(text)
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spawner.external_research',
+        text,
+        toolName: 'external.fetch',
+        ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+        mutationClass: 'external_network',
+        externalNetwork: true
+      })
+      : null;
+    if (externalResearchAuthorization?.allow) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'external_research')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'external_research'));
+        recordTelegramHarnessCoreExecution(externalResearchAuthorization, {
+          toolName: 'external.fetch',
+          status: 'failure',
+          summary: 'Natural external research was authorized by intent but blocked by Spark access.'
+        });
         return;
       }
       await conversation.remember(user, text).catch(() => {});
-      const missionId = await handleRunCommand(ctx, buildExternalResearchGoal(text, contextualTurns), [missionDefaultProvider()], 'external_research');
+      const missionId = await handleRunCommand(ctx, buildExternalResearchGoal(text, contextualTurns), [missionDefaultProvider()], 'external_research', {
+        executionAuthority: externalResearchAuthorization.governorDecision
+      });
+      recordTelegramHarnessCoreExecution(externalResearchAuthorization, {
+        toolName: 'external.fetch',
+        status: missionId ? 'success' : 'failure',
+        summary: missionId
+          ? `Natural external research started Spawner mission ${missionId}.`
+          : 'Natural external research did not return a mission id.'
+      });
       if (missionId) {
         await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} to inspect an external GitHub/web target from Telegram.`).catch(() => {});
       }
@@ -9041,17 +9097,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const inferredMission = inferMissionFromRecentContext(text, recentMessages);
-    if (inferredMission && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'spawner.contextual_mission',
-      text,
-      toolName: 'spawner.run',
-      ownerSystem: 'spawner-ui',
-      mutationClass: 'launches_mission'
-    })) {
+    const inferredMissionAuthorization = inferredMission
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spawner.contextual_mission',
+        text,
+        toolName: 'spawner.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission'
+      })
+      : null;
+    if (inferredMission && inferredMissionAuthorization?.allow) {
       console.log(`[ConversationIntent] inferred mission from follow-up user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       await conversation.remember(user, text).catch(() => {});
       const missionId = await handleRunCommand(ctx, inferredMission.goal, [missionDefaultProvider()], undefined, {
-        missionName: inferredMission.missionName
+        missionName: inferredMission.missionName,
+        executionAuthority: inferredMissionAuthorization.governorDecision
+      });
+      recordTelegramHarnessCoreExecution(inferredMissionAuthorization, {
+        toolName: 'spawner.run',
+        status: missionId ? 'success' : 'failure',
+        summary: missionId
+          ? `Natural inferred follow-up started Spawner mission ${missionId}.`
+          : 'Natural inferred follow-up did not return a mission id.'
       });
       if (missionId) {
         await conversation.learnAboutUser(user, `Started Spawner mission ${missionId} from Telegram follow-up: ${inferredMission.goal.slice(0, 220)}`).catch(() => {});
@@ -9083,15 +9150,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
       const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
-      const ideationPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
-      const llmResponse = await llm.chat(
-        ideationPrompt,
-        [buildIdeationSystemHint(text), renderSparkAccessRuntimeHint(accessProfile)].join('\n\n'),
-        memories
-      );
-      const response = applyPlainWordsSurfaceRequest(text, isLowInformationLlmReply(llmResponse)
-        ? buildIdeationFallbackReply(text)
-        : llmResponse);
+      const response = await renderConversationalIdeationResponse(text, conversationFrame, memories, accessProfile);
       await ctx.reply(response);
       await conversation.rememberAssistantReply(user, response).catch(() => {});
       return;

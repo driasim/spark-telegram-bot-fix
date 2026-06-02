@@ -22,6 +22,7 @@ import path from 'node:path';
 import axios from 'axios';
 import { describeTier, getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
+import { readHarnessCoreToolLedger } from '../src/harnessCoreLedger';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -49,6 +50,8 @@ const originalEnv = {
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
 	SPARK_FINAL_ANSWER_GATE_AUDIT_PATH: process.env.SPARK_FINAL_ANSWER_GATE_AUDIT_PATH,
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
+	SPARK_HARNESS_CORE_LEDGER: process.env.SPARK_HARNESS_CORE_LEDGER,
+	SPARK_HARNESS_CORE_LEDGER_PATH: process.env.SPARK_HARNESS_CORE_LEDGER_PATH,
 	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
 	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
 	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
@@ -2752,6 +2755,43 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('natural startup operator usage question does not confirm a contextual mission', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-startup-operator-natural-chat-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const user = { id: 8319079055, username: 'cem' };
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		await conversationModule.conversation.remember(
+			user,
+			'We should build a Spark bug-recognition domain chip from recent Telegram routing issues.'
+		);
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 613, replies);
+		ctx.message.text = 'Should we use the startup operator more, and what would make that worthwhile?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies.join('\n');
+		assert.match(reply, /sharper startup decisions|Worthwhile proof/i);
+		assert.doesNotMatch(reply, /I will run that through Codex now|Mission:|Canvas|Kanban/i);
+		assert.equal(captured.length, 0, 'natural startup-operator discussion must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('startup answer editing in chat does not become access or mission execution', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -3198,6 +3238,9 @@ async function run(): Promise<void> {
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-slow-no-edit-route-'));
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -3225,10 +3268,24 @@ async function run(): Promise<void> {
 		const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
 		assert.ok(runCall, 'explicit no-edit Spawner diagnostic must dispatch through Spawner');
 		assert.equal(runCall!.body.missionName, 'Telegram Golden Path Probe');
+		assert.equal(runCall!.body.executionAuthority?.tool_ledgers?.[0]?.tool_name, 'spawner.run');
 		assert.match(runCall!.body.goal, /Reply with exactly: SPARK_E2E_SLOW_NO_EDIT_OK/);
 		assert.match(runCall!.body.goal, /wait about 30 seconds so Mission Control can show a running state/);
 		assert.match(replies.join('\n'), /I will run that through Codex now\./);
 		assert.doesNotMatch(replies.join('\n'), /Spark is healthy right now|No repair action needed/i);
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		assert.ok(
+			ledgerRecords.some((record) => record.authorization.verdict === 'allow' && record.result.status === 'not_started'),
+			'natural no-edit Spawner probe must record Harness Core authorization before owner execution'
+		);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spawner.run' &&
+				record.result.status === 'success' &&
+				/Natural no-edit Spawner probe started mission spark-slow-no-edit/.test(record.result.summary)
+			)),
+			'natural no-edit Spawner probe must record the final Harness Core execution result'
+		);
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
