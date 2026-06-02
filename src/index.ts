@@ -4107,12 +4107,14 @@ function voiceCommandMutatesRuntime(text: string): boolean {
 
 function voiceCommandAuthoritySpec(text: string): {
   toolName: string;
+  ownerSystem: NaturalRouteOwnerSystem;
   mutationClass: SparkHarnessMutationClass;
   action: string;
 } {
   if (/^\/voice\s+(?:speak|ask|answer)\b/i.test(text)) {
     return {
       toolName: 'voice.speak',
+      ownerSystem: 'spark-voice-comms',
       mutationClass: 'external_network',
       action: 'voice.speak'
     };
@@ -4120,6 +4122,7 @@ function voiceCommandAuthoritySpec(text: string): {
   if (/^\/voice\s+(?:status|probe|diagnose)\b/i.test(text) || /^\/voice\s*$/i.test(text)) {
     return {
       toolName: 'voice.status',
+      ownerSystem: 'spark-voice-comms',
       mutationClass: 'read_only',
       action: 'voice.status'
     };
@@ -4127,6 +4130,7 @@ function voiceCommandAuthoritySpec(text: string): {
   if (/^\/voice\s+(?:install)\b/i.test(text)) {
     return {
       toolName: 'voice.install',
+      ownerSystem: 'spark-voice-comms',
       mutationClass: 'writes_files',
       action: 'voice.install'
     };
@@ -4134,12 +4138,14 @@ function voiceCommandAuthoritySpec(text: string): {
   if (/^\/voice\s+(?:onboard|onboarding|setup|set\s+up|configure|enable|disable|reset|prepare|connect)\b/i.test(text)) {
     return {
       toolName: 'voice.onboard',
+      ownerSystem: 'spark-voice-comms',
       mutationClass: 'writes_files',
       action: 'voice.onboard'
     };
   }
   return {
     toolName: 'voice.command',
+    ownerSystem: 'spark-intelligence-builder',
     mutationClass: voiceCommandMutatesRuntime(text) ? 'writes_files' : 'read_only',
     action: voiceCommandMutatesRuntime(text) ? 'voice.configure' : 'voice.status_or_reply'
   };
@@ -4157,7 +4163,7 @@ bot.command('voice', async (ctx) => {
     route: 'voice.command',
     text: voiceText,
     toolName: voiceAuthority.toolName,
-    ownerSystem: 'spark-intelligence-builder',
+    ownerSystem: voiceAuthority.ownerSystem,
     mutationClass: voiceAuthority.mutationClass,
     action: voiceAuthority.action,
     kind: 'runtime_truth_or_operator',

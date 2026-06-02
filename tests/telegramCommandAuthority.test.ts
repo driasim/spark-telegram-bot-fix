@@ -395,7 +395,7 @@ test('voice commands authorize exact status, speak, and setup hook tools through
     commandName: 'voice',
     route: 'voice.command',
     toolName: 'voice.status',
-    ownerSystem: 'spark-intelligence-builder',
+    ownerSystem: 'spark-voice-comms',
     mutationClass: 'read_only',
     action: 'voice.status',
     kind: 'runtime_truth_or_operator',
@@ -406,7 +406,7 @@ test('voice commands authorize exact status, speak, and setup hook tools through
     commandName: 'voice',
     route: 'voice.command',
     toolName: 'voice.speak',
-    ownerSystem: 'spark-intelligence-builder',
+    ownerSystem: 'spark-voice-comms',
     mutationClass: 'external_network',
     action: 'voice.speak',
     kind: 'runtime_truth_or_operator',
@@ -417,7 +417,7 @@ test('voice commands authorize exact status, speak, and setup hook tools through
     commandName: 'voice',
     route: 'voice.command',
     toolName: 'voice.onboard',
-    ownerSystem: 'spark-intelligence-builder',
+    ownerSystem: 'spark-voice-comms',
     mutationClass: 'writes_files',
     action: 'voice.onboard',
     kind: 'runtime_truth_or_operator',
@@ -427,6 +427,7 @@ test('voice commands authorize exact status, speak, and setup hook tools through
   assert.equal(status.allow, true);
   assert.equal(speak.allow, true);
   assert.equal(setup.allow, true);
+  assert.equal(speak.legacyEnvelope?.selectedIntent.ownerSystem, 'spark-voice-comms');
   assert.equal(speak.legacyEnvelope?.selectedIntent.action, 'voice.speak');
   assert.equal(speak.governorDecision?.tool_ledgers[0]?.tool_name, 'voice.speak');
   assert.equal(status.harnessCore?.authorization.restrictions.write_allowed, false);

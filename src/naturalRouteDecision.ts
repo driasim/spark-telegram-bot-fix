@@ -50,6 +50,7 @@ import type { ShippedProjectContext } from './shippedProjectContext';
 export type NaturalRouteOwnerSystem =
   | 'spark-telegram-bot'
   | 'spark-intelligence-builder'
+  | 'spark-voice-comms'
   | 'domain-chip-memory'
   | 'spark-character'
   | 'spawner-ui'
