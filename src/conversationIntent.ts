@@ -2686,8 +2686,14 @@ export function isGlobalAgentDoctrineRequest(text: string): boolean {
   if (!normalized) {
     return false;
   }
+  if (
+    /^(?:score|rate|evaluate|assess|review|compare|draft|explain|describe|analy[sz]e|help\s+me\s+think|what\s+(?:is|are|would|should)|how\s+(?:would|should)|why)\b/.test(normalized) ||
+    /\b(?:score|rate|evaluate|assess|review|compare)\s+(?:this\s+)?(?:idea|concept|proposal|approach|plan)\b/.test(normalized)
+  ) {
+    return false;
+  }
   return (
-    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|tools?|routes?)\b/.test(normalized) ||
+    /\b(?:all|every|each)\s+(?:spark\s+)?(?:agents?|systems?|surfaces?|workflows?|routes?)\b/.test(normalized) ||
     /\b(?:globally|system-wide|production doctrine|default doctrine)\b/.test(normalized)
   ) && /\b(?:style|tone|personality|persona|conversation|conversational|natural language|nlp|context|understand|understanding|interpret|routing|route|reply|response|talk|speak|doctrine|rule|preference|ask|clarify|clarifying|confirmation|missions?|tools?|start)\b/.test(normalized);
 }

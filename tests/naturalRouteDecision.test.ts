@@ -450,3 +450,13 @@ test('blocks global Spark system natural-language doctrine changes from a chat t
   assert.equal(route.requires_confirmation, true);
   assert.deepEqual(route.blocked_by, ['chat_cannot_change_global_agent_doctrine']);
 });
+
+test('keeps global doctrine evaluation prompts in chat', () => {
+  const scoreRoute = decideNaturalRoute('Score this idea: a harness that makes every tool a capability module.');
+  const evaluateRoute = decideNaturalRoute('Evaluate whether all Spark agents should ask clarifying questions before missions.');
+
+  assert.equal(scoreRoute.route, 'plain_chat');
+  assert.equal(scoreRoute.owner_system, 'none');
+  assert.equal(evaluateRoute.route, 'plain_chat');
+  assert.equal(evaluateRoute.owner_system, 'none');
+});

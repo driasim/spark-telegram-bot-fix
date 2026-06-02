@@ -182,6 +182,9 @@ function isCreatorLoopDomainChipPhrase(text: string, recentCreatorLoopContext: b
 }
 
 function isGlobalDoctrineLikeRequest(text: string): boolean {
+  if (/^(?:score|rate|evaluate|assess|review|compare|draft|explain|describe|analy[sz]e|help\s+me\s+think|what\s+(?:is|are|would|should)|how\s+(?:would|should)|why)\b/i.test(text)) {
+    return false;
+  }
   return isGlobalAgentDoctrineRequest(text) || (
     /\b(?:all|every|each)\s+(?:spark\s+)?agents?\b|\bglobally\b|\bsystem-wide\b/i.test(text) &&
     /\b(?:conversational|direct|decisive|warm|casual|formal|brief|concise|detailed|curious|opinionated|proactive|style|tone|personality|persona|conversation|reply|response|talk|speak|doctrine|rule|preference|ask|clarify|clarifying|confirmation|missions?|tools?|start)\b/i.test(text)
