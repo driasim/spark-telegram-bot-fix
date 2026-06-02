@@ -1874,6 +1874,48 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(accessDocs, /descriptive, not permission changes/i);
   assert.match(accessDocs, /current access status/i);
   assert.doesNotMatch(accessDocs, /permission to run tools/i);
+
+  const voiceTranscript = renderMissionRoutingFailureClassReply(
+    'Voice transcript example: "run the startup loop". What is the safe path?'
+  );
+  assert.match(voiceTranscript, /transcript text/i);
+  assert.match(voiceTranscript, /Governor authorization/i);
+  assert.doesNotMatch(voiceTranscript, /This is no-action|no-action/i);
+
+  const taxonomyLabels = renderMissionRoutingFailureClassReply(
+    'Memory, mission, build, and publish are just labels in this taxonomy.'
+  );
+  assert.match(taxonomyLabels, /taxonomy labels/i);
+  assert.match(taxonomyLabels, /not permission to act/i);
+  assert.doesNotMatch(taxonomyLabels, /This is no-action|no-action/i);
+
+  const surfaceNames = renderMissionRoutingFailureClassReply(
+    'This sentence contains browser and computer-use as surface names. Explain the boundary.'
+  );
+  assert.match(surfaceNames, /capability names/i);
+  assert.match(surfaceNames, /authorized tool approval/i);
+  assert.doesNotMatch(surfaceNames, /This is no-action|no-action/i);
+
+  const providerQuote = renderMissionRoutingFailureClassReply(
+    'If a prompt says provider status inside a quote, should it fetch provider state?'
+  );
+  assert.match(providerQuote, /quote text first/i);
+  assert.match(providerQuote, /fresh status-shaped request/i);
+  assert.doesNotMatch(providerQuote, /This is no-action|no-action/i);
+
+  const deployAudit = renderMissionRoutingFailureClassReply(
+    'We are auditing the word deploy. What makes deploy an operation instead of a topic?'
+  );
+  assert.match(deployAudit, /real target, environment/i);
+  assert.match(deployAudit, /topic for the Governor/i);
+  assert.doesNotMatch(deployAudit, /This is no-action|no-action/i);
+
+  const chipHeading = renderMissionRoutingFailureClassReply(
+    'The chip creator docs mention "create a chip" as a heading. How should that route?'
+  );
+  assert.match(chipHeading, /documentation text/i);
+  assert.match(chipHeading, /authorized tool call/i);
+  assert.doesNotMatch(chipHeading, /This is no-action|no-action/i);
 });
 
 test('release evidence questions with no-action language stay conversational', () => {

@@ -224,9 +224,9 @@ test('bug hunt: mission routing failure-class prompts stay short and non-executi
   assertNoBuild(prompt);
 
   const reply = renderMissionRoutingFailureClassReply(prompt);
-  assert.match(reply, /stay in chat/i);
-  assert.match(reply, /no-action/i);
-  assert.match(reply, /Fresh user intent wins/i);
+  assert.match(reply, /route hijack/i);
+  assert.match(reply, /Governor decision/i);
+  assert.doesNotMatch(reply, /This is no-action|no-action/i);
   assert.doesNotMatch(reply, /Canvas|Kanban|Mission board|latest canvas|H70 Orbit Proof/i);
   assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected compact reply, got: ${reply}`);
 });
@@ -235,8 +235,9 @@ test('bug hunt: no-action explanation reply does not reuse stale mission/build w
   const staleGoReply = renderMissionRoutingFailureClassReply(
     'go. There is no active pending action in this turn. Do not continue an old mission. Just tell me whether this word alone is enough to act.'
   );
-  assert.match(staleGoReply, /stay in chat/i);
-  assert.match(staleGoReply, /not permission to run tools/i);
+  assert.match(staleGoReply, /word by itself is not enough/i);
+  assert.match(staleGoReply, /fresh explicit continuation request/i);
+  assert.doesNotMatch(staleGoReply, /This is no-action|no-action/i);
   assert.doesNotMatch(staleGoReply, /mission or build words/i);
   assert.doesNotMatch(staleGoReply, /asked to explain only/i);
 

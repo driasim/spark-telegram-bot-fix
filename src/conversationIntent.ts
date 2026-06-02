@@ -1583,6 +1583,76 @@ export function isMissionRoutingFailureClassQuestion(text: string): boolean {
 	return asksFailureClass && mentionsRouting && noExecution;
 }
 
+function renderContextualHarnessBoundaryReply(_text: string, normalized: string): string {
+	if (
+		/\bvoice\s+transcript\s+example\b/.test(normalized) ||
+		(/\btranscript\b/.test(normalized) && /\brun\s+the\s+startup\s+loop\b/.test(normalized))
+	) {
+		return [
+			'Treat the phrase as transcript text until the user clearly asks Spark to run the startup loop.',
+			'The safe path is to parse the transcript, classify the turn, then require explicit Governor authorization before any loop starts.'
+		].join('\n');
+	}
+	if (/\b(?:browser|computer-use|computer\s+use)\b/.test(normalized) && /\b(?:surface\s+names?|explain\s+the\s+boundary)\b/.test(normalized)) {
+		return [
+			'Browser and computer-use are capability names in that sentence, not tool calls.',
+			'Spark should explain the boundary and only open either surface after a fresh explicit request plus authorized tool approval.'
+		].join('\n');
+	}
+	if (/\bprovider\s+status\b/.test(normalized) && /\b(?:quote|quoted|inside\s+a\s+quote)\b/.test(normalized)) {
+		return [
+			'Provider status inside a quote is quote text first, so Spark should not fetch runtime state from that alone.',
+			'Fetching provider state needs a fresh status-shaped request, not a quoted example.'
+		].join('\n');
+	}
+	if (/\bcreate\s+a\s+chip\b/.test(normalized) && /\b(?:docs?|heading|documentation)\b/.test(normalized)) {
+		return [
+			'A docs heading like "create a chip" is documentation text, not chip creation.',
+			'It can inform the answer, but creating a chip still needs a fresh explicit request and an authorized tool call.'
+		].join('\n');
+	}
+	if (/\bcodex\b/.test(normalized) && /\b(?:hijack|routing\s+trigger|word)\b/.test(normalized)) {
+		return [
+			'Codex should be treated as a capability reference until the user clearly asks Spark to use it.',
+			'The word can be evidence for the Governor, but it should not route the turn by itself.'
+		].join('\n');
+	}
+	if (/\bgovernor\b/.test(normalized) && /\b(?:run|schedule|deploy|chip|memory)\b/.test(normalized)) {
+		return [
+			'The Governor should read those words as route evidence, then decide whether the sentence actually asks for work.',
+			'Without a concrete request, the right outcome is conversational: explain the boundary and avoid tool execution.'
+		].join('\n');
+	}
+	if (/\b(?:labels?|taxonomy)\b/.test(normalized) && HIGH_AGENCY_WORD_PATTERN.test(normalized)) {
+		return [
+			'Exactly: those are taxonomy labels, not permission to act.',
+			'The Governor can use them as evidence, but the turn should remain conversational unless the user asks for a specific authorized action.'
+		].join('\n');
+	}
+	if (/\b(?:mission\s+routing|route\s+hijack|routing\s+bug|mission\s+route|spawner\s+route)\b/.test(normalized)) {
+		return [
+			'Likely failure class: route hijack from a local mission/build helper outranking the current turn.',
+			'The durable fix is to keep this in chat and require the canonical Governor decision before anything can launch.'
+		].join('\n');
+	}
+	if (/\b(?:word\s+alone|words\s+alone)\b/.test(normalized) || /\bgo\b/.test(normalized) && /\b(?:old\s+mission|pending\s+action|continue)\b/.test(normalized)) {
+		return [
+			'A word by itself is not enough to act.',
+			'Spark should look for a fresh explicit continuation request; otherwise it should answer conversationally and avoid resuming old work.'
+		].join('\n');
+	}
+	if (/\b(?:quoted|quote|examples?|bug\s+report|meta[-\s]*language|risky\s+triggers?|trigger\s+words?|sentence\s+contains|surface\s+names?)\b/.test(normalized)) {
+		return [
+			'Treat those action words as language evidence, not as the action itself.',
+			'The Governor can use them to understand the turn, but execution still needs a fresh explicit request and an authorized tool decision.'
+		].join('\n');
+	}
+	return [
+		'Treat the action words as evidence for understanding the turn, not as permission to act.',
+		'The harness should answer the question in chat unless the user gives a fresh explicit request that the Governor authorizes.'
+	].join('\n');
+}
+
 export function renderMissionRoutingFailureClassReply(_text: string): string {
 	const normalized = _text.toLowerCase().replace(/\s+/g, ' ').trim();
 	if (
@@ -1605,6 +1675,12 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 		return [
 			'Spark should treat “schedule” as text inside the bug report, not as a scheduling command.',
 			'Only a fresh, explicit schedule request with timing and target should create a schedule. Examples, quoted phrases, and “do not schedule” stay in chat.'
+		].join('\n');
+	}
+	if (/\bauditing\s+the\s+word\s+deploy\b/.test(normalized) || (/\bdeploy\b/.test(normalized) && /\boperation\s+instead\s+of\s+a\s+topic\b/.test(normalized))) {
+		return [
+			'Deploy becomes an operation when the user gives a fresh request with a real target, environment, and release intent.',
+			'In an audit question, it is a topic for the Governor to classify, not permission to publish anything.'
 		].join('\n');
 	}
 	if (
@@ -1722,13 +1798,10 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 	if (/\bstartup\s+operator\b/.test(normalized) || /\bstartup self[-\s]*improvement\b/.test(normalized)) {
 		return [
 			'For the startup operator, the next useful test is answer-quality proof: give it founder scenarios, compare baseline and improved replies blindly, and check whether the recommendation gets sharper without launching work.',
-			'This turn should stay in chat because you explicitly said not to launch anything. Fresh user intent wins over old routes.'
+			'Because you framed this as architecture, Spark should keep it as a chat answer until you ask for a specific authorized run.'
 		].join('\n');
 	}
-	return [
-		'This is no-action and should stay in chat. Spark should treat those words as examples or context, not permission to run tools.',
-		'Fresh user intent wins over keywords, memory, stale state, and pending actions.'
-	].join('\n');
+	return renderContextualHarnessBoundaryReply(_text, normalized);
 }
 
 export function isNoExecutionExplanationPrompt(text: string): boolean {

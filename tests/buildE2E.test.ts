@@ -2621,8 +2621,9 @@ async function run(): Promise<void> {
 		await indexModule.handleTextMessage(ctx);
 
 		const reply = replies[0] || '';
-		assert.match(reply, /stay in chat/i);
-		assert.match(reply, /no-action/i);
+		assert.match(reply, /route hijack/i);
+		assert.match(reply, /Governor decision/i);
+		assert.doesNotMatch(reply, /This is no-action|no-action/i);
 		assert.doesNotMatch(reply, /latest canvas|H70 Orbit Proof|Mission board|Canvas|Kanban/i);
 		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
 		assert.equal(captured.length, 0, 'failure-class probe must not call Spawner or PRD bridge');
@@ -2684,8 +2685,8 @@ async function run(): Promise<void> {
 		await indexModule.handleTextMessage(ctx);
 
 		const reply = replies[0] || '';
-		assert.match(reply, /stay in chat/i);
-		assert.match(reply, /examples or context/i);
+		assert.match(reply, /language evidence|Governor/i);
+		assert.doesNotMatch(reply, /This is no-action|no-action/i);
 		assert.doesNotMatch(reply, /Spark is healthy right now|No restart needed|Live loop/i);
 		assert.equal(captured.length, 0, 'meta risky-word discussion must not call Spawner or PRD bridge');
 
@@ -2715,8 +2716,9 @@ async function run(): Promise<void> {
 		await indexModule.handleTextMessage(ctx);
 
 		const reply = replies[0] || '';
-		assert.match(reply, /stay in chat/i);
-		assert.match(reply, /Fresh user intent wins/i);
+		assert.match(reply, /answer-quality proof/i);
+		assert.match(reply, /architecture|chat/i);
+		assert.doesNotMatch(reply, /This is no-action|no-action/i);
 		assert.equal(replies.length, 1, 'startup architecture boundary should answer once in chat');
 		assert.equal(captured.length, 0, 'startup architecture boundary must not call Spawner or PRD bridge');
 
