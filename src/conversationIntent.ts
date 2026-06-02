@@ -66,6 +66,25 @@ export function shouldPreferConversationalIdeation(text: string): boolean {
   );
 }
 
+const HIGH_AGENCY_WORD_PATTERN = /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas|browser|computer-use|computer\s+use|restart)\b/;
+
+export function isActionWordMetaDiscussion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || !HIGH_AGENCY_WORD_PATTERN.test(normalized)) return false;
+
+  const framesAsLanguage =
+    /\b(?:risky\s+(?:triggers?|words?)|trigger\s+words?|examples?|quoted|quotes?|quote|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|people\s+say|customer\s+wrote|sentence\s+contains|surface\s+names?|transcript\s+example|labels?|taxonomy|auditing\s+the\s+word|docs?\s+mention|heading|phrase|phrases|term|terms|route\s+boundary|intent\s+taxonomy)\b/.test(normalized);
+  const asksBoundary =
+    /\b(?:what\s+should|how\s+should|should\s+spark|should\s+it|what\s+makes|what\s+is\s+the\s+safe\s+path|explain\s+the\s+boundary|classify|classification|route|fetch|operation\s+instead\s+of\s+a\s+topic)\b/.test(normalized);
+  const labelsOnly =
+    /\b(?:are|is)\s+(?:just\s+|only\s+)?(?:labels?|examples?|headings?|terms?|phrases?)\b/.test(normalized) ||
+    /\b(?:just\s+|only\s+)?(?:labels?|examples?|headings?|terms?|phrases?)\s+(?:in|inside|for)\s+(?:this\s+)?(?:taxonomy|docs?|bug\s+report|example|quote)\b/.test(normalized);
+  const explicitBoundary =
+    /\b(?:not\s+a\s+command|not\s+an\s+instruction|not\s+a\s+request|not\s+asking\s+(?:you\s+)?to|do\s+not|don't|dont|no\s+need\s+to|stay\s+in\s+chat|chat\s+only)\b/.test(normalized);
+
+  return framesAsLanguage && (asksBoundary || labelsOnly || explicitBoundary);
+}
+
 export function isSparkWikiStatusQuestion(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) {
@@ -1004,6 +1023,7 @@ export function isMissionExecutionConfirmation(text: string): boolean {
 export function isNoExecutionBoundary(text: string): boolean {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return false;
+  if (isActionWordMetaDiscussion(normalized)) return true;
   return [
     /^(?:no|nah|nope)(?:[,\s.!]+|$)/,
     /\bno\s+(?:build|mission|execution|new\s+work)(?:\s+or\s+(?:build|mission|execution|new\s+work))*\s+for\s+now\b/,
@@ -1039,6 +1059,7 @@ export interface InferredMissionFromContext {
 }
 
 export function inferMissionFromRecentContext(currentText: string, recentMessages: string[]): InferredMissionFromContext | null {
+  if (isActionWordMetaDiscussion(currentText) || isNoExecutionBoundary(currentText)) return null;
   if (!isMissionExecutionConfirmation(currentText) && !isExplicitContextualBuildRequest(currentText)) return null;
   if (isAccessCapabilityRepairRequest(currentText, recentMessages)) return null;
 
@@ -1133,6 +1154,7 @@ export function inferDefaultBuildFromRecentScoping(currentText: string, recentMe
 export function isExplicitContextualBuildRequest(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) return false;
+  if (isActionWordMetaDiscussion(normalized) || isNoExecutionBoundary(normalized)) return false;
   const asksToBuild = /\b(?:build|create|make|scaffold|implement|wire|integrate|improve|expand|upgrade|add)\b/.test(normalized);
   const contextualObject = /\b(?:this|that|it|those|these|integration points?|connectors?|domain chip|diagnostic agent|bug recognition|what we built)\b/.test(normalized);
   const executionHint = /\b(?:via|through|using|with|as)\s+(?:codex|mission|spawner|run)\b|\bmission\b|\bcodex\b/.test(normalized);
@@ -1574,7 +1596,7 @@ export function renderMissionRoutingFailureClassReply(_text: string): string {
 	}
 	if (
 		/\bschedule\b/.test(normalized) &&
-		/\b(?:bug\s+report|example|quoted|word\s+schedule|schedule\s+word)\b/.test(normalized)
+		/\b(?:bug\s+report|example|quoted|quotes?|word\s+schedule|schedule\s+word)\b/.test(normalized)
 	) {
 		return [
 			'Spark should treat “schedule” as text inside the bug report, not as a scheduling command.',
@@ -2293,9 +2315,20 @@ export function buildIdeationSystemHint(text: string): string {
   ].filter(Boolean).join('\n');
 }
 
+function isLegacyRouteMenuReplyText(normalized: string): boolean {
+  return (
+    /^i caught '[^']+'(?:\s|$)/.test(normalized) &&
+    (
+      /\boptions?\b|\bwhich\?|i can:|i can actually do:/.test(normalized) ||
+      /\b(?:show what's scheduled|set up a new one|cancel one|loop <chip-key>|which chips are active|show the mission board|start a new mission)\b/.test(normalized)
+    )
+  );
+}
+
 export function isLowInformationLlmReply(reply: string): boolean {
   const normalized = reply.trim().toLowerCase();
   return (
+    isLegacyRouteMenuReplyText(normalized) ||
     !normalized ||
     normalized === 'working memory' ||
     normalized === 'nothing active' ||
@@ -2406,6 +2439,7 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
       normalized.includes('loop <chip-key>') &&
       normalized.includes('which chips are active')
     ) ||
+    isLegacyRouteMenuReplyText(normalized) ||
     (
       normalized.includes('you want the self-critic') &&
       normalized.includes('loop domain-chip-spark-ops-critic')

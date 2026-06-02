@@ -36,11 +36,31 @@ export interface TelegramActionAuthorityResult {
   reasonCodes: string[];
 }
 
+const ROUTE_ALIASES: Record<string, string[]> = {
+  'recursive.proposal': ['recursive.propose'],
+  'spark.wiki': ['spark_wiki.promote', 'spark_wiki.query', 'spark_wiki.answer'],
+};
+
+function routeMatchesCandidate(inputRoute: string, candidateRoute: string): boolean {
+  if (inputRoute === candidateRoute) return true;
+  return (ROUTE_ALIASES[inputRoute] || []).includes(candidateRoute);
+}
+
+function envelopeSelectedRoute(envelope: TurnIntentEnvelopeV1 | null | undefined, inputRoute: string): boolean {
+  if (!envelope) return false;
+  const selectedAction = envelope.selectedIntent.action;
+  if (selectedAction && routeMatchesCandidate(inputRoute, selectedAction)) return true;
+  return envelope.candidates.some((candidate) => routeMatchesCandidate(inputRoute, candidate.route));
+}
+
 export function authorizeTelegramActionFromEnvelope(
   envelope: TurnIntentEnvelopeV1 | null | undefined,
   input: TelegramActionAuthorityInput
 ): TelegramActionAuthorityResult {
   const routeVerdict = evaluateDeterministicRoute(input.route, input.text);
+  const routeSelectedByEnvelope = envelopeSelectedRoute(envelope, input.route);
+  const explicitRouteEvidence = routeVerdict.confidence === 'explicit';
+  const routeAuthorizedByTurn = routeSelectedByEnvelope || explicitRouteEvidence;
   const toolAuthorization = authorizeToolCallFromEnvelope(envelope, {
     toolName: input.toolName,
     ownerSystem: input.ownerSystem,
@@ -53,10 +73,14 @@ export function authorizeTelegramActionFromEnvelope(
         envelope,
         input,
         toolAuthorization,
-        routeVerdict.allow
+        routeVerdict.allow && routeAuthorizedByTurn
       )
     : null;
-  const preliminaryAllow = routeVerdict.allow && toolAuthorization.verdict === 'allowed' && harnessCore?.authorization.verdict === 'allow';
+  const preliminaryAllow =
+    routeVerdict.allow &&
+    routeAuthorizedByTurn &&
+    toolAuthorization.verdict === 'allowed' &&
+    harnessCore?.authorization.verdict === 'allow';
   const harnessCoreLedger = harnessCore
     ? recordHarnessCoreAuthorizationLedger({
         bundle: harnessCore,
@@ -77,6 +101,7 @@ export function authorizeTelegramActionFromEnvelope(
   );
   const reasonCodes = [
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
+    ...(routeAuthorizedByTurn ? [] : ['route_not_selected_by_turn_envelope']),
     ...toolAuthorization.reasonCodes,
     ...(harnessCore && harnessCore.authorization.verdict !== 'allow'
       ? harnessCore.authorization.reasons.map((reason) => `harness_core:${reason}`)

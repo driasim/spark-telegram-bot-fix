@@ -135,6 +135,22 @@ test('Telegram action authority returns non-executing Governor outcome for meta 
   assert.equal(result.governorDecision?.reply_contract.should_interrupt, false);
 });
 
+test('Telegram action authority blocks unselected contextual execution routes', () => {
+  const text = 'Build a private local-first dashboard for memory reports with stale context labels.';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.contextual_mission',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.notEqual(result.governorDecision?.outcome, 'execute');
+  assert.equal(result.governorDecision?.execution_boundary.action_authorized, false);
+});
+
 test('records Harness Core tool ledger for authorized execution', () => {
   const text = 'Build a tiny static launch checklist app with one save button and responsive layout.';
   const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {

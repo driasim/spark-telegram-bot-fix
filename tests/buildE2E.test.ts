@@ -3167,6 +3167,52 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('taxonomy action-word labels do not infer contextual mission from recent Spark bug context', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-taxonomy-labels-no-mission-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return {
+				data: {
+					success: true,
+					missionId: 'should-not-start-from-taxonomy',
+					providers: ['codex']
+				}
+			};
+		};
+		(axios as any).get = async () => ({ data: { providers: [{ id: 'codex' }] } });
+
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		await conversationModule.conversation.remember(
+			{ id: 8319079072, username: 'cem' },
+			'We are designing a Spark bug recognition domain chip with build, mission, and diagnostic agent context.'
+		);
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079072, 8319079055, 628, replies);
+		ctx.message.text = 'Memory, mission, build, and publish are just labels in this taxonomy.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const joined = replies.join('\n');
+		assert.doesNotMatch(joined, /I will run that through Codex now|Mission:|Canvas|Kanban/i);
+		assert.equal(
+			captured.filter((c) => /\/api\/(?:spark\/run|prd-bridge\/write)/.test(c.url)).length,
+			0,
+			'taxonomy label sentence must not call Spawner run or PRD bridge'
+		);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('chat-only domain chip proposal stays useful without creating', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
@@ -3224,6 +3270,37 @@ async function run(): Promise<void> {
 		assert.match(reply, /fresh, explicit schedule request/i);
 		assert.doesNotMatch(reply, /Mission:|I will run|permission to run tools/i);
 		assert.equal(captured.length, 0, 'schedule bug-report wording must not call Spawner or PRD bridge');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('quoted customer schedule wording stays in chat without schedule menu', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-schedule-quote-report-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079071, 8319079055, 627, replies);
+		ctx.message.text = 'A customer wrote "schedule the founder review" in a quote. How should Spark classify it?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /text inside/i);
+		assert.match(reply, /fresh, explicit schedule request/i);
+		assert.doesNotMatch(reply, /I caught 'schedule'|Show what's scheduled|Which\?/i);
+		assert.equal(captured.length, 0, 'quoted schedule wording must not call Spawner or PRD bridge');
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();

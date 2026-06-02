@@ -41,6 +41,7 @@ import {
   isDiagnosticFollowupTestQuestion,
   isDiagnosticsScanRequest,
   isAmbiguousLocalSparkServiceRequest,
+  isActionWordMetaDiscussion,
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isSparkChipStatusOverclaimQuestion,
@@ -1270,6 +1271,16 @@ test('detects empty or generic LLM failures', () => {
     "I caught 'chip' in there but I'm not sure what you want.\n\nOptions I can actually do:\n- Run a loop on a specific chip (say 'loop <chip-key>')\n- List active chips (say 'which chips are active')"
   ), true);
   assert.equal(isLowInformationLlmReply(
+    "I caught 'schedule' but I'm not sure which angle.\n\nI can:\n- Show what's scheduled\n- Set up a new one (say 'every X run Y')\n- Cancel one (say 'cancel my <description>')\n\nWhich?"
+  ), true);
+  assert.equal(
+    builderReplySuppressionReason(
+      "I caught 'schedule' but I'm not sure which angle.\n\nI can:\n- Show what's scheduled\n- Set up a new one (say 'every X run Y')\n- Cancel one (say 'cancel my <description>')\n\nWhich?",
+      'disambiguation_shortcircuit'
+    ),
+    'route_menu'
+  );
+  assert.equal(isLowInformationLlmReply(
     'Spark could not reach the Builder memory path right now.\n\nCheck now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.\n\nOperator fix: spark fix telegram, then spark verify --onboarding.'
   ), true);
   assert.equal(isLowInformationLlmReply(
@@ -1732,6 +1743,17 @@ test('no-execution boundary catches negated ongoing action wording', () => {
     isNoExecutionBoundary('We are discussing mission IDs as a product concept, not launching a mission. What should the UI show?'),
     true
   );
+  const taxonomyTurn = 'Memory, mission, build, and publish are just labels in this taxonomy.';
+  assert.equal(isActionWordMetaDiscussion(taxonomyTurn), true);
+  assert.equal(isNoExecutionBoundary(taxonomyTurn), true);
+  assert.equal(isExplicitContextualBuildRequest(taxonomyTurn), false);
+  assert.equal(
+    inferMissionFromRecentContext(taxonomyTurn, [
+      'We were designing a Spark bug recognition domain chip.',
+      'The recent context mentions build, create, mission, and diagnostic agent work.'
+    ]),
+    null
+  );
 });
 
 test('no-execution replies answer the actual product question', () => {
@@ -1753,6 +1775,13 @@ test('no-execution replies answer the actual product question', () => {
   assert.match(scheduleBug, /text inside the bug report/i);
   assert.match(scheduleBug, /fresh, explicit schedule request/i);
   assert.doesNotMatch(scheduleBug, /permission to run tools/i);
+
+  const scheduleQuote = renderMissionRoutingFailureClassReply(
+    'A customer wrote "schedule the founder review" in a quote. How should Spark classify it?'
+  );
+  assert.match(scheduleQuote, /text inside/i);
+  assert.match(scheduleQuote, /fresh, explicit schedule request/i);
+  assert.doesNotMatch(scheduleQuote, /Show what's scheduled|Which\?/i);
 
   const releaseBug = renderMissionRoutingFailureClassReply(
     'Bug report: the words publish and deploy are examples here, not commands. Do not publish or deploy. What should Spark do?'

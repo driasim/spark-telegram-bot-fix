@@ -196,6 +196,22 @@ function isExplicitScheduleDelete(normalized: string): boolean {
     /\b(?:schedule|scheduled|reminder|job|automation|routine|recurring\s+task|sched-[a-z0-9]+)\b.{0,80}\b(?:delete|cancel|remove|kill|stop|drop|disable|turn\s+off)\b/.test(normalized);
 }
 
+function isExplicitProjectIteration(normalized: string): boolean {
+  return /\b(?:improve|polish|iterate|revise|update|fix|change|upgrade)\b.{0,80}\b(?:latest|current|existing|this|that|it|project|app|build|site|dashboard|tool)\b/.test(normalized) ||
+    /\b(?:latest|current|existing|this|that|it|project|app|build|site|dashboard|tool)\b.{0,80}\b(?:improve|polish|iterate|revise|update|fix|change|upgrade)\b/.test(normalized);
+}
+
+function isExplicitDefaultBuildChoice(normalized: string): boolean {
+  return /^(?:default|defaults|use defaults?|choose default|pick default|go with default|use the recommended(?: option| direction)?|choose the recommended(?: option| direction)?|pick the recommended(?: option| direction)?)$/.test(normalized) ||
+    /\b(?:choose|pick|use|go with|start|run)\b.{0,60}\b(?:default|recommended|first|best)\b.{0,40}\b(?:option|direction|build|one|path)\b/.test(normalized);
+}
+
+function isPendingDomainChipDirection(normalized: string): boolean {
+  if (/^(?:yes|yeah|yep|yup|ok|okay|sure)$/.test(normalized)) return false;
+  return /^(?:go|go ahead|start|run it|start it|use defaults?|defaults?|use your defaults?|recommended defaults?)\b/.test(normalized) ||
+    /\b(?:names?|rationale|usage angle|vibe|tone|luxury|absurd|consumer|sci[-\s]*fi|router[-\s]*safe|defaults?)\b/.test(normalized);
+}
+
 function isExplicitDomainChipCreate(normalized: string): boolean {
   return /\b(?:build|create|make|scaffold|generate)\b.{0,80}\b(?:domain[-\s]*chip|chip)\b/.test(normalized) ||
     /^(?:please\s+)?(?:domain[-\s]*chip|chip)\s+(?:for|that|which|to)\b/.test(normalized);
@@ -250,6 +266,22 @@ function isExplicitExternalResearch(normalized: string): boolean {
       /\b(?:today|latest|current|recent|people\s+are\s+saying|web|internet|online|public)\b/.test(normalized)
     )
   );
+}
+
+function isExplicitMissionPreferenceChange(normalized: string): boolean {
+  return /\b(?:set|change|make|switch|keep|turn|configure|update)\b.{0,80}\b(?:mission|missions|spawner|canvas|board|kanban|telegram)\b.{0,80}\b(?:updates?|notifications?|links?|quiet|minimal|verbose|detailed|normal|standard|telegram only|start and end|start\s*\/\s*end)\b/.test(normalized) ||
+    /\b(?:mission|missions|spawner|canvas|board|kanban|telegram)\b.{0,80}\b(?:updates?|notifications?|links?)\b.{0,80}\b(?:quiet|minimal|verbose|detailed|normal|standard|telegram only|start and end|start\s*\/\s*end)\b/.test(normalized);
+}
+
+function isExplicitRecursiveProposal(normalized: string): boolean {
+  return /\bpropose\b.{0,60}\brecursive\b.{0,80}\b(?:network|packet|proposal)\b/.test(normalized);
+}
+
+function isExplicitMissionControlAction(normalized: string): boolean {
+  if (isQuestionLike(normalized)) return false;
+  return /\b(?:pause|resume|cancel|kill|stop)\b.{0,50}\b(?:mission|it|that|this)\b/.test(normalized) ||
+    /\b(?:mission|it|that|this)\b.{0,50}\b(?:pause|resume|cancel|kill|stop)\b/.test(normalized) ||
+    /^(?:confirm|yes[, ]+cancel|cancel it|kill it|stop it|resume it|pause it)\b/.test(normalized);
 }
 
 function isNoExecutionBoundary(normalized: string): boolean {
@@ -327,6 +359,15 @@ function isExplicitCreatorArtifactRequest(normalized: string): boolean {
     !/\b(?:do not|don't|dont|no need to)\s+(?:create|build|make|scaffold|generate|prepare)\b/.test(normalized);
 }
 
+function isExplicitCreatorMissionArtifactRequest(normalized: string): boolean {
+  if (isQuestionLike(normalized)) return false;
+  return isExplicitCreatorArtifactRequest(normalized) || (
+    /\b(?:create|build|make|scaffold|generate|prepare|update|attach|add|link)\b/.test(normalized) &&
+    /\bdomain[-\s]*chip\b/.test(normalized) &&
+    !/\b(?:do not|don't|dont|no need to)\s+(?:create|build|make|scaffold|generate|prepare|update|attach|add|link)\b/.test(normalized)
+  );
+}
+
 function isMissionPreferenceLike(normalized: string): boolean {
   return (
     /\b(?:mission|missions|spawner|canvas|board|kanban|telegram|notify|notifications?|links?)\b/.test(normalized) &&
@@ -371,7 +412,7 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'creator.mission' && isNoExecutionBoundary(normalized) && isCreatorMissionPlanOnlyRequest(normalized)) {
     return { allow: true, reason: 'creator_mission_plan_only', confidence: 'explicit' };
   }
-  if (route === 'creator.mission' && isExplicitCreatorArtifactRequest(normalized)) {
+  if (route === 'creator.mission' && isExplicitCreatorMissionArtifactRequest(normalized)) {
     return { allow: true, reason: 'explicit_creator_artifact', confidence: 'explicit' };
   }
 
@@ -385,17 +426,32 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'spawner.build' && isExplicitSpawnerNoEditMission(normalized)) {
     return { allow: true, reason: 'explicit_spawner_no_edit_mission', confidence: 'explicit' };
   }
+  if (route === 'spawner.project_iteration' && isExplicitProjectIteration(normalized)) {
+    return { allow: true, reason: 'explicit_project_iteration', confidence: 'explicit' };
+  }
+  if (route === 'spawner.default_build' && isExplicitDefaultBuildChoice(normalized)) {
+    return { allow: true, reason: 'explicit_default_build_choice', confidence: 'explicit' };
+  }
+  if (route === 'spawner.mission_control' && isExplicitMissionControlAction(normalized)) {
+    return { allow: true, reason: 'contextual_mission_control_action', confidence: 'contextual' };
+  }
   if (route === 'schedule.delete' && isExplicitScheduleDelete(normalized)) {
     return { allow: true, reason: 'explicit_schedule_delete', confidence: 'explicit' };
   }
   if (route === 'domain_chip.create' && isExplicitDomainChipCreate(normalized)) {
     return { allow: true, reason: 'explicit_domain_chip_create', confidence: 'explicit' };
   }
+  if (route === 'domain_chip.pending' && isPendingDomainChipDirection(normalized)) {
+    return { allow: true, reason: 'pending_domain_chip_direction', confidence: 'contextual' };
+  }
   if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
     return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
   }
   if (route === 'recursive.start' && /\b(?:run|start|launch|kick\s+off|do)\b.*\b(?:recursive|recursion|loop|round|autoloop)\b/.test(normalized)) {
     return { allow: true, reason: 'explicit_recursive_start', confidence: 'explicit' };
+  }
+  if (route === 'recursive.proposal' && isExplicitRecursiveProposal(normalized)) {
+    return { allow: true, reason: 'explicit_recursive_proposal', confidence: 'explicit' };
   }
 
   if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
@@ -449,6 +505,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
     return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
+  }
+  if (route === 'mission_updates.preference' && isExplicitMissionPreferenceChange(normalized)) {
+    return { allow: true, reason: 'explicit_mission_update_preference', confidence: 'explicit' };
   }
   if (route === 'domain_chip.pending' && normalized === 'yes') {
     return { allow: false, reason: 'ambiguous_pending_domain_chip_confirmation', confidence: 'blocked' };

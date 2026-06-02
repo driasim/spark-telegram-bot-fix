@@ -259,6 +259,7 @@ import {
   isDiagnosticsScanRequest,
   isMissionExecutionConfirmation,
   isAmbiguousLocalSparkServiceRequest,
+  isActionWordMetaDiscussion,
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
@@ -1407,12 +1408,15 @@ function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
 }
 
 function isMetaNoActionTriggerDiscussion(text: string): boolean {
+  if (isActionWordMetaDiscussion(text)) return true;
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
   const saysNoAction = /\b(?:not\s+a\s+command|not\s+an\s+instruction|not\s+a\s+request|not\s+asking\s+(?:you\s+)?to|do\s+not|don't|dont|no\s+need\s+to)\b/.test(normalized);
-  const framesAsLanguage = /\b(?:risky\s+(?:triggers?|words?)|trigger\s+words?|examples?|quoted|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|discussing(?:\s+(?:the\s+)?words?)?|product\s+architecture|architecture|in\s+chat\s+only|chat\s+only)\b/.test(normalized);
+  const framesAsLanguage = /\b(?:risky\s+(?:triggers?|words?)|trigger\s+words?|examples?|quoted|quotes?|bug\s+report|meta[-\s]*language|word\s+alone|words\s+alone|keyword|keywords|people\s+say|customer\s+wrote|sentence\s+contains|surface\s+names?|transcript\s+example|labels?\s+in\s+this\s+taxonomy|taxonomy|auditing\s+the\s+word|docs?\s+mention|heading|discussing(?:\s+(?:the\s+)?words?)?|product\s+architecture|architecture|in\s+chat\s+only|chat\s+only)\b/.test(normalized);
   const mentionsActionWords = /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas|restart)\b/.test(normalized);
-  return saysNoAction && framesAsLanguage && mentionsActionWords;
+  const asksBoundary =
+    /\b(?:what\s+should|how\s+should|should\s+spark|should\s+it|what\s+makes|what\s+is\s+the\s+safe\s+path|explain\s+the\s+boundary|classify|classification|route|fetch|operation\s+instead\s+of\s+a\s+topic)\b/.test(normalized);
+  return framesAsLanguage && mentionsActionWords && (saysNoAction || asksBoundary);
 }
 
 function shouldAnswerAuthoritativeRuntimeStatus(text: string): boolean {
@@ -1899,6 +1903,10 @@ function telegramBranchActionAuthorityDecision(
     confidence?: TelegramIntentDecisionV2['confidence'];
   }
 ): TelegramActionAuthorityResult {
+  const canonicalAuthorization = telegramActionAuthorityDecision(baseEnvelope, input);
+  if (canonicalAuthorization.allow || !branchActionCanPromoteFromEvidence(canonicalAuthorization, input)) {
+    return canonicalAuthorization;
+  }
   const actionEnvelope = telegramActionEnvelope(baseEnvelope, {
     route: input.route,
     ownerSystem: input.ownerSystem,
@@ -1907,6 +1915,22 @@ function telegramBranchActionAuthorityDecision(
     confidence: input.confidence
   });
   return telegramActionAuthorityDecision(actionEnvelope, input);
+}
+
+const CONTEXTUAL_BRANCH_PROMOTION_REASONS = new Set([
+  'short_pending_confirmation',
+  'pending_domain_chip_direction',
+  'contextual_mission_control_action',
+]);
+
+function branchActionCanPromoteFromEvidence(
+  authorization: TelegramActionAuthorityResult,
+  input: TelegramActionAuthorityInput & { confidence?: TelegramIntentDecisionV2['confidence'] }
+): boolean {
+  if (!authorization.routeVerdict.allow) return false;
+  if (authorization.routeVerdict.confidence === 'explicit') return true;
+  if (input.confidence !== 'contextual') return false;
+  return CONTEXTUAL_BRANCH_PROMOTION_REASONS.has(authorization.routeVerdict.reason);
 }
 
 function telegramBranchActionAuthorityAllowed(
