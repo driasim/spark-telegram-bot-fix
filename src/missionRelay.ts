@@ -5,6 +5,7 @@ import { conversation } from './conversation';
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 import { relaySecretMatches, requireRelaySecret } from './launchMode';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
+import { redactIdentifier, redactText } from './redaction';
 import { recordShippedProjectFromMission } from './shippedProjectContext';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
 
@@ -826,10 +827,32 @@ function scheduleDelayedCompletionSummary(
       const completion = await fetchMissionCompletionSummary(event.missionId, { attempts: 12, delayMs: 5000 });
       if (!completion || completionDeliveryCache.has(event.missionId) || shouldSuppressMissionHandoff(event.missionId)) return;
       await sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
-    })().catch((err) => {
-      console.error('[CompletionSummary] delivery failed:', err);
+    })().catch((error) => {
+      console.warn(formatCompletionSummaryDeliveryFailureLog(event.missionId, error));
     });
   }, 1000);
+}
+
+function safeCompletionSummaryErrorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    const prefix = error.name && error.name !== 'Error' ? `${error.name}: ` : '';
+    return redactText(`${prefix}${error.message || 'unknown error'}`);
+  }
+  if (typeof error === 'string') return redactText(error);
+  if (error && typeof error === 'object') {
+    try {
+      return redactText(JSON.stringify(error));
+    } catch {
+      return redactText(String(error));
+    }
+  }
+  return redactText(String(error ?? 'unknown error'));
+}
+
+function formatCompletionSummaryDeliveryFailureLog(missionId: string, error: unknown): string {
+  const missionRef = redactIdentifier(missionId, 'mission');
+  const detail = safeCompletionSummaryErrorDetail(error).trim() || 'unknown error';
+  return `[CompletionSummary] delivery failed mission=${missionRef} error=${detail}`;
 }
 
 function humanizeProviderLabel(label: string): string {
@@ -1749,6 +1772,10 @@ export async function sendFetchedCompletionSummaryForTests(
   completion: MissionCompletionSummary
 ): Promise<number> {
   return sendFetchedCompletionSummary(bot, chatId, subscription, event, verbosity, completion);
+}
+
+export function formatCompletionSummaryDeliveryFailureLogForTests(missionId: string, error: unknown): string {
+  return formatCompletionSummaryDeliveryFailureLog(missionId, error);
 }
 
 export function resolveReadyProjectOpenLinkForTests(
