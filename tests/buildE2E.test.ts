@@ -53,6 +53,7 @@ const originalEnv = {
 	SPARK_HARNESS_CORE_LEDGER: process.env.SPARK_HARNESS_CORE_LEDGER,
 	SPARK_HARNESS_CORE_LEDGER_PATH: process.env.SPARK_HARNESS_CORE_LEDGER_PATH,
 	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
+	SPARK_SYSTEM_MAP_STATE_DIR: process.env.SPARK_SYSTEM_MAP_STATE_DIR,
 	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
 	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
 	SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO: process.env.SPARK_SWARM_SPECIALIZATION_PATH_SPARK_QA_OPERATOR_REPO,
@@ -3114,6 +3115,131 @@ async function run(): Promise<void> {
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
 		restoreEnv();
+	});
+
+	await test('read-only Spark state questions answer before Builder bridge routes', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-read-only-state-chat-'));
+		const binDir = path.join(tempRoot, 'bin');
+		const systemMapDir = path.join(tempRoot, 'system-map');
+		mkdirSync(binDir, { recursive: true });
+		mkdirSync(systemMapDir, { recursive: true });
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_SYSTEM_MAP_STATE_DIR = systemMapDir;
+		const oldPath = process.env.PATH || '';
+		const sparkShim = path.join(binDir, 'spark');
+		writeFileSync(
+			sparkShim,
+			[
+				'#!/bin/sh',
+				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
+				'  cat <<EOF',
+				'{',
+				'  "ok": true,',
+				'  "telegram_profiles": [{"profile":"primary","primary":true,"running":true,"pid":123,"relay_port":8789}],',
+				'  "modules": [{"name":"spark-harness-core","version":"0.1.0","plane":"authority","healthy":true,"installed":{"version":"0.1.0","plane":"authority"}}]',
+				'}',
+				'EOF',
+				'  exit 0',
+				'fi',
+				'echo "unexpected spark command: $*" >&2',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		chmodSync(sparkShim, 0o755);
+		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
+		writeFileSync(
+			path.join(systemMapDir, 'contract-coverage.json'),
+			JSON.stringify({
+				summary: {
+					edge_count: 51,
+					status_counts: { envelope_verified: 51 },
+					legacy_plane_classification_counts: { retired: 51 },
+					release_blocker_count: 0,
+					legacy_plane_release_blocker_count: 0,
+					legacy_plane_cleanup_queue_count: 0
+				}
+			}, null, 2)
+		);
+		writeFileSync(
+			path.join(systemMapDir, 'repo-board.json'),
+			JSON.stringify({
+				duplicate_truths: {
+					summary: { item_count: 1 },
+					items: [{
+						owner_repo: 'spark-telegram-bot',
+						classification: 'release_branch_pending_registry_batch',
+						next_safe_action: 'include this runtime in the next verified metadata batch'
+					}]
+				}
+			}, null, 2)
+		);
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			const cases = [
+				{
+					text: 'Check whether the Harness Core module is installed.',
+					matches: [/Harness Core is installed/i, /No files were edited/i],
+					not: [/Mission:|installing|updating/i]
+				},
+				{
+					text: 'Tell me whether Telegram primary is polling right now.',
+					matches: [/Telegram primary is polling/i, /I did not restart Telegram/i],
+					not: [/restarting|Mission:/i]
+				},
+				{
+					text: 'Read whether there are contract coverage blockers.',
+					matches: [/No contract coverage blockers/i, /Legacy cleanup queue: 0/i],
+					not: [/Mission:/i]
+				},
+				{
+					text: 'Show current registry drift if any.',
+					matches: [/registry\/truth drift/i, /read-only evidence lookup/i],
+					not: [/Mission:/i]
+				},
+				{
+					text: 'Read memory preference for mission update style if available.',
+					matches: [/mission update style preference/i, /did not write memory/i],
+					not: [/updated how I narrate|Mission:/i]
+				},
+				{
+					text: 'Check if there is a pending action waiting for confirmation.',
+					matches: [/(?:pending action waiting|pending state waiting)/i, /(?:Nothing was resumed or executed|did not resume or execute)/i],
+					not: [/Mission:/i]
+				}
+			];
+
+			for (const [index, item] of cases.entries()) {
+				const replies: string[] = [];
+				const ctx = makeFakeCtx(8319079080 + index, 8319079055, 630 + index, replies);
+				ctx.message.text = item.text;
+				await indexModule.handleTextMessage(ctx);
+				const reply = replies[0] || '';
+				for (const pattern of item.matches) {
+					assert.match(reply, pattern, `${item.text} missing ${pattern}`);
+				}
+				for (const pattern of item.not) {
+					assert.doesNotMatch(reply, pattern, `${item.text} should not contain ${pattern}`);
+				}
+			}
+			assert.equal(captured.length, 0, 'read-only Spark state questions must not call Spawner or PRD bridge');
+		} finally {
+			process.env.PATH = oldPath;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
 	});
 
 	await test('mission-id product concept does not become Mission Control status', async () => {

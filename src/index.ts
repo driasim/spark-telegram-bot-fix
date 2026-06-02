@@ -650,6 +650,14 @@ type SparkLiveSummary = {
   supervisionText: string;
 };
 
+type SparkReadOnlyStateQuestion =
+  | 'harness_core_installed'
+  | 'telegram_primary_polling'
+  | 'contract_coverage_blockers'
+  | 'registry_drift'
+  | 'mission_update_preference'
+  | 'pending_action';
+
 function cleanSparkStatusLine(line: string, label: string): string {
   return line
     .replace(new RegExp(`^\\[OK\\]\\s+${label}:\\s*`, 'i'), '')
@@ -793,6 +801,265 @@ async function renderAuthoritativeSparkLiveStateAnswer(
       '',
       'This is a probe failure, not proof that Spawner or Telegram are down.'
     ].join('\n');
+  }
+}
+
+function sparkSystemMapEvidencePath(fileName: string): string {
+  const stateDir = process.env.SPARK_SYSTEM_MAP_STATE_DIR?.trim() ||
+    path.join(os.homedir(), '.spark', 'state', 'system-map');
+  return path.join(stateDir, fileName);
+}
+
+function objectArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    : [];
+}
+
+function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQuestion | null {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  const asksRead =
+    /\b(?:read|show|check|tell|what|whether|is|are|current|status)\b/.test(normalized) ||
+    /\b(?:any|if)\b.{0,40}\b(?:blockers?|drift|pending|waiting)\b/.test(normalized);
+  if (!asksRead) return null;
+  if (/\b(?:install|repair|restart|start|run|launch|execute|write|save|change|set)\b/.test(normalized) &&
+      !/\b(?:installed|install\s+state|last\s+install|running|run\s+compile|read-only|read\s+only)\b/.test(normalized)) {
+    return null;
+  }
+  if (/\b(?:harness\s+core|spark[-\s]*harness[-\s]*core)\b/.test(normalized) &&
+      /\b(?:installed|install\s+state|available|healthy|module)\b/.test(normalized)) {
+    return 'harness_core_installed';
+  }
+  if (/\btelegram\b/.test(normalized) && /\bprimary\b/.test(normalized) && /\bpolling\b/.test(normalized)) {
+    return 'telegram_primary_polling';
+  }
+  if (/\bcontract\s+coverage\b/.test(normalized) && /\b(?:blockers?|release\s+blockers?|legacy|coverage)\b/.test(normalized)) {
+    return 'contract_coverage_blockers';
+  }
+  if (/\b(?:registry\s+drift|registry\s+pin\s+drift|release\s+pin\s+drift|duplicate\s+truths?|truth\s+drift)\b/.test(normalized) ||
+      (/\bregistry\b/.test(normalized) && /\bdrift\b/.test(normalized))) {
+    return 'registry_drift';
+  }
+  if (/\bmemory\s+preference\b/.test(normalized) &&
+      /\b(?:mission\s+update|mission\s+updates|update\s+style|style|available)\b/.test(normalized)) {
+    return 'mission_update_preference';
+  }
+  if (/\bpending\b/.test(normalized) &&
+      /\b(?:action|confirmation|waiting|resume|mission|clarification)\b/.test(normalized)) {
+    return 'pending_action';
+  }
+  return null;
+}
+
+async function readSparkLiveStatusJson(): Promise<Record<string, unknown>> {
+  const raw = await runSparkCli(['live', 'status', '--json'], 25_000);
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+async function renderHarnessCoreInstalledAnswer(): Promise<string> {
+  try {
+    const status = await readSparkLiveStatusJson();
+    const module = objectArray(status.modules).find((item) => String(item.name || '') === 'spark-harness-core');
+    if (!module) {
+      return [
+        'Harness Core is not listed as an installed Spark module right now.',
+        '',
+        'I only read live module state here; I did not install or update anything.'
+      ].join('\n');
+    }
+    const installed = objectRecord(module.installed);
+    return [
+      `${module.healthy === false ? '⚠️' : '✅'} Harness Core is installed.`,
+      '',
+      'Evidence:',
+      `• Module: \`${String(module.name || 'spark-harness-core')}\`.`,
+      `• Version: \`${String(module.version || installed.version || 'unknown')}\`.`,
+      `• Plane: ${String(module.plane || installed.plane || 'authority')}.`,
+      `• Health: ${module.healthy === false ? 'needs attention' : 'ok'}.`,
+      '',
+      'No files were edited, and no mission was started.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not read Harness Core install state from Spark Live.',
+      '',
+      `Read failed: ${detail}`,
+      'No install, update, or repair action was started.'
+    ].join('\n');
+  }
+}
+
+async function renderTelegramPrimaryPollingAnswer(): Promise<string> {
+  try {
+    const status = await readSparkLiveStatusJson();
+    const primary = objectArray(status.telegram_profiles).find((item) => item.primary === true || String(item.profile || '') === 'primary');
+    const running = primary?.running === true;
+    const pid = primary?.pid ? ` pid=${primary.pid}` : '';
+    const relayPort = primary?.relay_port ? ` relay=${primary.relay_port}` : '';
+    return [
+      running ? 'Yes. Telegram primary is polling right now.' : 'Telegram primary is not proven polling right now.',
+      '',
+      primary
+        ? `Fresh status shows \`primary\` ${running ? 'running' : 'not running'}${pid}${relayPort}.`
+        : 'Fresh status did not list a primary Telegram profile.',
+      'I did not restart Telegram.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not read Telegram primary polling state from Spark Live.',
+      '',
+      `Read failed: ${detail}`,
+      'I did not restart Telegram.'
+    ].join('\n');
+  }
+}
+
+async function readContractCoverageEvidence(): Promise<Record<string, unknown> | null> {
+  return readJsonFile<Record<string, unknown>>(sparkSystemMapEvidencePath('contract-coverage.json'));
+}
+
+async function renderContractCoverageBlockersAnswer(): Promise<string> {
+  try {
+    const coverage = await readContractCoverageEvidence();
+    const summary = objectRecord(coverage?.summary);
+    if (!coverage || Object.keys(summary).length === 0) {
+      return [
+        'I do not have current contract coverage evidence loaded.',
+        '',
+        'Run the read-only `spark os compile --json` check when you want fresh compiler counts. I did not run or mutate anything from this chat turn.'
+      ].join('\n');
+    }
+    const releaseBlockers = Number(summary.release_blocker_count ?? 0);
+    const legacyBlockers = Number(summary.legacy_plane_release_blocker_count ?? 0);
+    const cleanupQueue = Number(summary.legacy_plane_cleanup_queue_count ?? 0);
+    const edgeCount = Number(summary.edge_count ?? 0);
+    const statusCounts = objectRecord(summary.status_counts);
+    const legacyCounts = objectRecord(summary.legacy_plane_classification_counts);
+    return [
+      releaseBlockers === 0 && legacyBlockers === 0 && cleanupQueue === 0
+        ? 'No contract coverage blockers are reported in the current evidence.'
+        : 'Contract coverage still has blockers in the current evidence.',
+      '',
+      `• Edges: ${edgeCount}.`,
+      `• Envelope verified: ${Number(statusCounts.envelope_verified ?? 0)}.`,
+      `• Legacy planes retired: ${Number(legacyCounts.retired ?? 0)}.`,
+      `• Release blockers: ${releaseBlockers}.`,
+      `• Legacy cleanup queue: ${cleanupQueue}.`,
+      '',
+      'This was a read-only evidence lookup; no compile, mission, or repair action was started.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not read contract coverage evidence.',
+      '',
+      `Read failed: ${detail}`,
+      'No compile, mission, or repair action was started.'
+    ].join('\n');
+  }
+}
+
+async function renderRegistryDriftAnswer(): Promise<string> {
+  try {
+    const board = await readJsonFile<Record<string, unknown>>(sparkSystemMapEvidencePath('repo-board.json'));
+    const duplicateTruths = objectRecord(board?.duplicate_truths);
+    const summary = objectRecord(duplicateTruths.summary);
+    const items = objectArray(duplicateTruths.items);
+    const count = Number(summary.item_count ?? items.length ?? 0);
+    if (!board || !duplicateTruths) {
+      return [
+        'I do not have current registry drift evidence loaded.',
+        '',
+        'No registry edit or update was started.'
+      ].join('\n');
+    }
+    const lines = items.slice(0, 4).map((item) => {
+      const repo = String(item.owner_repo || item.fact || item.id || 'unknown');
+      const classification = String(item.classification || 'unknown');
+      const action = String(item.next_safe_action || 'review before changing registry metadata');
+      return `• ${repo}: ${classification}. ${action}`;
+    });
+    return [
+      count === 0 ? 'No registry drift is reported in the current evidence.' : `Current evidence reports ${count} registry/truth drift item${count === 1 ? '' : 's'}.`,
+      '',
+      ...lines,
+      '',
+      'This was a read-only evidence lookup; no registry edit was made.'
+    ].join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not read registry drift evidence.',
+      '',
+      `Read failed: ${detail}`,
+      'No registry edit was made.'
+    ].join('\n');
+  }
+}
+
+async function renderMissionUpdatePreferenceReadAnswer(chatId: string | number): Promise<string> {
+  const [verbosity, links] = await Promise.all([
+    getTelegramRelayVerbosity(chatId),
+    getTelegramMissionLinkPreference(chatId)
+  ]);
+  return [
+    'Current mission update style preference:',
+    '',
+    `• Progress detail: ${describeTelegramRelayVerbosity(verbosity)}.`,
+    `• Links: ${describeTelegramMissionLinkPreference(links)}.`,
+    '',
+    'I only read the preference state here; I did not write memory or change settings.'
+  ].join('\n');
+}
+
+async function renderPendingActionReadAnswer(ctx: any, user: any): Promise<string> {
+  cleanupPendingBuildClarifications();
+  cleanupPendingDomainChipBuilds();
+  cleanupPendingCreatorMissions();
+  cleanupPendingMissionCancelConfirmations();
+  const buildKey = telegramPendingBuildKey(ctx.chat?.id, ctx.from?.id);
+  const domainChipKey = telegramPendingDomainChipKey(ctx.chat?.id, ctx.from?.id);
+  const creatorKey = telegramPendingCreatorMissionKey(ctx.chat?.id, ctx.from?.id);
+  const cancelKey = telegramPendingMissionCancelKey(ctx.chat?.id, ctx.from?.id);
+  const active = [
+    getPendingBuildClarification(buildKey) ? 'build clarification' : '',
+    getPendingDomainChipBuild(domainChipKey) ? 'domain-chip build preview' : '',
+    getPendingCreatorMission(creatorKey) ? 'creator mission follow-up' : '',
+    getPendingMissionCancelConfirmation(cancelKey) ? 'mission cancel confirmation' : '',
+    await conversation.getPendingTaskRecovery(user).catch(() => null) ? 'task recovery' : ''
+  ].filter(Boolean);
+  return active.length
+    ? [
+        'There is pending state waiting for this chat.',
+        '',
+        ...active.map((item) => `• ${item}.`),
+        '',
+        'I only read pending state; I did not resume or execute anything.'
+      ].join('\n')
+    : [
+        'I do not see a pending action waiting for confirmation in this chat.',
+        '',
+        'I checked build clarification, domain-chip preview, creator mission, mission cancel, and task recovery state. Nothing was resumed or executed.'
+      ].join('\n');
+}
+
+async function renderSparkReadOnlyStateAnswer(kind: SparkReadOnlyStateQuestion, ctx: any, user: any): Promise<string> {
+  switch (kind) {
+    case 'harness_core_installed':
+      return renderHarnessCoreInstalledAnswer();
+    case 'telegram_primary_polling':
+      return renderTelegramPrimaryPollingAnswer();
+    case 'contract_coverage_blockers':
+      return renderContractCoverageBlockersAnswer();
+    case 'registry_drift':
+      return renderRegistryDriftAnswer();
+    case 'mission_update_preference':
+      return renderMissionUpdatePreferenceReadAnswer(ctx.chat.id);
+    case 'pending_action':
+      return renderPendingActionReadAnswer(ctx, user);
   }
 }
 
@@ -7794,6 +8061,31 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.browser_proof_boundary', 'spark-telegram-bot', 'answer');
     await ctx.reply(browserProofAnswer);
     await conversation.rememberAssistantReply(user, browserProofAnswer).catch(() => {});
+    return;
+  }
+
+  const readOnlyStateQuestion = !earlyBuildIntent ? classifySparkReadOnlyStateQuestion(text) : null;
+  if (readOnlyStateQuestion) {
+    await conversation.remember(user, text).catch(() => {});
+    const reply = await renderSparkReadOnlyStateAnswer(readOnlyStateQuestion, ctx, user);
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, `spark.read_only_state.${readOnlyStateQuestion}`, 'spark-telegram-bot', 'harness_core.read_only_state');
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, `telegram_read_only_state_${readOnlyStateQuestion}`, [
+      {
+        source: 'current_diagnostics',
+        role: 'read_only_state_authority',
+        freshness: readOnlyStateQuestion === 'pending_action' || readOnlyStateQuestion === 'mission_update_preference' ? 'fresh' : 'live_probed',
+        sourceRef: readOnlyStateQuestion.startsWith('contract') || readOnlyStateQuestion === 'registry_drift'
+          ? 'spark os system-map evidence'
+          : readOnlyStateQuestion === 'pending_action'
+            ? 'telegram pending-state stores'
+            : readOnlyStateQuestion === 'mission_update_preference'
+              ? 'telegram mission relay preferences'
+              : 'spark live status --json',
+        summary: 'Telegram answered a read-only Spark state question without execution authority.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
 
