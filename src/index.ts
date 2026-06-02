@@ -4579,9 +4579,9 @@ function authorizeCreatorPlanCommand(ctx: any, text: string): TelegramActionAuth
     commandName: 'creator',
     route: 'creator.mission',
     text,
-    toolName: 'spawner.creator_mission',
+    toolName: 'creator.mission.create',
     ownerSystem: 'spawner-ui',
-    mutationClass: 'launches_mission',
+    mutationClass: 'creates_chip',
     action: 'creator.mission.plan',
     kind: 'creator_or_domain_chip'
   });
@@ -4593,11 +4593,14 @@ function authorizeCreatorControlCommand(
   action: ParsedCreatorMissionControlCommand['action']
 ): TelegramActionAuthorityResult {
   const readOnly = action === 'status';
+  const toolName = action === 'run'
+    ? 'spawner.dispatch'
+    : `spawner.creator_mission.${action}`;
   return telegramCommandActionAuthorityDecision(ctx, {
     commandName: 'creator',
     route: 'creator.mission',
     text,
-    toolName: `spawner.creator_mission.${action}`,
+    toolName,
     ownerSystem: 'spawner-ui',
     mutationClass: readOnly ? 'read_only' : 'launches_mission',
     action: `creator.mission.${action}`,
@@ -4989,7 +4992,8 @@ async function handleCreatorMissionPlan(
     requestId,
     privacyMode: parsed.privacyMode,
     riskLevel: parsed.riskLevel,
-    executionPolicy: creatorExecutionPolicyForBrief(parsed.brief)
+    executionPolicy: creatorExecutionPolicyForBrief(parsed.brief),
+    executionAuthority: authorization?.governorDecision
   });
 
   await ctx.reply(formatCreatorMissionSummary(result));
@@ -5072,10 +5076,10 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
   }
 
   const executeAuthorization = envelope
-    ? telegramBranchActionAuthorityDecision(envelope, {
+      ? telegramBranchActionAuthorityDecision(envelope, {
         route: 'creator.mission',
         text,
-        toolName: 'spawner.creator_mission.run',
+        toolName: 'spawner.dispatch',
         ownerSystem: 'spawner-ui',
         mutationClass: 'launches_mission',
         action: 'creator.mission.execute',
@@ -5087,7 +5091,10 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
     return false;
   }
 
-  const result = await spawner.creatorMissionExecute({ missionId: pending.missionId });
+  const result = await spawner.creatorMissionExecute({
+    missionId: pending.missionId,
+    executionAuthority: executeAuthorization?.governorDecision
+  });
   recordTelegramHarnessCoreExecution(executeAuthorization, {
     toolName: 'spawner.creator_mission.run',
     status: creatorExecutionStatus(result.success),
@@ -6400,7 +6407,10 @@ bot.command('creator', async (ctx) => {
 
     if (control.action === 'run') {
       await ctx.reply('Starting creator mission execution through Spawner...');
-      const result = await spawner.creatorMissionExecute({ missionId });
+      const result = await spawner.creatorMissionExecute({
+        missionId,
+        executionAuthority: authorization.governorDecision
+      });
       recordTelegramHarnessCoreExecution(authorization, {
         toolName: 'spawner.creator_mission.run',
         status: creatorExecutionStatus(result.success),
@@ -8032,9 +8042,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
         route: 'creator.mission',
         text,
-        toolName: 'spawner.creator_mission',
+        toolName: 'creator.mission.create',
         ownerSystem: 'spawner-ui',
-        mutationClass: 'launches_mission',
+        mutationClass: 'creates_chip',
         action: 'creator.mission.plan',
         kind: 'creator_or_domain_chip'
       })
@@ -8166,9 +8176,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
         route: 'creator.mission',
         text,
-        toolName: 'spawner.creator_mission',
+        toolName: 'creator.mission.create',
         ownerSystem: 'spawner-ui',
-        mutationClass: 'launches_mission',
+        mutationClass: 'creates_chip',
         action: 'creator.mission.plan',
         kind: 'creator_or_domain_chip'
       })

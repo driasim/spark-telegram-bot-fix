@@ -264,9 +264,9 @@ async function run(): Promise<void> {
     assert.equal(capturedBody.requestId, 'tg-creator-1');
     assert.equal(capturedBody.privacyMode, 'local_only');
     assert.equal(capturedBody.riskLevel, 'medium');
-    assert.equal(capturedBody.executionAuthority.schema, 'spark.machine_origin_policy.v1');
-    assert.deepEqual(capturedBody.executionAuthority.allowedTools, ['creator.mission.create']);
-    assert.deepEqual(capturedBody.executionAuthority.mutationClassesAllowed, ['creates_chip']);
+    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
+    assert.equal(capturedBody.executionAuthority.outcome, 'execute');
+    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'creator.mission.create');
     assert.equal(capturedOptions.timeout, 1800000);
   });
 
@@ -396,9 +396,9 @@ async function run(): Promise<void> {
     assert.equal(result.providerId, 'codex');
     assert.match(capturedUrl, /\/api\/creator\/mission\/execute$/);
     assert.equal(capturedBody.missionId, 'mission-creator-1');
-    assert.equal(capturedBody.executionAuthority.schema, 'spark.machine_origin_policy.v1');
-    assert.deepEqual(capturedBody.executionAuthority.allowedTools, ['spawner.dispatch']);
-    assert.deepEqual(capturedBody.executionAuthority.mutationClassesAllowed, ['launches_mission']);
+    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
+    assert.equal(capturedBody.executionAuthority.outcome, 'execute');
+    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'spawner.dispatch');
     assert.equal(capturedOptions.timeout, 1800000);
   });
 

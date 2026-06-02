@@ -300,7 +300,14 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'voice.command') tools.push('voice.command', 'builder.telegram_bridge');
   if (/^sparkqa\./.test(decision.route)) tools.push(decision.route);
   if (decision.route === 'creator.mission') {
-    tools.push('spawner.creator_mission', 'spawner.creator_mission.status', 'spawner.creator_mission.validate', 'spawner.creator_mission.run');
+    tools.push(
+      'creator.mission.create',
+      'spawner.dispatch',
+      'spawner.creator_mission',
+      'spawner.creator_mission.status',
+      'spawner.creator_mission.validate',
+      'spawner.creator_mission.run'
+    );
   }
   if (/^recursive\./.test(decision.route)) {
     tools.push(
@@ -367,6 +374,8 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'sparkqa.run',
       'sparkqa.benchmark',
       'sparkqa.pause',
+      'creator.mission.create',
+      'spawner.dispatch',
       'spawner.creator_mission',
       'spawner.creator_mission.validate',
       'spawner.creator_mission.run',

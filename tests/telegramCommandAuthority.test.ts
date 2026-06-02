@@ -217,9 +217,9 @@ test('creator plan commands allow plan-only no-run language', () => {
     text: '/creator plan private risk medium create a Startup YC benchmark path; do not run or publish it yet',
     commandName: 'creator',
     route: 'creator.mission',
-    toolName: 'spawner.creator_mission',
+    toolName: 'creator.mission.create',
     ownerSystem: 'spawner-ui',
-    mutationClass: 'launches_mission',
+    mutationClass: 'creates_chip',
     action: 'creator.mission.plan',
     kind: 'creator_or_domain_chip'
   });

@@ -1,4 +1,9 @@
 import axios from 'axios';
+import {
+  createHarnessCoreActionEnvelopeVNext,
+  createHarnessCoreAuthorizedGovernorDecision,
+  type HarnessCoreActionMutationClass
+} from '@spark/harness-core';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
@@ -41,6 +46,7 @@ interface CreatorMissionInput {
   privacyMode?: CreatorPrivacyMode;
   riskLevel?: CreatorRiskLevel;
   executionPolicy?: 'manual_run' | 'read_only';
+  executionAuthority?: unknown;
 }
 
 interface CreatorIntentPacket {
@@ -96,6 +102,7 @@ interface CreatorMissionResult {
 interface CreatorMissionExecutionInput {
   missionId?: string;
   requestId?: string;
+  executionAuthority?: unknown;
 }
 
 function machineOriginPolicy(input: {
@@ -114,6 +121,38 @@ function machineOriginPolicy(input: {
     mutationClassesAllowed: input.mutationClassesAllowed,
     networkPolicy: 'local_only'
   };
+}
+
+function governorDecisionAuthority(input: {
+  source: string;
+  reason: string;
+  toolName: string;
+  mutationClass: HarnessCoreActionMutationClass;
+  requestId?: string;
+  target?: string;
+}) {
+  const envelope = createHarnessCoreActionEnvelopeVNext({
+    surface: 'telegram',
+    ownerSystem: 'spawner-ui',
+    source: input.source,
+    reason: input.reason,
+    toolName: input.toolName,
+    mutationClass: input.mutationClass,
+    requestId: input.requestId,
+    actorKind: 'system',
+    actorIdRef: 'spark-telegram-bot',
+    target: input.target,
+    confidence: 0.9
+  });
+  return createHarnessCoreAuthorizedGovernorDecision({
+    envelope,
+    tool_name: input.toolName,
+    restrictions: {
+      network_allowed: false,
+      write_allowed: ['writes_files', 'creates_schedule', 'deletes_schedule', 'creates_chip', 'launches_mission'].includes(input.mutationClass),
+      publish_allowed: input.mutationClass === 'publishes'
+    }
+  });
 }
 
 interface CreatorMissionLookupInput {
@@ -1172,12 +1211,13 @@ export const spawner = {
           ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
           ...(input.executionPolicy !== 'read_only'
             ? {
-                executionAuthority: machineOriginPolicy({
-                  origin: 'spark-telegram-bot.creator-mission',
+                executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
                   source: 'telegram_creator_mission_bridge',
                   reason: 'Telegram creator mission bridge requested an executable creator mission.',
-                  allowedTools: ['creator.mission.create'],
-                  mutationClassesAllowed: ['creates_chip']
+                  toolName: 'creator.mission.create',
+                  mutationClass: 'creates_chip',
+                  requestId: input.requestId,
+                  target: input.brief
                 })
               }
             : {})
@@ -1215,12 +1255,13 @@ export const spawner = {
         {
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.requestId ? { requestId: input.requestId } : {}),
-          executionAuthority: machineOriginPolicy({
-            origin: 'spark-telegram-bot.creator-mission-execute',
+          executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
             source: 'telegram_creator_mission_execute_bridge',
             reason: 'Telegram creator mission bridge requested execution of a staged creator mission.',
-            allowedTools: ['spawner.dispatch'],
-            mutationClassesAllowed: ['launches_mission']
+            toolName: 'spawner.dispatch',
+            mutationClass: 'launches_mission',
+            requestId: input.requestId,
+            target: input.missionId || input.requestId
           })
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_EXECUTE_TIMEOUT_MS')
