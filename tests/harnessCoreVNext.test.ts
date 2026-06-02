@@ -92,6 +92,30 @@ test('Harness Core interrupts high-risk publish even when legacy evidence would 
   assert.equal(bundle.authorization.verdict, 'interrupt');
   assert.equal(bundle.authorization.approval.required, true);
   assert.ok(bundle.authorization.reasons.includes('authority_state_confirmation_required'));
+
+  assert.throws(
+    () => recordHarnessCoreToolLedger({
+      envelope: bundle.envelope,
+      action: bundle.action,
+      authorization: bundle.authorization,
+      toolName: 'publish.run',
+      status: 'success',
+      summary: 'This must not be representable before explicit approval.'
+    }),
+    /allow authorization/
+  );
+
+  const ledger = recordHarnessCoreToolLedger({
+    envelope: bundle.envelope,
+    action: bundle.action,
+    authorization: bundle.authorization,
+    toolName: 'publish.run',
+    status: 'not_started',
+    summary: 'Publish was interrupted before execution.'
+  });
+  assert.equal(ledger.result.status, 'not_started');
+  assert.ok(ledger.lifecycle.some((stage) => stage.stage === 'authorize' && stage.verdict === 'pending'));
+  assert.ok(ledger.lifecycle.some((stage) => stage.stage === 'execute' && stage.verdict === 'skipped'));
 });
 
 test('Telegram action authority returns non-executing Governor outcome for meta action words', () => {

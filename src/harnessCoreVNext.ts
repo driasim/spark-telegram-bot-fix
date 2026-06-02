@@ -12,6 +12,7 @@ import {
   createHarnessCoreEvidenceRef,
   createHarnessCoreGovernorDecision,
   createHarnessCoreTraceRef,
+  finalizeHarnessCoreToolCallLedger,
   riskTierForHarnessMutation,
   safeHarnessCoreId,
   type AuthorizationDecisionV1,
@@ -345,8 +346,18 @@ export function recordHarnessCoreToolLedger(input: {
   summary: string;
 }): ToolCallLedgerV1 {
   const createdAt = nowIso();
-  const executeVerdict = input.status === 'success' ? 'passed' : input.status === 'not_started' ? 'skipped' : 'failed';
-  return {
+  const authorizeVerdict = input.authorization.verdict === 'allow'
+    ? 'passed'
+    : input.authorization.verdict === 'interrupt'
+      ? 'pending'
+      : 'failed';
+  const outputRef = artifactRef(
+    `${input.envelope.turn_id}:result:${input.toolName}`,
+    'tool_output',
+    `telegram://turns/${encodeURIComponent(input.envelope.turn_id)}/tool-output/${encodeURIComponent(input.toolName)}`,
+    input.summary
+  );
+  const ledger: ToolCallLedgerV1 = {
     schema_version: 'tool-call-ledger-v1',
     ledger_id: safeId('ledger', `${input.envelope.turn_id}:${input.action.action_id}:${input.toolName}`),
     created_at: createdAt,
@@ -356,8 +367,8 @@ export function recordHarnessCoreToolLedger(input: {
     tool_name: input.toolName,
     lifecycle: [
       { stage: 'propose', at: input.envelope.created_at, verdict: 'passed', summary: 'Action was proposed through Harness Core evidence.' },
-      { stage: 'authorize', at: input.authorization.created_at, verdict: input.authorization.verdict === 'allow' ? 'passed' : 'failed', summary: input.authorization.reasons.join(', ') },
-      { stage: 'execute', at: createdAt, verdict: executeVerdict, summary: input.summary }
+      { stage: 'authorize', at: input.authorization.created_at, verdict: authorizeVerdict, summary: input.authorization.reasons.join(', ') },
+      { stage: 'execute', at: createdAt, verdict: 'skipped', summary: input.status === 'not_started' ? input.summary : 'Execution has not started before finalization.' }
     ],
     authorization: input.authorization,
     arguments: {
@@ -366,10 +377,18 @@ export function recordHarnessCoreToolLedger(input: {
       sanitized_ref: input.action.args_ref
     },
     result: {
-      status: input.status,
-      summary: input.summary,
-      sanitized_output_ref: artifactRef(`${input.envelope.turn_id}:result:${input.toolName}`, 'tool_output', `telegram://turns/${encodeURIComponent(input.envelope.turn_id)}/tool-output/${encodeURIComponent(input.toolName)}`, input.summary)
+      status: 'not_started',
+      summary: input.status === 'not_started' ? input.summary : 'Tool execution has not started yet.',
+      sanitized_output_ref: outputRef
     },
     trace: traceRef(input.envelope.trace.id, 'Harness Core tool ledger for Telegram action.')
   };
+  if (input.status === 'not_started') return ledger;
+  return finalizeHarnessCoreToolCallLedger({
+    ledger,
+    status: input.status,
+    summary: input.summary,
+    output_ref: outputRef,
+    now: createdAt
+  });
 }

@@ -134,6 +134,35 @@ test('records blocked Telegram Harness Core authorization ledgers', () => {
   });
 });
 
+test('rejects post-execution ledgers when Telegram action was not allowed', () => {
+  withLedgerPath((filePath) => {
+    const text = 'I am mentioning build and mission, but do not start anything. Just explain the risk.';
+    const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+      route: 'spawner.build',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    });
+
+    assert.equal(result.allow, false);
+    assert.ok(result.harnessCore);
+    assert.throws(
+      () => recordHarnessCoreExecutionLedger({
+        bundle: result.harnessCore!,
+        toolName: 'spawner.run',
+        status: 'success',
+        summary: 'This must not be representable after a blocked route.'
+      }),
+      /allow authorization/
+    );
+
+    const records = readHarnessCoreToolLedger(filePath);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].result.status, 'not_started');
+  });
+});
+
 test('allows ledger writes to be disabled explicitly', () => {
   withLedgerPath((filePath) => {
     process.env.SPARK_HARNESS_CORE_LEDGER = '0';
