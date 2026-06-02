@@ -178,6 +178,18 @@ import { readCapabilityGardenSummary, renderCapabilityGardenSummary } from './ca
 import { readMemoryMovementSummary, renderMemoryMovementSummary } from './memoryMovement';
 import { readTraceRepairSummary, renderTraceRepairSummary } from './traceRepair';
 import { parseBuildIntent, polishBuildProjectName, type BuildLane } from './buildIntent';
+import {
+  cleanupPendingBuildClarifications,
+  deletePendingBuildClarification,
+  getPendingBuildClarification,
+  isPendingBuildClarificationExpired,
+  isPendingClarificationAlternativeRequest,
+  isPendingClarificationFollowup,
+  pendingBuildClarificationForMessage,
+  rememberPendingBuildClarification,
+  telegramPendingBuildKey,
+  type PendingBuildClarification
+} from './telegramPendingBuildEvidence';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { queueRouteArbiterShadow } from './routeArbiter';
 import { routeEvidenceAllowed } from './telegramRouteEvidence';
@@ -333,6 +345,12 @@ import { buildVoiceBridgeUpdate } from './telegramVoiceBridge';
 import { formatVoiceMediaCaption } from './voiceCaption';
 import { writeTelegramVoiceBridgeRuntimeState } from './voiceRuntimeState';
 import { extractStartSession, recordTelegramFirstMessage } from './onboardingBridge';
+
+export {
+  isPendingClarificationAlternativeRequest,
+  isPendingClarificationFollowup,
+  shouldUsePendingClarificationForMessage
+} from './telegramPendingBuildEvidence';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
 const execFileAsync = promisify(execFile);
@@ -1483,7 +1501,7 @@ async function recordNaturalRouteShadow(ctx: any, text: string): Promise<Natural
       pendingBuildClarification: Boolean(
         ctx.chat?.id &&
         ctx.from?.id &&
-        pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
+        pendingBuildClarificationForMessage(telegramPendingBuildKey(ctx.chat.id, ctx.from.id), text)
       )
     });
   } catch (error) {
@@ -2328,23 +2346,6 @@ function canvasPlanKey(chatId: string | number | undefined, userId: string | num
   return `${chatId ?? 'unknown'}-${userId ?? 'unknown'}`;
 }
 
-// Pending clarification state — keyed by `${chatId}-${userId}`. In-memory
-// only for v1; doesn't survive bot restart. /clarify reads + clears.
-interface PendingClarification {
-  requestId: string;
-  prd: string;
-  projectName: string;
-  projectPath: string | null;
-  buildMode: 'direct' | 'advanced_prd';
-  buildModeReason: string;
-  buildLane?: BuildLane;
-  buildLaneReason?: string;
-  capabilityProposalPacket?: Record<string, unknown>;
-  questions: string[];
-  addedAssumptions: string[];
-  timestamp: number;
-}
-const pendingClarifications = new Map<string, PendingClarification>();
 interface PendingDomainChipBuild {
   brief: string;
   prd: string;
@@ -2361,7 +2362,7 @@ interface PendingMissionCancelConfirmation {
   timestamp: number;
 }
 const pendingMissionCancelConfirmations = new Map<string, PendingMissionCancelConfirmation>();
-const CLARIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const PENDING_CREATOR_MISSION_TTL_MS = 30 * 60 * 1000;
 const MISSION_CANCEL_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 
 // Periodic cleanup of stale entries in all unbounded maps
@@ -2377,11 +2378,7 @@ const mapCleanupTimer = setInterval(() => {
       latestCanvasPlans.delete(key);
     }
   }
-  for (const [key, entry] of pendingClarifications) {
-    if (now - entry.timestamp > CLARIFICATION_TTL_MS) {
-      pendingClarifications.delete(key);
-    }
-  }
+  cleanupPendingBuildClarifications(now);
   for (const [key, entry] of pendingDomainChipBuilds) {
     if (now - entry.timestamp > DOMAIN_CHIP_BUILD_TTL_MS) {
       pendingDomainChipBuilds.delete(key);
@@ -2400,7 +2397,7 @@ const TELEGRAM_POLLING_READY_GRACE_MS = 3000;
 let pollingActive = false;
 
 function clearPendingExecutionState(key: string): boolean {
-  const hadClarification = pendingClarifications.delete(key);
+  const hadClarification = deletePendingBuildClarification(key);
   const hadDomainChip = pendingDomainChipBuilds.delete(key);
   const hadCreatorMission = pendingCreatorMissions.delete(key);
   const hadMissionCancel = pendingMissionCancelConfirmations.delete(key);
@@ -3665,7 +3662,7 @@ async function handleNaturalRouteProbeCommand(ctx: any): Promise<void> {
       pendingBuildClarification: Boolean(
         ctx.chat?.id &&
         ctx.from?.id &&
-        pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, probeText)
+        pendingBuildClarificationForMessage(telegramPendingBuildKey(ctx.chat.id, ctx.from.id), probeText)
       )
     });
     await ctx.reply(renderNaturalRouteDecisionReply(decision));
@@ -3788,26 +3785,26 @@ bot.command('myid', async (ctx) => {
 // clarification gate. The original brief + user-supplied answers are
 // concatenated and re-sent to spawner-ui with forceDispatch:true.
 export async function handleClarificationAnswers(ctx: any, answersRawInput: string): Promise<void> {
-  const key = `${ctx.chat.id}-${ctx.from.id}`;
-  const pending = pendingClarifications.get(key);
+  const key = telegramPendingBuildKey(ctx.chat.id, ctx.from.id);
+  const pending = getPendingBuildClarification(key);
   if (!pending) {
     await ctx.reply('No pending clarification for you. Send a /build message first.');
     return;
   }
-  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
-    pendingClarifications.delete(key);
+  if (isPendingBuildClarificationExpired(pending)) {
+    deletePendingBuildClarification(key);
     await ctx.reply('Clarification window expired (30 min). Send the build message again.');
     return;
   }
 
   const answersRaw = answersRawInput.trim();
   if (isNoExecutionBoundary(answersRaw)) {
-    pendingClarifications.delete(key);
+    deletePendingBuildClarification(key);
     await ctx.reply('Got it, no build started. We can keep talking here.');
     return;
   }
   const runWithDefaults = /^(?:go|run|start|ship|yes|yep|yeah|do it|let'?s go|default|defaults|skip)$/i.test(answersRaw);
-  pendingClarifications.delete(key);
+  deletePendingBuildClarification(key);
 
   let enrichedPrd = pending.prd;
   if (!runWithDefaults && answersRaw) {
@@ -4967,7 +4964,7 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
   const pending = pendingDomainChipBuilds.get(key);
   if (!pending) return false;
 
-  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
+  if (Date.now() - pending.timestamp > DOMAIN_CHIP_BUILD_TTL_MS) {
     pendingDomainChipBuilds.delete(key);
     await ctx.reply('That domain-chip draft expired. Send the idea again and I will shape it before starting.');
     return true;
@@ -5079,7 +5076,7 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
   const key = pendingCreatorMissionKey(ctx);
   const pending = pendingCreatorMissions.get(key);
   if (!pending) return false;
-  if (Date.now() - pending.timestamp > CLARIFICATION_TTL_MS) {
+  if (Date.now() - pending.timestamp > PENDING_CREATOR_MISSION_TTL_MS) {
     pendingCreatorMissions.delete(key);
     return false;
   }
@@ -5159,66 +5156,9 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
   return true;
 }
 
-export function isPendingClarificationAlternativeRequest(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized) return false;
-  return [
-    /\bwhat\s+else\s+(?:would\s+you\s+)?(?:recommend|suggest|try|build|make|create)\b/,
-    /\b(?:something|anything)\s+(?:different|else)\b.*\b(?:recommend|suggest|try|build|make|create)\b/,
-    /\b(?:try|do|explore)\s+something\s+different\b/,
-    /\b(?:other|different)\s+(?:ideas?|directions?|options?|recommendations?|suggestions?)\b/
-  ].some((pattern) => pattern.test(normalized));
-}
-
-function isPendingClarificationSteeringAnswer(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized || normalized.length > 180) return false;
-  if (/[?]/.test(normalized)) return false;
-  if (isNoExecutionBoundary(normalized) || isPendingClarificationAlternativeRequest(normalized)) return false;
-  if (/^(?:but|and|also|because|why|what|where|when|who|how|should|could|would)\b/.test(normalized)) return false;
-  const hasSteeringLanguage = /\b(?:feel|tone|style|vibe|direction|make it|closer to|more|less|playful|weird|practical|premium|chill|atmospheric|fast|score|score-chasing|strange|surreal|useful|simple|polished|dark|bright|fun|serious|cozy|sharp|experimental|arcade|puzzle|narrative)\b/.test(normalized);
-  const looksLikePreferenceList =
-    /\b(?:and|but|with|without|somewhat|kind of|kinda|closer to)\b/.test(normalized) &&
-    !/\b(?:build|create|make|run|start|launch|ship|mission|canvas|kanban)\b/.test(normalized);
-  return hasSteeringLanguage || looksLikePreferenceList;
-}
-
-export function isPendingClarificationFollowup(text: string): boolean {
-  const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized) return false;
-  if (isNoExecutionBoundary(normalized) || isPendingClarificationAlternativeRequest(normalized)) return false;
-  if (/^(?:go|run|start|ship|yes|yep|yeah|ok|okay|sure|perfect|do it|let'?s go|default|defaults|skip)$/i.test(normalized)) {
-    return true;
-  }
-  const startsWithConfirmation = /^(?:yes|yeah|yep|ok|okay|sure|perfect|sounds good|great|cool)\b/.test(normalized);
-  const contextualObject = /\b(?:it|this|that|the project|the dashboard|the app|the build)\b/.test(normalized);
-  const action = /\b(?:build|create|make|ship|start|run|do|use|analyz|analyse)\b/.test(normalized);
-  return (
-    contextualObject &&
-    action &&
-    (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized))
-  ) || isPendingClarificationSteeringAnswer(normalized);
-}
-
 function isBareExecutionStart(text: string): boolean {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
   return /^(?:go|run|start|ship|do it|let'?s go|default|defaults|skip)[.! ]*$/i.test(normalized);
-}
-
-export function shouldUsePendingClarificationForMessage(pending: { timestamp: number } | null | undefined, text: string): boolean {
-  if (!pending) return false;
-  const expired = Date.now() - pending.timestamp > CLARIFICATION_TTL_MS;
-  return !expired && isPendingClarificationFollowup(text);
-}
-
-function pendingClarificationForMessage(key: string, text: string): PendingClarification | null {
-  const pending = pendingClarifications.get(key);
-  if (!pending) return null;
-  if (!shouldUsePendingClarificationForMessage(pending, text)) {
-    pendingClarifications.delete(key);
-    return null;
-  }
-  return pending;
 }
 
 function quotedTelegramMessageText(message: any): string {
@@ -5268,7 +5208,7 @@ export function buildQuotedMissionStatusOriginReply(currentText: string, quotedT
   return null;
 }
 
-function buildLatestAssistantOriginReply(currentText: string, pending: PendingClarification | null): string | null {
+function buildLatestAssistantOriginReply(currentText: string, pending: PendingBuildClarification | null): string | null {
   if (!isMissionStatusOriginQuestion(currentText)) return null;
   if (!pending) return null;
   return [
@@ -6138,7 +6078,7 @@ export async function handleBuildIntent(
     // briefs. Surface the questions to the user and stash the original
     // request so /clarify can re-dispatch with forceDispatch.
     if (res.data?.needsClarification && Array.isArray(res.data.openQuestions)) {
-      pendingClarifications.set(`${ctx.chat.id}-${ctx.from.id}`, {
+      rememberPendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id), {
         requestId,
         prd,
         projectName: polishedProjectName,
@@ -7807,7 +7747,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const latestOriginReply = !earlyBuildIntent && conversation.isAdmin(ctx.from)
-    ? buildLatestAssistantOriginReply(text, pendingClarifications.get(`${ctx.chat.id}-${ctx.from.id}`) || null)
+    ? buildLatestAssistantOriginReply(text, getPendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id)))
     : null;
   if (latestOriginReply) {
     await conversation.remember(user, text).catch(() => {});
@@ -8273,7 +8213,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	  }
 
   const activePendingClarification = conversation.isAdmin(ctx.from)
-    ? pendingClarificationForMessage(`${ctx.chat.id}-${ctx.from.id}`, text)
+    ? pendingBuildClarificationForMessage(telegramPendingBuildKey(ctx.chat.id, ctx.from.id), text)
     : null;
   if (
 	    activePendingClarification &&
@@ -8352,7 +8292,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
     console.log(`[ConversationIntent] early ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
     if (isPendingClarificationAlternativeRequest(text)) {
-      pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
+      deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));
     }
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
@@ -8606,7 +8546,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const contextualTurns = [...recentMessages, sessionContext, conversationFrameContext];
     const buildIntent = earlyBuildIntent;
     const pendingExecutionKey = `${ctx.chat.id}-${ctx.from.id}`;
-    const pendingClarification = pendingClarificationForMessage(pendingExecutionKey, text);
+    const pendingClarification = pendingBuildClarificationForMessage(pendingExecutionKey, text);
 
 	    if (await handlePendingMissionCancelConfirmation(ctx, text, turnIntentEnvelope)) {
       return;
@@ -9117,7 +9057,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (shouldPreferConversationalIdeation(text)) {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       if (isPendingClarificationAlternativeRequest(text)) {
-        pendingClarifications.delete(`${ctx.chat.id}-${ctx.from.id}`);
+        deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));
       }
       if (isNoExecutionBoundary(text)) {
         const response = buildNoExecutionIdeationReply(text);

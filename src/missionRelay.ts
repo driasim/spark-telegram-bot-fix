@@ -942,6 +942,18 @@ function providerCompletionLooksBlocked(text: string): boolean {
   );
 }
 
+function providerCompletionLooksStaged(text: string): boolean {
+  const normalized = compactWhitespace(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    /\b(?:mission|run|board)\s+(?:is\s+|shows\s+the\s+mission\s+in\s+)?`?created`?\b/.test(normalized) ||
+    /\b(?:tasks?|steps?)\s+queued\b/.test(normalized) && /\b(?:created|canvas_ready|0%)\b/.test(normalized) ||
+    /\bexecution\s+(?:is\s+)?(?:still\s+)?pending\b/.test(normalized) ||
+    /\bqueued,\s*not\s+completed\b/.test(normalized) ||
+    /\bcanvas_ready\b/.test(normalized) && /\b0%\b/.test(normalized)
+  );
+}
+
 function providerCompletionKind(status: string | null | undefined, text: string): 'completed' | 'failed' {
   const normalizedStatus = status?.toLowerCase();
   if (normalizedStatus && ['failed', 'error', 'blocked'].includes(normalizedStatus)) return 'failed';
@@ -1244,6 +1256,17 @@ function summarizeVerificationChecks(checks: string[]): string {
   return 'Checked it; the important checks passed.';
 }
 
+function summarizeStagedVerificationChecks(checks: string[]): string {
+  const joined = checks.join(' ').toLowerCase();
+  if (/\bfailed\b|\bfail\b|\berror\b|\bmissing\b|\bblocked\b/.test(joined)) {
+    return 'The handoff is staged, but one check still needs attention.';
+  }
+  if (/\bcanvas_ready\b|\bcanvas is ready\b|\bcreated\b|\bqueued\b/.test(joined)) {
+    return 'Canvas is ready; queued, not completed.';
+  }
+  return 'Staged the handoff; execution is still pending.';
+}
+
 function extractFreeformLeadSummary(text: string): string | null {
   const cleaned = stripVisibleMissionReferences(stripMarkdownFileLinks(stripThinkingAndMeta(text)));
   const line = cleaned
@@ -1404,7 +1427,11 @@ export function formatProviderCompletionForTelegram(input: {
     const checks = extractSectionBullets(input.response, /^Verification passed:/i, 4);
     const lead = extractFreeformLeadSummary(input.response);
     const completionKind = providerCompletionKind(null, clean);
-    const lines = [voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)];
+    const staged = completionKind !== 'failed' && providerCompletionLooksStaged(input.response);
+    const lines = [staged
+      ? '🛠️ Staged the handoff; execution is still pending.'
+      : voiceLine(completionKind, `${input.missionId}:${provider}:freeform`)
+    ];
     const failureLines = completionKind === 'failed' ? freeformFailureLines(input.response) : [];
     if (failureLines.length > 0) {
       lines.push('', 'What blocked it', ...failureLines.map((line) => `• ${line}`));
@@ -1430,7 +1457,7 @@ export function formatProviderCompletionForTelegram(input: {
       if (verbosity === 'verbose') {
         lines.push('', 'Quality checks', ...checks.map((item) => `• ${item}`));
       } else {
-        lines.push('', summarizeVerificationChecks(checks));
+        lines.push('', staged ? summarizeStagedVerificationChecks(checks) : summarizeVerificationChecks(checks));
       }
     }
     if (openLink) lines.push('', nextPolishLine(input.missionId));

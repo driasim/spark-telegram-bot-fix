@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseBuildIntent } from '../src/buildIntent';
 import {
   formatProviderCompletionForTelegram,
@@ -125,6 +127,18 @@ test('bug hunt: pending build clarification does not hijack alternative requests
   assert.equal(isPendingClarificationFollowup(explicitSteering), true);
 });
 
+test('bug hunt: pending build clarification lives behind evidence adapter', () => {
+  const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
+  const adapterSource = readFileSync(resolve(__dirname, '../src/telegramPendingBuildEvidence.ts'), 'utf8');
+
+  assert.match(indexSource, /telegramPendingBuildEvidence/);
+  assert.match(indexSource, /pendingBuildClarificationForMessage/);
+  assert.doesNotMatch(indexSource, /const pendingClarifications = new Map/);
+  assert.doesNotMatch(indexSource, /export function isPendingClarificationFollowup/);
+  assert.match(adapterSource, /const buildClarifications = new Map/);
+  assert.match(adapterSource, /export function pendingBuildClarificationForMessage/);
+});
+
 test('bug hunt: no-execution boundaries outrank build and mission words', () => {
   const prompts = [
     'I am mentioning build and mission, but do not start anything. What is the current Spark risk profile?',
@@ -196,8 +210,8 @@ test('bug hunt: no-action explanation reply does not reuse stale mission/build w
   const publishReply = renderMissionRoutingFailureClassReply(
     'This is not a command. I am discussing remember, publish, deploy, schedule, provider, and chip as risky triggers. Do not save memory or publish anything.'
   );
-  assert.match(publishReply, /examples or context/i);
-  assert.match(publishReply, /Fresh user intent wins/i);
+  assert.match(publishReply, /examples, quoted words/i);
+  assert.match(publishReply, /fresh, explicit save request/i);
   assert.doesNotMatch(publishReply, /mission or build words/i);
 });
 
