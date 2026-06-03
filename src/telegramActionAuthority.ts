@@ -12,7 +12,10 @@ import {
   type ToolCallLedgerV1,
   type TurnIntentEnvelopeVNext
 } from './harnessCoreVNext';
-import { createHarnessCoreGovernorDecision } from '@spark/harness-core';
+import {
+  createHarnessCoreGovernorDecision,
+  verifyHarnessCoreGovernorExecutionAuthority
+} from '@spark/harness-core';
 import { recordHarnessCoreAuthorizationLedger } from './harnessCoreLedger';
 import { evaluateDeterministicRoute, type DeterministicRouteId, type RouteFirewallVerdict } from './routeFirewall';
 
@@ -51,6 +54,22 @@ function envelopeSelectedRoute(envelope: TurnIntentEnvelopeV1 | null | undefined
   const selectedAction = envelope.selectedIntent.action;
   if (selectedAction && routeMatchesCandidate(inputRoute, selectedAction)) return true;
   return envelope.candidates.some((candidate) => routeMatchesCandidate(inputRoute, candidate.route));
+}
+
+export function governorOutcomeAllowsTelegramAction(
+  governorDecision: GovernorDecisionV1 | null | undefined,
+  action: HarnessCoreProposedAction | null | undefined,
+  toolName?: string
+): boolean {
+  if (!action) return false;
+  return verifyHarnessCoreGovernorExecutionAuthority({
+    governor_decision: governorDecision ?? null,
+    expected_capability_id: action.capability_id,
+    expected_action_type: action.action_type,
+    tool_name: toolName,
+    action_id: action.action_id,
+    allow_read_only: action.action_type === 'read'
+  }).allowed;
 }
 
 export function authorizeTelegramActionFromEnvelope(
@@ -95,16 +114,26 @@ export function authorizeTelegramActionFromEnvelope(
         tool_ledgers: harnessCoreLedger ? [harnessCoreLedger] : []
       })
     : null;
-  const allow = Boolean(
-    governorDecision &&
-    ['execute', 'read_only', 'prepare'].includes(governorDecision.outcome)
-  );
+  const governorVerification = harnessCore?.action
+    ? verifyHarnessCoreGovernorExecutionAuthority({
+        governor_decision: governorDecision,
+        expected_capability_id: harnessCore.action.capability_id,
+        expected_action_type: harnessCore.action.action_type,
+        tool_name: input.toolName,
+        action_id: harnessCore.action.action_id,
+        allow_read_only: harnessCore.action.action_type === 'read'
+      })
+    : null;
+  const allow = governorVerification?.allowed === true;
   const reasonCodes = [
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
     ...(routeAuthorizedByTurn ? [] : ['route_not_selected_by_turn_envelope']),
     ...toolAuthorization.reasonCodes,
     ...(harnessCore && harnessCore.authorization.verdict !== 'allow'
       ? harnessCore.authorization.reasons.map((reason) => `harness_core:${reason}`)
+      : []),
+    ...(governorVerification && !governorVerification.allowed
+      ? governorVerification.reason_codes.map((reason) => `governor:${reason}`)
       : []),
     ...(harnessCore ? [] : ['harness_core:missing_or_invalid_envelope'])
   ];

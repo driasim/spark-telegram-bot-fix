@@ -35,7 +35,7 @@ test('Telegram legacy authority inventory is release-ready under the Harness Cor
 
 test('old Telegram regex and parser planes are evidence only', () => {
   const evidenceOnlyPlanes = buildTelegramLegacyAuthorityPlanes().filter((plane) => (
-    plane.disposition === 'rebound_to_harness_evidence'
+    plane.disposition === 'evidence_adapter'
   ));
 
   assert.ok(evidenceOnlyPlanes.length >= 6);
@@ -56,7 +56,7 @@ test('high-agency Telegram planes are Harness Core consumers with Governor and l
   assert.equal(highAgencyPlanes.length, inventory.summary.high_agency_risk_count);
 
   for (const plane of highAgencyPlanes) {
-    assert.equal(plane.disposition, 'converted_to_harness_consumer', `${plane.plane_id} must be converted, not local authority`);
+    assert.equal(plane.disposition, 'canonical_consumer', `${plane.plane_id} must be canonical consumer, not local authority`);
     assert.equal(plane.harness_binding.governor_required, true, `${plane.plane_id} must require Governor`);
     assert.equal(plane.harness_binding.consumer_of_governor, true, `${plane.plane_id} must consume Governor`);
     assert.equal(plane.harness_binding.ledger_required, true, `${plane.plane_id} must require ledger evidence`);

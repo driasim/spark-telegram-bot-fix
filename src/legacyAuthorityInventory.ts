@@ -43,7 +43,7 @@ function evidenceOnlyPlane(input: {
     source_path: input.source_path,
     summary: input.summary,
     authority_risk: {},
-    disposition: 'rebound_to_harness_evidence',
+    disposition: 'evidence_adapter',
     evidence_only: true,
     evidence: [evidence(`${input.id}:evidence`, input.kind || 'route_candidate', input.summary)]
   });
@@ -65,7 +65,7 @@ function consumerPlane(input: {
     source_path: input.source_path,
     summary: input.summary,
     authority_risk: input.authority_risk,
-    disposition: 'converted_to_harness_consumer',
+    disposition: 'canonical_consumer',
     governor_required: true,
     consumer_of_governor: true,
     ledger_required: true,
@@ -73,7 +73,7 @@ function consumerPlane(input: {
   });
 }
 
-function compatPlane(input: {
+function quarantinedPlane(input: {
   id: string;
   plane_type: LegacyAuthorityPlaneType;
   source_path: string;
@@ -88,8 +88,8 @@ function compatPlane(input: {
     source_path: input.source_path,
     summary: input.summary,
     authority_risk: {},
-    disposition: 'compat_no_authority',
-    evidence: [evidence(`${input.id}:compat`, input.kind || 'surface_signal', input.summary, 0.8)]
+    disposition: 'quarantined',
+    evidence: [evidence(`${input.id}:quarantined`, input.kind || 'surface_signal', input.summary, 0.8)]
   });
 }
 
@@ -270,7 +270,7 @@ export function buildTelegramLegacyAuthorityPlanes(): LegacyAuthorityPlaneV1[] {
       },
       kind: 'pending_state'
     }),
-    compatPlane({
+    quarantinedPlane({
       id: 'telegram-llm-surface-instructions',
       plane_type: 'template_reply',
       source_path: 'src/llm.ts',

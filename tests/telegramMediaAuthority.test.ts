@@ -44,6 +44,8 @@ test('media ingest allows read-only image and voice analysis without action auth
 
   assert.equal(image.allow, true);
   assert.equal(voice.allow, true);
+  assert.equal(image.governorDecision?.outcome, 'read_only');
+  assert.equal(voice.governorDecision?.outcome, 'read_only');
   assert.equal(image.harnessCore?.authorization.restrictions.write_allowed, false);
   assert.equal(voice.harnessCore?.authorization.restrictions.write_allowed, false);
   assert.equal(image.harnessCore?.authorization.restrictions.network_allowed, true);

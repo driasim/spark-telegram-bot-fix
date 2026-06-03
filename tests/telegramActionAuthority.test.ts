@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
+import {
+  createHarnessCoreActionEnvelopeVNext,
+  createHarnessCoreAuthorizedGovernorDecision
+} from '@spark/harness-core';
 import { buildTelegramTurnIntentEnvelope } from '../src/harnessContract';
-import { authorizeTelegramActionFromEnvelope } from '../src/telegramActionAuthority';
+import {
+  authorizeTelegramActionFromEnvelope,
+  governorOutcomeAllowsTelegramAction
+} from '../src/telegramActionAuthority';
 import { classifyTelegramIntentV2 } from '../src/telegramIntentGate';
 
 function test(name: string, fn: () => void): void {
@@ -56,6 +63,90 @@ test('allows explicit project build only when route and envelope both authorize 
   assert.equal(result.allow, true);
   assert.equal(result.routeVerdict.allow, true);
   assert.equal(result.toolAuthorization.verdict, 'allowed');
+});
+
+test('final Telegram action boundary never treats prepare as execution authority', () => {
+  const text = 'Build a private local-first dashboard for memory reports with stale context and source labels.';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+  assert.ok(result.harnessCore?.action);
+
+  const preparedDecision = {
+    ...result.governorDecision!,
+    outcome: 'prepare' as const,
+    execution_boundary: {
+      ...result.governorDecision!.execution_boundary,
+      action_authorized: false
+    }
+  };
+
+  assert.equal(governorOutcomeAllowsTelegramAction(preparedDecision, result.harnessCore.action, 'spawner.run'), false);
+  assert.equal(governorOutcomeAllowsTelegramAction(result.governorDecision, result.harnessCore.action, 'spawner.run'), true);
+  assert.equal(governorOutcomeAllowsTelegramAction(result.governorDecision, result.harnessCore.action, 'spawner.files'), false);
+});
+
+test('final Telegram action boundary rejects copied Governor ledgers', () => {
+  const text = 'Build a private local-first dashboard for memory reports with stale context and source labels.';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+  assert.ok(result.harnessCore?.action);
+  assert.equal(result.governorDecision?.outcome, 'execute');
+
+  const copiedLedgerDecision = {
+    ...result.governorDecision!,
+    tool_ledgers: result.governorDecision!.tool_ledgers.map((ledger) => ({
+      ...ledger,
+      action_id: 'action:stale-ledger',
+      authorization: {
+        ...ledger.authorization,
+        action_id: 'action:stale-ledger'
+      }
+    }))
+  };
+
+  assert.equal(copiedLedgerDecision.outcome, 'execute');
+  assert.equal(governorOutcomeAllowsTelegramAction(copiedLedgerDecision, result.harnessCore.action, 'spawner.run'), false);
+});
+
+test('final Telegram action boundary allows read-only Governor outcome only for read tools', () => {
+  const envelope = createHarnessCoreActionEnvelopeVNext({
+    surface: 'telegram',
+    ownerSystem: 'spark-telegram-bot',
+    toolName: 'spark.status',
+    mutationClass: 'read_only',
+    source: 'telegram',
+    reason: 'Read Spark status from Telegram.',
+    requestId: 'turn:read-only',
+    actorIdRef: 'telegram-human'
+  });
+  const readOnlyDecision = createHarnessCoreAuthorizedGovernorDecision({
+    envelope,
+    tool_name: 'spark.status'
+  });
+  const readAction = readOnlyDecision.envelope.proposed_actions[0];
+  assert.equal(readOnlyDecision.outcome, 'read_only');
+  assert.equal(governorOutcomeAllowsTelegramAction(readOnlyDecision, readAction, 'spark.status'), true);
+  assert.equal(
+    governorOutcomeAllowsTelegramAction(
+      readOnlyDecision,
+      {
+        ...readAction,
+        action_type: 'write_memory'
+      },
+      'spark.status'
+    ),
+    false
+  );
 });
 
 test('allows explicit no-edit Spawner missions while preserving the file-edit constraint', () => {

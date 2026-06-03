@@ -348,10 +348,7 @@ test('420-message matrix blocks word hijacks and preserves explicit actions', ()
     assert.equal(verdict.harnessCoreLedger?.authorization.verdict, 'allow', `${item.id} ledger did not preserve allow verdict`);
     assert.equal(verdict.harnessCoreLedger?.result.status, 'not_started', `${item.id} authorization ledger should precede owner execution`);
     assert.equal(verdict.governorDecision?.schema_version, 'governor-decision-v1', `${item.id} missing Governor decision`);
-    assert.ok(
-      ['execute', 'read_only', 'prepare'].includes(String(verdict.governorDecision?.outcome)),
-      `${item.id} Governor did not authorize the positive action`
-    );
+    assert.equal(verdict.governorDecision?.outcome, 'execute', `${item.id} Governor did not authorize execution`);
     assert.equal(verdict.harnessCore?.envelope.proposed_actions.length, 1, `${item.id} should propose exactly one action`);
   }
 });

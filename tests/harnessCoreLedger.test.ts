@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildTelegramTurnIntentEnvelope } from '../src/harnessContract';
+import { finalizeHarnessCoreToolCallLedger } from '@spark/harness-core';
 import {
   harnessCoreToolLedgerPath,
   readHarnessCoreToolLedger,
@@ -109,6 +110,34 @@ test('records post-execution Harness Core outcome ledgers', () => {
     assert.equal(records[1].result.status, 'success');
     assert.equal(records[1].result.summary, 'Spawner accepted the authorized build dispatch.');
     assert.ok(records[1].lifecycle.some((stage) => stage.stage === 'execute' && stage.verdict === 'passed'));
+  });
+});
+
+test('rejects copied Harness Core ledgers before post-execution finalization', () => {
+  withLedgerPath(() => {
+    const text = 'Build a private local-first dashboard for memory reports with stale context labels.';
+    const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+      route: 'spawner.build',
+      text,
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      mutationClass: 'launches_mission'
+    });
+
+    assert.equal(result.allow, true);
+    assert.ok(result.harnessCoreLedger);
+    const copiedLedger = JSON.parse(JSON.stringify(result.harnessCoreLedger));
+    copiedLedger.action_id = 'action:copied-stale-ledger';
+
+    assert.throws(
+      () => finalizeHarnessCoreToolCallLedger({
+        ledger: copiedLedger,
+        status: 'success',
+        summary: 'Copied ledger must not finalize as execution proof.',
+        output_path_or_uri: 'telegram://copied-ledger/success'
+      }),
+      /authorization binding mismatch/
+    );
   });
 });
 
