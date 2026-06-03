@@ -39,12 +39,63 @@ function restoreAxios(): void {
   (axios as any).get = originalGet;
 }
 
+function removeTempRoot(tempRoot: string): void {
+  try {
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+      console.warn(`warning - left temp access repair dir after Windows handle delay: ${tempRoot}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+function psSingleQuoted(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
 function writeSparkShim(input: {
   binDir: string;
   callsPath: string;
   statusPath: string;
   finalStatus: Record<string, unknown>;
 }): void {
+  const setupReply = JSON.stringify({
+    ok: true,
+    effective_access_level: 4,
+    recommended: { id: 'spark_workspace' },
+    next: 'spark access status'
+  });
+
+  if (process.platform === 'win32') {
+    const sparkShim = path.join(input.binDir, 'spark.ps1');
+    writeFileSync(
+      sparkShim,
+      [
+        'param([Parameter(ValueFromRemainingArguments=$true)][string[]]$SparkArgs)',
+        `$callsPath = ${psSingleQuoted(input.callsPath)}`,
+        `$statusPath = ${psSingleQuoted(input.statusPath)}`,
+        'Add-Content -LiteralPath $callsPath -Value ($SparkArgs -join " ")',
+        'if ($SparkArgs.Count -ge 3 -and $SparkArgs[0] -eq "access" -and $SparkArgs[1] -eq "status" -and $SparkArgs[2] -eq "--json") {',
+        '  Get-Content -Raw -LiteralPath $statusPath',
+        '  exit 0',
+        '}',
+        'if ($SparkArgs.Count -ge 3 -and $SparkArgs[0] -eq "access" -and $SparkArgs[1] -eq "setup" -and $SparkArgs[2] -eq "--json") {',
+        `$finalStatus = @'\n${JSON.stringify(input.finalStatus)}\n'@`,
+        '  Set-Content -LiteralPath $statusPath -Value $finalStatus -NoNewline',
+        `$setupReply = @'\n${setupReply}\n'@`,
+        '  Write-Output $setupReply',
+        '  exit 0',
+        '}',
+        'Write-Error ("unexpected spark command: " + ($SparkArgs -join " "))',
+        'exit 1',
+        ''
+      ].join('\n')
+    );
+    return;
+  }
+
   const sparkShim = path.join(input.binDir, 'spark');
   writeFileSync(
     sparkShim,
@@ -59,12 +110,7 @@ function writeSparkShim(input: {
       `  cat > "${input.statusPath.replace(/"/g, '\\"')}" <<'JSON'`,
       JSON.stringify(input.finalStatus),
       'JSON',
-      `  echo '${JSON.stringify({
-        ok: true,
-        effective_access_level: 4,
-        recommended: { id: 'spark_workspace' },
-        next: 'spark access status'
-      })}'`,
+      `  echo '${setupReply}'`,
       '  exit 0',
       'fi',
       'echo "unexpected spark command: $*" >&2',
@@ -151,9 +197,9 @@ async function runAccessRepairScenario(input: {
     const sparkCalls = readFileSync(callsPath, 'utf-8');
     return { replies, sparkCalls, spawnerCalls };
   } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
     restoreAxios();
     restoreEnv();
+    removeTempRoot(tempRoot);
   }
 }
 

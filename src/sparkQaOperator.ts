@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { withHiddenWindows } from './hiddenProcess';
-import { resolvePythonCommand } from './pythonCommand';
+import { resolveDefaultPythonCommand, resolvePythonCommand } from './pythonCommand';
 import { redactText } from './redaction';
 
 const execFileAsync = promisify(execFile);
@@ -108,7 +108,8 @@ function timestampId(): string {
 }
 
 function pythonCommand(): string {
-  return resolvePythonCommand(process.env.SPARK_QA_OPERATOR_PYTHON || process.env.SPARK_SWARM_BRIDGE_PYTHON || process.env.SPARK_BUILDER_PYTHON || 'python3');
+  const configured = process.env.SPARK_QA_OPERATOR_PYTHON || process.env.SPARK_SWARM_BRIDGE_PYTHON || process.env.SPARK_BUILDER_PYTHON;
+  return configured ? resolvePythonCommand(configured) : resolveDefaultPythonCommand();
 }
 
 function envForRepo(repoRoot: string): NodeJS.ProcessEnv {

@@ -23,6 +23,7 @@ import axios from 'axios';
 import { describeTier, getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
 import { readHarnessCoreToolLedger } from '../src/harnessCoreLedger';
+import { resolveDefaultPythonCommand } from '../src/pythonCommand';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -78,6 +79,146 @@ function restoreEnv(): void {
 		else (process.env as Record<string, string>)[k] = v;
 	}
 	applyDeterministicProviderDefaults();
+}
+
+function psSingleQuoted(value: string): string {
+	return `'${value.replace(/'/g, "''")}'`;
+}
+
+function writeSparkAccessShim(input: {
+	binDir: string;
+	callsPath: string;
+	statusPath: string;
+	setupStatus?: Record<string, unknown>;
+}): void {
+	const setupReply = JSON.stringify({
+		ok: true,
+		effective_access_level: 4,
+		recommended: { id: 'spark_workspace' },
+		next: 'spark access status'
+	});
+
+	if (process.platform === 'win32') {
+		const sparkShim = path.join(input.binDir, 'spark.ps1');
+		writeFileSync(
+			sparkShim,
+			[
+				'param([Parameter(ValueFromRemainingArguments=$true)][string[]]$SparkArgs)',
+				`$callsPath = ${psSingleQuoted(input.callsPath)}`,
+				`$statusPath = ${psSingleQuoted(input.statusPath)}`,
+				'Add-Content -LiteralPath $callsPath -Value ($SparkArgs -join " ")',
+				'if ($SparkArgs.Count -ge 3 -and $SparkArgs[0] -eq "access" -and $SparkArgs[1] -eq "status" -and $SparkArgs[2] -eq "--json") {',
+				'  Get-Content -Raw -LiteralPath $statusPath',
+				'  exit 0',
+				'}',
+				'if ($SparkArgs.Count -ge 3 -and $SparkArgs[0] -eq "access" -and $SparkArgs[1] -eq "setup" -and $SparkArgs[2] -eq "--json") {',
+				input.setupStatus ? `$setupStatus = @'\n${JSON.stringify(input.setupStatus)}\n'@\n  Set-Content -LiteralPath $statusPath -Value $setupStatus -NoNewline` : '',
+				`$setupReply = @'\n${setupReply}\n'@`,
+				'  Write-Output $setupReply',
+				'  exit 0',
+				'}',
+				'Write-Error ("unexpected spark command: " + ($SparkArgs -join " "))',
+				'exit 1',
+				''
+			].filter((line) => line !== '').join('\n')
+		);
+		return;
+	}
+
+	const sparkShim = path.join(input.binDir, 'spark');
+	const lines = [
+		'#!/bin/sh',
+		`echo "$*" >> "${input.callsPath.replace(/"/g, '\\"')}"`,
+		'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
+		`  cat "${input.statusPath.replace(/"/g, '\\"')}"`,
+		'  exit 0',
+		'fi',
+		'if [ "$1" = "access" ] && [ "$2" = "setup" ] && [ "$3" = "--json" ]; then'
+	];
+	if (input.setupStatus) {
+		lines.push(
+			`  cat > "${input.statusPath.replace(/"/g, '\\"')}" <<'JSON'`,
+			JSON.stringify(input.setupStatus),
+			'JSON'
+		);
+	}
+	lines.push(
+		`  echo '${setupReply}'`,
+		'  exit 0',
+		'fi',
+		'echo "unexpected spark command: $*" >&2',
+		'exit 1',
+		''
+	);
+	writeFileSync(sparkShim, lines.join('\n'));
+	chmodSync(sparkShim, 0o755);
+}
+
+function writeSparkLiveStatusTextShim(binDir: string): void {
+	const liveStatusLines = [
+		'[OK] Spark Live is ready.',
+		'Telegram profiles: 1 running, 0 stopped',
+		'LLM roles: chat=codex, builder=codex, memory=codex, mission=codex',
+		'[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke',
+		'[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)'
+	];
+	const verifyLines = ['Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot'];
+
+	if (process.platform === 'win32') {
+		const sparkShim = path.join(binDir, 'spark.ps1');
+		writeFileSync(
+			sparkShim,
+			[
+				'param([Parameter(ValueFromRemainingArguments=$true)][string[]]$SparkArgs)',
+				'if ($SparkArgs.Count -eq 2 -and $SparkArgs[0] -eq "live" -and $SparkArgs[1] -eq "status") {',
+				`$liveStatus = @'\n${liveStatusLines.join('\n')}\n'@`,
+				'  Write-Output $liveStatus',
+				'  exit 0',
+				'}',
+				'if ($SparkArgs.Count -eq 2 -and $SparkArgs[0] -eq "verify" -and $SparkArgs[1] -eq "--deep") {',
+				`$verifyStatus = @'\n${verifyLines.join('\n')}\n'@`,
+				'  Write-Output $verifyStatus',
+				'  exit 0',
+				'}',
+				'Write-Error ("unexpected spark command: " + ($SparkArgs -join " "))',
+				'exit 1',
+				''
+			].join('\n')
+		);
+		return;
+	}
+
+	const sparkShim = path.join(binDir, 'spark');
+	writeFileSync(
+		sparkShim,
+		[
+			'#!/bin/sh',
+			'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
+			...liveStatusLines.map((line) => `  echo "${line.replace(/"/g, '\\"')}"`),
+			'  exit 0',
+			'fi',
+			'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
+			...verifyLines.map((line) => `  echo "${line.replace(/"/g, '\\"')}"`),
+			'  exit 0',
+			'fi',
+			'echo "unexpected spark command: $*" >&2',
+			'exit 1',
+			''
+		].join('\n')
+	);
+	chmodSync(sparkShim, 0o755);
+}
+
+function removeTempRoot(tempRoot: string): void {
+	try {
+		rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	} catch (error) {
+		if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+			console.warn(`warning - left temp build E2E dir after Windows handle delay: ${tempRoot}`);
+			return;
+		}
+		throw error;
+	}
 }
 
 interface CapturedCall {
@@ -1175,7 +1316,7 @@ async function run(): Promise<void> {
 			'open(args.output, "w").write(json.dumps({"overallScore": 1, "pass": True, "caseCount": 6, "missingEvidenceCount": 0}))',
 			''
 		].join('\n'));
-		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || 'python3';
+		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || resolveDefaultPythonCommand();
 
 		try {
 			const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
@@ -1213,7 +1354,7 @@ async function run(): Promise<void> {
 			path.join(repoRoot, '.spark-swarm', 'evidence-benchmark', 'latest-from-telegram.json'),
 			JSON.stringify({ overallScore: 0.99, pass: true, caseCount: 6, missingEvidenceCount: 0 })
 		);
-		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || 'python3';
+		process.env.SPARK_SWARM_BRIDGE_PYTHON = process.env.SPARK_SWARM_BRIDGE_PYTHON || resolveDefaultPythonCommand();
 
 		try {
 			const pathLoop = require('../src/pathLoop') as typeof import('../src/pathLoop');
@@ -2301,6 +2442,8 @@ async function run(): Promise<void> {
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-readonly-repair-route-'));
 		const binDir = path.join(tempRoot, 'bin');
 		const oldPath = process.env.PATH || '';
+		const statusPath = path.join(tempRoot, 'spark-access-status.json');
+		const callsPath = path.join(tempRoot, 'spark-calls.log');
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPARK_BOT_TEST_MODE = '1';
@@ -2308,7 +2451,7 @@ async function run(): Promise<void> {
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		mkdirSync(binDir, { recursive: true });
 		writeFileSync(
-			path.join(tempRoot, 'spark-access-status.json'),
+			statusPath,
 			JSON.stringify({
 				access_level: 4,
 				effective_access_level: 4,
@@ -2318,26 +2461,7 @@ async function run(): Promise<void> {
 				state_machine: { requested_access_level: 4, effective_access_level: 4 }
 			})
 		);
-		const sparkShim = path.join(binDir, 'spark');
-		writeFileSync(
-			sparkShim,
-			[
-				'#!/bin/sh',
-				`echo "$*" >> "${path.join(tempRoot, 'spark-calls.log').replace(/"/g, '\\"')}"`,
-				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
-				`  cat "${path.join(tempRoot, 'spark-access-status.json').replace(/"/g, '\\"')}"`,
-				'  exit 0',
-				'fi',
-				'if [ "$1" = "access" ] && [ "$2" = "setup" ] && [ "$3" = "--json" ]; then',
-				'  echo "{\\"ok\\":true,\\"effective_access_level\\":4,\\"recommended\\":{\\"id\\":\\"spark_workspace\\"},\\"next\\":\\"spark access status\\"}"',
-				'  exit 0',
-				'fi',
-				'echo "unexpected spark command: $*" >&2',
-				'exit 1',
-				''
-			].join('\n')
-		);
-		chmodSync(sparkShim, 0o755);
+		writeSparkAccessShim({ binDir, callsPath, statusPath });
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		const captured: CapturedCall[] = [];
@@ -2364,13 +2488,13 @@ async function run(): Promise<void> {
 			assert.doesNotMatch(joined, /I will run that through Codex now/i);
 			assert.doesNotMatch(joined, /Canvas:|Kanban:|Mission board:/i);
 			assert.equal(captured.length, 0, 'read-only repair and did-you follow-up must not call Spawner or PRD bridge');
-			const sparkCalls = readFileSync(path.join(tempRoot, 'spark-calls.log'), 'utf-8');
+			const sparkCalls = readFileSync(callsPath, 'utf-8');
 			assert.doesNotMatch(sparkCalls, /access setup --json/, 'workspace_setup must not run when workspace is already writable');
 		} finally {
 			process.env.PATH = oldPath;
-			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 
@@ -2380,6 +2504,7 @@ async function run(): Promise<void> {
 		const binDir = path.join(tempRoot, 'bin');
 		const oldPath = process.env.PATH || '';
 		const statusPath = path.join(tempRoot, 'spark-access-status.json');
+		const callsPath = path.join(tempRoot, 'spark-calls.log');
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPARK_BOT_TEST_MODE = '1';
@@ -2397,37 +2522,20 @@ async function run(): Promise<void> {
 				state_machine: { requested_access_level: 4, effective_access_level: 4 }
 			})
 		);
-		const sparkShim = path.join(binDir, 'spark');
-		writeFileSync(
-			sparkShim,
-			[
-				'#!/bin/sh',
-				`echo "$*" >> "${path.join(tempRoot, 'spark-calls.log').replace(/"/g, '\\"')}"`,
-				'if [ "$1" = "access" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
-				`  cat "${statusPath.replace(/"/g, '\\"')}"`,
-				'  exit 0',
-				'fi',
-				'if [ "$1" = "access" ] && [ "$2" = "setup" ] && [ "$3" = "--json" ]; then',
-				`  cat > "${statusPath.replace(/"/g, '\\"')}" <<'JSON'`,
-				JSON.stringify({
-					access_level: 4,
-					effective_access_level: 4,
-					workspace_path: path.join(tempRoot, 'workspace'),
-					workspace_preflight: { writable: true, detail: 'Workspace write/delete preflight passed.' },
-					recommended: { id: 'spark_workspace' },
-					level5: { activation_state: 'blocked', service_enabled: false },
-					state_machine: { requested_access_level: 4, effective_access_level: 4 }
-				}),
-				'JSON',
-				'  echo "{\\"ok\\":true,\\"effective_access_level\\":4,\\"recommended\\":{\\"id\\":\\"spark_workspace\\"},\\"next\\":\\"spark access status\\"}"',
-				'  exit 0',
-				'fi',
-				'echo "unexpected spark command: $*" >&2',
-				'exit 1',
-				''
-			].join('\n')
-		);
-		chmodSync(sparkShim, 0o755);
+		writeSparkAccessShim({
+			binDir,
+			callsPath,
+			statusPath,
+			setupStatus: {
+				access_level: 4,
+				effective_access_level: 4,
+				workspace_path: path.join(tempRoot, 'workspace'),
+				workspace_preflight: { writable: true, detail: 'Workspace write/delete preflight passed.' },
+				recommended: { id: 'spark_workspace' },
+				level5: { activation_state: 'blocked', service_enabled: false },
+				state_machine: { requested_access_level: 4, effective_access_level: 4 }
+			}
+		});
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		const captured: CapturedCall[] = [];
@@ -2451,14 +2559,14 @@ async function run(): Promise<void> {
 			assert.doesNotMatch(joined, /I will run that through Codex now/i);
 			assert.doesNotMatch(joined, /Canvas:|Kanban:|Mission board:/i);
 			assert.equal(captured.length, 0, 'access repair setup must not call Spawner or PRD bridge');
-			const sparkCalls = readFileSync(path.join(tempRoot, 'spark-calls.log'), 'utf-8');
+			const sparkCalls = readFileSync(callsPath, 'utf-8');
 			assert.match(sparkCalls, /access status --json/);
 			assert.match(sparkCalls, /access setup --json/);
 		} finally {
 			process.env.PATH = oldPath;
-			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 
@@ -3130,27 +3238,44 @@ async function run(): Promise<void> {
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		process.env.SPARK_SYSTEM_MAP_STATE_DIR = systemMapDir;
 		const oldPath = process.env.PATH || '';
-		const sparkShim = path.join(binDir, 'spark');
-		writeFileSync(
-			sparkShim,
-			[
-				'#!/bin/sh',
-				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
-				'  cat <<EOF',
-				'{',
-				'  "ok": true,',
-				'  "telegram_profiles": [{"profile":"primary","primary":true,"running":true,"pid":123,"relay_port":8789}],',
-				'  "modules": [{"name":"spark-harness-core","version":"0.1.0","plane":"authority","healthy":true,"installed":{"version":"0.1.0","plane":"authority"}}]',
-				'}',
-				'EOF',
-				'  exit 0',
-				'fi',
-				'echo "unexpected spark command: $*" >&2',
-				'exit 1',
-				''
-			].join('\n')
-		);
-		chmodSync(sparkShim, 0o755);
+		const liveStatusJson = JSON.stringify({
+			ok: true,
+			telegram_profiles: [{ profile: 'primary', primary: true, running: true, pid: 123, relay_port: 8789 }],
+			modules: [{ name: 'spark-harness-core', version: '0.1.0', plane: 'authority', healthy: true, installed: { version: '0.1.0', plane: 'authority' } }]
+		});
+		if (process.platform === 'win32') {
+			const sparkShim = path.join(binDir, 'spark.ps1');
+			writeFileSync(
+				sparkShim,
+				[
+					'param([Parameter(ValueFromRemainingArguments=$true)][string[]]$SparkArgs)',
+					'if ($SparkArgs.Count -ge 3 -and $SparkArgs[0] -eq "live" -and $SparkArgs[1] -eq "status" -and $SparkArgs[2] -eq "--json") {',
+					`$liveStatus = @'\n${liveStatusJson}\n'@`,
+					'  Write-Output $liveStatus',
+					'  exit 0',
+					'}',
+					'Write-Error ("unexpected spark command: " + ($SparkArgs -join " "))',
+					'exit 1',
+					''
+				].join('\n')
+			);
+		} else {
+			const sparkShim = path.join(binDir, 'spark');
+			writeFileSync(
+				sparkShim,
+				[
+					'#!/bin/sh',
+					'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
+					`  echo '${liveStatusJson}'`,
+					'  exit 0',
+					'fi',
+					'echo "unexpected spark command: $*" >&2',
+					'exit 1',
+					''
+				].join('\n')
+			);
+			chmodSync(sparkShim, 0o755);
+		}
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 		writeFileSync(
 			path.join(systemMapDir, 'contract-coverage.json'),
@@ -3236,9 +3361,9 @@ async function run(): Promise<void> {
 			assert.equal(captured.length, 0, 'read-only Spark state questions must not call Spawner or PRD bridge');
 		} finally {
 			process.env.PATH = oldPath;
-			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 
@@ -3782,29 +3907,7 @@ async function run(): Promise<void> {
 		const binDir = path.join(tempRoot, 'bin');
 		const oldPath = process.env.PATH || '';
 		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
-		const sparkShim = path.join(binDir, 'spark');
-		writeFileSync(
-			sparkShim,
-			[
-				'#!/bin/sh',
-				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
-				'  echo "[OK] Spark Live is ready."',
-				'  echo "Telegram profiles: 1 running, 0 stopped"',
-				'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
-				'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
-				'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
-				'  exit 0',
-				'fi',
-				'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
-				'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
-				'  exit 0',
-				'fi',
-				'echo "unexpected spark command: $*" >&2',
-				'exit 1',
-				''
-			].join('\n')
-		);
-		chmodSync(sparkShim, 0o755);
+		writeSparkLiveStatusTextShim(binDir);
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
@@ -3829,9 +3932,9 @@ async function run(): Promise<void> {
 			assert.equal(captured.length, 0, 'live-state question must not launch or post work');
 		} finally {
 			process.env.PATH = oldPath;
-			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 
@@ -3844,29 +3947,7 @@ async function run(): Promise<void> {
 		const binDir = path.join(tempRoot, 'bin');
 		const oldPath = process.env.PATH || '';
 		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
-		const sparkShim = path.join(binDir, 'spark');
-		writeFileSync(
-			sparkShim,
-			[
-				'#!/bin/sh',
-				'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ -z "$3" ]; then',
-				'  echo "[OK] Spark Live is ready."',
-				'  echo "Telegram profiles: 1 running, 0 stopped"',
-				'  echo "LLM roles: chat=codex, builder=codex, memory=codex, mission=codex"',
-				'  echo "[OK] spawner-ui: Spawner UI healthy: http://127.0.0.1:3333 | 10 providers listed | 3 configured | workspace=<spark-home>/workspaces/.health-smoke"',
-				'  echo "[OK] spark-telegram-bot: Relay runtime: OK (primary@8789 pid=123 polling=active)"',
-				'  exit 0',
-				'fi',
-				'if [ "$1" = "verify" ] && [ "$2" = "--deep" ] && [ -z "$3" ]; then',
-				'  echo "Runtime processes are running under Spark supervision: spawner-ui, spark-telegram-bot"',
-				'  exit 0',
-				'fi',
-				'echo "unexpected spark command: $*" >&2',
-				'exit 1',
-				''
-			].join('\n')
-		);
-		chmodSync(sparkShim, 0o755);
+		writeSparkLiveStatusTextShim(binDir);
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
@@ -3889,9 +3970,9 @@ async function run(): Promise<void> {
 			assert.equal(captured.length, 0, 'repair-needed status question must not launch or post work');
 		} finally {
 			process.env.PATH = oldPath;
-			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 

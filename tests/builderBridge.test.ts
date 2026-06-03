@@ -135,8 +135,8 @@ test('formats route confidence gate missing evidence as a proof refusal', () => 
 test('Builder bridge exposes metadata-only RouteConfidenceGateV1 action preflight', () => {
   const bridgeSource = readFileSync(path.join(__dirname, '..', 'src', 'builderBridge.ts'), 'utf8');
   const indexSource = readFileSync(path.join(__dirname, '..', 'src', 'index.ts'), 'utf8');
-  const gateBlock = indexSource.match(/async function buildDispatchRouteConfidenceAllows[\s\S]*?\n}\n\ninterface RunCommandOptions/)?.[0] || '';
-  const pendingDomainChipBlock = indexSource.match(/async function handlePendingDomainChipBuild[\s\S]*?\n}\n\nasync function handleCreatorMissionPlan/)?.[0] || '';
+  const gateBlock = indexSource.match(/async function buildDispatchRouteConfidenceAllows[\s\S]*?\r?\n}\r?\n\r?\ninterface RunCommandOptions/)?.[0] || '';
+  const pendingDomainChipBlock = indexSource.match(/async function handlePendingDomainChipBuild[\s\S]*?\r?\n}\r?\n\r?\nasync function handleCreatorMissionPlan/)?.[0] || '';
 
   assert.match(bridgeSource, /routeContext\?: Record<string, unknown>/);
   assert.match(bridgeSource, /--route-context-json/);

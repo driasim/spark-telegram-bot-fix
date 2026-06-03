@@ -1285,13 +1285,13 @@ export function isLocalSparkServiceRequest(text: string, context: string = ''): 
     (/\b(?:localhost|local\s*host|local\s+url)\b/.test(normalized) &&
       (hasKnownLocalSparkSurface(normalized) || hasKnownLocalSparkSurface(contextText))) ||
     (
-      /\b(?:browser|open|show|link)\b/.test(normalized) &&
-      /\b(?:spawner|mission board|mission control|dashboard|ui|this|it|diagnostic|spark)\b/.test(normalized)
+      /\b(?:browser|open|show|link|where|ui|dashboard)\b/.test(normalized) &&
+      /\b(?:spawner|mission board|mission control|diagnostic|spark)\b/.test(normalized)
     ) ||
     (
-      /\bdashboard\b/.test(normalized) &&
-      /\b(?:spawner|mission board|mission control|diagnostic|spark)\b/.test(normalized) &&
-      /\b(?:open|show|link|where|browser)\b/.test(normalized)
+      /\b(?:browser|open|show|link|where)\b/.test(normalized) &&
+      /\b(?:this|it)\b/.test(normalized) &&
+      hasKnownLocalSparkSurface(contextText)
     )
   );
 }
