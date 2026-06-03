@@ -297,6 +297,17 @@ test('does not intercept build-quality review requests as local UI links', () =>
   );
 });
 
+test('does not treat ordinary pronoun text as a local Spark service request', () => {
+  assert.equal(
+    isLocalSparkServiceRequest(
+      "There is no such a thing as punishment in it. But it has to show people's real behaviour.",
+      ''
+    ),
+    false
+  );
+  assert.equal(isLocalSparkServiceRequest('Yes. Can you give me the Spawner UI localhost?', ''), true);
+});
+
 test('asks for clarification on cold localhost requests', () => {
   assert.equal(isAmbiguousLocalSparkServiceRequest('can you run the localhost for me', ''), true);
   assert.equal(isLocalSparkServiceRequest('can you run the localhost for me', ''), false);
