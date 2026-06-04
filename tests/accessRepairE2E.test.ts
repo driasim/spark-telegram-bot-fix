@@ -221,7 +221,7 @@ void (async () => {
     assert.equal(result.spawnerCalls.length, 0);
   });
 
-  await test('access repair auto-runs safe workspace setup when workspace is not writable', async () => {
+  await test('access repair reports setup need without auto-running workspace setup', async () => {
     const result = await runAccessRepairScenario({
       name: 'setup-needed',
       initialWritable: false,
@@ -229,13 +229,13 @@ void (async () => {
     });
     const reply = result.replies.join('\n');
     assert.match(reply, /access repair, not a Spawner mission/i);
-    assert.match(reply, /repaired the safe Spark workspace/i);
-    assert.match(reply, /Safe workspace setup is ready/i);
-    assert.match(reply, /Spark workspace writable: yes/i);
+    assert.match(reply, /did not run setup from natural text/i);
+    assert.match(reply, /\/access_setup/);
+    assert.match(reply, /Spark workspace writable: no/i);
     assert.doesNotMatch(reply, /I will run that through Codex now/i);
     assert.doesNotMatch(reply, /Canvas:|Kanban:|Mission board:/i);
     assert.match(result.sparkCalls, /access status --json/);
-    assert.match(result.sparkCalls, /access setup --json/);
+    assert.doesNotMatch(result.sparkCalls, /access setup --json/);
     assert.equal(result.spawnerCalls.length, 0);
   });
 

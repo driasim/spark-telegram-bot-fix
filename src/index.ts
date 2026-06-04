@@ -1308,18 +1308,10 @@ async function renderAccessCapabilityRepairAnswer(chatId: string | number): Prom
   ]);
 
   try {
-    let accessState = await readSparkWorkspaceAccessState();
-    let workspaceAction = accessState.workspaceWritable === true
+    const accessState = await readSparkWorkspaceAccessState();
+    const workspaceAction = accessState.workspaceWritable === true
       ? 'The safe Spark workspace was already writable, so I did not rerun setup.'
-      : '';
-
-    if (accessState.workspaceWritable !== true) {
-      await runSparkCli(['access', 'setup', '--json'], 60_000);
-      accessState = await readSparkWorkspaceAccessState();
-      workspaceAction = accessState.workspaceWritable === true
-        ? 'I repaired the safe Spark workspace. Safe workspace setup is ready.'
-        : 'I ran safe Spark workspace setup, but the workspace still did not prove writable.';
-    }
+      : 'The safe Spark workspace is not writable from this route, so I did not run setup from natural text. Use `/access_setup` for a fresh authorized setup action.';
 
     const runnerLine = runnerPreflight.runnerWritable === 'yes'
       ? 'Spark can now work inside the safe workspace from this Telegram runner.'
@@ -2820,9 +2812,13 @@ async function handlePendingMissionCancelConfirmation(ctx: any, text: string, en
   if (authorization && !authorization.allow) {
     return false;
   }
+  if (!authorization?.allow || !authorization.governorDecision) {
+    await ctx.reply('I did not send the cancel command because this confirmation did not carry fresh Harness Core authorization.');
+    return true;
+  }
 
   const result = await spawner.confirmContextualMissionCancel(pending.missionId, pending.title, {
-    executionAuthority: authorization?.governorDecision ?? pending.executionAuthority
+    executionAuthority: authorization.governorDecision
   });
   if (result.commandSent && result.missionId) {
     markMissionRelayCancelled(pending.missionId);
@@ -4255,6 +4251,10 @@ export async function handleClarificationAnswers(
     await ctx.reply('Got it, no build started. We can keep talking here.');
     return;
   }
+  if (!authorization?.allow || !authorization.governorDecision) {
+    await ctx.reply('I did not launch that build because this clarification did not carry fresh Harness Core authorization.');
+    return;
+  }
   const runWithDefaults = /^(?:go|run|start|ship|yes|yep|yeah|do it|let'?s go|default|defaults|skip)$/i.test(answersRaw);
   deletePendingBuildClarification(key);
 
@@ -4303,7 +4303,7 @@ export async function handleClarificationAnswers(
   const prdContent = pending.projectPath
     ? `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
     : `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
-  const executionAuthority = authorization?.governorDecision ?? pending.executionAuthority;
+  const executionAuthority = authorization.governorDecision;
 
   try {
     const res = await axios.post(
@@ -4437,7 +4437,12 @@ function startPrdCanvasReadyNotifier(args: {
             }
             const queue = await axios.post(
               `${args.spawnerUrl}/api/prd-bridge/load-to-canvas`,
-              { requestId: args.requestId, missionId: args.missionId, autoRun: true, telegramRelay: getTelegramRelayIdentity() },
+              {
+                requestId: args.requestId,
+                missionId: args.missionId,
+                autoRun: false,
+                telegramRelay: getTelegramRelayIdentity()
+              },
               spawnerAxiosOptions(8000)
             );
             if (shouldSuppressMissionHandoff(args.missionId)) {

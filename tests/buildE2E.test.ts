@@ -2351,6 +2351,9 @@ async function run(): Promise<void> {
 		const goCtx = makeFakeCtx(8319079055, 8319079055, 558, replies);
 		goCtx.message.text = 'go';
 		await indexModule.handleClarificationAnswers(goCtx, 'go');
+		assert.ok(!captured.some((c) => c.body?.forceDispatch === true), 'stale pending authority must not force-dispatch without fresh authorization');
+		assert.match(replies.join('\n'), /did not launch that build because this clarification did not carry fresh Harness Core authorization/);
+		await indexModule.handleClarificationAnswers(goCtx, 'go', { allow: true, governorDecision: executionAuthority });
 
 		const dispatchCall = captured.find((c) => c.body?.forceDispatch === true);
 		assert.ok(dispatchCall, 'expected go to force-dispatch pending clarification');
@@ -2682,7 +2685,7 @@ async function run(): Promise<void> {
 		}
 	});
 
-	await test('read-only repair auto-runs safe workspace setup when workspace is not writable', async () => {
+	await test('read-only repair reports setup need without auto-running workspace setup', async () => {
 		restoreAxios();
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-readonly-repair-setup-'));
 		const binDir = path.join(tempRoot, 'bin');
@@ -2737,15 +2740,15 @@ async function run(): Promise<void> {
 
 			const joined = replies.join('\n');
 			assert.match(joined, /access repair, not a Spawner mission/i);
-			assert.match(joined, /repaired the safe Spark workspace/i);
-			assert.match(joined, /Safe workspace setup is ready/);
-			assert.match(joined, /Spark workspace writable: yes/);
+			assert.match(joined, /did not run setup from natural text/i);
+			assert.match(joined, /\/access_setup/);
+			assert.match(joined, /Spark workspace writable: no/);
 			assert.doesNotMatch(joined, /I will run that through Codex now/i);
 			assert.doesNotMatch(joined, /Canvas:|Kanban:|Mission board:/i);
 			assert.equal(captured.length, 0, 'access repair setup must not call Spawner or PRD bridge');
 			const sparkCalls = readFileSync(callsPath, 'utf-8');
 			assert.match(sparkCalls, /access status --json/);
-			assert.match(sparkCalls, /access setup --json/);
+			assert.doesNotMatch(sparkCalls, /access setup --json/);
 		} finally {
 			process.env.PATH = oldPath;
 			restoreAxios();
