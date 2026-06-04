@@ -57,6 +57,20 @@ function fakeMissionControlAuthority(): Record<string, unknown> {
   };
 }
 
+function fakeExecutionAuthority(toolName: string): Record<string, unknown> {
+  return {
+    schema_version: 'governor-decision-v1',
+    outcome: 'execute',
+    execution_boundary: { action_authorized: true },
+    tool_ledgers: [
+      {
+        schema_version: 'tool-call-ledger-v1',
+        tool_name: toolName
+      }
+    ]
+  };
+}
+
 async function run(): Promise<void> {
   await test('runGoal posts Telegram relay metadata and orchestration options to Spawner', async () => {
     restoreAxios();
@@ -82,6 +96,7 @@ async function run(): Promise<void> {
       };
     };
 
+    const executionAuthority = fakeExecutionAuthority('spawner.run');
     const result = await spawner.runGoal({
       goal: 'Build a Kanban board from this Telegram message.',
       missionName: 'Telegram Kanban Board',
@@ -90,7 +105,8 @@ async function run(): Promise<void> {
       requestId: 'tg-req-1',
       traceRef: 'trace:telegram-run:tg-req-1',
       providers: ['codex', 'claude'],
-      promptMode: 'orchestrator'
+      promptMode: 'orchestrator',
+      executionAuthority
     });
 
     assert.equal(result.success, true);
@@ -98,7 +114,7 @@ async function run(): Promise<void> {
     assert.equal(result.requestId, 'tg-req-1');
     assert.deepEqual(result.providers, ['codex', 'claude']);
     assert.match(capturedUrl, /\/api\/spark\/run$/);
-    const { executionAuthority, ...capturedBodyWithoutAuthority } = capturedBody;
+    const { executionAuthority: forwardedAuthority, ...capturedBodyWithoutAuthority } = capturedBody;
     assert.deepEqual(capturedBodyWithoutAuthority, {
       goal: 'Build a Kanban board from this Telegram message.',
       missionName: 'Telegram Kanban Board',
@@ -110,12 +126,7 @@ async function run(): Promise<void> {
       providers: ['codex', 'claude'],
       promptMode: 'orchestrator'
     });
-    assert.equal(executionAuthority.schema_version, 'governor-decision-v1');
-    assert.equal(executionAuthority.outcome, 'execute');
-    assert.match(executionAuthority.envelope.proposed_actions[0].capability_id, /spawner-ui:spawner\.run$/);
-    assert.equal(executionAuthority.envelope.proposed_actions[0].action_type, 'launch_mission');
-    assert.equal(executionAuthority.tool_ledgers[0].tool_name, 'spawner.run');
-    assert.equal(executionAuthority.execution_boundary.action_authorized, true);
+    assert.equal(forwardedAuthority, executionAuthority);
     assert.equal(capturedOptions.timeout, 1800000);
     assert.equal(capturedOptions.headers['x-api-key'], 'bridge-secret-for-tests');
     assert.equal(capturedOptions.headers['x-spawner-ui-key'], 'ui-secret-for-tests');
@@ -160,6 +171,26 @@ async function run(): Promise<void> {
     assert.equal(capturedBody.executionAuthority, executionAuthority);
   });
 
+  await test('runGoal fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { success: true } };
+    };
+
+    const result = await spawner.runGoal({
+      goal: 'Run without authority',
+      chatId: '123',
+      userId: '456',
+      requestId: 'tg-missing-authority'
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
+  });
+
   await test('runGoal falls back to the bridge key for hosted UI auth when no UI key is configured', async () => {
     restoreAxios();
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
@@ -175,7 +206,8 @@ async function run(): Promise<void> {
       goal: 'Build with bridge fallback.',
       chatId: '123',
       userId: '456',
-      requestId: 'tg-bridge-fallback'
+      requestId: 'tg-bridge-fallback',
+      executionAuthority: fakeExecutionAuthority('spawner.run')
     });
 
     assert.equal(result.success, true);
@@ -200,7 +232,8 @@ async function run(): Promise<void> {
       goal: 'Build after one timeout.',
       chatId: '123',
       userId: '456',
-      requestId: 'tg-retry'
+      requestId: 'tg-retry',
+      executionAuthority: fakeExecutionAuthority('spawner.run')
     });
 
     assert.equal(attempts, 2);
@@ -223,7 +256,8 @@ async function run(): Promise<void> {
       goal: 'Build a plain board.',
       chatId: '123',
       userId: '456',
-      requestId: 'tg-defaults'
+      requestId: 'tg-defaults',
+      executionAuthority: fakeExecutionAuthority('spawner.run')
     });
 
     assert.equal(result.success, true);
@@ -264,11 +298,13 @@ async function run(): Promise<void> {
       };
     };
 
+    const executionAuthority = fakeExecutionAuthority('creator.mission.create');
     const result = await spawner.creatorMission({
       brief: 'Create a Startup YC specialization path with benchmarked autoloop.',
       requestId: 'tg-creator-1',
       privacyMode: 'local_only',
-      riskLevel: 'medium'
+      riskLevel: 'medium',
+      executionAuthority
     });
 
     assert.equal(result.success, true);
@@ -281,10 +317,26 @@ async function run(): Promise<void> {
     assert.equal(capturedBody.requestId, 'tg-creator-1');
     assert.equal(capturedBody.privacyMode, 'local_only');
     assert.equal(capturedBody.riskLevel, 'medium');
-    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
-    assert.equal(capturedBody.executionAuthority.outcome, 'execute');
-    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'creator.mission.create');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
     assert.equal(capturedOptions.timeout, 1800000);
+  });
+
+  await test('creatorMission fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.creatorMission({
+      brief: 'Create without authority',
+      requestId: 'tg-creator-no-authority'
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
   });
 
   await test('formatCreatorMissionSummary renders the creator mission packet for Telegram', async () => {
@@ -406,17 +458,34 @@ async function run(): Promise<void> {
       };
     };
 
-    const result = await spawner.creatorMissionExecute({ missionId: 'mission-creator-1' });
+    const executionAuthority = fakeExecutionAuthority('spawner.dispatch');
+    const result = await spawner.creatorMissionExecute({
+      missionId: 'mission-creator-1',
+      executionAuthority
+    });
 
     assert.equal(result.success, true);
     assert.equal(result.started, true);
     assert.equal(result.providerId, 'codex');
     assert.match(capturedUrl, /\/api\/creator\/mission\/execute$/);
     assert.equal(capturedBody.missionId, 'mission-creator-1');
-    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
-    assert.equal(capturedBody.executionAuthority.outcome, 'execute');
-    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'spawner.dispatch');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
     assert.equal(capturedOptions.timeout, 1800000);
+  });
+
+  await test('creatorMissionExecute fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.creatorMissionExecute({ missionId: 'mission-creator-1' });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
   });
 
   await test('formatCreatorMissionExecutionSummary renders execution links for Telegram', async () => {
@@ -571,13 +640,33 @@ async function run(): Promise<void> {
       };
     };
 
-    const result = await spawner.creatorMissionValidate({ missionId: 'mission-creator-1', maxCommands: 3 });
+    const executionAuthority = fakeExecutionAuthority('spawner.creator_mission.validate');
+    const result = await spawner.creatorMissionValidate({
+      missionId: 'mission-creator-1',
+      maxCommands: 3,
+      executionAuthority
+    });
 
     assert.equal(result.success, true);
     assert.equal(result.status, 'passed');
     assert.match(capturedUrl, /\/api\/creator\/mission\/validate$/);
-    assert.deepEqual(capturedBody, { missionId: 'mission-creator-1', maxCommands: 3 });
+    assert.deepEqual(capturedBody, { missionId: 'mission-creator-1', maxCommands: 3, executionAuthority });
     assert.equal(capturedOptions.timeout, 1800000);
+  });
+
+  await test('creatorMissionValidate fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.creatorMissionValidate({ missionId: 'mission-creator-1', maxCommands: 3 });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
   });
 
   await test('formatCreatorMissionValidationSummary renders command totals and blockers', async () => {
@@ -682,6 +771,7 @@ async function run(): Promise<void> {
 
   await test('missionCommand formats provider status for Telegram', async () => {
     restoreAxios();
+    const executionAuthority = fakeMissionControlAuthority();
     let capturedBody: any = null;
     (axios as any).post = async (_url: string, body: unknown) => {
       capturedBody = body;
@@ -699,12 +789,10 @@ async function run(): Promise<void> {
     };
     };
 
-    const result = await spawner.missionCommand('status', 'spark-status');
+    const result = await spawner.missionCommand('status', 'spark-status', { executionAuthority });
 
     assert.equal(result.success, true);
-    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
-    assert.equal(capturedBody.executionAuthority.outcome, 'read_only');
-    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'spawner.mission_control');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
     assert.match(result.message, /Mission is complete/);
     assert.match(result.message, /• Complete: yes/);
     assert.match(result.message, /• Codex: completed/);
@@ -727,6 +815,21 @@ async function run(): Promise<void> {
 
     assert.equal(result.success, true);
     assert.equal(capturedBody.executionAuthority, executionAuthority);
+  });
+
+  await test('missionCommand fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.missionCommand('pause', 'spark-status');
+
+    assert.equal(result.success, false);
+    assert.match(result.message, /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
   });
 
   await test('pauseContextualActiveMission forwards native Governor authority', async () => {
@@ -855,7 +958,9 @@ async function run(): Promise<void> {
       }
     });
 
-    const result = await spawner.missionCommand('status', 'spark-not-real');
+    const result = await spawner.missionCommand('status', 'spark-not-real', {
+      executionAuthority: fakeMissionControlAuthority()
+    });
 
     assert.equal(result.success, false);
     assert.match(result.message, /not found/i);
@@ -871,7 +976,9 @@ async function run(): Promise<void> {
       }
     });
 
-    const result = await spawner.missionCommand('pause', 'not-spark-id');
+    const result = await spawner.missionCommand('pause', 'not-spark-id', {
+      executionAuthority: fakeMissionControlAuthority()
+    });
 
     assert.equal(result.success, false);
     assert.match(result.message, /not found/i);

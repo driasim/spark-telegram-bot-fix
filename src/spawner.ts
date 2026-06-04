@@ -1,9 +1,4 @@
 import axios from 'axios';
-import {
-  createHarnessCoreActionEnvelopeVNext,
-  createHarnessCoreAuthorizedGovernorDecision,
-  type HarnessCoreActionMutationClass
-} from '@spark/harness-core';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
 import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
@@ -109,36 +104,10 @@ interface MissionCommandOptions {
   executionAuthority?: unknown;
 }
 
-function governorDecisionAuthority(input: {
-  source: string;
-  reason: string;
-  toolName: string;
-  mutationClass: HarnessCoreActionMutationClass;
-  requestId?: string;
-  target?: string;
-}) {
-  const envelope = createHarnessCoreActionEnvelopeVNext({
-    surface: 'telegram',
-    ownerSystem: 'spawner-ui',
-    source: input.source,
-    reason: input.reason,
-    toolName: input.toolName,
-    mutationClass: input.mutationClass,
-    requestId: input.requestId,
-    actorKind: 'system',
-    actorIdRef: 'spark-telegram-bot',
-    target: input.target,
-    confidence: 0.9
-  });
-  return createHarnessCoreAuthorizedGovernorDecision({
-    envelope,
-    tool_name: input.toolName,
-    restrictions: {
-      network_allowed: false,
-      write_allowed: ['writes_files', 'creates_schedule', 'deletes_schedule', 'creates_chip', 'launches_mission'].includes(input.mutationClass),
-      publish_allowed: input.mutationClass === 'publishes'
-    }
-  });
+const MISSING_EXECUTION_AUTHORITY_ERROR = 'Harness Core execution authority is required before Spawner adapter calls.';
+
+function hasExecutionAuthority(value: unknown): boolean {
+  return Boolean(value && typeof value === 'object');
 }
 
 interface CreatorMissionLookupInput {
@@ -173,6 +142,7 @@ interface CreatorMissionValidationInput {
   missionId?: string;
   requestId?: string;
   maxCommands?: number;
+  executionAuthority?: unknown;
 }
 
 interface CreatorValidationCommandResult {
@@ -1143,6 +1113,9 @@ export const spawner = {
   },
 
   async runGoal(input: RunGoalInput): Promise<RunGoalResult> {
+    if (!hasExecutionAuthority(input.executionAuthority)) {
+      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    }
     try {
       const relay = telegramRelayIdentityFromEnv();
       const res = await postLocalServiceWithRetry(
@@ -1159,14 +1132,7 @@ export const spawner = {
           ...(SPARK_RUN_PROJECT_PATH ? { projectPath: SPARK_RUN_PROJECT_PATH } : {}),
           ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
           ...(input.promptMode ? { promptMode: input.promptMode } : {}),
-          executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
-            source: 'telegram_spawner_run_bridge',
-            reason: 'Telegram run bridge requested Spawner mission execution.',
-            toolName: 'spawner.run',
-            mutationClass: 'launches_mission',
-            requestId: input.requestId,
-            target: input.goal
-          })
+          executionAuthority: input.executionAuthority
         },
         localServiceTimeoutMs('SPARK_SPAWNER_RUN_TIMEOUT_MS')
       );
@@ -1186,6 +1152,9 @@ export const spawner = {
   },
 
   async creatorMission(input: CreatorMissionInput): Promise<CreatorMissionResult> {
+    if (!hasExecutionAuthority(input.executionAuthority)) {
+      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    }
     try {
       const res = await postLocalServiceWithRetry(
         `${SPAWNER_UI_URL}/api/creator/mission`,
@@ -1196,18 +1165,7 @@ export const spawner = {
           ...(input.privacyMode ? { privacyMode: input.privacyMode } : {}),
           ...(input.riskLevel ? { riskLevel: input.riskLevel } : {}),
           ...(input.executionPolicy ? { executionPolicy: input.executionPolicy } : {}),
-          ...(input.executionPolicy !== 'read_only'
-            ? {
-                executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
-                  source: 'telegram_creator_mission_bridge',
-                  reason: 'Telegram creator mission bridge requested an executable creator mission.',
-                  toolName: 'creator.mission.create',
-                  mutationClass: 'creates_chip',
-                  requestId: input.requestId,
-                  target: input.brief
-                })
-              }
-            : {})
+          executionAuthority: input.executionAuthority
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_TIMEOUT_MS')
       );
@@ -1236,20 +1194,16 @@ export const spawner = {
   },
 
   async creatorMissionExecute(input: CreatorMissionExecutionInput): Promise<CreatorMissionExecutionResult> {
+    if (!hasExecutionAuthority(input.executionAuthority)) {
+      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    }
     try {
       const res = await postLocalServiceWithRetry(
         `${SPAWNER_UI_URL}/api/creator/mission/execute`,
         {
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.requestId ? { requestId: input.requestId } : {}),
-          executionAuthority: input.executionAuthority ?? governorDecisionAuthority({
-            source: 'telegram_creator_mission_execute_bridge',
-            reason: 'Telegram creator mission bridge requested execution of a staged creator mission.',
-            toolName: 'spawner.dispatch',
-            mutationClass: 'launches_mission',
-            requestId: input.requestId,
-            target: input.missionId || input.requestId
-          })
+          executionAuthority: input.executionAuthority
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_EXECUTE_TIMEOUT_MS')
       );
@@ -1317,13 +1271,17 @@ export const spawner = {
   },
 
   async creatorMissionValidate(input: CreatorMissionValidationInput): Promise<CreatorMissionValidationResult> {
+    if (!hasExecutionAuthority(input.executionAuthority)) {
+      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    }
     try {
       const res = await postLocalServiceWithRetry(
         `${SPAWNER_UI_URL}/api/creator/mission/validate`,
         {
           ...(input.missionId ? { missionId: input.missionId } : {}),
           ...(input.requestId ? { requestId: input.requestId } : {}),
-          ...(typeof input.maxCommands === 'number' ? { maxCommands: input.maxCommands } : {})
+          ...(typeof input.maxCommands === 'number' ? { maxCommands: input.maxCommands } : {}),
+          executionAuthority: input.executionAuthority
         },
         localServiceTimeoutMs('SPARK_CREATOR_MISSION_VALIDATE_TIMEOUT_MS')
       );
@@ -1352,6 +1310,9 @@ export const spawner = {
   },
 
   async missionCommand(action: MissionAction, missionId: string, options: MissionCommandOptions = {}): Promise<{ success: boolean; message: string }> {
+    if (!hasExecutionAuthority(options.executionAuthority)) {
+      return { success: false, message: MISSING_EXECUTION_AUTHORITY_ERROR };
+    }
     try {
       const res = await axios.post(
         `${SPAWNER_UI_URL}/api/mission-control/command`,
@@ -1359,13 +1320,7 @@ export const spawner = {
           action,
           missionId,
           source: 'telegram',
-          executionAuthority: options.executionAuthority ?? governorDecisionAuthority({
-            source: 'telegram_mission_control_bridge',
-            reason: `Telegram mission control bridge requested ${action} for a Spawner mission.`,
-            toolName: 'spawner.mission_control',
-            mutationClass: action === 'status' ? 'read_only' : 'launches_mission',
-            target: missionId
-          })
+          executionAuthority: options.executionAuthority
         },
         spawnerAxiosOptions(10000)
       );

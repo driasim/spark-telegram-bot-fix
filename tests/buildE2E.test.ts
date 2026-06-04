@@ -582,13 +582,14 @@ async function run(): Promise<void> {
 		const replyExtras: any[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
+		const executionAuthority = fakeGovernorExecutionAuthority();
 
 		const missionId = await indexModule.handleRunCommand(
 			ctx,
 			'Summarize the Railway deployment health.',
 			['zai'],
 			undefined,
-			{ allowBuildIntent: true }
+			{ allowBuildIntent: true, executionAuthority }
 		);
 
 		assert.equal(missionId, 'spark-simple-run-test');
@@ -597,6 +598,7 @@ async function run(): Promise<void> {
 		assert.match(runCall!.body.requestId, /^tg-run-/);
 		assert.doesNotMatch(runCall!.body.requestId, /8319079055/);
 		assert.equal(runCall!.body.traceRef, `trace:telegram-run:${runCall!.body.requestId}`);
+		assert.equal(runCall!.body.executionAuthority, executionAuthority);
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'non-build /run should not use the PRD bridge');
 		assert.deepEqual(replyExtras[0]?.__sparkTraceContext, {
 			route: 'spawner',
@@ -632,17 +634,20 @@ async function run(): Promise<void> {
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 558, replies);
 		const indexModule: any = await import('../src/index');
+		const executionAuthority = fakeGovernorExecutionAuthority();
 
 		const missionId = await indexModule.handleRunCommand(
 			ctx,
 			'Reply exactly TESTER_REALPATH_OK and do not create files.',
 			['codex'],
 			undefined,
-			{ allowBuildIntent: true }
+			{ allowBuildIntent: true, executionAuthority }
 		);
 
 		assert.equal(missionId, 'spark-realpath-probe');
-		assert.ok(captured.some((c) => c.url.includes('/api/spark/run')), 'expected exact reply probe to POST to /api/spark/run');
+		const runCall = captured.find((c) => c.url.includes('/api/spark/run'));
+		assert.ok(runCall, 'expected exact reply probe to POST to /api/spark/run');
+		assert.equal(runCall!.body.executionAuthority, executionAuthority);
 		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'negated file creation should not use the PRD bridge');
 
 		restoreAxios();

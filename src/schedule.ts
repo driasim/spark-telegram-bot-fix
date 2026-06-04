@@ -3,6 +3,7 @@ import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveSpawnerUiUrl } from './spawnerUrl';
 
 const SPAWNER_UI_URL = resolveSpawnerUiUrl();
+const MISSING_EXECUTION_AUTHORITY_ERROR = 'Harness Core execution authority is required before schedule mutations.';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -110,6 +111,9 @@ export async function createSchedule(input: {
   chatId: string;
   executionAuthority?: unknown;
 }): Promise<{ ok: boolean; schedule?: ScheduleRecord; error?: string }> {
+  if (!input.executionAuthority || typeof input.executionAuthority !== 'object') {
+    return { ok: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+  }
   try {
     const res = await axios.post(`${SPAWNER_UI_URL}/api/scheduled`, input, spawnerAxiosOptions(10000));
     return { ok: Boolean(res.data?.ok), schedule: res.data?.schedule, error: res.data?.error };
@@ -131,12 +135,13 @@ export async function deleteSchedule(
   id: string,
   options: { executionAuthority?: unknown } = {}
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!options.executionAuthority || typeof options.executionAuthority !== 'object') {
+    return { ok: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+  }
   try {
     const res = await axios.delete(
       `${SPAWNER_UI_URL}/api/scheduled?id=${encodeURIComponent(id)}`,
-      options.executionAuthority
-        ? spawnerAxiosOptions(10000, { data: { executionAuthority: options.executionAuthority } })
-        : spawnerAxiosOptions(10000)
+      spawnerAxiosOptions(10000, { data: { executionAuthority: options.executionAuthority } })
     );
     return { ok: Boolean(res.data?.ok), error: res.data?.error };
   } catch (err: any) {

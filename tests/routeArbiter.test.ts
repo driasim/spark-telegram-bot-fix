@@ -84,10 +84,10 @@ test('route arbiter records keep raw prompt text out of the ledger', () => {
   assert.doesNotMatch(serialized, /access level 4 creates|really 4/i);
 });
 
-test('top-level Telegram handler consumes route evidence instead of local deterministic authority', () => {
+test('top-level Telegram handler does not consume route evidence as authority', () => {
   const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
 
-  assert.match(indexSource, /routeEvidenceAllowed/);
+  assert.doesNotMatch(indexSource, /routeEvidenceAllowed/);
   assert.doesNotMatch(indexSource, /deterministicRouteAllowed/);
   assert.doesNotMatch(indexSource, /evaluateDeterministicRoute/);
 });

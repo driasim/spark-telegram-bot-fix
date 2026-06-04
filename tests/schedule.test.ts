@@ -75,6 +75,26 @@ async function run(): Promise<void> {
     assert.equal(capturedBody.executionAuthority, executionAuthority);
   });
 
+  await test('createSchedule fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await createSchedule({
+      cron: '*/5 * * * *',
+      action: 'mission',
+      payload: { goal: 'status' },
+      chatId: '123'
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
+  });
+
   await test('deleteSchedule forwards Governor authority in DELETE config data', async () => {
     restoreAxios();
     const executionAuthority = fakeExecutionAuthority();
@@ -88,6 +108,21 @@ async function run(): Promise<void> {
 
     assert.equal(result.ok, true);
     assert.equal(capturedOptions.data.executionAuthority, executionAuthority);
+  });
+
+  await test('deleteSchedule fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let deleteCalled = false;
+    (axios as any).delete = async () => {
+      deleteCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await deleteSchedule('sched-1');
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(deleteCalled, false);
   });
 
   restoreAxios();

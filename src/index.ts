@@ -224,7 +224,6 @@ import {
 } from './telegramPendingMissionCancelEvidence';
 import { parseSafeOperatorAction, runSafeOperatorAction } from './operatorActions';
 import { queueRouteArbiterShadow } from './routeArbiter';
-import { routeEvidenceAllowed } from './telegramRouteEvidence';
 import { resolveMissionDefaultProvider } from './providerRouting';
 import {
   buildIdeationFallbackReply,
@@ -5511,10 +5510,13 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
           confidence: 'contextual'
         })
       : null;
-    if (validateAuthorization && !validateAuthorization.allow) {
+    if (!validateAuthorization || !validateAuthorization.allow) {
       return false;
     }
-    const result = await spawner.creatorMissionValidate({ missionId: pending.missionId });
+    const result = await spawner.creatorMissionValidate({
+      missionId: pending.missionId,
+      executionAuthority: validateAuthorization.governorDecision
+    });
     recordTelegramHarnessCoreExecution(validateAuthorization, {
       toolName: 'spawner.creator_mission.validate',
       status: creatorExecutionStatus(result.success),
@@ -5538,13 +5540,13 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
         confidence: 'contextual'
       })
     : null;
-  if (executeAuthorization && !executeAuthorization.allow) {
+  if (!executeAuthorization || !executeAuthorization.allow) {
     return false;
   }
 
   const result = await spawner.creatorMissionExecute({
     missionId: pending.missionId,
-    executionAuthority: executeAuthorization?.governorDecision
+    executionAuthority: executeAuthorization.governorDecision
   });
   recordTelegramHarnessCoreExecution(executeAuthorization, {
     toolName: 'spawner.creator_mission.run',
@@ -6791,7 +6793,11 @@ bot.command('creator', async (ctx) => {
 
     if (control.action === 'validate') {
       await ctx.reply('Running creator mission validation through Spawner...');
-      const result = await spawner.creatorMissionValidate({ missionId, maxCommands: control.maxCommands });
+      const result = await spawner.creatorMissionValidate({
+        missionId,
+        maxCommands: control.maxCommands,
+        executionAuthority: authorization.governorDecision
+      });
       recordTelegramHarnessCoreExecution(authorization, {
         toolName: 'spawner.creator_mission.validate',
         status: creatorExecutionStatus(result.success),
