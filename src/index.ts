@@ -878,6 +878,33 @@ function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQue
   return null;
 }
 
+function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion): NaturalRouteDecision {
+  const route = `spark.read_only_state.${kind}`;
+  return {
+    schema_version: 'spark.nlp.route_decision.v1',
+    route,
+    owner_system: 'spark-telegram-bot',
+    confidence: 'explicit',
+    action: 'harness_core.read_only_state',
+    payload: {
+      question: kind,
+      mutation_class: 'read_only'
+    },
+    context_source: 'latest_message',
+    matched_signals: [
+      'fresh_user_intent',
+      'read_only_state_question',
+      'harness_core_authorized',
+      `read_only_state:${kind}`
+    ],
+    blocked_by: [],
+    requires_confirmation: false,
+    trace: {
+      selected_by: 'telegram_read_only_state_authority'
+    }
+  };
+}
+
 async function readSparkLiveStatusJson(): Promise<Record<string, unknown>> {
   const raw = await runSparkCli(['live', 'status', '--json'], 25_000);
   return JSON.parse(raw) as Record<string, unknown>;
@@ -8305,7 +8332,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   if (readOnlyStateQuestion && readOnlyStateAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderSparkReadOnlyStateAnswer(readOnlyStateQuestion, ctx, user);
-    recordNaturalRouteExecution(ctx, naturalRouteShadow, `spark.read_only_state.${readOnlyStateQuestion}`, 'spark-telegram-bot', 'harness_core.read_only_state');
+    const readOnlyStateRoute = `spark.read_only_state.${readOnlyStateQuestion}`;
+    recordNaturalRouteExecution(
+      ctx,
+      readOnlyStateNaturalRouteDecision(readOnlyStateQuestion),
+      readOnlyStateRoute,
+      'spark-telegram-bot',
+      'harness_core.read_only_state'
+    );
     recordTelegramHarnessCoreExecution(readOnlyStateAuthorization, {
       toolName: 'spark.read_only_state',
       status: 'success',

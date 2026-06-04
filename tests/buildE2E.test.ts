@@ -46,6 +46,8 @@ const originalEnv = {
 	LLM_PROVIDER: process.env.LLM_PROVIDER,
 	SPARK_AGENT_ACCESS_PROFILE: process.env.SPARK_AGENT_ACCESS_PROFILE,
 	SPARK_BUILDER_BRIDGE_MODE: process.env.SPARK_BUILDER_BRIDGE_MODE,
+	SPARK_CLI_COMMAND: process.env.SPARK_CLI_COMMAND,
+	SPARK_CLI_PATH: process.env.SPARK_CLI_PATH,
 	SPARK_CLARIFICATION_COPY_LLM: process.env.SPARK_CLARIFICATION_COPY_LLM,
 	SPARK_CHAT_LLM_PROVIDER: process.env.SPARK_CHAT_LLM_PROVIDER,
 	SPARK_BOT_TEST_MODE: process.env.SPARK_BOT_TEST_MODE,
@@ -53,6 +55,7 @@ const originalEnv = {
 	SPARK_GATEWAY_STATE_DIR: process.env.SPARK_GATEWAY_STATE_DIR,
 	SPARK_HARNESS_CORE_LEDGER: process.env.SPARK_HARNESS_CORE_LEDGER,
 	SPARK_HARNESS_CORE_LEDGER_PATH: process.env.SPARK_HARNESS_CORE_LEDGER_PATH,
+	SPARK_HOME: process.env.SPARK_HOME,
 	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
 	SPARK_NATURAL_ROUTE_LEDGER: process.env.SPARK_NATURAL_ROUTE_LEDGER,
 	SPARK_NATURAL_ROUTE_LEDGER_PATH: process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH,
@@ -2649,6 +2652,7 @@ async function run(): Promise<void> {
 			})
 		);
 		writeSparkAccessShim({ binDir, callsPath, statusPath });
+		process.env.SPARK_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'spark.ps1' : 'spark');
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		const captured: CapturedCall[] = [];
@@ -2723,6 +2727,7 @@ async function run(): Promise<void> {
 				state_machine: { requested_access_level: 4, effective_access_level: 4 }
 			}
 		});
+		process.env.SPARK_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'spark.ps1' : 'spark');
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		const captured: CapturedCall[] = [];
@@ -3493,6 +3498,7 @@ async function run(): Promise<void> {
 			);
 			chmodSync(sparkShim, 0o755);
 		}
+		process.env.SPARK_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'spark.ps1' : 'spark');
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 		writeFileSync(
 			path.join(systemMapDir, 'contract-coverage.json'),
@@ -3607,6 +3613,17 @@ async function run(): Promise<void> {
 			assert.ok(
 				naturalRouteRecords.some(riskProfileNaturalRoute),
 				'row 001 risk-profile canary must record natural route execution through Harness Core'
+			);
+			const riskProfileRecord = naturalRouteRecords.find(riskProfileNaturalRoute);
+			assert.equal(
+				riskProfileRecord?.shadow_route,
+				'spark.read_only_state.risk_profile',
+				'row 001 risk-profile canary must bind selected route to the governed Harness Core route'
+			);
+			assert.equal(
+				riskProfileRecord?.outcome,
+				'matched',
+				'row 001 risk-profile canary selected route must match executed route'
 			);
 		} finally {
 			process.env.PATH = oldPath;
@@ -4198,6 +4215,7 @@ async function run(): Promise<void> {
 				''
 			].join('\r\n')
 		);
+		process.env.SPARK_CLI_PATH = process.platform === 'win32' ? path.join(binDir, 'spark.cmd') : sparkShim;
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
