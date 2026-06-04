@@ -12,7 +12,11 @@ async function test(name: string, fn: AsyncTest): Promise<void> {
   }
 }
 
-function fakeCtx(text: string, replies: string[]) {
+function fakeCtx(
+  text: string,
+  replies: string[],
+  mediaReplies: { voice: unknown[]; audio: unknown[] } = { voice: [], audio: [] }
+) {
   const message = { message_id: 9101, text };
   return {
     chat: { id: 8319079055, type: 'private' },
@@ -22,6 +26,12 @@ function fakeCtx(text: string, replies: string[]) {
     sendChatAction: async (_action: string) => {},
     reply: async (reply: string) => {
       replies.push(reply);
+    },
+    replyWithVoice: async (inputFile: unknown, options?: unknown) => {
+      mediaReplies.voice.push({ inputFile, options });
+    },
+    replyWithAudio: async (inputFile: unknown, options?: unknown) => {
+      mediaReplies.audio.push({ inputFile, options });
     }
   };
 }
@@ -59,10 +69,49 @@ test('no-execution meta action words bypass Builder bridge detours', async () =>
 
     assert.equal(bridgeCalls, 0);
     assert.equal(replies.length, 1);
-    assert.match(replies[0], /examples or context|example words, not commands/i);
+    assert.match(replies[0], /examples or context|example words, not commands|action words as language evidence/i);
     assert.doesNotMatch(replies[0], /search the web|browser session/i);
   } finally {
     llmModule.llm.chat = originalChat;
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+  }
+});
+
+test('plain Builder replies drop voice media without delivery authorization', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+
+  const indexModule: any = await import('../src/index');
+
+  try {
+    const replies: string[] = [];
+    const mediaReplies = { voice: [] as unknown[], audio: [] as unknown[] };
+    await indexModule.deliverBuilderReply(
+      fakeCtx('Give me one short thought.', replies, mediaReplies),
+      {
+        used: true,
+        responseText: 'Here is the text answer.',
+        decision: 'plain_chat',
+        bridgeMode: 'test',
+        routingDecision: 'plain_chat',
+        voiceMedia: {
+          audioBase64: Buffer.from('synthetic-audio').toString('base64'),
+          mimeType: 'audio/ogg',
+          filename: 'reply.ogg',
+          voiceCompatible: true,
+          spokenText: 'Here is the text answer.'
+        }
+      }
+    );
+
+    assert.deepEqual(mediaReplies.voice, []);
+    assert.deepEqual(mediaReplies.audio, []);
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0], 'Here is the text answer.');
+  } finally {
     indexModule.__setBuilderBridgeRunnerForTest(null);
   }
 });

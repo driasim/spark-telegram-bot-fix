@@ -2957,9 +2957,18 @@ async function replyViaBuilder(ctx: any, text: string, envelope?: TurnIntentEnve
   return true;
 }
 
-async function deliverBuilderReply(ctx: any, builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>>): Promise<void> {
+export async function deliverBuilderReply(
+  ctx: any,
+  builderReply: Awaited<ReturnType<typeof runBuilderTelegramBridge>>,
+  options: { allowVoiceMedia?: boolean } = {}
+): Promise<void> {
   if (builderReply.voiceMedia) {
-    await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia, builderReply.responseText);
+    if (options.allowVoiceMedia) {
+      await sendBuilderVoiceMedia(ctx, builderReply.voiceMedia, builderReply.responseText);
+    } else if (builderReply.responseText) {
+      console.warn('[BridgeVoice] dropped voice media without matching delivery authorization.');
+      await replyWithSanitizedTelegramText(ctx, builderReply.responseText);
+    }
     return;
   }
   if (builderReply.responseText) {
@@ -10206,7 +10215,6 @@ export async function handleImageMessage(ctx: any): Promise<void> {
     return;
   }
 
-  await conversation.remember(user, imageMemoryText).catch(() => {});
   await safeSendChatAction(ctx, 'typing');
 
   try {
@@ -10276,8 +10284,7 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
     return;
   }
 
-  await conversation.remember(user, voiceMemoryText).catch(() => {});
-  const rememberedAt = Date.now();
+  const authorizedAt = Date.now();
   await safeSendChatAction(ctx, 'typing');
 
   try {
@@ -10296,10 +10303,10 @@ export async function handleVoiceMessage(ctx: any): Promise<void> {
         status: 'success',
         summary: 'Telegram voice input was routed through Builder voice media handling.'
       });
-      await deliverBuilderReply(ctx, builderReply);
+      await deliverBuilderReply(ctx, builderReply, { allowVoiceMedia: true });
       const deliveredAt = Date.now();
       console.log(
-        `[VoiceBridgeTiming] user=${userRef(ctx.from?.id)} remember_ms=${rememberedAt - startedAt} media_ms=${mediaReadyAt - rememberedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
+        `[VoiceBridgeTiming] user=${userRef(ctx.from?.id)} auth_ms=${authorizedAt - startedAt} media_ms=${mediaReadyAt - authorizedAt} builder_ms=${builderReadyAt - mediaReadyAt} deliver_ms=${deliveredAt - builderReadyAt} total_ms=${deliveredAt - startedAt}`
       );
       if (builderReply.responseText) {
         await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
