@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * sync-runtime.cjs — mirror spark-telegram-bot edits into the runtime copy.
+ * sync-runtime.cjs - mirror spark-telegram-bot edits into the runtime copy.
  *
- * The bot that spark.cmd actually launches lives at
- * ~/.spark/modules/spark-telegram-bot/source/. Edits made in this Desktop
- * checkout don't reach that runtime — same pattern as spawner-ui.
+ * The bot that spark.cmd actually launches is resolved from
+ * ~/.spark/state/installed.json. Older installs used
+ * ~/.spark/modules/spark-telegram-bot/source as a fallback, but installed
+ * state is the live authority.
  *
  * Run after `npm run build` (which writes to ./dist) and before
  * `spark.cmd restart spark-telegram-bot --profile spark-agi` to ensure
@@ -20,7 +21,26 @@ const path = require('path');
 const os = require('os');
 
 const SOURCE_ROOT = path.resolve(__dirname, '..');
-const RUNTIME_ROOT = path.join(os.homedir(), '.spark', 'modules', 'spark-telegram-bot', 'source');
+const MODULE_ID = 'spark-telegram-bot';
+const FALLBACK_RUNTIME_ROOT = path.join(os.homedir(), '.spark', 'modules', MODULE_ID, 'source');
+
+function installedRuntimeRoot() {
+	if (process.env.SPARK_TELEGRAM_RUNTIME_ROOT) {
+		return path.resolve(process.env.SPARK_TELEGRAM_RUNTIME_ROOT);
+	}
+	const installedJson = path.join(os.homedir(), '.spark', 'state', 'installed.json');
+	if (!exists(installedJson)) return FALLBACK_RUNTIME_ROOT;
+	try {
+		const installed = JSON.parse(fs.readFileSync(installedJson, 'utf8'));
+		const record = installed && installed[MODULE_ID];
+		const configured = record && (record.path || record.source);
+		return configured ? path.resolve(configured) : FALLBACK_RUNTIME_ROOT;
+	} catch {
+		return FALLBACK_RUNTIME_ROOT;
+	}
+}
+
+const RUNTIME_ROOT = installedRuntimeRoot();
 
 // The runtime should mirror all first-party source, compiled entry files, and
 // prompt/eval knowledge used by the running gateway and its upgrade smoke.

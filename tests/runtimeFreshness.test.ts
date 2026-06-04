@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   checkRuntimeFreshness,
+  defaultRuntimeRoot,
   formatRuntimeFreshnessReport,
   HARNESS_CORE_RUNTIME_PATHS,
   ROUTE_CRITICAL_RUNTIME_PATHS
@@ -98,6 +99,20 @@ test('runtime freshness reports missing source as environment failure', () => {
     assert.equal(result.summary.missingSource, 1);
     assert.equal(result.paths[0].status, 'missing_source');
   });
+});
+
+test('default runtime root can be explicitly operator-bound', () => {
+  const previous = process.env.SPARK_TELEGRAM_RUNTIME_ROOT;
+  try {
+    process.env.SPARK_TELEGRAM_RUNTIME_ROOT = path.join(os.tmpdir(), 'spark-runtime-override');
+    assert.equal(defaultRuntimeRoot(), path.resolve(process.env.SPARK_TELEGRAM_RUNTIME_ROOT));
+  } finally {
+    if (previous === undefined) {
+      delete process.env.SPARK_TELEGRAM_RUNTIME_ROOT;
+    } else {
+      process.env.SPARK_TELEGRAM_RUNTIME_ROOT = previous;
+    }
+  }
 });
 
 test('default runtime freshness paths cover conversational routing and sync guard files', () => {

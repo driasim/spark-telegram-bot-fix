@@ -19,6 +19,8 @@ test('runtime sync includes capability upgrade/eval fixtures', () => {
   assert.match(script, /package-lock\.json/);
   assert.match(script, /tsconfig\.json/);
   assert.match(script, /spark\.toml/);
+  assert.match(script, /\.spark['"],\s*['"]state['"],\s*['"]installed\.json/);
+  assert.match(script, /SPARK_TELEGRAM_RUNTIME_ROOT/);
   assert.match(testRunner, /tests\/telegramVoiceBridge\.test\.ts/);
   assert.match(script, /dir:\s*'src'/);
   assert.match(script, /dir:\s*'dist'/);
