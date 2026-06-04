@@ -1084,6 +1084,60 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('pending task recovery records Harness Core authorization and outcome ledgers', async () => {
+		restoreAxios();
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-pending-recovery-ledger-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		const testUserId = 8319079911;
+		const user = { id: testUserId, username: 'pending-ledger-test' };
+
+		try {
+			await conversationModule.conversation.recordInterruptedTask(
+				user,
+				{ message: 'summarize the last Spark diagnostic run', failure: 'timeout', stage: 'telegram_message_handler' }
+			);
+
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 5653, replies);
+			ctx.message.text = 'what happened?';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /I recovered the last interrupted task/i);
+			assert.match(reply, /summarize the last Spark diagnostic run/i);
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'pending_task.recovery' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'pending task recovery must record Harness Core authorization before reading pending state'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'pending_task.recovery' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/pending task recovery read completed/i.test(record.result.summary)
+				)),
+				'pending task recovery must record final Harness Core read outcome'
+			);
+		} finally {
+			restoreAxios();
+			restoreEnv();
+			removeTempRoot(tempRoot);
+		}
+	});
+
 	await test('final-answer gate audit preserves Builder trace ids for suppressed replies', async () => {
 		restoreAxios();
 		const testUserId = 8319079570;
@@ -4174,6 +4228,74 @@ async function run(): Promise<void> {
 					/local workspace inspection completed/i.test(record.result.summary)
 				)),
 				'local workspace inspection must record final Harness Core read outcome'
+			);
+		} finally {
+			restoreAxios();
+			restoreEnv();
+			removeTempRoot(tempRoot);
+		}
+	});
+
+	await test('diagnostics follow-up answers record Harness Core authorization and outcome ledgers', async () => {
+		restoreAxios();
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-diagnostics-followup-ledger-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+		const conversationModule = require('../src/conversation') as typeof import('../src/conversation');
+		const testUserId = 8319079055;
+		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
+		const user = { id: testUserId, username: 'diagnostic-followup-test' };
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		try {
+			await conversationModule.conversation.remember(
+				user,
+				'We just built the Spark Diagnostic Agent with `spark-intelligence diagnostics scan`.'
+			);
+			await conversationModule.conversation.rememberAssistantReply(
+				user,
+				'Completed Spawner mission spark-123. Result: Built the first-pass Spark Diagnostic Agent with `spark-intelligence diagnostics scan`.'
+			);
+
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(testUserId, testUserId, 608, replies);
+			ctx.message.text = 'lets test it';
+			const seededContext = await conversationModule.conversation.getContext(user, ctx.message.text);
+			assert.match(seededContext, /Spark Diagnostic Agent/i);
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /useful tests are clear/i);
+			assert.match(reply, /spark-intelligence diagnostics scan/);
+			assert.equal(captured.length, 0, 'diagnostics follow-up answer must not call Spawner or PRD bridge');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'diagnostics.followup_test' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'diagnostics follow-up must record Harness Core authorization before reading hot context'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'diagnostics.followup_test' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/diagnostics follow-up test answer completed/i.test(record.result.summary)
+				)),
+				'diagnostics follow-up must record final Harness Core read outcome'
 			);
 		} finally {
 			restoreAxios();

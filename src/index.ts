@@ -8275,21 +8275,50 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (
+  const pendingTaskRecoveryAuthorization = (
     !earlyBuildIntent &&
     telegramIntentGateV2.route === 'plain_chat' &&
     !shouldAttachMemoryDoctorEvidenceWithAuthority(text, turnIntentEnvelope) &&
-    isPendingTaskRecoveryQuestion(text) &&
-    routeEvidenceAllowed({ route: 'pending_task.recovery', text, profile: activeTelegramProfile() })
-  ) {
+    isPendingTaskRecoveryQuestion(text)
+  )
+    ? telegramActionAuthorityDecision(
+        telegramActionEnvelope(turnIntentEnvelope, {
+          route: 'pending_task.recovery',
+          ownerSystem: 'spark-telegram-bot',
+          action: 'pending_task.recovery',
+          kind: 'runtime_truth_or_operator',
+          confidence: 'explicit'
+        }),
+        {
+          route: 'pending_task.recovery',
+          text,
+          toolName: 'pending_task.recovery',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'read_only'
+        }
+      )
+    : null;
+  if (pendingTaskRecoveryAuthorization?.allow) {
     const pendingTask = await conversation.getPendingTaskRecovery(user);
     if (pendingTask) {
       const reply = renderPendingTaskRecoveryReply(pendingTask);
       await conversation.remember(user, text).catch(() => {});
+      recordTelegramHarnessCoreExecution(pendingTaskRecoveryAuthorization, {
+        toolName: 'pending_task.recovery',
+        status: 'success',
+        summary: 'Natural pending task recovery read completed from Telegram pending task state.'
+      });
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(user, reply).catch(() => {});
       return;
     }
+  }
+  if (pendingTaskRecoveryAuthorization) {
+    recordTelegramHarnessCoreExecution(pendingTaskRecoveryAuthorization, {
+      toolName: 'pending_task.recovery',
+      status: 'not_started',
+      summary: 'Natural pending task recovery had no pending task state to read.'
+    });
   }
 
   const naturalAccessChange = earlyBuildIntent ? null : parseNaturalAccessChangeIntent(text);
@@ -9727,13 +9756,43 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-    if (isDiagnosticFollowupTestQuestion(text) && routeEvidenceAllowed({ route: 'diagnostics.followup_test', text, profile: activeTelegramProfile() })) {
+    const diagnosticsFollowupTestAuthorization = isDiagnosticFollowupTestQuestion(text)
+      ? telegramActionAuthorityDecision(
+          telegramActionEnvelope(turnIntentEnvelope, {
+            route: 'diagnostics.followup_test',
+            ownerSystem: 'spark-intelligence-builder',
+            action: 'diagnostics.followup_test',
+            kind: 'diagnostic_or_self_awareness',
+            confidence: 'contextual'
+          }),
+          {
+            route: 'diagnostics.followup_test',
+            text,
+            toolName: 'diagnostics.followup_test',
+            ownerSystem: 'spark-intelligence-builder',
+            mutationClass: 'read_only'
+          }
+        )
+      : null;
+    if (diagnosticsFollowupTestAuthorization?.allow) {
       const reply = buildDiagnosticFollowupTestReply(sessionContext);
       if (reply) {
         await conversation.remember(user, text).catch(() => {});
+        recordTelegramHarnessCoreExecution(diagnosticsFollowupTestAuthorization, {
+          toolName: 'diagnostics.followup_test',
+          status: 'success',
+          summary: 'Natural diagnostics follow-up test answer completed from hot diagnostic context.'
+        });
         await ctx.reply(reply);
         return;
       }
+    }
+    if (diagnosticsFollowupTestAuthorization) {
+      recordTelegramHarnessCoreExecution(diagnosticsFollowupTestAuthorization, {
+        toolName: 'diagnostics.followup_test',
+        status: 'not_started',
+        summary: 'Natural diagnostics follow-up test had no hot diagnostic context to answer from.'
+      });
     }
 
     const diagnosticsScanAuthorization = isDiagnosticsScanRequest(text)

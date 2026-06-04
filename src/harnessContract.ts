@@ -293,6 +293,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'operator.safe_action') tools.push('operator.safe_action');
   if (decision.route === 'route.probe') tools.push('route.probe', 'builder.telegram_bridge');
   if (decision.route === 'diagnostics.scan') tools.push('diagnostics.scan');
+  if (decision.route === 'diagnostics.followup_test') tools.push('diagnostics.followup_test');
   if (decision.route === 'spark.read_only_state') tools.push('spark.read_only_state');
   if (decision.route === 'spark.self_improvement') tools.push('spark.self_improvement');
   if (decision.route === 'spark.process') tools.push('spark.process_queue');
@@ -350,6 +351,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'spawner.mission_control') tools.push('spawner.mission_control');
   if (policy.canLaunchMission) tools.push('spawner.run');
   if (decision.route === 'natural_run') tools.push('provider.run');
+  if (decision.route === 'pending_task.recovery') tools.push('pending_task.recovery');
   if (policy.canMutateFiles) tools.push('spawner.files');
   if (policy.canCreateChip) tools.push('domain_chip.create');
   if (policy.canCreateSchedule) tools.push('schedule.create');
