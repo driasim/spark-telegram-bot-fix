@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import axios from 'axios';
 import {
+  createHarnessCoreActionEnvelopeVNext,
+  createHarnessCoreAuthorizedGovernorDecision
+} from '@spark/harness-core';
+import {
   formatCreatorMissionExecutionSummary,
   formatCreatorMissionStatusSummary,
   formatCreatorMissionSummary,
   formatCreatorMissionValidationSummary,
   spawner
 } from '../src/spawner';
+import type { SparkHarnessMutationClass } from '../src/harnessContract';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -43,32 +48,31 @@ function restoreEnv(): void {
   else process.env.SPARK_UI_API_KEY = originalUiKey;
 }
 
-function fakeMissionControlAuthority(): Record<string, unknown> {
-  return {
-    schema_version: 'governor-decision-v1',
-    outcome: 'execute',
-    execution_boundary: { action_authorized: true },
-    tool_ledgers: [
-      {
-        schema_version: 'tool-call-ledger-v1',
-        tool_name: 'spawner.mission_control'
-      }
-    ]
-  };
+function mutationClassForTool(toolName: string): SparkHarnessMutationClass {
+  if (toolName === 'creator.mission.create' || toolName === 'spawner.creator_mission') return 'creates_chip';
+  return 'launches_mission';
 }
 
-function fakeExecutionAuthority(toolName: string): Record<string, unknown> {
-  return {
-    schema_version: 'governor-decision-v1',
-    outcome: 'execute',
-    execution_boundary: { action_authorized: true },
-    tool_ledgers: [
-      {
-        schema_version: 'tool-call-ledger-v1',
-        tool_name: toolName
-      }
-    ]
-  };
+function fakeMissionControlAuthority(): unknown {
+  return fakeExecutionAuthority('spawner.mission_control');
+}
+
+function fakeExecutionAuthority(
+  toolName: string,
+  mutationClass: SparkHarnessMutationClass = mutationClassForTool(toolName),
+  ownerSystem = 'spawner-ui'
+): unknown {
+  const envelope = createHarnessCoreActionEnvelopeVNext({
+    surface: 'telegram',
+    ownerSystem,
+    toolName,
+    mutationClass,
+    source: 'spawner.test',
+    reason: `Test Harness Core authority for ${toolName}.`,
+    requestId: `turn:${toolName}:${mutationClass}`,
+    actorIdRef: 'telegram-human'
+  });
+  return createHarnessCoreAuthorizedGovernorDecision({ envelope, tool_name: toolName });
 }
 
 async function run(): Promise<void> {
@@ -136,23 +140,7 @@ async function run(): Promise<void> {
     restoreAxios();
     process.env.SPARK_BRIDGE_API_KEY = 'bridge-secret-for-tests';
 
-    const executionAuthority = {
-      schema_version: 'governor-decision-v1',
-      outcome: 'execute',
-      envelope: {
-        schema_version: 'turn-intent-envelope-vnext',
-        turn_id: 'turn:telegram-spawner-run',
-        tool_name: 'spawner.run',
-        mutation_class: 'launches_mission'
-      },
-      execution_boundary: { action_authorized: true },
-      tool_ledgers: [
-        {
-          schema_version: 'tool-call-ledger-v1',
-          tool_name: 'spawner.run'
-        }
-      ]
-    };
+    const executionAuthority = fakeExecutionAuthority('spawner.run');
     let capturedBody: any = null;
     (axios as any).post = async (_url: string, body: unknown) => {
       capturedBody = body;
@@ -188,6 +176,69 @@ async function run(): Promise<void> {
 
     assert.equal(result.success, false);
     assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(postCalled, false);
+  });
+
+  await test('runGoal rejects malformed Governor authority before network', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { success: true } };
+    };
+
+    const result = await spawner.runGoal({
+      goal: 'Run with malformed authority',
+      chatId: '123',
+      userId: '456',
+      requestId: 'tg-malformed-authority',
+      executionAuthority: {}
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /missing_or_malformed_governor_decision/);
+    assert.equal(postCalled, false);
+  });
+
+  await test('runGoal rejects a valid Governor decision for the wrong tool', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { success: true } };
+    };
+
+    const result = await spawner.runGoal({
+      goal: 'Run with schedule authority',
+      chatId: '123',
+      userId: '456',
+      requestId: 'tg-wrong-tool-authority',
+      executionAuthority: fakeExecutionAuthority('schedule.create', 'creates_schedule', 'spark-intelligence-builder')
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /governor_missing_matching_authorization/);
+    assert.equal(postCalled, false);
+  });
+
+  await test('runGoal rejects read-only Governor authority before network', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { success: true } };
+    };
+
+    const result = await spawner.runGoal({
+      goal: 'Run with read-only authority',
+      chatId: '123',
+      userId: '456',
+      requestId: 'tg-read-only-authority',
+      executionAuthority: fakeExecutionAuthority('spawner.run', 'read_only')
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /governor_outcome_read_only/);
     assert.equal(postCalled, false);
   });
 

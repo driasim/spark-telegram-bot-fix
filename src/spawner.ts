@@ -4,6 +4,10 @@ import { spawnerAxiosOptions } from './spawnerAuth';
 import { resolveProjectPreviewBaseUrl, resolveSpawnerPublicUrl, resolveSpawnerUiUrl } from './spawnerUrl';
 import { DEFAULT_LOCAL_SERVICE_TIMEOUT_MS, localServiceDefaultTimeoutMs, positiveIntegerEnv } from './timeoutConfig';
 import type { SkillTier } from './userTier';
+import {
+  harnessExecutionAuthorityFailureReason,
+  type HarnessExecutionAuthorityExpectation
+} from './harnessExecutionAuthority';
 
 const SPAWNER_UI_URL = resolveSpawnerUiUrl();
 const PROJECT_PREVIEW_URL = resolveProjectPreviewBaseUrl();
@@ -106,8 +110,12 @@ interface MissionCommandOptions {
 
 const MISSING_EXECUTION_AUTHORITY_ERROR = 'Harness Core execution authority is required before Spawner adapter calls.';
 
-function hasExecutionAuthority(value: unknown): boolean {
-  return Boolean(value && typeof value === 'object');
+function executionAuthorityError(
+  value: unknown,
+  expected: HarnessExecutionAuthorityExpectation | HarnessExecutionAuthorityExpectation[]
+): string | null {
+  const reason = harnessExecutionAuthorityFailureReason(value, expected);
+  return reason ? `${MISSING_EXECUTION_AUTHORITY_ERROR} (${reason})` : null;
 }
 
 interface CreatorMissionLookupInput {
@@ -1113,8 +1121,13 @@ export const spawner = {
   },
 
   async runGoal(input: RunGoalInput): Promise<RunGoalResult> {
-    if (!hasExecutionAuthority(input.executionAuthority)) {
-      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    const authorityError = executionAuthorityError(input.executionAuthority, {
+      toolName: 'spawner.run',
+      ownerSystem: 'spawner-ui',
+      actionType: 'launch_mission'
+    });
+    if (authorityError) {
+      return { success: false, error: authorityError };
     }
     try {
       const relay = telegramRelayIdentityFromEnv();
@@ -1152,8 +1165,20 @@ export const spawner = {
   },
 
   async creatorMission(input: CreatorMissionInput): Promise<CreatorMissionResult> {
-    if (!hasExecutionAuthority(input.executionAuthority)) {
-      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    const authorityError = executionAuthorityError(input.executionAuthority, [
+      {
+        toolName: 'spawner.creator_mission',
+        ownerSystem: 'spawner-ui',
+        actionType: 'create_domain_chip'
+      },
+      {
+        toolName: 'creator.mission.create',
+        ownerSystem: 'spawner-ui',
+        actionType: 'create_domain_chip'
+      }
+    ]);
+    if (authorityError) {
+      return { success: false, error: authorityError };
     }
     try {
       const res = await postLocalServiceWithRetry(
@@ -1194,8 +1219,20 @@ export const spawner = {
   },
 
   async creatorMissionExecute(input: CreatorMissionExecutionInput): Promise<CreatorMissionExecutionResult> {
-    if (!hasExecutionAuthority(input.executionAuthority)) {
-      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    const authorityError = executionAuthorityError(input.executionAuthority, [
+      {
+        toolName: 'spawner.creator_mission.run',
+        ownerSystem: 'spawner-ui',
+        actionType: 'launch_mission'
+      },
+      {
+        toolName: 'spawner.dispatch',
+        ownerSystem: 'spawner-ui',
+        actionType: 'launch_mission'
+      }
+    ]);
+    if (authorityError) {
+      return { success: false, error: authorityError };
     }
     try {
       const res = await postLocalServiceWithRetry(
@@ -1271,8 +1308,13 @@ export const spawner = {
   },
 
   async creatorMissionValidate(input: CreatorMissionValidationInput): Promise<CreatorMissionValidationResult> {
-    if (!hasExecutionAuthority(input.executionAuthority)) {
-      return { success: false, error: MISSING_EXECUTION_AUTHORITY_ERROR };
+    const authorityError = executionAuthorityError(input.executionAuthority, {
+      toolName: 'spawner.creator_mission.validate',
+      ownerSystem: 'spawner-ui',
+      actionType: 'launch_mission'
+    });
+    if (authorityError) {
+      return { success: false, error: authorityError };
     }
     try {
       const res = await postLocalServiceWithRetry(
@@ -1310,8 +1352,13 @@ export const spawner = {
   },
 
   async missionCommand(action: MissionAction, missionId: string, options: MissionCommandOptions = {}): Promise<{ success: boolean; message: string }> {
-    if (!hasExecutionAuthority(options.executionAuthority)) {
-      return { success: false, message: MISSING_EXECUTION_AUTHORITY_ERROR };
+    const authorityError = executionAuthorityError(options.executionAuthority, {
+      toolName: 'spawner.mission_control',
+      ownerSystem: 'spawner-ui',
+      actionType: 'launch_mission'
+    });
+    if (authorityError) {
+      return { success: false, message: authorityError };
     }
     try {
       const res = await axios.post(

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import axios from 'axios';
+import {
+  createHarnessCoreActionEnvelopeVNext,
+  createHarnessCoreAuthorizedGovernorDecision
+} from '@spark/harness-core';
 import { createSchedule, deleteSchedule } from '../src/schedule';
+import type { SparkHarnessMutationClass } from '../src/harnessContract';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -22,24 +27,27 @@ function restoreAxios(): void {
   (axios as any).delete = originalDelete;
 }
 
-function fakeExecutionAuthority(): Record<string, unknown> {
-  return {
-    schema_version: 'governor-decision-v1',
-    outcome: 'execute',
-    execution_boundary: { action_authorized: true },
-    tool_ledgers: [
-      {
-        schema_version: 'tool-call-ledger-v1',
-        tool_name: 'schedule.create'
-      }
-    ]
-  };
+function fakeExecutionAuthority(
+  toolName: string,
+  mutationClass: SparkHarnessMutationClass
+): unknown {
+  const envelope = createHarnessCoreActionEnvelopeVNext({
+    surface: 'telegram',
+    ownerSystem: 'spark-intelligence-builder',
+    toolName,
+    mutationClass,
+    source: 'schedule.test',
+    reason: `Test Harness Core authority for ${toolName}.`,
+    requestId: `turn:${toolName}:${mutationClass}`,
+    actorIdRef: 'telegram-human'
+  });
+  return createHarnessCoreAuthorizedGovernorDecision({ envelope, tool_name: toolName });
 }
 
 async function run(): Promise<void> {
   await test('createSchedule forwards Governor authority to Spawner', async () => {
     restoreAxios();
-    const executionAuthority = fakeExecutionAuthority();
+    const executionAuthority = fakeExecutionAuthority('schedule.create', 'creates_schedule');
     let capturedBody: any = null;
     (axios as any).post = async (_url: string, body: unknown) => {
       capturedBody = body;
@@ -95,9 +103,51 @@ async function run(): Promise<void> {
     assert.equal(postCalled, false);
   });
 
+  await test('createSchedule rejects delete authority before network', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await createSchedule({
+      cron: '*/5 * * * *',
+      action: 'mission',
+      payload: { goal: 'status' },
+      chatId: '123',
+      executionAuthority: fakeExecutionAuthority('schedule.delete', 'deletes_schedule')
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /governor_missing_matching_authorization/);
+    assert.equal(postCalled, false);
+  });
+
+  await test('createSchedule rejects read-only Governor authority before network', async () => {
+    restoreAxios();
+    let postCalled = false;
+    (axios as any).post = async () => {
+      postCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await createSchedule({
+      cron: '*/5 * * * *',
+      action: 'mission',
+      payload: { goal: 'status' },
+      chatId: '123',
+      executionAuthority: fakeExecutionAuthority('schedule.create', 'read_only')
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /governor_outcome_read_only/);
+    assert.equal(postCalled, false);
+  });
+
   await test('deleteSchedule forwards Governor authority in DELETE config data', async () => {
     restoreAxios();
-    const executionAuthority = fakeExecutionAuthority();
+    const executionAuthority = fakeExecutionAuthority('schedule.delete', 'deletes_schedule');
     let capturedOptions: any = null;
     (axios as any).delete = async (_url: string, options: unknown) => {
       capturedOptions = options;

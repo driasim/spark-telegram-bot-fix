@@ -20,10 +20,15 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import os from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
+import {
+	createHarnessCoreActionEnvelopeVNext,
+	createHarnessCoreAuthorizedGovernorDecision
+} from '@spark/harness-core';
 import { describeTier, getTierForUser } from '../src/userTier';
 import { readJsonFile, resolveStatePath } from '../src/jsonState';
 import { readHarnessCoreToolLedger } from '../src/harnessCoreLedger';
 import { resolveDefaultPythonCommand } from '../src/pythonCommand';
+import type { SparkHarnessMutationClass } from '../src/harnessContract';
 
 type AsyncTest = () => Promise<void> | void;
 
@@ -293,18 +298,22 @@ async function waitForFileText(filePath: string, timeoutMs = 1000): Promise<stri
 	return readFileSync(filePath, 'utf-8');
 }
 
-function fakeGovernorExecutionAuthority(toolName = 'spawner.run'): Record<string, unknown> {
-	return {
-		schema_version: 'governor-decision-v1',
-		outcome: 'execute',
-		execution_boundary: { action_authorized: true },
-		tool_ledgers: [
-			{
-				schema_version: 'tool-call-ledger-v1',
-				tool_name: toolName
-			}
-		]
-	};
+function fakeGovernorExecutionAuthority(
+	toolName = 'spawner.run',
+	mutationClass: SparkHarnessMutationClass = 'launches_mission',
+	ownerSystem = 'spawner-ui'
+): unknown {
+	const envelope = createHarnessCoreActionEnvelopeVNext({
+		surface: 'telegram',
+		ownerSystem,
+		toolName,
+		mutationClass,
+		source: 'buildE2E.test',
+		reason: `Test Harness Core authority for ${toolName}.`,
+		requestId: `turn:${toolName}:${mutationClass}`,
+		actorIdRef: 'telegram-human'
+	});
+	return createHarnessCoreAuthorizedGovernorDecision({ envelope, tool_name: toolName });
 }
 
 async function callHandleBuildIntent(opts: {
