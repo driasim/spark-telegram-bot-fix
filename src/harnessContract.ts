@@ -292,6 +292,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'operator.safe_action') tools.push('operator.safe_action');
   if (decision.route === 'route.probe') tools.push('route.probe', 'builder.telegram_bridge');
   if (decision.route === 'diagnostics.scan') tools.push('diagnostics.scan');
+  if (decision.route === 'spark.read_only_state') tools.push('spark.read_only_state');
   if (decision.route === 'spark.self_improvement') tools.push('spark.self_improvement');
   if (decision.route === 'spark.process') tools.push('spark.process_queue');
   if (decision.route === 'spark.reflect') tools.push('spark.reflect');

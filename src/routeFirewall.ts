@@ -26,6 +26,7 @@ export type DeterministicRouteId =
   | 'spark.process'
   | 'spark.reflect'
   | 'spark.chip_status'
+  | 'spark.read_only_state'
   | 'spark.wiki'
   | 'media.image'
   | 'media.voice'

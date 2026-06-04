@@ -3294,6 +3294,9 @@ async function run(): Promise<void> {
 		mkdirSync(systemMapDir, { recursive: true });
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		process.env.SPARK_SYSTEM_MAP_STATE_DIR = systemMapDir;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 		const oldPath = process.env.PATH || '';
 		const liveStatusJson = JSON.stringify({
 			ok: true,
@@ -3416,6 +3419,24 @@ async function run(): Promise<void> {
 				}
 			}
 			assert.equal(captured.length, 0, 'read-only Spark state questions must not call Spawner or PRD bridge');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.filter((record) => (
+					record.tool_name === 'spark.read_only_state' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)).length >= cases.length,
+				'read-only Spark state questions must record Harness Core authorization before reading state'
+			);
+			assert.ok(
+				ledgerRecords.filter((record) => (
+					record.tool_name === 'spark.read_only_state' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/Natural read-only Spark state answer completed/.test(record.result.summary)
+				)).length >= cases.length,
+				'read-only Spark state questions must record final Harness Core read outcomes'
+			);
 		} finally {
 			process.env.PATH = oldPath;
 			restoreAxios();

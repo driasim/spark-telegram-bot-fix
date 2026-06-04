@@ -8165,10 +8165,33 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const readOnlyStateQuestion = !earlyBuildIntent ? classifySparkReadOnlyStateQuestion(text) : null;
-  if (readOnlyStateQuestion) {
+  const readOnlyStateAuthorization = readOnlyStateQuestion
+    ? telegramActionAuthorityDecision(
+        telegramActionEnvelope(turnIntentEnvelope, {
+          route: 'spark.read_only_state',
+          ownerSystem: 'spark-telegram-bot',
+          action: `spark.read_only_state.${readOnlyStateQuestion}`,
+          kind: 'runtime_truth_or_operator',
+          confidence: 'explicit'
+        }),
+        {
+          route: 'spark.read_only_state',
+          text,
+          toolName: 'spark.read_only_state',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'read_only'
+        }
+      )
+    : null;
+  if (readOnlyStateQuestion && readOnlyStateAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderSparkReadOnlyStateAnswer(readOnlyStateQuestion, ctx, user);
     recordNaturalRouteExecution(ctx, naturalRouteShadow, `spark.read_only_state.${readOnlyStateQuestion}`, 'spark-telegram-bot', 'harness_core.read_only_state');
+    recordTelegramHarnessCoreExecution(readOnlyStateAuthorization, {
+      toolName: 'spark.read_only_state',
+      status: 'success',
+      summary: `Natural read-only Spark state answer completed for ${readOnlyStateQuestion}.`
+    });
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, `telegram_read_only_state_${readOnlyStateQuestion}`, [
       {
@@ -8186,6 +8209,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     ]);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (readOnlyStateQuestion && readOnlyStateAuthorization) {
+    await ctx.reply('I did not read Spark state because the fresh turn did not authorize that read-only check.');
     return;
   }
 
