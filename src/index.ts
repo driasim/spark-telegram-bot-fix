@@ -2073,6 +2073,8 @@ function recordTelegramHarnessCoreExecution(
   }
 }
 
+const TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME = 'telegram.local_memory_note';
+
 type AccessReadRoute = 'access.status' | 'access.help';
 
 function telegramAccessReadAuthorityDecision(
@@ -3156,7 +3158,7 @@ async function handlePlainChatMemoryDirective(
       recordTelegramHarnessCoreExecution(authorization, {
         toolName: 'memory.write',
         status: 'success',
-        summary: 'Natural Telegram memory directive was persisted locally and acknowledged by Builder.'
+        summary: 'Natural Telegram memory directive was acknowledged by the Builder memory route; Telegram local notes are auxiliary.'
       });
       return;
     }
@@ -3170,10 +3172,10 @@ async function handlePlainChatMemoryDirective(
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(user, reply).catch(() => {});
   recordTelegramHarnessCoreExecution(authorization, {
-    toolName: 'memory.write',
+    toolName: localSaved ? TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME : 'memory.write',
     status: localSaved ? 'success' : 'failure',
     summary: localSaved
-      ? 'Natural Telegram memory directive was persisted in local Telegram memory.'
+      ? 'Natural Telegram memory directive was buffered in Telegram-local notes; durable Builder/domain-chip memory was not confirmed.'
       : 'Natural Telegram memory directive could not persist locally or through Builder.'
   });
 }
@@ -3267,9 +3269,9 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
     if (missionLessonReply) {
       recordTelegramHarnessCoreExecution(authorization, {
-        toolName: 'memory.write',
+        toolName: TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME,
         status: 'success',
-        summary: 'Pending mission lesson was approved through /remember.'
+        summary: 'Pending mission lesson was approved into Telegram-local notes; durable Builder/domain-chip memory was not confirmed.'
       });
       await ctx.reply(missionLessonReply);
       return;
@@ -3277,10 +3279,16 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     const localSaved = await saveSlashRememberLocally(ctx.from, text);
     const builderRouted = await replyViaBuilder(ctx, `Please remember this: ${text}`);
     recordTelegramHarnessCoreExecution(authorization, {
-      toolName: 'memory.write',
+      toolName: builderRouted
+        ? 'memory.write'
+        : localSaved
+          ? TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME
+          : 'memory.write',
       status: localSaved || builderRouted ? 'success' : 'failure',
-      summary: localSaved || builderRouted
-        ? 'Telegram /remember persisted or routed a memory write.'
+      summary: builderRouted
+        ? 'Telegram /remember routed the memory write through Builder; Telegram local notes are auxiliary.'
+        : localSaved
+          ? 'Telegram /remember buffered a Telegram-local note; durable Builder/domain-chip memory was not confirmed.'
         : 'Telegram /remember could not persist through local memory or Builder.'
     });
     if (builderRouted) {

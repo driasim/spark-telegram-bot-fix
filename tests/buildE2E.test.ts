@@ -734,11 +734,19 @@ async function run(): Promise<void> {
 			);
 			assert.ok(
 				ledgerRecords.some((record) => (
-					record.tool_name === 'memory.write' &&
+					record.tool_name === 'telegram.local_memory_note' &&
 					record.result.status === 'success' &&
-					/Natural Telegram memory directive/.test(record.result.summary)
+					/durable Builder\/domain-chip memory was not confirmed/.test(record.result.summary)
 				)),
-				'natural memory directive must record the final Harness Core execution result'
+				'natural memory directive fallback must record a Telegram-local execution result'
+			);
+			assert.equal(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.result.status === 'success'
+				)),
+				false,
+				'natural memory directive must not claim durable memory.write success when Builder is off'
 			);
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });
@@ -809,6 +817,11 @@ async function run(): Promise<void> {
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-slash-memory-ledger-e2e-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
 		const originalBridge = builderBridge.runBuilderTelegramBridge;
@@ -826,11 +839,11 @@ async function run(): Promise<void> {
 				};
 			}
 			return {
-				used: true,
-				responseText: 'Noted: "audit marker: Spark E2E fresh-state phase on 2026-05-17"',
+				used: false,
+				responseText: '',
 				decision: 'test',
-				bridgeMode: 'test',
-				routingDecision: 'memory.write'
+				bridgeMode: 'off',
+				routingDecision: 'memory_unavailable'
 			};
 		};
 
@@ -852,8 +865,33 @@ async function run(): Promise<void> {
 			assert.equal(recallBridgeCalls, 0);
 			assert.match(recallReplies.join('\n'), /I remember this: audit marker: Spark E2E fresh-state phase on 2026-05-17\./i);
 			assert.doesNotMatch(recallReplies.join('\n'), /saved entity state/i);
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.result.status === 'not_started'
+				)),
+				'/remember must record the authorized memory.write attempt before execution'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'telegram.local_memory_note' &&
+					record.result.status === 'success' &&
+					/durable Builder\/domain-chip memory was not confirmed/.test(record.result.summary)
+				)),
+				'/remember local fallback must record a Telegram-local execution result'
+			);
+			assert.equal(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.result.status === 'success'
+				)),
+				false,
+				'/remember must not claim durable memory.write success when Builder is unavailable'
+			);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
 		}
