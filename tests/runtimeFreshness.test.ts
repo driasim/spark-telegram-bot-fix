@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   checkRuntimeFreshness,
   formatRuntimeFreshnessReport,
+  HARNESS_CORE_RUNTIME_PATHS,
   ROUTE_CRITICAL_RUNTIME_PATHS
 } from '../src/runtimeFreshness';
 
@@ -126,4 +127,32 @@ test('default runtime freshness paths cover conversational routing and sync guar
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/telegramVoiceBridge.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/voiceCaption.js'));
   assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes('dist/spawnerUrl.js'));
+});
+
+test('default runtime freshness paths cover Harness Core authority binding', () => {
+  const requiredHarnessPaths = [
+    'src/harnessContract.ts',
+    'src/harnessCoreVNext.ts',
+    'src/harnessCoreLedger.ts',
+    'src/telegramActionAuthority.ts',
+    'src/telegramCommandAuthority.ts',
+    'src/telegramMediaAuthority.ts',
+    'src/spawner.ts',
+    'src/schedule.ts',
+    'dist/harnessCoreVNext.js',
+    'dist/harnessCoreLedger.js',
+    'dist/telegramActionAuthority.js',
+    'vendor/harness-core/package.json',
+    'vendor/harness-core/SOURCE_MANIFEST.md',
+    'vendor/harness-core/ts-dist/index.js',
+    'vendor/harness-core/schemas/tool-call-ledger-v1.schema.json',
+    'vendor/harness-core/schemas/governor-decision-v1.schema.json',
+    'node_modules/@spark/harness-core/package.json',
+    'node_modules/@spark/harness-core/ts-dist/index.js'
+  ];
+
+  for (const relPath of requiredHarnessPaths) {
+    assert.ok(HARNESS_CORE_RUNTIME_PATHS.includes(relPath), relPath);
+    assert.ok(ROUTE_CRITICAL_RUNTIME_PATHS.includes(relPath), relPath);
+  }
 });

@@ -36,11 +36,47 @@ export interface RuntimeFreshnessOptions {
   paths?: string[];
 }
 
+export const HARNESS_CORE_RUNTIME_PATHS = [
+  'src/harnessContract.ts',
+  'src/harnessCoreVNext.ts',
+  'src/harnessCoreLedger.ts',
+  'src/telegramActionAuthority.ts',
+  'src/telegramCommandAuthority.ts',
+  'src/telegramMediaAuthority.ts',
+  'src/legacyAuthorityInventory.ts',
+  'src/spawner.ts',
+  'src/schedule.ts',
+  'dist/harnessContract.js',
+  'dist/harnessCoreVNext.js',
+  'dist/harnessCoreLedger.js',
+  'dist/telegramActionAuthority.js',
+  'dist/telegramCommandAuthority.js',
+  'dist/telegramMediaAuthority.js',
+  'dist/legacyAuthorityInventory.js',
+  'dist/spawner.js',
+  'dist/schedule.js',
+  'vendor/harness-core/package.json',
+  'vendor/harness-core/SOURCE_MANIFEST.md',
+  'vendor/harness-core/ts-dist/index.js',
+  'vendor/harness-core/ts-dist/index.d.ts',
+  'vendor/harness-core/ts-dist-esm/index.mjs',
+  'vendor/harness-core/schemas/authorization-decision-v1.schema.json',
+  'vendor/harness-core/schemas/governor-decision-v1.schema.json',
+  'vendor/harness-core/schemas/tool-call-ledger-v1.schema.json',
+  'vendor/harness-core/schemas/turn-intent-envelope-vnext.schema.json',
+  'node_modules/@spark/harness-core/package.json',
+  'node_modules/@spark/harness-core/SOURCE_MANIFEST.md',
+  'node_modules/@spark/harness-core/ts-dist/index.js',
+  'node_modules/@spark/harness-core/ts-dist/index.d.ts',
+  'node_modules/@spark/harness-core/ts-dist-esm/index.mjs'
+];
+
 export const ROUTE_CRITICAL_RUNTIME_PATHS = [
   'package.json',
   'package-lock.json',
   'tsconfig.json',
   'spark.toml',
+  ...HARNESS_CORE_RUNTIME_PATHS,
   'src/index.ts',
   'src/builderBridge.ts',
   'src/builderRepoPath.ts',

@@ -32,7 +32,9 @@ function discoverSyncedPaths() {
 		{ dir: 'scripts', ext: '.cjs' },
 		{ dir: 'ops', ext: '.ts' },
 		{ dir: 'ops', ext: '.json' },
-		{ dir: 'agent-knowledge', ext: '.md' }
+		{ dir: 'agent-knowledge', ext: '.md' },
+		{ dir: 'vendor/harness-core', ext: null, recursive: true },
+		{ dir: 'node_modules/@spark/harness-core', ext: null, recursive: true }
 	];
 	const singletonPaths = [
 		'package.json',
@@ -45,13 +47,32 @@ function discoverSyncedPaths() {
 	for (const folder of folders) {
 		const abs = path.join(SOURCE_ROOT, folder.dir);
 		if (!exists(abs)) continue;
-		for (const name of fs.readdirSync(abs).sort()) {
-			if (name.endsWith(folder.ext)) {
-				paths.push(path.join(folder.dir, name).replace(/\\/g, '/'));
+		if (folder.recursive) {
+			paths.push(...discoverFiles(folder.dir, folder.ext));
+		} else {
+			for (const name of fs.readdirSync(abs).sort()) {
+				if (name.endsWith(folder.ext)) {
+					paths.push(path.join(folder.dir, name).replace(/\\/g, '/'));
+				}
 			}
 		}
 	}
 	return paths;
+}
+
+function discoverFiles(relDir, ext) {
+	const dir = path.join(SOURCE_ROOT, relDir);
+	const discovered = [];
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+		const rel = path.join(relDir, entry.name).replace(/\\/g, '/');
+		const abs = path.join(SOURCE_ROOT, rel);
+		if (entry.isDirectory()) {
+			discovered.push(...discoverFiles(rel, ext));
+		} else if (entry.isFile() && (ext === null || entry.name.endsWith(ext))) {
+			discovered.push(rel);
+		}
+	}
+	return discovered;
 }
 
 function exists(p) {
