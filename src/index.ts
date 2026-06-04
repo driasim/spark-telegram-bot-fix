@@ -9426,43 +9426,112 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent(text, contextualTurns);
-    if (spawnerBoardIntent && routeEvidenceAllowed({ route: 'spawner.board', text, profile: activeTelegramProfile() })) {
+    const spawnerBoardAuthorization = spawnerBoardIntent
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'spawner.board',
+          text,
+          toolName: 'spawner.board',
+          ownerSystem: 'spawner-ui',
+          mutationClass: 'read_only'
+        })
+      : null;
+    if (spawnerBoardIntent && spawnerBoardAuthorization?.allow) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+        recordTelegramHarnessCoreExecution(spawnerBoardAuthorization, {
+          toolName: 'spawner.board',
+          status: 'failure',
+          summary: 'Natural Spawner board read was authorized by Harness Core but blocked by Spark access policy.'
+        });
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'spawner_build'));
         return;
       }
 
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
-      const result = spawnerBoardIntent === 'latest_provider'
-        ? await spawner.latestProviderSummary()
-        : spawnerBoardIntent === 'latest_failed_provider'
-          ? await spawner.latestFailedProviderSummary()
-        : spawnerBoardIntent === 'latest_mission'
-          ? await spawner.latestMissionSummary()
-        : spawnerBoardIntent === 'active_missions'
-          ? await spawner.activeMissionSummary()
-        : spawnerBoardIntent === 'latest_on_kanban'
-          ? await spawner.latestKanbanSummary()
-          : spawnerBoardIntent === 'latest_project_preview'
-            ? await spawner.latestProjectPreview()
-            : spawnerBoardIntent === 'latest_failure'
-              ? await spawner.latestFailureSummary()
-          : await spawner.board();
+      let result: { success: boolean; message: string };
+      switch (spawnerBoardIntent) {
+        case 'latest_provider':
+          result = await spawner.latestProviderSummary();
+          break;
+        case 'latest_failed_provider':
+          result = await spawner.latestFailedProviderSummary();
+          break;
+        case 'latest_mission':
+          result = await spawner.latestMissionSummary();
+          break;
+        case 'active_missions':
+          result = await spawner.activeMissionSummary();
+          break;
+        case 'latest_on_kanban':
+          result = await spawner.latestKanbanSummary();
+          break;
+        case 'latest_project_preview':
+          result = await spawner.latestProjectPreview();
+          break;
+        case 'latest_failure':
+          result = await spawner.latestFailureSummary();
+          break;
+        default:
+          result = await spawner.board();
+          break;
+      }
+      recordTelegramHarnessCoreExecution(spawnerBoardAuthorization, {
+        toolName: 'spawner.board',
+        status: result.success ? 'success' : 'failure',
+        summary: result.success
+          ? `Natural Spawner board ${spawnerBoardIntent} read completed.`
+          : `Natural Spawner board ${spawnerBoardIntent} read failed: ${result.message}.`
+      });
       await ctx.reply(result.success ? result.message : `Board failed: ${result.message}`);
       return;
     }
-
-    if (isLocalSparkServiceRequest(text, localServiceContext) && routeEvidenceAllowed({ route: 'spawner.local_service', text, profile: activeTelegramProfile() })) {
-      await conversation.remember(user, text).catch(() => {});
-      await ctx.reply(buildLocalSparkServiceReply(await spawner.isAvailable()));
+    if (spawnerBoardIntent && spawnerBoardAuthorization) {
+      await ctx.reply('I did not read Mission Control because the fresh turn did not authorize that Spawner read.');
       return;
     }
 
-    if (isAmbiguousLocalSparkServiceRequest(text, localServiceContext) && routeEvidenceAllowed({ route: 'spawner.local_service', text, profile: activeTelegramProfile() })) {
+    const localSparkServiceAuthorization = isLocalSparkServiceRequest(text, localServiceContext)
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'spawner.local_service',
+          text,
+          toolName: 'spawner.local_service',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'read_only'
+        })
+      : null;
+    if (localSparkServiceAuthorization?.allow) {
+      await conversation.remember(user, text).catch(() => {});
+      const available = await spawner.isAvailable();
+      recordTelegramHarnessCoreExecution(localSparkServiceAuthorization, {
+        toolName: 'spawner.local_service',
+        status: 'success',
+        summary: `Natural local Spark service read completed; spawner_available=${available}.`
+      });
+      await ctx.reply(buildLocalSparkServiceReply(available));
+      return;
+    }
+    if (localSparkServiceAuthorization) {
+      await ctx.reply('I did not read local Spark service state because the fresh turn did not authorize that read.');
+      return;
+    }
+
+    const ambiguousLocalSparkServiceAuthorization = isAmbiguousLocalSparkServiceRequest(text, localServiceContext)
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'spawner.local_service',
+          text,
+          toolName: 'spawner.local_service',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'read_only'
+        })
+      : null;
+    if (ambiguousLocalSparkServiceAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(buildLocalSparkServiceClarificationReply());
+      return;
+    }
+    if (ambiguousLocalSparkServiceAuthorization) {
+      await ctx.reply('I did not use local Spark service context because the fresh turn did not authorize that route.');
       return;
     }
 

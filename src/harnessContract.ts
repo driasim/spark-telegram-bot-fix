@@ -342,6 +342,8 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
       'recursive.trace'
     );
   }
+  if (decision.action === 'spawner.board_read' || decision.route === 'spawner.board') tools.push('spawner.board');
+  if (/^local_service\./.test(decision.route) || decision.route === 'spawner.local_service') tools.push('spawner.local_service');
   if (decision.route === 'spawner.mission_control') tools.push('spawner.mission_control');
   if (policy.canLaunchMission) tools.push('spawner.run');
   if (decision.route === 'natural_run') tools.push('provider.run');

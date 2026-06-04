@@ -41,6 +41,16 @@ export interface TelegramActionAuthorityResult {
 
 const ROUTE_ALIASES: Record<string, string[]> = {
   'recursive.proposal': ['recursive.propose'],
+  'spawner.board': [
+    'spawner.active_missions',
+    'spawner.latest_failure',
+    'spawner.latest_failed_provider',
+    'spawner.latest_mission',
+    'spawner.latest_on_kanban',
+    'spawner.latest_project_preview',
+    'spawner.latest_provider'
+  ],
+  'spawner.local_service': ['local_service.clarify', 'local_service.open'],
   'spark.wiki': ['spark_wiki.promote', 'spark_wiki.query', 'spark_wiki.answer'],
 };
 

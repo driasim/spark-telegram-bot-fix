@@ -3873,6 +3873,80 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('natural Spawner board reads record Harness Core authorization and outcome ledgers', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-board-read-ledger-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const capturedGets: string[] = [];
+		(axios as any).post = async () => ({ data: { success: true } });
+		(axios as any).get = async (url: string) => {
+			capturedGets.push(url);
+			if (url.includes('/api/mission-control/board')) {
+				return {
+					data: {
+						board: {
+							running: [],
+							paused: [],
+							completed: [
+								{
+									missionId: 'spark-provider-ledger',
+									missionName: 'Provider Ledger Probe',
+									status: 'completed',
+									lastUpdated: '2026-06-04T12:00:00.000Z',
+									providerSummary: 'codex: completed',
+									providerResults: [{ providerId: 'codex', summary: 'Codex finished.' }]
+								}
+							],
+							failed: [],
+							cancelled: [],
+							created: []
+						}
+					}
+				};
+			}
+			return { data: { providers: [{ id: 'codex' }] } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+		ctx.message.text = 'Which LLM took the latest Spawner job?';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		assert.ok(capturedGets.some((url) => url.includes('/api/mission-control/board')), 'natural board read must call the Spawner board endpoint');
+		assert.match(replies.join('\n'), /Codex took the latest Spawner job/i);
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spawner.board' &&
+				record.authorization.verdict === 'allow' &&
+				record.result.status === 'not_started'
+			)),
+			'natural board read must record Harness Core authorization before reading Spawner state'
+		);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spawner.board' &&
+				record.authorization.verdict === 'allow' &&
+				record.result.status === 'success' &&
+				/Natural Spawner board latest_provider read completed/.test(record.result.summary)
+			)),
+			'natural board read must record the final Harness Core read outcome'
+		);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('natural access status uses authoritative CLI state instead of generic help', async () => {
 		restoreAxios();
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-status-'));
