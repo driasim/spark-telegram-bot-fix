@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -449,8 +450,17 @@ function renderTelegramError(prefix: string, error: unknown): string {
   return `${prefix}: ${detail}`;
 }
 
+function resolveSparkCliCommand(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.SPARK_CLI_COMMAND?.trim() || env.SPARK_CLI_PATH?.trim();
+  if (explicit) return explicit;
+  const sparkHome = env.SPARK_HOME?.trim() || path.join(os.homedir(), '.spark');
+  const homeCommand = path.join(sparkHome, 'bin', process.platform === 'win32' ? 'spark.cmd' : 'spark');
+  if (existsSync(homeCommand)) return homeCommand;
+  return resolveWindowsCommand('spark', env);
+}
+
 async function runSparkCli(args: string[], timeoutMs = 30_000): Promise<string> {
-  const resolvedCommand = resolveWindowsCommand('spark');
+  const resolvedCommand = resolveSparkCliCommand();
   const [command, commandArgs] = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCommand)
     ? [process.env.ComSpec || 'cmd.exe', windowsCmdShimArgs(resolvedCommand, args)]
     : process.platform === 'win32' && /\.ps1$/i.test(resolvedCommand)

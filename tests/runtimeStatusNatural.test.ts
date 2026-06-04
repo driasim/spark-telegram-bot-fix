@@ -62,6 +62,30 @@ function writeSparkCliStub(root: string): string {
   return filePath;
 }
 
+function writeFailingSparkCliStub(root: string): string {
+  const binDir = path.join(root, 'bin');
+  mkdirSync(binDir, { recursive: true });
+  if (process.platform === 'win32') {
+    const filePath = path.join(binDir, 'spark.cmd');
+    writeFileSync(filePath, [
+      '@echo off',
+      'echo stale temp spark shim 1>&2',
+      'exit /b 9',
+      ''
+    ].join('\r\n'), 'utf8');
+    return filePath;
+  }
+
+  const filePath = path.join(binDir, 'spark');
+  writeFileSync(filePath, [
+    '#!/usr/bin/env sh',
+    'echo "stale temp spark shim" >&2',
+    'exit 9',
+    ''
+  ].join('\n'), { encoding: 'utf8', mode: 0o755 });
+  return filePath;
+}
+
 function fakeCtx(text: string, replies: string[]): any {
   const user = { id: 8900000001, is_bot: false, first_name: 'RuntimeStatus', username: 'runtime_status' };
   const chat = { id: 8900000001, type: 'private', first_name: 'RuntimeStatus', username: 'runtime_status' };
@@ -162,6 +186,26 @@ async function main(): Promise<void> {
     assert.equal(replies.length, 1);
     assert.equal(replies[0], 'Healthy build ideas can stay conversational.');
     assert.doesNotMatch(replies[0], /Spark is healthy right now|fresh runtime state here/);
+  });
+
+  await test('Spark home wrapper outranks stale PATH spark shims', async () => {
+    const { handleTextMessage } = await import('../src/index');
+    const staleRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-runtime-stale-path-'));
+    const staleCli = writeFailingSparkCliStub(staleRoot);
+    const previousPath = process.env.PATH || '';
+    process.env.PATH = `${path.dirname(staleCli)}${path.delimiter}${oldPath}`;
+    const replies: string[] = [];
+    try {
+      await handleTextMessage(fakeCtx('I am mentioning build and mission, but do not start anything. What is the current Spark risk profile?', replies));
+    } finally {
+      process.env.PATH = previousPath;
+      rmSync(staleRoot, { recursive: true, force: true });
+    }
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /Current Spark risk profile: low\./);
+    assert.doesNotMatch(replies[0], /stale temp spark shim|Current Spark risk profile: unknown/i);
+    assert.match(replies[0], /I did not start a mission or repair action\./);
   });
 }
 
