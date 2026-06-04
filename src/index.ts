@@ -655,7 +655,8 @@ type SparkReadOnlyStateQuestion =
   | 'contract_coverage_blockers'
   | 'registry_drift'
   | 'mission_update_preference'
-  | 'pending_action';
+  | 'pending_action'
+  | 'risk_profile';
 
 function cleanSparkStatusLine(line: string, label: string): string {
   return line
@@ -822,6 +823,9 @@ function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQue
     /\b(?:read|show|check|tell|what|whether|is|are|current|status)\b/.test(normalized) ||
     /\b(?:any|if)\b.{0,40}\b(?:blockers?|drift|pending|waiting)\b/.test(normalized);
   if (!asksRead) return null;
+  if (shouldAnswerSparkRiskProfile(text)) {
+    return 'risk_profile';
+  }
   if (/\b(?:install|repair|restart|start|run|launch|execute|write|save|change|set)\b/.test(normalized) &&
       !/\b(?:installed|install\s+state|last\s+install|running|run\s+compile|read-only|read\s+only)\b/.test(normalized)) {
     return null;
@@ -1059,6 +1063,8 @@ async function renderSparkReadOnlyStateAnswer(kind: SparkReadOnlyStateQuestion, 
       return renderMissionUpdatePreferenceReadAnswer(ctx.chat.id);
     case 'pending_action':
       return renderPendingActionReadAnswer(ctx, user);
+    case 'risk_profile':
+      return renderAuthoritativeSparkRiskProfileAnswer();
   }
 }
 
@@ -8266,12 +8272,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       summary: `Natural read-only Spark state answer completed for ${readOnlyStateQuestion}.`
     });
     await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, `telegram_read_only_state_${readOnlyStateQuestion}`, [
+    recordTelegramSourceUsedEvidence(ctx, user, text, readOnlyStateQuestion === 'risk_profile' ? 'telegram_spark_risk_profile_answer' : `telegram_read_only_state_${readOnlyStateQuestion}`, [
       {
         source: 'current_diagnostics',
         role: 'read_only_state_authority',
         freshness: readOnlyStateQuestion === 'pending_action' || readOnlyStateQuestion === 'mission_update_preference' ? 'fresh' : 'live_probed',
-        sourceRef: readOnlyStateQuestion.startsWith('contract') || readOnlyStateQuestion === 'registry_drift'
+        sourceRef: readOnlyStateQuestion === 'risk_profile'
+          ? 'spark live status + spark providers status'
+          : readOnlyStateQuestion.startsWith('contract') || readOnlyStateQuestion === 'registry_drift'
           ? 'spark os system-map evidence'
           : readOnlyStateQuestion === 'pending_action'
             ? 'telegram pending-state stores'

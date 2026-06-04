@@ -54,6 +54,8 @@ const originalEnv = {
 	SPARK_HARNESS_CORE_LEDGER: process.env.SPARK_HARNESS_CORE_LEDGER,
 	SPARK_HARNESS_CORE_LEDGER_PATH: process.env.SPARK_HARNESS_CORE_LEDGER_PATH,
 	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
+	SPARK_NATURAL_ROUTE_LEDGER: process.env.SPARK_NATURAL_ROUTE_LEDGER,
+	SPARK_NATURAL_ROUTE_LEDGER_PATH: process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH,
 	SPARK_LOCAL_WORKSPACE_ROOTS: process.env.SPARK_LOCAL_WORKSPACE_ROOTS,
 	SPARK_SYSTEM_MAP_STATE_DIR: process.env.SPARK_SYSTEM_MAP_STATE_DIR,
 	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
@@ -80,6 +82,33 @@ function restoreEnv(): void {
 		else (process.env as Record<string, string>)[k] = v;
 	}
 	applyDeterministicProviderDefaults();
+}
+
+async function waitForJsonlRecord(filePath: string, predicate: (record: any) => boolean, attempts = 25): Promise<any[]> {
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
+		const records = (() => {
+			try {
+				return readFileSync(filePath, 'utf-8')
+					.split(/\r?\n/)
+					.map((line) => line.trim())
+					.filter(Boolean)
+					.map((line) => JSON.parse(line));
+			} catch {
+				return [];
+			}
+		})();
+		if (records.some(predicate)) return records;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	try {
+		return readFileSync(filePath, 'utf-8')
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean)
+			.map((line) => JSON.parse(line));
+	} catch {
+		return [];
+	}
 }
 
 function psSingleQuoted(value: string): string {
@@ -3393,9 +3422,18 @@ async function run(): Promise<void> {
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		process.env.SPARK_SYSTEM_MAP_STATE_DIR = systemMapDir;
 		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
 		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 		const oldPath = process.env.PATH || '';
+		const liveStatusText = [
+			'[OK] Spark Live is ready',
+			'[OK] spawner-ui',
+			'[OK] spark-telegram-bot'
+		].join('\n');
+		const providerStatusText = '[OK] providers ready';
 		const liveStatusJson = JSON.stringify({
 			ok: true,
 			telegram_profiles: [{ profile: 'primary', primary: true, running: true, pid: 123, relay_port: 8789 }],
@@ -3412,6 +3450,16 @@ async function run(): Promise<void> {
 					'  Write-Output $liveStatus',
 					'  exit 0',
 					'}',
+					'if ($SparkArgs.Count -ge 2 -and $SparkArgs[0] -eq "live" -and $SparkArgs[1] -eq "status") {',
+					`$liveStatusText = @'\n${liveStatusText}\n'@`,
+					'  Write-Output $liveStatusText',
+					'  exit 0',
+					'}',
+					'if ($SparkArgs.Count -ge 2 -and $SparkArgs[0] -eq "providers" -and $SparkArgs[1] -eq "status") {',
+					`$providerStatusText = @'\n${providerStatusText}\n'@`,
+					'  Write-Output $providerStatusText',
+					'  exit 0',
+					'}',
 					'Write-Error ("unexpected spark command: " + ($SparkArgs -join " "))',
 					'exit 1',
 					''
@@ -3425,6 +3473,14 @@ async function run(): Promise<void> {
 					'#!/bin/sh',
 					'if [ "$1" = "live" ] && [ "$2" = "status" ] && [ "$3" = "--json" ]; then',
 					`  echo '${liveStatusJson}'`,
+					'  exit 0',
+					'fi',
+					'if [ "$1" = "live" ] && [ "$2" = "status" ]; then',
+					`  printf '%s\\n' '${liveStatusText.replace(/'/g, "'\\''")}'`,
+					'  exit 0',
+					'fi',
+					'if [ "$1" = "providers" ] && [ "$2" = "status" ]; then',
+					`  printf '%s\\n' '${providerStatusText.replace(/'/g, "'\\''")}'`,
 					'  exit 0',
 					'fi',
 					'echo "unexpected spark command: $*" >&2',
@@ -3500,6 +3556,11 @@ async function run(): Promise<void> {
 					text: 'Check if there is a pending action waiting for confirmation.',
 					matches: [/(?:pending action waiting|pending state waiting)/i, /(?:Nothing was resumed or executed|did not resume or execute)/i],
 					not: [/Mission:/i]
+				},
+				{
+					text: 'I am mentioning build and mission, but do not start anything. What is the current Spark risk profile?',
+					matches: [/Current Spark risk profile: low/i, /I did not start a mission or repair action/i],
+					not: [/Mission:/i]
 				}
 			];
 
@@ -3534,6 +3595,15 @@ async function run(): Promise<void> {
 					/Natural read-only Spark state answer completed/.test(record.result.summary)
 				)).length >= cases.length,
 				'read-only Spark state questions must record final Harness Core read outcomes'
+			);
+			const riskProfileNaturalRoute = (record: any) => (
+				record.executed_route === 'spark.read_only_state.risk_profile' &&
+				record.executed_action === 'harness_core.read_only_state'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, riskProfileNaturalRoute);
+			assert.ok(
+				naturalRouteRecords.some(riskProfileNaturalRoute),
+				'row 001 risk-profile canary must record natural route execution through Harness Core'
 			);
 		} finally {
 			process.env.PATH = oldPath;

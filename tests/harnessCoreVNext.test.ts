@@ -32,6 +32,30 @@ function envelopeFor(text: string) {
   });
 }
 
+function readOnlyStateEnvelopeFor(text: string) {
+  const base = classifyTelegramIntentV2(text);
+  return buildTelegramTurnIntentEnvelope({
+    text,
+    decision: {
+      ...base,
+      kind: 'runtime_truth_or_operator',
+      route: 'spark.read_only_state',
+      owner_system: 'spark-telegram-bot',
+      action: 'spark.read_only_state.risk_profile',
+      confidence: 'explicit',
+      payload: { ...base.payload, question: 'risk_profile' },
+      matched_signals: [...base.matched_signals, 'spark_risk_profile_read'],
+      supporting_routes: ['spark.read_only_state']
+    },
+    userRef: 'user:qa',
+    chatRef: 'chat:qa',
+    accessProfile: 'admin',
+    conversationKind: 'dm',
+    turnId: 'turn:harness-core-vnext-read-only',
+    traceId: 'trace:harness-core-vnext-read-only'
+  });
+}
+
 const allowedLegacy: ToolAuthorizationResult = { verdict: 'allowed', reasonCodes: [] };
 
 test('converts meta action-word turns into chat-only Harness Core envelopes', () => {
@@ -133,6 +157,23 @@ test('Telegram action authority returns non-executing Governor outcome for meta 
   assert.notEqual(result.governorDecision?.outcome, 'execute');
   assert.equal(result.governorDecision?.execution_boundary.action_authorized, false);
   assert.equal(result.governorDecision?.reply_contract.should_interrupt, false);
+});
+
+test('no-execution constraints still allow selected read-only current-state checks', () => {
+  const text = 'I am mentioning build and mission, but do not start anything. What is the current Spark risk profile?';
+  const result = authorizeTelegramActionFromEnvelope(readOnlyStateEnvelopeFor(text), {
+    route: 'spark.read_only_state',
+    text,
+    toolName: 'spark.read_only_state',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only'
+  });
+
+  assert.equal(result.allow, true);
+  assert.equal(result.harnessCore?.envelope.selected_move, 'read_current_state');
+  assert.equal(result.harnessCore?.envelope.action_authority.state, 'read_only');
+  assert.equal(result.harnessCore?.authorization.verdict, 'allow');
+  assert.equal(result.governorDecision?.outcome, 'read_only');
 });
 
 test('Telegram action authority blocks unselected contextual execution routes', () => {
