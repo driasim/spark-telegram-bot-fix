@@ -6,6 +6,7 @@
  * intercepted. Asserts that the bot:
  *
  *   - POSTs to /api/prd-bridge/write
+ *   - includes Harness Core Governor execution authority for writes
  *   - includes chatId, userId, telegramRelay, tier, options
  *   - resolves tier via getTierForUser (admin / pro list / default)
  *   - replies to the user with the expected acknowledgment
@@ -323,7 +324,7 @@ async function callHandleBuildIntent(opts: {
 	buildMode: 'direct' | 'advanced_prd';
 	buildLane?: 'fast_direct' | 'direct' | 'advanced_prd';
 	executionAuthority?: unknown;
-}): Promise<void> {
+}): Promise<any> {
 	process.env.SPARK_BOT_TEST_MODE = '1';
 	process.env.SPARK_CLARIFICATION_COPY_LLM = '0';
 	process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
@@ -334,7 +335,8 @@ async function callHandleBuildIntent(opts: {
 	if (typeof indexModule.handleBuildIntent !== 'function') {
 		throw new Error('handleBuildIntent not exported from src/index.ts — export it for E2E testing');
 	}
-	await indexModule.handleBuildIntent(
+	const hasExecutionAuthority = Object.prototype.hasOwnProperty.call(opts, 'executionAuthority');
+	return await indexModule.handleBuildIntent(
 		opts.ctx,
 		opts.prd,
 		opts.projectName,
@@ -344,7 +346,7 @@ async function callHandleBuildIntent(opts: {
 		undefined,
 		opts.buildLane,
 		undefined,
-		{ executionAuthority: opts.executionAuthority }
+		{ executionAuthority: hasExecutionAuthority ? opts.executionAuthority : fakeGovernorExecutionAuthority() }
 	);
 }
 
@@ -431,6 +433,8 @@ async function run(): Promise<void> {
 		assert.equal(writeCall!.body.userId, '8319079055');
 		assert.equal(writeCall!.body.buildMode, 'direct');
 		assert.equal(writeCall!.body.capabilityProposalPacket, undefined);
+		assert.equal(writeCall!.body.executionAuthority?.schema_version, 'governor-decision-v1');
+		assert.equal(writeCall!.body.executionAuthority?.tool_ledgers?.[0]?.tool_name, 'spawner.run');
 		assert.ok(writeCall!.body.content.includes('SaaS Billing Test'), 'PRD content includes project name header');
 		assert.ok(writeCall!.body.telegramRelay, 'telegramRelay block present');
 		assert.equal(typeof writeCall!.body.options, 'object');
@@ -458,6 +462,103 @@ async function run(): Promise<void> {
 		assert.equal(subscription.userId, '8319079055');
 		assert.equal(subscription.requestId, writeCall!.body.requestId);
 		assert.equal(subscription.traceRef, writeCall!.body.traceRef);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('build intent fails closed before PRD bridge when authority is missing', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies);
+		const result = await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a B2B SaaS with subscription billing.',
+			projectName: 'saas-billing-test',
+			buildMode: 'direct',
+			executionAuthority: null
+		});
+
+		assert.equal(result.status, 'failure');
+		assert.match(result.summary, /Harness Core execution authority is required/);
+		assert.match(result.summary, /missing_or_malformed_governor_decision/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'missing authority must not POST to PRD bridge');
+		assert.match(replies.join('\n'), /fresh Harness Core execution authority/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('build intent rejects wrong-tool Governor authority before PRD bridge', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const result = await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a B2B SaaS with subscription billing.',
+			projectName: 'saas-billing-test',
+			buildMode: 'direct',
+			executionAuthority: fakeGovernorExecutionAuthority('schedule.create', 'creates_schedule', 'spark-intelligence-builder')
+		});
+
+		assert.equal(result.status, 'failure');
+		assert.match(result.summary, /governor_missing_matching_authorization/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'wrong-tool authority must not POST to PRD bridge');
+		assert.match(replies.join('\n'), /fresh Harness Core execution authority/);
+
+		restoreAxios();
+		restoreEnv();
+	});
+
+	await test('build intent rejects read-only Governor authority before PRD bridge', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body.requestId } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 558, replies);
+		const result = await callHandleBuildIntent({
+			ctx,
+			prd: 'Build a B2B SaaS with subscription billing.',
+			projectName: 'saas-billing-test',
+			buildMode: 'direct',
+			executionAuthority: fakeGovernorExecutionAuthority('spawner.run', 'read_only')
+		});
+
+		assert.equal(result.status, 'failure');
+		assert.match(result.summary, /governor_outcome_read_only/);
+		assert.ok(!captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'read-only authority must not POST to PRD bridge');
+		assert.match(replies.join('\n'), /fresh Harness Core execution authority/);
 
 		restoreAxios();
 		restoreEnv();
@@ -1620,6 +1721,7 @@ async function run(): Promise<void> {
 
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 559, replies);
+		const executionAuthority = fakeGovernorExecutionAuthority();
 		await indexModule.handleBuildIntent(
 			ctx,
 			prd,
@@ -1627,13 +1729,17 @@ async function run(): Promise<void> {
 			null,
 			'advanced_prd',
 			'Natural-language domain-chip creation should use the Spawner PRD/canvas/mission-control build flow.',
-			capabilityProposalPacket
+			capabilityProposalPacket,
+			undefined,
+			undefined,
+			{ executionAuthority }
 		);
 
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected domain chip creation to POST to /api/prd-bridge/write');
 		assert.equal(writeCall!.body.projectName, 'domain-chip-creates-weird-poster-prompts-from');
 		assert.equal(writeCall!.body.buildMode, 'advanced_prd');
+		assert.equal(writeCall!.body.executionAuthority, executionAuthority);
 		assert.match(writeCall!.body.content, /Create a Spark domain chip named domain-chip-creates-weird-poster-prompts-from/);
 		assert.match(writeCall!.body.content, /current Spark-compatible domain chip standards/);
 		assert.match(writeCall!.body.content, /CAPABILITY_PROPOSAL_STANDARD_V1/);
@@ -2058,7 +2164,9 @@ async function run(): Promise<void> {
 		directionCtx.message.text = 'names with rationale and usage angle, make the vibe surreal';
 		await indexModule.handleTextMessage(directionCtx);
 
-		assert.ok(captured.some((c) => c.url.includes('/api/prd-bridge/write')), 'actual domain-chip direction should still dispatch pending chip');
+		const pendingChipWrite = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
+		assert.ok(pendingChipWrite, 'actual domain-chip direction should still dispatch pending chip');
+		assert.equal(pendingChipWrite!.body.executionAuthority?.tool_ledgers?.[0]?.tool_name, 'spawner.run');
 		assert.match(replies.join('\n'), /use that direction and start domain-chip-/i);
 
 			restoreAxios();

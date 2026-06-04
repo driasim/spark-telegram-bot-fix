@@ -323,6 +323,7 @@ import {
   type ToolAuthorizationInput,
   type TurnIntentEnvelopeV1
 } from './harnessContract';
+import { harnessExecutionAuthorityFailureReason } from './harnessExecutionAuthority';
 import {
   authorizeTelegramActionFromEnvelope,
   type TelegramActionAuthorityInput,
@@ -5459,10 +5460,10 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     ? telegramBranchActionAuthorityDecision(envelope, {
         route: 'domain_chip.pending',
         text,
-        toolName: 'domain_chip.create',
-        ownerSystem: 'domain-chip',
-        mutationClass: 'creates_chip',
-        action: 'domain_chip.pending',
+        toolName: 'spawner.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'spawner.pending_domain_chip_build',
         kind: 'creator_or_domain_chip',
         confidence: 'contextual'
       })
@@ -5492,7 +5493,7 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     }
   );
   recordTelegramHarnessCoreExecution(authorization, {
-    toolName: 'domain_chip.create',
+    toolName: 'spawner.run',
     status: dispatch.status,
     summary: dispatch.summary
   });
@@ -6368,6 +6369,17 @@ interface TelegramAuthorityExecutionResult {
   summary: string;
 }
 
+const BUILD_DISPATCH_AUTHORITY_ERROR = 'Harness Core execution authority is required before PRD bridge build dispatch.';
+
+function buildDispatchAuthorityFailureReason(value: unknown): string | null {
+  const reason = harnessExecutionAuthorityFailureReason(value, {
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    actionType: 'launch_mission'
+  });
+  return reason ? `${BUILD_DISPATCH_AUTHORITY_ERROR} (${reason})` : null;
+}
+
 export async function handleRunCommand(
   ctx: any,
   goal: string,
@@ -6522,6 +6534,12 @@ export async function handleBuildIntent(
     confirmationState: options.confirmationState || 'not_required'
   }))) {
     return { status: 'failure', summary: 'Build dispatch blocked by route-confidence gate.' };
+  }
+
+  const authorityError = buildDispatchAuthorityFailureReason(options.executionAuthority);
+  if (authorityError) {
+    await ctx.reply('I did not enqueue that build because this turn did not carry fresh Harness Core execution authority.');
+    return { status: 'failure', summary: authorityError, requestId, traceRef };
   }
 
   const polishedProjectName = capabilityProposalPacket
