@@ -229,6 +229,7 @@ export function buildTurnIntentEnvelopeVNextFromTelegram(
     : null;
   const proposedAction = actionEnvelope?.proposed_actions[0] || null;
   const evidence = routeEvidence(envelope);
+  const freshUserIntentRef = evidence.find((item) => item.kind === 'fresh_user_intent') || null;
   const authorityState = authorityStateForMove(move);
 
   return {
@@ -246,6 +247,7 @@ export function buildTurnIntentEnvelopeVNextFromTelegram(
     intent_summary: `Telegram selected ${move} for ${envelope.selectedIntent.kind}; route evidence remains subordinate to fresh user intent.`,
     freshness: {
       fresh_user_intent_present: true,
+      fresh_user_intent_ref: freshUserIntentRef,
       stale_state_used_as_authority: false,
       memory_used_as_instruction: false,
       pending_state_used_as_authority: false

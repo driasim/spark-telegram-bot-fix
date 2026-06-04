@@ -67,8 +67,11 @@ test('converts meta action-word turns into chat-only Harness Core envelopes', ()
   assert.equal(vnext.selected_move, 'chat_explain');
   assert.equal(vnext.action_authority.state, 'chat_only');
   assert.equal(vnext.proposed_actions.length, 0);
+  assert.equal(vnext.freshness.fresh_user_intent_ref?.kind, 'fresh_user_intent');
+  assert.equal(vnext.freshness.fresh_user_intent_ref?.source, 'spark-telegram-bot');
   assert.equal(vnext.freshness.stale_state_used_as_authority, false);
   assert.equal(vnext.freshness.memory_used_as_instruction, false);
+  assert.ok(vnext.evidence.some((item) => item.id === vnext.freshness.fresh_user_intent_ref?.id));
   assert.ok(vnext.evidence.some((item) => item.kind === 'fresh_user_intent'));
   assert.ok(vnext.evidence.some((item) => item.kind === 'negative_intent'));
 });
