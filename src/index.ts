@@ -2270,17 +2270,20 @@ async function handleTelegramIntentGateV2SafeRoute(
     const directive = typeof decision.payload.directive === 'string'
       ? decision.payload.directive
       : extractPlainChatMemoryDirective(text);
-    if (!directive || !telegramActionAuthorityAllowed(envelope, {
+    const memoryAuthorization = directive
+      ? telegramActionAuthorityDecision(envelope, {
       route: 'memory.write',
       text,
       toolName: 'memory.write',
       ownerSystem: 'domain-chip-memory',
       mutationClass: 'writes_memory'
-    })) {
+    })
+      : null;
+    if (!directive || !memoryAuthorization?.allow) {
       return false;
     }
     recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
-    await handlePlainChatMemoryDirective(ctx, user, text, directive);
+    await handlePlainChatMemoryDirective(ctx, user, text, directive, memoryAuthorization);
     return true;
   }
 
@@ -3091,7 +3094,13 @@ function renderSparkChipStatusBoundaryFallbackReply(): string {
   ].join('\n');
 }
 
-async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string, directive: string): Promise<void> {
+async function handlePlainChatMemoryDirective(
+  ctx: any,
+  user: any,
+  text: string,
+  directive: string,
+  authorization?: TelegramActionAuthorityResult
+): Promise<void> {
   let localSaved = false;
   try {
     await conversation.remember(user, text);
@@ -3112,6 +3121,11 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
     ) {
       await ctx.reply(builderReply.responseText);
       await conversation.rememberAssistantReply(user, builderReply.responseText).catch(() => {});
+      recordTelegramHarnessCoreExecution(authorization, {
+        toolName: 'memory.write',
+        status: 'success',
+        summary: 'Natural Telegram memory directive was persisted locally and acknowledged by Builder.'
+      });
       return;
     }
   } catch (error) {
@@ -3123,6 +3137,13 @@ async function handlePlainChatMemoryDirective(ctx: any, user: any, text: string,
     : buildMemoryBridgeUnavailableReply('remember');
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(user, reply).catch(() => {});
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'memory.write',
+    status: localSaved ? 'success' : 'failure',
+    summary: localSaved
+      ? 'Natural Telegram memory directive was persisted in local Telegram memory.'
+      : 'Natural Telegram memory directive could not persist locally or through Builder.'
+  });
 }
 
 async function saveSlashRememberLocally(user: any, text: string): Promise<boolean> {
@@ -7768,7 +7789,11 @@ bot.action(/^spark_access_level:operator:confirm$/, async (ctx) => {
   });
 });
 
-async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean> {
+async function handleAccessChangeRequest(
+  ctx: any,
+  raw: string,
+  authorizationOverride?: TelegramActionAuthorityResult
+): Promise<boolean> {
   if (!requireAdmin(ctx)) return true;
 
   const next = normalizeSparkAccessProfile(raw);
@@ -7793,7 +7818,7 @@ async function handleAccessChangeRequest(ctx: any, raw: string): Promise<boolean
     return true;
   }
 
-  const authorization = authorizeAccessChangeCommand(ctx, raw);
+  const authorization = authorizationOverride || authorizeAccessChangeCommand(ctx, raw);
   if (!authorization.allow) {
     await replyTelegramCommandAuthorityBlocked(ctx);
     return true;
@@ -8037,18 +8062,28 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
 	    return;
 	  }
-		  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaLoopPauseRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-		    route: 'sparkqa.pause',
-		    text,
-		    toolName: 'sparkqa.pause',
-		    ownerSystem: 'spark-telegram-bot',
-		    mutationClass: 'writes_files',
-		    action: 'sparkqa.pause',
-		    kind: 'diagnostic_or_self_awareness'
-		  })) {
+  const sparkQaPauseAuthorization = !earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaLoopPauseRequest(text)
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'sparkqa.pause',
+        text,
+        toolName: 'sparkqa.pause',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'sparkqa.pause',
+        kind: 'diagnostic_or_self_awareness'
+      })
+    : null;
+		  if (sparkQaPauseAuthorization?.allow) {
 	    await conversation.remember(user, text).catch(() => {});
 	    const result = await pauseSparkQaOperatorLoop();
 	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.pause', 'spark-telegram-bot', 'sparkqa.local_control');
+	    recordTelegramHarnessCoreExecution(sparkQaPauseAuthorization, {
+	      toolName: 'sparkqa.pause',
+	      status: result.ok ? 'success' : 'failure',
+	      summary: result.ok
+	        ? 'Natural Spark QA pause wrote the local control state.'
+	        : 'Natural Spark QA pause could not write the local control state.'
+	    });
 	    await ctx.reply(result.reply);
 	    await conversation.rememberAssistantReply(user, result.reply).catch(() => {});
 	    return;
@@ -8172,17 +8207,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const naturalAccessChange = earlyBuildIntent ? null : parseNaturalAccessChangeIntent(text);
-  if (naturalAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-    route: 'access.change',
-    text,
-    toolName: 'access.change',
-    ownerSystem: 'spark-telegram-bot',
-    mutationClass: 'writes_files',
-    action: 'access.change',
-    kind: 'runtime_truth_or_operator'
-  })) {
+  const naturalAccessChangeAuthorization = naturalAccessChange
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'access.change',
+        text,
+        toolName: 'access.change',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'access.change',
+        kind: 'runtime_truth_or_operator'
+      })
+    : null;
+  if (naturalAccessChange && naturalAccessChangeAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
-    await handleAccessChangeRequest(ctx, naturalAccessChange);
+    await handleAccessChangeRequest(ctx, naturalAccessChange, naturalAccessChangeAuthorization);
     return;
   }
 
@@ -8198,17 +8236,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const frameAccessChange = !earlyBuildIntent && conversationFrame.referenceResolution.kind === 'access_level'
     ? conversationFrame.referenceResolution.value
     : null;
-  if (frameAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-    route: 'access.change',
-    text,
-    toolName: 'access.change',
-    ownerSystem: 'spark-telegram-bot',
-    mutationClass: 'writes_files',
-    action: 'access.change',
-    kind: 'runtime_truth_or_operator'
-  })) {
+  const frameAccessChangeAuthorization = frameAccessChange
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'access.change',
+        text,
+        toolName: 'access.change',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'access.change',
+        kind: 'runtime_truth_or_operator'
+      })
+    : null;
+  if (frameAccessChange && frameAccessChangeAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
-    await handleAccessChangeRequest(ctx, frameAccessChange);
+    await handleAccessChangeRequest(ctx, frameAccessChange, frameAccessChangeAuthorization);
     return;
 	  }
 
@@ -8224,17 +8265,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	  const contextualAccessChange = earlyBuildIntent || conversationFrame.referenceResolution.kind === 'list_item'
 	    ? null
 	    : parseContextualAccessChangeIntent(text, recentAccessMessages);
-	  if (contextualAccessChange && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	    route: 'access.change',
-	    text,
-	    toolName: 'access.change',
-	    ownerSystem: 'spark-telegram-bot',
-	    mutationClass: 'writes_files',
-	    action: 'access.change',
-	    kind: 'runtime_truth_or_operator'
-	  })) {
+  const contextualAccessChangeAuthorization = contextualAccessChange
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'access.change',
+        text,
+        toolName: 'access.change',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'access.change',
+        kind: 'runtime_truth_or_operator'
+      })
+    : null;
+	  if (contextualAccessChange && contextualAccessChangeAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
-    await handleAccessChangeRequest(ctx, contextualAccessChange);
+    await handleAccessChangeRequest(ctx, contextualAccessChange, contextualAccessChangeAuthorization);
     return;
   }
 
@@ -8518,32 +8562,55 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const safeOperatorAction = earlyBuildIntent ? null : parseSafeOperatorAction(text);
-	  if (safeOperatorAction && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	    route: 'operator.safe_action',
-	    text,
-	    toolName: 'operator.safe_action',
-	    ownerSystem: 'spark-telegram-bot',
-	    mutationClass: 'writes_files',
-	    action: 'operator.safe_action',
-	    kind: 'runtime_truth_or_operator'
-	  })) {
+  const safeOperatorAuthorization = safeOperatorAction
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'operator.safe_action',
+        text,
+        toolName: 'operator.safe_action',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'operator.safe_action',
+        kind: 'runtime_truth_or_operator'
+      })
+    : null;
+	  if (safeOperatorAction && safeOperatorAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     if (safeOperatorAction.kind === 'level5_smoke' && accessProfile !== 'operator') {
       await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      recordTelegramHarnessCoreExecution(safeOperatorAuthorization, {
+        toolName: 'operator.safe_action',
+        status: 'failure',
+        summary: 'Natural safe operator action was blocked by Spark access profile.'
+      });
       return;
     }
     if (!sparkAccessAllows(accessProfile, 'operating_system')) {
       await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
+      recordTelegramHarnessCoreExecution(safeOperatorAuthorization, {
+        toolName: 'operator.safe_action',
+        status: 'failure',
+        summary: 'Natural safe operator action was blocked by Spark access policy.'
+      });
       return;
     }
     await safeSendChatAction(ctx, 'typing');
     try {
       const reply = await runSafeOperatorAction(safeOperatorAction);
+      recordTelegramHarnessCoreExecution(safeOperatorAuthorization, {
+        toolName: 'operator.safe_action',
+        status: 'success',
+        summary: `Natural safe operator action ${safeOperatorAction.kind} completed.`
+      });
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(user, reply).catch(() => {});
     } catch (err: any) {
       const reply = `Safe operator check failed: ${err?.message || String(err)}`;
+      recordTelegramHarnessCoreExecution(safeOperatorAuthorization, {
+        toolName: 'operator.safe_action',
+        status: 'failure',
+        summary: `Natural safe operator action ${safeOperatorAction.kind} failed: ${err?.message || String(err)}.`
+      });
       await ctx.reply(reply);
       await conversation.rememberAssistantReply(user, reply).catch(() => {});
     }
@@ -8560,22 +8627,33 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	    return;
 	  }
 
-		  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaBenchmarkRunQuestion(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-		    route: 'sparkqa.run',
-		    text,
-		    toolName: 'sparkqa.run',
-		    ownerSystem: 'spark-telegram-bot',
-		    mutationClass: 'writes_files',
-		    action: 'sparkqa.run',
-		    kind: 'diagnostic_or_self_awareness'
-		  })) {
+  const sparkQaRunAuthorization = !earlyBuildIntent && conversation.isAdmin(ctx.from) && isNaturalSparkQaBenchmarkRunQuestion(text)
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'sparkqa.run',
+        text,
+        toolName: 'sparkqa.run',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'writes_files',
+        action: 'sparkqa.run',
+        kind: 'diagnostic_or_self_awareness'
+      })
+    : null;
+		  if (sparkQaRunAuthorization?.allow) {
 	    await conversation.remember(user, text).catch(() => {});
 	    await safeSendChatAction(ctx, 'typing');
 	    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'sparkqa.run', 'spark-telegram-bot', 'sparkqa.autoloop_round');
 	    const target = await resolveRecursiveStartTarget('spark-qa-operator');
-	    const reply = renderSparkQaAutoloopRound(await runSparkQaAutoloopRound({
+	    const round = await runSparkQaAutoloopRound({
 	      repoRoot: target.kind === 'path' ? target.repoRoot : undefined
-	    }));
+	    });
+	    const reply = renderSparkQaAutoloopRound(round);
+	    recordTelegramHarnessCoreExecution(sparkQaRunAuthorization, {
+	      toolName: 'sparkqa.run',
+	      status: round.ok ? 'success' : 'failure',
+	      summary: round.ok
+	        ? 'Natural Spark QA benchmark/autoloop proof ran.'
+	        : 'Natural Spark QA benchmark/autoloop proof failed.'
+	    });
 	    await ctx.reply(reply);
 	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
 	    return;
@@ -8640,13 +8718,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await handleCreatorMissionPlan(ctx, naturalCreatorIntent, naturalCreatorAuthorization);
     return;
   }
-  if (earlyNaturalChipBrief && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-    route: 'domain_chip.create',
-    text,
-    toolName: 'domain_chip.create',
-    ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
-    mutationClass: 'creates_chip'
-  })) {
+  const earlyNaturalChipAuthorization = earlyNaturalChipBrief
+    ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'domain_chip.create',
+        text,
+        toolName: 'domain_chip.create',
+        ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+        mutationClass: 'creates_chip'
+      })
+    : null;
+  if (earlyNaturalChipBrief && earlyNaturalChipAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const mode = domainChipBuildModeForBrief(earlyNaturalChipBrief);
     rememberPendingDomainChipBuild(telegramPendingDomainChipKey(ctx.chat.id, ctx.from.id), {
@@ -8657,6 +8738,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       buildModeReason: mode.reason,
       capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(earlyNaturalChipBrief),
       timestamp: Date.now()
+    });
+    recordTelegramHarnessCoreExecution(earlyNaturalChipAuthorization, {
+      toolName: 'domain_chip.create',
+      status: 'partial',
+      summary: 'Natural domain-chip request staged a pending build preview without launching execution.'
     });
     await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
     return;
@@ -8724,14 +8810,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
   const memoryDirective = earlyBuildIntent ? null : extractPlainChatMemoryDirective(text);
-  if (memoryDirective && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-    route: 'memory.write',
-    text,
-    toolName: 'memory.write',
-    ownerSystem: 'domain-chip-memory',
-    mutationClass: 'writes_memory'
-  })) {
-    await handlePlainChatMemoryDirective(ctx, user, text, memoryDirective);
+  const memoryDirectiveAuthorization = memoryDirective
+    ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'memory.write',
+        text,
+        toolName: 'memory.write',
+        ownerSystem: 'domain-chip-memory',
+        mutationClass: 'writes_memory'
+      })
+    : null;
+  if (memoryDirective && memoryDirectiveAuthorization?.allow) {
+    await handlePlainChatMemoryDirective(ctx, user, text, memoryDirective, memoryDirectiveAuthorization);
     return;
   }
 
@@ -8758,15 +8847,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   const selfImprovementGoal = earlyBuildIntent ? null : extractSparkSelfImprovementGoal(text);
-	  if (selfImprovementGoal && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	    route: 'spark.self_improvement',
-	    text,
-	    toolName: 'spark.self_improvement',
-	    ownerSystem: 'spark-intelligence-builder',
-	    mutationClass: 'writes_files',
-	    action: 'spark.self_improvement',
-	    kind: 'diagnostic_or_self_awareness'
-	  })) {
+  const selfImprovementAuthorization = selfImprovementGoal
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spark.self_improvement',
+        text,
+        toolName: 'spark.self_improvement',
+        ownerSystem: 'spark-intelligence-builder',
+        mutationClass: 'writes_files',
+        action: 'spark.self_improvement',
+        kind: 'diagnostic_or_self_awareness'
+      })
+    : null;
+	  if (selfImprovementGoal && selfImprovementAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     await safeSendChatAction(ctx, 'typing');
     try {
@@ -8776,23 +8868,36 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         currentMessage: text,
         goal: selfImprovementGoal,
       });
+      recordTelegramHarnessCoreExecution(selfImprovementAuthorization, {
+        toolName: 'spark.self_improvement',
+        status: 'success',
+        summary: 'Natural Spark self-improvement request routed a Builder improvement plan.'
+      });
       await ctx.reply(result.replyText);
       await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
     } catch (err: any) {
+      recordTelegramHarnessCoreExecution(selfImprovementAuthorization, {
+        toolName: 'spark.self_improvement',
+        status: 'failure',
+        summary: `Natural Spark self-improvement request failed: ${err?.message || String(err)}.`
+      });
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
     return;
   }
   const wikiPromotion = earlyBuildIntent ? null : extractSparkWikiPromotionIntent(text);
-	  if (wikiPromotion && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	    route: 'spark.wiki',
-	    text,
-	    toolName: 'spark_wiki.promote',
-	    ownerSystem: 'spark-intelligence-builder',
-	    mutationClass: 'writes_memory',
-	    action: 'spark_wiki.promote',
-	    kind: 'wiki_or_knowledge'
-	  })) {
+  const wikiPromotionAuthorization = wikiPromotion
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spark.wiki',
+        text,
+        toolName: 'spark_wiki.promote',
+        ownerSystem: 'spark-intelligence-builder',
+        mutationClass: 'writes_memory',
+        action: 'spark_wiki.promote',
+        kind: 'wiki_or_knowledge'
+      })
+    : null;
+	  if (wikiPromotion && wikiPromotionAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     await safeSendChatAction(ctx, 'typing');
     try {
@@ -8805,9 +8910,19 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         nextProbe: 'Run the relevant Spark probe, test, or trace check before treating this note as current truth.',
         invalidationTrigger: 'Downgrade this note if newer live traces, tests, or source docs contradict it.',
       });
+      recordTelegramHarnessCoreExecution(wikiPromotionAuthorization, {
+        toolName: 'spark_wiki.promote',
+        status: 'success',
+        summary: 'Natural Spark wiki promotion routed a knowledge promotion through Builder.'
+      });
       await ctx.reply(result.replyText);
       await conversation.rememberAssistantReply(user, result.replyText).catch(() => {});
     } catch (err: any) {
+      recordTelegramHarnessCoreExecution(wikiPromotionAuthorization, {
+        toolName: 'spark_wiki.promote',
+        status: 'failure',
+        summary: `Natural Spark wiki promotion failed: ${err?.message || String(err)}.`
+      });
       await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
     }
     return;
@@ -9142,15 +9257,18 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const missionUpdatePreference = parseMissionUpdatePreferenceIntent(text);
-	    if (missionUpdatePreference && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'mission_updates.preference',
-	      text,
-	      toolName: 'mission_updates.preference',
-	      ownerSystem: 'spark-telegram-bot',
-	      mutationClass: 'writes_files',
-	      action: 'mission_updates.preference',
-	      kind: 'runtime_truth_or_operator'
-	    })) {
+    const missionUpdatePreferenceAuthorization = missionUpdatePreference
+      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'mission_updates.preference',
+          text,
+          toolName: 'mission_updates.preference',
+          ownerSystem: 'spark-telegram-bot',
+          mutationClass: 'writes_files',
+          action: 'mission_updates.preference',
+          kind: 'runtime_truth_or_operator'
+        })
+      : null;
+	    if (missionUpdatePreference && missionUpdatePreferenceAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       const detailLines: string[] = [];
       if (missionUpdatePreference.verbosity) {
@@ -9161,6 +9279,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         await setTelegramMissionLinkPreference(ctx.chat.id, missionUpdatePreference.links);
         detailLines.push(`Links: ${missionUpdatePreference.links} - ${describeTelegramMissionLinkPreference(missionUpdatePreference.links)}`);
       }
+      recordTelegramHarnessCoreExecution(missionUpdatePreferenceAuthorization, {
+        toolName: 'mission_updates.preference',
+        status: detailLines.length > 0 ? 'success' : 'failure',
+        summary: detailLines.length > 0
+          ? 'Natural mission update preference write completed.'
+          : 'Natural mission update preference request had no preference fields to write.'
+      });
       await ctx.reply(formatMissionUpdatePreferenceAcknowledgement(detailLines));
       return;
     }
@@ -9270,13 +9395,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const naturalChipBrief = parseNaturalChipCreateIntent(text);
-    if (naturalChipBrief && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'domain_chip.create',
-      text,
-      toolName: 'domain_chip.create',
-      ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
-      mutationClass: 'creates_chip'
-    })) {
+    const naturalChipAuthorization = naturalChipBrief
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'domain_chip.create',
+          text,
+          toolName: 'domain_chip.create',
+          ownerSystem: turnIntentEnvelope.selectedIntent.ownerSystem,
+          mutationClass: 'creates_chip'
+        })
+      : null;
+    if (naturalChipBrief && naturalChipAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       const mode = domainChipBuildModeForBrief(naturalChipBrief);
       rememberPendingDomainChipBuild(telegramPendingDomainChipKey(ctx.chat.id, ctx.from.id), {
@@ -9287,6 +9415,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         buildModeReason: mode.reason,
         capabilityProposalPacket: buildDomainChipCapabilityProposalPacket(naturalChipBrief),
         timestamp: Date.now()
+      });
+      recordTelegramHarnessCoreExecution(naturalChipAuthorization, {
+        toolName: 'domain_chip.create',
+        status: 'partial',
+        summary: 'Natural domain-chip request staged a pending build preview without launching execution.'
       });
       await ctx.reply(formatDomainChipBuildPreview(naturalChipBrief));
       return;
@@ -9350,19 +9483,29 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-	    if (isDiagnosticsScanRequest(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'diagnostics.scan',
-	      text,
-	      toolName: 'diagnostics.scan',
-	      ownerSystem: 'spark-cli',
-	      mutationClass: 'writes_files',
-	      action: 'diagnostics.scan',
-	      kind: 'diagnostic_or_self_awareness'
-	    })) {
+    const diagnosticsScanAuthorization = isDiagnosticsScanRequest(text)
+      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'diagnostics.scan',
+          text,
+          toolName: 'diagnostics.scan',
+          ownerSystem: 'spark-cli',
+          mutationClass: 'writes_files',
+          action: 'diagnostics.scan',
+          kind: 'diagnostic_or_self_awareness'
+        })
+      : null;
+	    if (diagnosticsScanAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       await safeSendChatAction(ctx, 'typing');
       try {
         const scan = await runBuilderDiagnosticsScan();
+        recordTelegramHarnessCoreExecution(diagnosticsScanAuthorization, {
+          toolName: 'diagnostics.scan',
+          status: 'success',
+          summary: scan.markdownPath
+            ? `Natural diagnostics scan wrote ${path.basename(scan.markdownPath)}.`
+            : 'Natural diagnostics scan completed without an attached note path.'
+        });
         await ctx.reply(scan.replyText);
         if (scan.markdownPath) {
           try {
@@ -9382,6 +9525,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           failure: detail,
           stage: 'diagnostics_scan'
         }).catch(() => {});
+        recordTelegramHarnessCoreExecution(diagnosticsScanAuthorization, {
+          toolName: 'diagnostics.scan',
+          status: 'failure',
+          summary: `Natural diagnostics scan failed: ${detail}.`
+        });
         await ctx.reply(`Diagnostics scan failed: ${detail}`);
       }
       return;

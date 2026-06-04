@@ -694,23 +694,49 @@ async function run(): Promise<void> {
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-memory-ledger-e2e-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
-		const indexModule: any = await import('../src/index');
+		try {
+			const indexModule: any = await import('../src/index');
 
-		const saveReplies: string[] = [];
-		const saveCtx = makeFakeCtx(8319079055, 8319079055, 562, saveReplies);
-		saveCtx.message.text = 'remember this: my preferred mission updates are concise and outcome-focused';
-		await indexModule.handleTextMessage(saveCtx);
+			const saveReplies: string[] = [];
+			const saveCtx = makeFakeCtx(8319079055, 8319079055, 562, saveReplies);
+			saveCtx.message.text = 'remember this: my preferred mission updates are concise and outcome-focused';
+			await indexModule.handleTextMessage(saveCtx);
 
-		const recallReplies: string[] = [];
-		const recallCtx = makeFakeCtx(8319079055, 8319079055, 563, recallReplies);
-		recallCtx.message.text = 'what do you remember about how I like mission updates?';
-		await indexModule.handleTextMessage(recallCtx);
+			const recallReplies: string[] = [];
+			const recallCtx = makeFakeCtx(8319079055, 8319079055, 563, recallReplies);
+			recallCtx.message.text = 'what do you remember about how I like mission updates?';
+			await indexModule.handleTextMessage(recallCtx);
 
-		assert.match(saveReplies.join('\n'), /Saved in Telegram memory/i);
-		assert.doesNotMatch(saveReplies.join('\n'), /passive Spark bug recognition/i);
-		assert.match(recallReplies.join('\n'), /concise and outcome-focused/i);
-		assert.doesNotMatch(recallReplies.join('\n'), /passive Spark bug recognition/i);
+			assert.match(saveReplies.join('\n'), /Saved in Telegram memory/i);
+			assert.doesNotMatch(saveReplies.join('\n'), /passive Spark bug recognition/i);
+			assert.match(recallReplies.join('\n'), /concise and outcome-focused/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /passive Spark bug recognition/i);
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'natural memory directive must record Harness Core authorization before local memory write'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.result.status === 'success' &&
+					/Natural Telegram memory directive/.test(record.result.summary)
+				)),
+				'natural memory directive must record the final Harness Core execution result'
+			);
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+		}
 
 		restoreAxios();
 		restoreEnv();
