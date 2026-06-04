@@ -19,6 +19,7 @@ const tests = [
   'tests/naturalRouteReplay.test.ts',
   'tests/liveNlVerdict.test.ts',
   'tests/routeBoundaryHandlerHarness.test.ts',
+  'tests/runtimeStatusNatural.test.ts',
   'tests/harnessContract.test.ts',
   'tests/harnessCoreVNext.test.ts',
   'tests/harnessCoreLedger.test.ts',
