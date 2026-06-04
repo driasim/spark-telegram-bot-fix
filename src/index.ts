@@ -4141,8 +4141,24 @@ bot.command('conversation_context', async (ctx) => {
   await ctx.reply(report);
 });
 
-async function handleLocalWorkspaceInventory(ctx: any): Promise<void> {
+export async function handleLocalWorkspaceInventory(ctx: any): Promise<void> {
   if (!requireAdmin(ctx)) return;
+  const commandText = typeof ctx.message?.text === 'string' ? ctx.message.text : '/workspaces';
+  const commandName = commandText.trim().split(/\s+/)[0]?.replace(/^\/+/, '').replace(/@.+$/, '') || 'workspaces';
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName,
+    route: 'local_workspace.inspect',
+    text: commandText,
+    toolName: 'local_workspace.inspect',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only',
+    action: 'local_workspace.inspect',
+    kind: 'slash_command'
+  });
+  if (!authorization.allow) {
+    await ctx.reply('I did not inspect local workspaces because this command was not authorized by the Harness Core envelope.');
+    return;
+  }
   const accessProfile = await getSparkAccessProfile(ctx.chat.id);
   if (!sparkAccessAllows(accessProfile, 'operating_system')) {
     await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
@@ -4152,10 +4168,20 @@ async function handleLocalWorkspaceInventory(ctx: any): Promise<void> {
   try {
     const summary = await summarizeLocalWorkspaces();
     const reply = renderLocalWorkspaceInspectionReply(summary);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'local_workspace.inspect',
+      status: 'success',
+      summary: 'Slash local workspace inspection completed from configured local workspace roots.'
+    });
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(ctx.from, reply).catch(() => {});
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'local_workspace.inspect',
+      status: 'failure',
+      summary: `Slash local workspace inspection failed: ${detail}.`
+    });
     await ctx.reply(`Local workspace inspection failed: ${detail}`);
   }
 }
@@ -9296,7 +9322,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    if (isLocalWorkspaceInspectionOnlyRequest(text) && routeEvidenceAllowed({ route: 'local_workspace.inspect', text, profile: activeTelegramProfile() })) {
+    const localWorkspaceInspectionAuthorization = isLocalWorkspaceInspectionOnlyRequest(text)
+      ? telegramActionAuthorityDecision(
+          telegramActionEnvelope(turnIntentEnvelope, {
+            route: 'local_workspace.inspect',
+            ownerSystem: 'spark-telegram-bot',
+            action: 'local_workspace.inspect',
+            kind: 'runtime_truth_or_operator',
+            confidence: 'explicit'
+          }),
+          {
+            route: 'local_workspace.inspect',
+            text,
+            toolName: 'local_workspace.inspect',
+            ownerSystem: 'spark-telegram-bot',
+            mutationClass: 'read_only'
+          }
+        )
+      : null;
+    if (localWorkspaceInspectionAuthorization?.allow) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'operating_system')) {
         await ctx.reply(renderSparkAccessDenial(accessProfile, 'operating_system'));
@@ -9307,10 +9351,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       try {
         const summary = await summarizeLocalWorkspaces();
         const reply = renderLocalWorkspaceInspectionReply(summary);
+        recordTelegramHarnessCoreExecution(localWorkspaceInspectionAuthorization, {
+          toolName: 'local_workspace.inspect',
+          status: 'success',
+          summary: 'Natural local workspace inspection completed from configured local workspace roots.'
+        });
         await ctx.reply(reply);
         await conversation.rememberAssistantReply(user, reply).catch(() => {});
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        recordTelegramHarnessCoreExecution(localWorkspaceInspectionAuthorization, {
+          toolName: 'local_workspace.inspect',
+          status: 'failure',
+          summary: `Natural local workspace inspection failed: ${detail}.`
+        });
         await conversation.recordInterruptedTask(user, {
           message: text,
           failure: detail,
@@ -9318,6 +9372,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         }).catch(() => {});
         await ctx.reply(`Local workspace inspection failed: ${detail}`);
       }
+      return;
+    }
+    if (localWorkspaceInspectionAuthorization) {
+      await ctx.reply('I did not inspect local workspaces because the fresh turn did not authorize that read-only check.');
       return;
     }
 

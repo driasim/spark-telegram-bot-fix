@@ -54,6 +54,7 @@ const originalEnv = {
 	SPARK_HARNESS_CORE_LEDGER: process.env.SPARK_HARNESS_CORE_LEDGER,
 	SPARK_HARNESS_CORE_LEDGER_PATH: process.env.SPARK_HARNESS_CORE_LEDGER_PATH,
 	SPARK_LLM_PROVIDER: process.env.SPARK_LLM_PROVIDER,
+	SPARK_LOCAL_WORKSPACE_ROOTS: process.env.SPARK_LOCAL_WORKSPACE_ROOTS,
 	SPARK_SYSTEM_MAP_STATE_DIR: process.env.SPARK_SYSTEM_MAP_STATE_DIR,
 	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
 	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
@@ -4115,6 +4116,64 @@ async function run(): Promise<void> {
 					/access help read completed/i.test(record.result.summary)
 				)),
 				'natural access help must record final Harness Core read outcome'
+			);
+		} finally {
+			restoreAxios();
+			restoreEnv();
+			removeTempRoot(tempRoot);
+		}
+	});
+
+	await test('local workspace inspection records Harness Core authorization and outcome ledgers', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-local-workspace-ledger-'));
+		const workspaceRoot = path.join(tempRoot, 'workspaces');
+		const projectRoot = path.join(workspaceRoot, 'harness-ledger-project');
+		mkdirSync(projectRoot, { recursive: true });
+		writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'harness-ledger-project' }));
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_LOCAL_WORKSPACE_ROOTS = workspaceRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 607, replies);
+			ctx.message.text = '/workspaces';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleLocalWorkspaceInventory(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /local workspace snapshot/i);
+			assert.match(reply, /harness-ledger-project/);
+			assert.equal(captured.length, 0, 'workspace inspection must not call Spawner or PRD bridge');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'local_workspace.inspect' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'local workspace inspection must record Harness Core authorization before reading local folders'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'local_workspace.inspect' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/local workspace inspection completed/i.test(record.result.summary)
+				)),
+				'local workspace inspection must record final Harness Core read outcome'
 			);
 		} finally {
 			restoreAxios();
