@@ -43,6 +43,20 @@ function restoreEnv(): void {
   else process.env.SPARK_UI_API_KEY = originalUiKey;
 }
 
+function fakeMissionControlAuthority(): Record<string, unknown> {
+  return {
+    schema_version: 'governor-decision-v1',
+    outcome: 'execute',
+    execution_boundary: { action_authorized: true },
+    tool_ledgers: [
+      {
+        schema_version: 'tool-call-ledger-v1',
+        tool_name: 'spawner.mission_control'
+      }
+    ]
+  };
+}
+
 async function run(): Promise<void> {
   await test('runGoal posts Telegram relay metadata and orchestration options to Spawner', async () => {
     restoreAxios();
@@ -668,7 +682,10 @@ async function run(): Promise<void> {
 
   await test('missionCommand formats provider status for Telegram', async () => {
     restoreAxios();
-    (axios as any).post = async () => ({
+    let capturedBody: any = null;
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return {
       data: {
         status: {
           paused: false,
@@ -679,11 +696,15 @@ async function run(): Promise<void> {
           }
         }
       }
-    });
+    };
+    };
 
     const result = await spawner.missionCommand('status', 'spark-status');
 
     assert.equal(result.success, true);
+    assert.equal(capturedBody.executionAuthority.schema_version, 'governor-decision-v1');
+    assert.equal(capturedBody.executionAuthority.outcome, 'read_only');
+    assert.equal(capturedBody.executionAuthority.tool_ledgers[0].tool_name, 'spawner.mission_control');
     assert.match(result.message, /Mission is complete/);
     assert.match(result.message, /• Complete: yes/);
     assert.match(result.message, /• Codex: completed/);
@@ -691,6 +712,138 @@ async function run(): Promise<void> {
     assert.match(result.message, /• Detail: http:\/\/127\.0\.0\.1:3333\/missions\/spark-status/);
     assert.match(result.message, /• Board: http:\/\/127\.0\.0\.1:3333\/kanban\?mission=spark-status/);
     assert.match(result.message, /• Trace: http:\/\/127\.0\.0\.1:3333\/trace\?missionId=spark-status/);
+  });
+
+  await test('missionCommand forwards native Governor authority when supplied', async () => {
+    restoreAxios();
+    const executionAuthority = fakeMissionControlAuthority();
+    let capturedBody: any = null;
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return { data: { ok: true, message: 'paused' } };
+    };
+
+    const result = await spawner.missionCommand('pause', 'spark-status', { executionAuthority });
+
+    assert.equal(result.success, true);
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
+  });
+
+  await test('pauseContextualActiveMission forwards native Governor authority', async () => {
+    restoreAxios();
+    const executionAuthority = fakeMissionControlAuthority();
+    let capturedBody: any = null;
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'spark-active',
+              missionName: 'Active Mission',
+              status: 'running',
+              lastEventType: 'mission_started',
+              lastUpdated: new Date().toISOString(),
+              lastSummary: '',
+              taskName: null
+            }
+          ],
+          paused: [],
+          completed: [],
+          failed: [],
+          cancelled: [],
+          created: []
+        }
+      }
+    });
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.pauseContextualActiveMission({ executionAuthority });
+
+    assert.equal(result.success, true);
+    assert.equal(result.commandSent, true);
+    assert.equal(capturedBody.action, 'pause');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
+  });
+
+  await test('resumeContextualPausedMission forwards native Governor authority', async () => {
+    restoreAxios();
+    const executionAuthority = fakeMissionControlAuthority();
+    let capturedBody: any = null;
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [],
+          paused: [
+            {
+              missionId: 'spark-paused',
+              missionName: 'Paused Mission',
+              status: 'paused',
+              lastEventType: 'mission_paused',
+              lastUpdated: new Date().toISOString(),
+              lastSummary: '',
+              taskName: null
+            }
+          ],
+          completed: [],
+          failed: [],
+          cancelled: [],
+          created: []
+        }
+      }
+    });
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.resumeContextualPausedMission({ executionAuthority });
+
+    assert.equal(result.success, true);
+    assert.equal(result.commandSent, true);
+    assert.equal(capturedBody.action, 'resume');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
+  });
+
+  await test('confirmContextualMissionCancel forwards native Governor authority', async () => {
+    restoreAxios();
+    const executionAuthority = fakeMissionControlAuthority();
+    let capturedBody: any = null;
+    (axios as any).get = async () => ({
+      data: {
+        board: {
+          running: [
+            {
+              missionId: 'spark-cancel',
+              missionName: 'Cancel Mission',
+              status: 'running',
+              lastEventType: 'mission_started',
+              lastUpdated: new Date().toISOString(),
+              lastSummary: '',
+              taskName: null
+            }
+          ],
+          paused: [],
+          completed: [],
+          failed: [],
+          cancelled: [],
+          created: []
+        }
+      }
+    });
+    (axios as any).post = async (_url: string, body: unknown) => {
+      capturedBody = body;
+      return { data: { ok: true, message: 'cancelled' } };
+    };
+
+    const result = await spawner.confirmContextualMissionCancel('spark-cancel', 'Cancel Mission', { executionAuthority });
+
+    assert.equal(result.success, true);
+    assert.equal(result.commandSent, true);
+    assert.equal(capturedBody.action, 'kill');
+    assert.equal(capturedBody.executionAuthority, executionAuthority);
   });
 
   await test('missionCommand reports not-found status without inventing a mission', async () => {

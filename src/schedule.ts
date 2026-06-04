@@ -108,6 +108,7 @@ export async function createSchedule(input: {
   action: 'mission' | 'loop';
   payload: Record<string, unknown>;
   chatId: string;
+  executionAuthority?: unknown;
 }): Promise<{ ok: boolean; schedule?: ScheduleRecord; error?: string }> {
   try {
     const res = await axios.post(`${SPAWNER_UI_URL}/api/scheduled`, input, spawnerAxiosOptions(10000));
@@ -126,9 +127,17 @@ export async function listSchedules(): Promise<{ ok: boolean; schedules?: Schedu
   }
 }
 
-export async function deleteSchedule(id: string): Promise<{ ok: boolean; error?: string }> {
+export async function deleteSchedule(
+  id: string,
+  options: { executionAuthority?: unknown } = {}
+): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await axios.delete(`${SPAWNER_UI_URL}/api/scheduled?id=${encodeURIComponent(id)}`, spawnerAxiosOptions(10000));
+    const res = await axios.delete(
+      `${SPAWNER_UI_URL}/api/scheduled?id=${encodeURIComponent(id)}`,
+      options.executionAuthority
+        ? spawnerAxiosOptions(10000, { data: { executionAuthority: options.executionAuthority } })
+        : spawnerAxiosOptions(10000)
+    );
     return { ok: Boolean(res.data?.ok), error: res.data?.error };
   } catch (err: any) {
     return { ok: false, error: err?.message || 'delete failed' };

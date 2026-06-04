@@ -260,12 +260,27 @@ async function waitForFileText(filePath: string, timeoutMs = 1000): Promise<stri
 	return readFileSync(filePath, 'utf-8');
 }
 
+function fakeGovernorExecutionAuthority(toolName = 'spawner.run'): Record<string, unknown> {
+	return {
+		schema_version: 'governor-decision-v1',
+		outcome: 'execute',
+		execution_boundary: { action_authorized: true },
+		tool_ledgers: [
+			{
+				schema_version: 'tool-call-ledger-v1',
+				tool_name: toolName
+			}
+		]
+	};
+}
+
 async function callHandleBuildIntent(opts: {
 	ctx: any;
 	prd: string;
 	projectName: string;
 	buildMode: 'direct' | 'advanced_prd';
 	buildLane?: 'fast_direct' | 'direct' | 'advanced_prd';
+	executionAuthority?: unknown;
 }): Promise<void> {
 	process.env.SPARK_BOT_TEST_MODE = '1';
 	process.env.SPARK_CLARIFICATION_COPY_LLM = '0';
@@ -277,7 +292,18 @@ async function callHandleBuildIntent(opts: {
 	if (typeof indexModule.handleBuildIntent !== 'function') {
 		throw new Error('handleBuildIntent not exported from src/index.ts — export it for E2E testing');
 	}
-	await indexModule.handleBuildIntent(opts.ctx, opts.prd, opts.projectName, null, opts.buildMode, 'test', undefined, opts.buildLane);
+	await indexModule.handleBuildIntent(
+		opts.ctx,
+		opts.prd,
+		opts.projectName,
+		null,
+		opts.buildMode,
+		'test',
+		undefined,
+		opts.buildLane,
+		undefined,
+		{ executionAuthority: opts.executionAuthority }
+	);
 }
 
 async function run(): Promise<void> {
@@ -498,13 +524,14 @@ async function run(): Promise<void> {
 		const replyExtras: any[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 556, replies, replyExtras);
 		const indexModule: any = await import('../src/index');
+		const executionAuthority = fakeGovernorExecutionAuthority();
 
 		const missionId = await indexModule.handleRunCommand(
 			ctx,
 			'Build a tiny static landing page for a cafe with a menu section.',
 			['zai'],
 			undefined,
-			{ allowBuildIntent: true }
+			{ allowBuildIntent: true, executionAuthority }
 		);
 
 			assert.equal(missionId, null, 'build-mode /run is handled by the PRD bridge notifier path');
@@ -515,6 +542,7 @@ async function run(): Promise<void> {
 			assert.doesNotMatch(replies.join('\n'), /Mission board/);
 		const writeCall = captured.find((c) => c.url.includes('/api/prd-bridge/write'));
 		assert.ok(writeCall, 'expected build route to include PRD bridge call');
+		assert.equal(writeCall!.body.executionAuthority, executionAuthority);
 		assert.equal(writeCall!.body.buildLane, 'fast_direct');
 		assert.equal(writeCall!.body.options.fastLane, true);
 		const buildMissionId = `mission-${String(writeCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
@@ -2156,12 +2184,14 @@ async function run(): Promise<void> {
 
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 557, replies);
+		const executionAuthority = fakeGovernorExecutionAuthority();
 
 		await callHandleBuildIntent({
 			ctx,
 			prd: "let's build a maze game",
 			projectName: 'maze game',
-			buildMode: 'advanced_prd'
+			buildMode: 'advanced_prd',
+			executionAuthority
 		});
 
 		const indexModule: any = await import('../src/index');
@@ -2171,6 +2201,7 @@ async function run(): Promise<void> {
 
 		const dispatchCall = captured.find((c) => c.body?.forceDispatch === true);
 		assert.ok(dispatchCall, 'expected go to force-dispatch pending clarification');
+		assert.equal(dispatchCall!.body.executionAuthority, executionAuthority);
 		const clarifiedMissionId = `mission-${String(dispatchCall!.body.requestId).match(/(\d{10,})$/)?.[1]}`;
 		assert.equal(dispatchCall!.body.missionId, clarifiedMissionId);
 		assert.equal(dispatchCall!.body.traceRef, `trace:spawner-prd:${clarifiedMissionId}`);
@@ -4016,11 +4047,13 @@ async function run(): Promise<void> {
 
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 559, replies);
+		const executionAuthority = fakeGovernorExecutionAuthority();
 		await callHandleBuildIntent({
 			ctx,
 			prd: 'Build a memory quality dashboard. It should test natural recall, stale context avoidance, current-state priority, source-aware recall, and whether Spark can explain where an answer came from.',
 			projectName: 'Memory Quality Dashboard',
-			buildMode: 'advanced_prd'
+			buildMode: 'advanced_prd',
+			executionAuthority
 		});
 
 		const indexModule: any = await import('../src/index');
@@ -4030,6 +4063,8 @@ async function run(): Promise<void> {
 
 		const dispatchCall = captured.find((c) => c.body?.forceDispatch === true);
 		assert.ok(dispatchCall, 'expected pronoun-heavy follow-up to answer the pending clarification');
+		assert.equal(dispatchCall!.body.executionAuthority?.schema_version, 'governor-decision-v1');
+		assert.equal(dispatchCall!.body.executionAuthority?.tool_ledgers?.[0]?.tool_name, 'spawner.run');
 		assert.equal(dispatchCall!.body.projectName, 'Memory Quality Dashboard');
 		assert.match(dispatchCall!.body.content, /^# Memory Quality Dashboard/m);
 		assert.match(dispatchCall!.body.content, /Answers: yes let's do it create it after analyzing our systems deeply please/);

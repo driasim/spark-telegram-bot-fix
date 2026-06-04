@@ -3,6 +3,7 @@ export const MISSION_CANCEL_CONFIRMATION_TTL_MS = 5 * 60 * 1000;
 export interface PendingMissionCancelConfirmation {
   missionId: string;
   title: string;
+  executionAuthority?: unknown;
   timestamp: number;
 }
 

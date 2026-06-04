@@ -2746,23 +2746,35 @@ async function handlePendingMissionCancelConfirmation(ctx: any, text: string, en
     return true;
   }
 
-  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
-    route: 'spawner.mission_control',
-    text,
-    toolName: 'spawner.mission_control',
-    ownerSystem: 'spawner-ui',
-    mutationClass: 'launches_mission',
-    action: 'spawner.mission_cancel_confirm',
-    kind: 'build_or_spawner',
-    confidence: 'contextual'
-  })) {
+  const authorization = envelope
+    ? telegramBranchActionAuthorityDecision(envelope, {
+        route: 'spawner.mission_control',
+        text,
+        toolName: 'spawner.mission_control',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'spawner.mission_cancel_confirm',
+        kind: 'build_or_spawner',
+        confidence: 'contextual'
+      })
+    : null;
+  if (authorization && !authorization.allow) {
     return false;
   }
 
-  const result = await spawner.confirmContextualMissionCancel(pending.missionId, pending.title);
+  const result = await spawner.confirmContextualMissionCancel(pending.missionId, pending.title, {
+    executionAuthority: authorization?.governorDecision ?? pending.executionAuthority
+  });
   if (result.commandSent && result.missionId) {
     markMissionRelayCancelled(pending.missionId);
   }
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'spawner.mission_control',
+    status: result.success ? 'success' : 'failure',
+    summary: result.commandSent
+      ? `Natural mission cancel confirmation sent kill for ${pending.missionId}.`
+      : `Natural mission cancel confirmation did not send kill for ${pending.missionId}: ${result.message}.`
+  });
   await ctx.reply(result.message);
   return true;
 }
@@ -4111,7 +4123,11 @@ bot.command('myid', async (ctx) => {
 // /clarify <answers> — re-dispatch a build that was held by the
 // clarification gate. The original brief + user-supplied answers are
 // concatenated and re-sent to spawner-ui with forceDispatch:true.
-export async function handleClarificationAnswers(ctx: any, answersRawInput: string): Promise<void> {
+export async function handleClarificationAnswers(
+  ctx: any,
+  answersRawInput: string,
+  authorization?: TelegramActionAuthorityResult
+): Promise<void> {
   const key = telegramPendingBuildKey(ctx.chat.id, ctx.from.id);
   const pending = getPendingBuildClarification(key);
   if (!pending) {
@@ -4178,6 +4194,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
   const prdContent = pending.projectPath
     ? `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\nTarget workspace/project path: \`${pending.projectPath}\`\n\n${enrichedPrd}`
     : `# ${projectName}\n\nBuild mode: ${pending.buildMode}\nBuild mode reason: ${pending.buildModeReason}\nBuild lane: ${buildLane}\nBuild lane reason: ${buildLaneReason}\n\n${enrichedPrd}`;
+  const executionAuthority = authorization?.governorDecision ?? pending.executionAuthority;
 
   try {
     const res = await axios.post(
@@ -4203,6 +4220,7 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         forceDispatch: true,
+        ...(executionAuthority ? { executionAuthority } : {}),
         ...(pending.capabilityProposalPacket ? { capabilityProposalPacket: pending.capabilityProposalPacket } : {}),
         missionId,
         options: prdBridgeOptionsForBuildLane(buildLane)
@@ -4249,7 +4267,17 @@ export async function handleClarificationAnswers(ctx: any, answersRawInput: stri
       buildLane,
       tier
     });
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spawner.run',
+      status: 'success',
+      summary: `Clarified build ${missionId} was force-dispatched through the PRD bridge.`
+    });
   } catch (err) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spawner.run',
+      status: 'failure',
+      summary: `Clarified build dispatch failed: ${err instanceof Error ? err.message : String(err)}.`
+    });
     await ctx.reply(renderSparkErrorReply(err instanceof Error ? err : new Error(String(err)), 'spawner', conversation.isAdmin(ctx.from)));
   }
 }
@@ -4351,7 +4379,21 @@ function startPrdCanvasReadyNotifier(args: {
 }
 
 bot.command('clarify', async (ctx) => {
-  await handleClarificationAnswers(ctx, ctx.message.text.replace(/^\/clarify\b/, ''));
+  const authorization = telegramCommandActionAuthorityDecision(ctx, {
+    commandName: 'clarify',
+    route: 'spawner.pending_clarification',
+    text: ctx.message.text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'spawner.clarification_reply',
+    kind: 'build_or_spawner'
+  });
+  if (!authorization.allow) {
+    await replyTelegramCommandAuthorityBlocked(ctx);
+    return;
+  }
+  await handleClarificationAnswers(ctx, ctx.message.text.replace(/^\/clarify\b/, ''), authorization);
 });
 
 // /remember command
@@ -5253,16 +5295,19 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     return false;
   }
 
-  if (envelope && !telegramBranchActionAuthorityAllowed(envelope, {
-    route: 'domain_chip.pending',
-    text,
-    toolName: 'domain_chip.create',
-    ownerSystem: 'domain-chip',
-    mutationClass: 'creates_chip',
-    action: 'domain_chip.pending',
-    kind: 'creator_or_domain_chip',
-    confidence: 'contextual'
-  })) {
+  const authorization = envelope
+    ? telegramBranchActionAuthorityDecision(envelope, {
+        route: 'domain_chip.pending',
+        text,
+        toolName: 'domain_chip.create',
+        ownerSystem: 'domain-chip',
+        mutationClass: 'creates_chip',
+        action: 'domain_chip.pending',
+        kind: 'creator_or_domain_chip',
+        confidence: 'contextual'
+      })
+    : null;
+  if (authorization && !authorization.allow) {
     return false;
   }
 
@@ -5271,7 +5316,7 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
   await ctx.reply(isDomainChipPendingStart(text)
     ? `Starting ${pending.projectName} with the recommended defaults.`
     : `Got it. I will use that direction and start ${pending.projectName}.`);
-  await handleBuildIntent(
+  const dispatch = await handleBuildIntent(
     ctx,
     prd,
     pending.projectName,
@@ -5281,8 +5326,16 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     pending.capabilityProposalPacket,
     undefined,
     undefined,
-    { confirmationState: 'confirmed' }
+    {
+      confirmationState: 'confirmed',
+      executionAuthority: authorization?.governorDecision
+    }
   );
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'domain_chip.create',
+    status: dispatch.status,
+    summary: dispatch.summary
+  });
   return true;
 }
 
@@ -6170,7 +6223,8 @@ export async function handleRunCommand(
       buildIntent.buildModeReason,
       undefined,
       buildIntent.buildLane,
-      buildIntent.buildLaneReason
+      buildIntent.buildLaneReason,
+      { executionAuthority: options.executionAuthority }
     );
     options.onBuildDispatchResult?.(dispatch);
     return null;
@@ -6253,7 +6307,10 @@ export async function handleBuildIntent(
   capabilityProposalPacket?: Record<string, unknown>,
   buildLane: BuildLane = buildLaneForMode(buildMode),
   buildLaneReason = 'Build lane inferred from build mode.',
-  options: { confirmationState?: 'not_required' | 'confirmed' | 'missing' } = {}
+  options: {
+    confirmationState?: 'not_required' | 'confirmed' | 'missing';
+    executionAuthority?: unknown;
+  } = {}
 ): Promise<BuildIntentDispatchResult> {
   await safeSendChatAction(ctx, 'typing');
 
@@ -6336,6 +6393,7 @@ export async function handleBuildIntent(
         telegramRelay: getTelegramRelayIdentity(),
         tier,
         ...(capabilityProposalPacket ? { capabilityProposalPacket } : {}),
+        ...(options.executionAuthority ? { executionAuthority: options.executionAuthority } : {}),
         options: prdBridgeOptionsForBuildLane(buildLane)
       },
       localServiceTimeoutMs('SPARK_SPAWNER_PRD_WRITE_TIMEOUT_MS')
@@ -6360,6 +6418,7 @@ export async function handleBuildIntent(
         buildLane,
         buildLaneReason,
         capabilityProposalPacket,
+        executionAuthority: options.executionAuthority,
         questions: res.data.openQuestions,
         addedAssumptions: res.data.addedAssumptions ?? [],
         timestamp: Date.now()
@@ -7303,6 +7362,7 @@ bot.command('schedule', async (ctx) => {
       action: 'mission',
       payload: { goal },
       chatId: String(ctx.chat.id),
+      executionAuthority: authorization.governorDecision
     });
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: 'schedule.create',
@@ -7339,6 +7399,7 @@ bot.command('schedule', async (ctx) => {
       action: 'loop',
       payload: { chipKey, rounds },
       chatId: String(ctx.chat.id),
+      executionAuthority: authorization.governorDecision
     });
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: 'schedule.create',
@@ -7377,7 +7438,7 @@ bot.command('schedules', async (ctx) => {
       await replyTelegramCommandAuthorityBlocked(ctx);
       return;
     }
-    const res = await deleteSchedule(id);
+    const res = await deleteSchedule(id, { executionAuthority: authorization.governorDecision });
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: 'schedule.delete',
       status: res.ok ? 'success' : 'failure',
@@ -7879,7 +7940,9 @@ bot.command('mission', async (ctx) => {
   }
 
   await safeSendChatAction(ctx, 'typing');
-  const result = await spawner.missionCommand(action, missionId);
+  const result = await spawner.missionCommand(action, missionId, {
+    executionAuthority: authorization.governorDecision
+  });
   recordTelegramHarnessCoreExecution(authorization, {
     toolName: 'spawner.mission_control',
     status: result.success ? 'success' : 'failure',
@@ -8525,22 +8588,21 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   const activePendingClarification = conversation.isAdmin(ctx.from)
     ? pendingBuildClarificationForMessage(telegramPendingBuildKey(ctx.chat.id, ctx.from.id), text)
     : null;
-  if (
-	    activePendingClarification &&
-	    isPendingClarificationFollowup(text) &&
-	    telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.pending_clarification',
-	      text,
-	      toolName: 'spawner.run',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.clarification_reply',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })
-	  ) {
+  const activePendingClarificationAuthorization = activePendingClarification && isPendingClarificationFollowup(text)
+    ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'spawner.pending_clarification',
+        text,
+        toolName: 'spawner.run',
+        ownerSystem: 'spawner-ui',
+        mutationClass: 'launches_mission',
+        action: 'spawner.clarification_reply',
+        kind: 'build_or_spawner',
+        confidence: 'contextual'
+      })
+    : null;
+  if (activePendingClarificationAuthorization?.allow) {
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spawner.pending_clarification', 'spawner-ui', 'spawner.clarification_reply');
-    await handleClarificationAnswers(ctx, text);
+    await handleClarificationAnswers(ctx, text, activePendingClarificationAuthorization);
     return;
   }
 	  if (!earlyBuildIntent && conversation.isAdmin(ctx.from) && await handlePendingCreatorMissionControl(ctx, text, turnIntentEnvelope)) {
@@ -8879,17 +8941,20 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     }
 
-	    if (pendingClarification && isPendingClarificationFollowup(text) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.pending_clarification',
-	      text,
-	      toolName: 'spawner.run',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.clarification_reply',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })) {
-      await handleClarificationAnswers(ctx, text);
+	    const earlyClarificationAuthorization = pendingClarification && isPendingClarificationFollowup(text)
+	      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+	          route: 'spawner.pending_clarification',
+	          text,
+	          toolName: 'spawner.run',
+	          ownerSystem: 'spawner-ui',
+	          mutationClass: 'launches_mission',
+	          action: 'spawner.clarification_reply',
+	          kind: 'build_or_spawner',
+	          confidence: 'contextual'
+	        })
+	      : null;
+	    if (earlyClarificationAuthorization?.allow) {
+      await handleClarificationAnswers(ctx, text, earlyClarificationAuthorization);
       return;
     }
 
@@ -8899,16 +8964,16 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const latestShippedProject = await getLatestShippedProjectContext(ctx.chat.id);
-    if (
-      isProjectImprovementRequest(text, latestShippedProject) &&
-      telegramActionAuthorityAllowed(turnIntentEnvelope, {
+    const projectIterationAuthorization = isProjectImprovementRequest(text, latestShippedProject)
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
         route: 'spawner.project_iteration',
         text,
         toolName: 'spawner.run',
         ownerSystem: 'spawner-ui',
         mutationClass: 'launches_mission'
       })
-    ) {
+      : null;
+    if (projectIterationAuthorization?.allow) {
       const improvementGoal = buildProjectImprovementGoal(text, latestShippedProject, contextualTurns);
       if (improvementGoal && latestShippedProject) {
         await conversation.remember(user, text).catch(() => {});
@@ -8918,14 +8983,23 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           'I will keep the existing project intact and ship this as the next polish pass.',
           latestShippedProject.previewUrl ? `Current preview: ${latestShippedProject.previewUrl}` : null
         ].filter(Boolean).join('\n'));
-        await handleBuildIntent(
+        const buildDispatch = await handleBuildIntent(
           ctx,
           improvementGoal,
           `${latestShippedProject.projectName} polish ${latestShippedProject.iteration + 1}`,
           latestShippedProject.projectPath,
           'advanced_prd',
-          'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.'
+          'User gave feedback on the latest shipped project, so Spark is improving the existing app instead of starting a new one.',
+          undefined,
+          undefined,
+          undefined,
+          { executionAuthority: projectIterationAuthorization.governorDecision }
         );
+        recordTelegramHarnessCoreExecution(projectIterationAuthorization, {
+          toolName: 'spawner.run',
+          status: buildDispatch.status,
+          summary: buildDispatch.summary
+        });
         return;
       }
     }
@@ -8970,7 +9044,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         buildIntent.buildModeReason,
         undefined,
         buildIntent.buildLane,
-        buildIntent.buildLaneReason
+        buildIntent.buildLaneReason,
+        { executionAuthority: buildAuthorization.governorDecision }
       );
       recordTelegramHarnessCoreExecution(buildAuthorization, {
         toolName: 'spawner.run',
@@ -9010,38 +9085,53 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-	    if (pendingClarification && !buildIntent && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.pending_clarification',
-	      text,
-	      toolName: 'spawner.run',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.clarification_reply',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })) {
-      await handleClarificationAnswers(ctx, text);
+	    const clarificationAuthorization = pendingClarification && !buildIntent
+	      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+	          route: 'spawner.pending_clarification',
+	          text,
+	          toolName: 'spawner.run',
+	          ownerSystem: 'spawner-ui',
+	          mutationClass: 'launches_mission',
+	          action: 'spawner.clarification_reply',
+	          kind: 'build_or_spawner',
+	          confidence: 'contextual'
+	        })
+	      : null;
+	    if (clarificationAuthorization?.allow) {
+      await handleClarificationAnswers(ctx, text, clarificationAuthorization);
       return;
     }
 
     const defaultBuild = inferDefaultBuildFromRecentScoping(text, recentMessages);
-    if (defaultBuild && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'spawner.default_build',
-      text,
-      toolName: 'spawner.run',
-      ownerSystem: 'spawner-ui',
-      mutationClass: 'launches_mission'
-    })) {
+    const defaultBuildAuthorization = defaultBuild
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'spawner.default_build',
+          text,
+          toolName: 'spawner.run',
+          ownerSystem: 'spawner-ui',
+          mutationClass: 'launches_mission'
+        })
+      : null;
+    if (defaultBuild && defaultBuildAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       await ctx.reply(`I will choose the default and start it: ${defaultBuild.projectName}.`);
-      await handleBuildIntent(
+      const buildDispatch = await handleBuildIntent(
         ctx,
         defaultBuild.prd,
         defaultBuild.projectName,
         null,
         'advanced_prd',
-        'User asked Spark to choose the recommended direction after collaborative scoping.'
+        'User asked Spark to choose the recommended direction after collaborative scoping.',
+        undefined,
+        undefined,
+        undefined,
+        { executionAuthority: defaultBuildAuthorization.governorDecision }
       );
+      recordTelegramHarnessCoreExecution(defaultBuildAuthorization, {
+        toolName: 'spawner.run',
+        status: buildDispatch.status,
+        summary: buildDispatch.summary
+      });
       return;
     }
 
@@ -9077,58 +9167,85 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     const localServiceContext = contextualTurns.join('\n');
 
-	    if (isProtectedMissionResumePronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.mission_control',
-	      text,
-	      toolName: 'spawner.mission_control',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.mission_resume',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })) {
+	    const missionResumeAuthorization = isProtectedMissionResumePronounIntent(text, contextualTurns)
+	      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+	          route: 'spawner.mission_control',
+	          text,
+	          toolName: 'spawner.mission_control',
+	          ownerSystem: 'spawner-ui',
+	          mutationClass: 'launches_mission',
+	          action: 'spawner.mission_resume',
+	          kind: 'build_or_spawner',
+	          confidence: 'contextual'
+	        })
+	      : null;
+	    if (missionResumeAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualPausedMissionResumeBoundary()
-        : await spawner.resumeContextualPausedMission();
+        : await spawner.resumeContextualPausedMission({
+            executionAuthority: missionResumeAuthorization.governorDecision
+          });
       if (result.commandSent && result.missionId) {
         markMissionRelayResumed(result.missionId);
       }
+      recordTelegramHarnessCoreExecution(missionResumeAuthorization, {
+        toolName: 'spawner.mission_control',
+        status: result.success ? 'success' : 'failure',
+        summary: result.commandSent && result.missionId
+          ? `Natural mission resume sent resume for ${result.missionId}.`
+          : `Natural mission resume did not send a command: ${result.message}.`
+      });
       await ctx.reply(result.message);
       return;
     }
 
-	    if (isProtectedMissionPausePronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.mission_control',
-	      text,
-	      toolName: 'spawner.mission_control',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.mission_pause',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })) {
+	    const missionPauseAuthorization = isProtectedMissionPausePronounIntent(text, contextualTurns)
+	      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+	          route: 'spawner.mission_control',
+	          text,
+	          toolName: 'spawner.mission_control',
+	          ownerSystem: 'spawner-ui',
+	          mutationClass: 'launches_mission',
+	          action: 'spawner.mission_pause',
+	          kind: 'build_or_spawner',
+	          confidence: 'contextual'
+	        })
+	      : null;
+	    if (missionPauseAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualActiveMissionPauseBoundary()
-        : await spawner.pauseContextualActiveMission();
+        : await spawner.pauseContextualActiveMission({
+            executionAuthority: missionPauseAuthorization.governorDecision
+          });
       if (result.commandSent && result.missionId) {
         markMissionRelayPaused(result.missionId);
       }
+      recordTelegramHarnessCoreExecution(missionPauseAuthorization, {
+        toolName: 'spawner.mission_control',
+        status: result.success ? 'success' : 'failure',
+        summary: result.commandSent && result.missionId
+          ? `Natural mission pause sent pause for ${result.missionId}.`
+          : `Natural mission pause did not send a command: ${result.message}.`
+      });
       await ctx.reply(result.message);
       return;
     }
 
-	    if (isProtectedMissionCancelPronounIntent(text, contextualTurns) && telegramBranchActionAuthorityAllowed(turnIntentEnvelope, {
-	      route: 'spawner.mission_control',
-	      text,
-	      toolName: 'spawner.mission_control',
-	      ownerSystem: 'spawner-ui',
-	      mutationClass: 'launches_mission',
-	      action: 'spawner.mission_cancel_prepare',
-	      kind: 'build_or_spawner',
-	      confidence: 'contextual'
-	    })) {
+	    const missionCancelAuthorization = isProtectedMissionCancelPronounIntent(text, contextualTurns)
+	      ? telegramBranchActionAuthorityDecision(turnIntentEnvelope, {
+	          route: 'spawner.mission_control',
+	          text,
+	          toolName: 'spawner.mission_control',
+	          ownerSystem: 'spawner-ui',
+	          mutationClass: 'launches_mission',
+	          action: 'spawner.mission_cancel_prepare',
+	          kind: 'build_or_spawner',
+	          confidence: 'contextual'
+	        })
+	      : null;
+	    if (missionCancelAuthorization?.allow) {
       await conversation.remember(user, text).catch(() => {});
       const result = isNoExecutionBoundary(text)
         ? await spawner.describeContextualMissionCancelBoundary()
@@ -9137,9 +9254,17 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         rememberPendingMissionCancelConfirmation(telegramPendingMissionCancelKey(ctx.chat?.id, ctx.from?.id), {
           missionId: result.missionId,
           title: result.title,
+          executionAuthority: missionCancelAuthorization.governorDecision,
           timestamp: Date.now()
         });
       }
+      recordTelegramHarnessCoreExecution(missionCancelAuthorization, {
+        toolName: 'spawner.mission_control',
+        status: result.success ? 'success' : 'failure',
+        summary: result.needsConfirmation && result.missionId
+          ? `Natural mission cancel prepared confirmation for ${result.missionId}.`
+          : `Natural mission cancel prepare did not create pending confirmation: ${result.message}.`
+      });
       await ctx.reply(result.message);
       return;
     }
@@ -9394,15 +9519,27 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     // Single-provider run intent: "minimax, draft...", "ask claude to...", "all models: ..."
     const intent = parseNaturalRunIntent(text);
-    if (intent && telegramActionAuthorityAllowed(turnIntentEnvelope, {
-      route: 'natural_run',
-      text,
-      toolName: 'provider.run',
-      ownerSystem: 'spawner-ui',
-      mutationClass: 'external_network',
-      externalNetwork: true
-    })) {
-      await handleRunCommand(ctx, intent.goal, intent.providers);
+    const naturalRunAuthorization = intent
+      ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+          route: 'natural_run',
+          text,
+          toolName: 'provider.run',
+          ownerSystem: 'spawner-ui',
+          mutationClass: 'external_network',
+          externalNetwork: true
+        })
+      : null;
+    if (intent && naturalRunAuthorization?.allow) {
+      const missionId = await handleRunCommand(ctx, intent.goal, intent.providers, undefined, {
+        executionAuthority: naturalRunAuthorization.governorDecision
+      });
+      recordTelegramHarnessCoreExecution(naturalRunAuthorization, {
+        toolName: 'provider.run',
+        status: missionId ? 'success' : 'failure',
+        summary: missionId
+          ? `Natural provider run started Spawner mission ${missionId}.`
+          : 'Natural provider run did not return a mission id.'
+      });
       return;
     }
   }

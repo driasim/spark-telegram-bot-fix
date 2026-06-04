@@ -105,6 +105,10 @@ interface CreatorMissionExecutionInput {
   executionAuthority?: unknown;
 }
 
+interface MissionCommandOptions {
+  executionAuthority?: unknown;
+}
+
 function governorDecisionAuthority(input: {
   source: string;
   reason: string;
@@ -1347,14 +1351,21 @@ export const spawner = {
     }
   },
 
-  async missionCommand(action: MissionAction, missionId: string): Promise<{ success: boolean; message: string }> {
+  async missionCommand(action: MissionAction, missionId: string, options: MissionCommandOptions = {}): Promise<{ success: boolean; message: string }> {
     try {
       const res = await axios.post(
         `${SPAWNER_UI_URL}/api/mission-control/command`,
         {
           action,
           missionId,
-          source: 'telegram'
+          source: 'telegram',
+          executionAuthority: options.executionAuthority ?? governorDecisionAuthority({
+            source: 'telegram_mission_control_bridge',
+            reason: `Telegram mission control bridge requested ${action} for a Spawner mission.`,
+            toolName: 'spawner.mission_control',
+            mutationClass: action === 'status' ? 'read_only' : 'launches_mission',
+            target: missionId
+          })
         },
         spawnerAxiosOptions(10000)
       );
@@ -1415,7 +1426,7 @@ export const spawner = {
     }
   },
 
-  async pauseContextualActiveMission(): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
+  async pauseContextualActiveMission(options: MissionCommandOptions = {}): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
     try {
       const board = await fetchBoardSnapshot();
       const running = board.running;
@@ -1423,7 +1434,7 @@ export const spawner = {
       if (running.length === 1) {
         const mission = running[0];
         const title = missionTitle(mission);
-        const result = await spawner.missionCommand('pause', mission.missionId);
+        const result = await spawner.missionCommand('pause', mission.missionId, options);
         if (!result.success) {
           return {
             success: false,
@@ -1560,7 +1571,7 @@ export const spawner = {
     }
   },
 
-  async resumeContextualPausedMission(): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
+  async resumeContextualPausedMission(options: MissionCommandOptions = {}): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
     try {
       const board = await fetchBoardSnapshot();
       const paused = board.paused;
@@ -1568,7 +1579,7 @@ export const spawner = {
       if (paused.length === 1) {
         const mission = paused[0];
         const title = missionTitle(mission);
-        const result = await spawner.missionCommand('resume', mission.missionId);
+        const result = await spawner.missionCommand('resume', mission.missionId, options);
         if (!result.success) {
           return {
             success: false,
@@ -1696,7 +1707,11 @@ export const spawner = {
     }
   },
 
-  async confirmContextualMissionCancel(missionId: string, title: string): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
+  async confirmContextualMissionCancel(
+    missionId: string,
+    title: string,
+    options: MissionCommandOptions = {}
+  ): Promise<{ success: boolean; message: string; missionId?: string; commandSent?: boolean }> {
     try {
       const board = await fetchBoardSnapshot();
       const active = [...board.running, ...board.paused];
@@ -1714,7 +1729,7 @@ export const spawner = {
       }
 
       const currentTitle = missionTitle(mission) || title;
-      const result = await spawner.missionCommand('kill', missionId);
+      const result = await spawner.missionCommand('kill', missionId, options);
       if (!result.success) {
         return {
           success: false,
