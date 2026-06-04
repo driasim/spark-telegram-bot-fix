@@ -288,6 +288,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (/spark_wiki/.test(decision.route)) tools.push('spark_wiki.query');
   if (decision.route === 'spark_wiki.promote' || decision.route === 'spark.wiki') tools.push('spark_wiki.promote');
   if (/access/.test(decision.route)) tools.push('access.status');
+  if (decision.route === 'access.help') tools.push('access.help');
   if (decision.route === 'access.change') tools.push('access.change');
   if (decision.route === 'operator.safe_action') tools.push('operator.safe_action');
   if (decision.route === 'route.probe') tools.push('route.probe', 'builder.telegram_bridge');

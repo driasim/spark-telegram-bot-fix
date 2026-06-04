@@ -3977,6 +3977,9 @@ async function run(): Promise<void> {
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 		writeFileSync(
 			path.join(tempRoot, 'spark-access-status.json'),
 			JSON.stringify({
@@ -4042,11 +4045,81 @@ async function run(): Promise<void> {
 			assert.match(reply, /Runner:/);
 			assert.doesNotMatch(reply, /Levels:\n1 - Chat/);
 			assert.doesNotMatch(reply, /Change it with `\/access 1`/);
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'access.status' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'natural access status must record Harness Core authorization before reading Spark access state'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'access.status' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/access status read completed/i.test(record.result.summary)
+				)),
+				'natural access status must record final Harness Core read outcome'
+			);
 		} finally {
 			process.env.PATH = oldPath;
 			rmSync(tempRoot, { recursive: true, force: true });
 			restoreAxios();
 			restoreEnv();
+		}
+	});
+
+	await test('natural access help records Harness Core authorization and outcome ledgers', async () => {
+		restoreAxios();
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-natural-access-help-ledger-'));
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'operator';
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		try {
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079055, 8319079055, 606, replies);
+			ctx.message.text = 'What access tiers unlock local files? Explain access help without changing anything.';
+			const indexModule: any = await import('../src/index');
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies.join('\n');
+			assert.match(reply, /Access/i);
+			assert.equal(captured.length, 0, 'access help must not call Spawner or PRD bridge');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'access.help' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'natural access help must record Harness Core authorization before reading access profile'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'access.help' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/access help read completed/i.test(record.result.summary)
+				)),
+				'natural access help must record final Harness Core read outcome'
+			);
+		} finally {
+			restoreAxios();
+			restoreEnv();
+			removeTempRoot(tempRoot);
 		}
 	});
 

@@ -2074,6 +2074,22 @@ function recordTelegramHarnessCoreExecution(
   }
 }
 
+type AccessReadRoute = 'access.status' | 'access.help';
+
+function telegramAccessReadAuthorityDecision(
+  envelope: TurnIntentEnvelopeV1,
+  route: AccessReadRoute,
+  text: string
+): TelegramActionAuthorityResult {
+  return telegramActionAuthorityDecision(envelope, {
+    route,
+    text,
+    toolName: route,
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only'
+  });
+}
+
 function telegramCommandActionAuthorityDecision(
   ctx: any,
   input: Omit<TelegramCommandActionAuthorityInput, 'userRef' | 'chatRef' | 'accessProfile' | 'conversationKind'>
@@ -2288,11 +2304,17 @@ async function handleTelegramIntentGateV2SafeRoute(
   }
 
   if (decision.route === 'access.status') {
-    if (!routeEvidenceAllowed({ route: 'access.status', text, profile: activeTelegramProfile() })) {
+    const accessStatusAuthorization = telegramAccessReadAuthorityDecision(envelope, 'access.status', text);
+    if (!accessStatusAuthorization.allow) {
       return false;
     }
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    recordTelegramHarnessCoreExecution(accessStatusAuthorization, {
+      toolName: 'access.status',
+      status: 'success',
+      summary: 'Intent Gate V2 access status read completed from Spark access state.'
+    });
     await ctx.reply(reply);
     recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_intent_gate_v2_access_status', [
@@ -2309,12 +2331,18 @@ async function handleTelegramIntentGateV2SafeRoute(
   }
 
   if (decision.route === 'access.help') {
-    if (!routeEvidenceAllowed({ route: 'access.help', text, profile: activeTelegramProfile() })) {
+    const accessHelpAuthorization = telegramAccessReadAuthorityDecision(envelope, 'access.help', text);
+    if (!accessHelpAuthorization.allow) {
       return false;
     }
     await conversation.remember(user, text).catch(() => {});
     if (isAccessProductRuleQuestion(text)) {
       const reply = renderAccessProductRuleReply();
+      recordTelegramHarnessCoreExecution(accessHelpAuthorization, {
+        toolName: 'access.help',
+        status: 'success',
+        summary: 'Intent Gate V2 access product rule answer completed.'
+      });
       await ctx.reply(reply);
       recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.access_product_rule', 'spark-telegram-bot', 'plain_chat.product_rule');
       await conversation.rememberAssistantReply(user, reply).catch(() => {});
@@ -2322,6 +2350,11 @@ async function handleTelegramIntentGateV2SafeRoute(
     }
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
+    recordTelegramHarnessCoreExecution(accessHelpAuthorization, {
+      toolName: 'access.help',
+      status: 'success',
+      summary: 'Intent Gate V2 access help read completed from Spark access profile.'
+    });
     await ctx.reply(reply);
     recordNaturalRouteExecution(ctx, naturalRouteShadow, decision.route, decision.owner_system, decision.action);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
@@ -8488,9 +8521,27 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
   }
 
-  if (!earlyBuildIntent && isAccessStatusQuestion(text) && routeEvidenceAllowed({ route: 'access.status', text, profile: activeTelegramProfile() })) {
+  const accessStatusAuthorization = !earlyBuildIntent && isAccessStatusQuestion(text)
+    ? telegramAccessReadAuthorityDecision(
+        telegramActionEnvelope(turnIntentEnvelope, {
+          route: 'access.status',
+          ownerSystem: 'spark-telegram-bot',
+          action: 'answer',
+          kind: 'access_status',
+          confidence: 'explicit'
+        }),
+        'access.status',
+        text
+      )
+    : null;
+  if (accessStatusAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkAccessStatus(ctx.chat.id);
+    recordTelegramHarnessCoreExecution(accessStatusAuthorization, {
+      toolName: 'access.status',
+      status: 'success',
+      summary: 'Natural access status read completed from Spark access state.'
+    });
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_status_answer', [
       {
@@ -8504,21 +8555,69 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+  if (accessStatusAuthorization) {
+    await ctx.reply('I did not read Spark access status because the fresh turn did not authorize that read-only check.');
+    return;
+  }
 
-  if (!earlyBuildIntent && isAccessProductRuleQuestion(text)) {
+  const accessProductRuleAuthorization = !earlyBuildIntent && isAccessProductRuleQuestion(text)
+    ? telegramAccessReadAuthorityDecision(
+        telegramActionEnvelope(turnIntentEnvelope, {
+          route: 'access.help',
+          ownerSystem: 'spark-telegram-bot',
+          action: 'answer',
+          kind: 'access_help',
+          confidence: 'explicit'
+        }),
+        'access.help',
+        text
+      )
+    : null;
+  if (accessProductRuleAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const reply = renderAccessProductRuleReply();
+    recordTelegramHarnessCoreExecution(accessProductRuleAuthorization, {
+      toolName: 'access.help',
+      status: 'success',
+      summary: 'Natural access product rule answer completed.'
+    });
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }
+  if (accessProductRuleAuthorization) {
+    await ctx.reply('I did not read Spark access help because the fresh turn did not authorize that read-only check.');
+    return;
+  }
 
-  if (!earlyBuildIntent && isAccessHelpQuestion(text) && routeEvidenceAllowed({ route: 'access.help', text, profile: activeTelegramProfile() })) {
+  const accessHelpAuthorization = !earlyBuildIntent && isAccessHelpQuestion(text)
+    ? telegramAccessReadAuthorityDecision(
+        telegramActionEnvelope(turnIntentEnvelope, {
+          route: 'access.help',
+          ownerSystem: 'spark-telegram-bot',
+          action: 'answer',
+          kind: 'access_help',
+          confidence: 'explicit'
+        }),
+        'access.help',
+        text
+      )
+    : null;
+  if (accessHelpAuthorization?.allow) {
     await conversation.remember(user, text).catch(() => {});
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const reply = renderSparkAccessConversationHelp(accessProfile);
+    recordTelegramHarnessCoreExecution(accessHelpAuthorization, {
+      toolName: 'access.help',
+      status: 'success',
+      summary: 'Natural access help read completed from Spark access profile.'
+    });
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (accessHelpAuthorization) {
+    await ctx.reply('I did not read Spark access help because the fresh turn did not authorize that read-only check.');
     return;
   }
 
