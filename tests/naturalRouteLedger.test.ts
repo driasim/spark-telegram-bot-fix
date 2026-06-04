@@ -78,12 +78,13 @@ async function run(): Promise<void> {
     assert.match(formatNaturalRouteLedgerSummary(summary), /memory\.write->spawner\.build: 1/);
   });
 
-  await test('writes and parses JSONL only when explicitly configured', async () => {
+  await test('writes and parses JSONL unless explicitly disabled', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'spark-natural-route-ledger-'));
     const filePath = path.join(dir, 'route-ledger.jsonl');
     try {
-      assert.equal(shouldWriteNaturalRouteLedger({} as NodeJS.ProcessEnv), false);
+      assert.equal(shouldWriteNaturalRouteLedger({} as NodeJS.ProcessEnv), true);
       assert.equal(shouldWriteNaturalRouteLedger({ SPARK_NATURAL_ROUTE_LEDGER: '1' } as NodeJS.ProcessEnv), true);
+      assert.equal(shouldWriteNaturalRouteLedger({ SPARK_NATURAL_ROUTE_LEDGER: '0' } as NodeJS.ProcessEnv), false);
       assert.equal(naturalRouteLedgerPath({ SPARK_NATURAL_ROUTE_LEDGER_PATH: filePath } as NodeJS.ProcessEnv), filePath);
 
       const decision = decideNaturalRoute('search your wiki for Telegram route mistakes');

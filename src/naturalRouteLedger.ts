@@ -68,7 +68,7 @@ export function naturalRouteLedgerPath(env: NodeJS.ProcessEnv = process.env): st
 }
 
 export function shouldWriteNaturalRouteLedger(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.SPARK_NATURAL_ROUTE_LEDGER === '1' || Boolean(env.SPARK_NATURAL_ROUTE_LEDGER_PATH?.trim());
+  return env.SPARK_NATURAL_ROUTE_LEDGER !== '0';
 }
 
 export function createNaturalRouteExecutionRecord(input: NaturalRouteExecutionRecordInput): NaturalRouteExecutionRecord {
