@@ -4468,6 +4468,66 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('denied route probe commands record Governor denial ledgers without running tools', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-route-probe-denial-ledger-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		(axios as any).post = async () => {
+			throw new Error('denied route probe must not call POST tools');
+		};
+		(axios as any).get = async () => {
+			throw new Error('denied route probe must not call GET tools');
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 630, replies);
+		ctx.message.text = '/probe browser but do not probe or test browser right now';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleAgentRouteProbeCommand(ctx);
+
+		assert.match(replies.join('\n'), /did not start that command/i);
+		assert.doesNotMatch(replies.join('\n'), /Route probe\n- Route:/i);
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'route.probe' &&
+				record.authorization.verdict === 'deny' &&
+				record.result.status === 'not_started' &&
+				/no_execution_boundary/.test(record.result.summary) &&
+				/harness_core:authority_state_chat_only/.test(record.result.summary)
+			)),
+			'denied route probe must record a Harness Core not_started execution ledger'
+		);
+		const deniedRoute = (record: any) => (
+			record.shadow_route === 'governor.denied' &&
+			record.executed_route === 'governor.denied' &&
+			record.executed_action === 'harness_core.route_probe_denied'
+		);
+		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, deniedRoute);
+		const routeRecord = naturalRouteRecords.find(deniedRoute);
+		assert.equal(routeRecord?.outcome, 'matched');
+		assert.equal(routeRecord?.delivery, 'delivered');
+		assert.ok(
+			routeRecord?.shadow_blocked_by?.includes('no_execution_boundary'),
+			'denied route probe natural-route ledger must preserve denial reasons'
+		);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreAxios();
+		restoreEnv();
+	});
+
 	await test('natural Spawner board reads record Harness Core authorization and outcome ledgers', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

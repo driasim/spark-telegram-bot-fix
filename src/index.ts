@@ -4174,6 +4174,37 @@ function routeProbeCommandNaturalRouteDecision(routeKeys: string[]): NaturalRout
   };
 }
 
+function routeProbeDeniedNaturalRouteDecision(
+  routeKeys: string[],
+  authorization: TelegramActionAuthorityResult
+): NaturalRouteDecision {
+  return {
+    schema_version: 'spark.nlp.route_decision.v1',
+    route: 'governor.denied',
+    owner_system: 'spark-telegram-bot',
+    confidence: 'blocked',
+    action: `route.probe.denied.${routeKeys.join('+')}`,
+    payload: {
+      route_keys: routeKeys,
+      reason_codes: authorization.reasonCodes,
+      mutation_class: 'writes_memory',
+      no_edit: true
+    },
+    context_source: 'slash_command',
+    matched_signals: [
+      'fresh_user_intent',
+      'route_probe_command',
+      'harness_core_denied',
+      'governor_denied'
+    ],
+    blocked_by: authorization.reasonCodes,
+    requires_confirmation: false,
+    trace: {
+      selected_by: 'telegram_command_route_probe_governor_denial'
+    }
+  };
+}
+
 function authorizeRouteProbeCommand(
   ctx: any,
   text: string,
@@ -4191,6 +4222,27 @@ function authorizeRouteProbeCommand(
     kind: 'diagnostic_or_self_awareness',
     externalNetwork
   });
+}
+
+function recordDeniedRouteProbeCommand(
+  ctx: any,
+  routeKeys: string[],
+  authorization: TelegramActionAuthorityResult
+): void {
+  const reasonSummary = authorization.reasonCodes.join(', ') || 'denied';
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'route.probe',
+    status: 'not_started',
+    summary: `Route probe denied by Harness Core Governor: ${reasonSummary}.`
+  });
+  recordNaturalRouteExecution(
+    ctx,
+    routeProbeDeniedNaturalRouteDecision(routeKeys, authorization),
+    'governor.denied',
+    'spark-telegram-bot',
+    'harness_core.route_probe_denied',
+    'delivered'
+  );
 }
 
 async function runAocProbeBatch(
@@ -4229,7 +4281,7 @@ async function runAocProbeBatch(
   await ctx.reply(lines.join('\n'));
 }
 
-async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
+export async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
   if (!requireAdmin(ctx)) return;
   await safeSendChatAction(ctx, 'typing');
   try {
@@ -4243,6 +4295,7 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     if (firstArg === 'core') {
       const authorization = authorizeRouteProbeCommand(ctx, text, AOC_CORE_ROUTE_KEYS);
       if (!authorization.allow) {
+        recordDeniedRouteProbeCommand(ctx, AOC_CORE_ROUTE_KEYS, authorization);
         await replyTelegramCommandAuthorityBlocked(ctx);
         return;
       }
@@ -4252,6 +4305,7 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     if (firstArg === 'all') {
       const authorization = authorizeRouteProbeCommand(ctx, text, AOC_ALL_ROUTE_KEYS);
       if (!authorization.allow) {
+        recordDeniedRouteProbeCommand(ctx, AOC_ALL_ROUTE_KEYS, authorization);
         await replyTelegramCommandAuthorityBlocked(ctx);
         return;
       }
@@ -4265,6 +4319,7 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
     }
     const authorization = authorizeRouteProbeCommand(ctx, text, [routeKey]);
     if (!authorization.allow) {
+      recordDeniedRouteProbeCommand(ctx, [routeKey], authorization);
       await replyTelegramCommandAuthorityBlocked(ctx);
       return;
     }
