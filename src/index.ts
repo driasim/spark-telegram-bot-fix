@@ -9974,6 +9974,9 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     const spawnerBoardIntent = parseContextualSpawnerBoardNaturalIntent(text, contextualTurns);
+    const spawnerBoardRoute = spawnerBoardIntent
+      ? spawnerBoardIntent === 'board' ? 'spawner.board' : `spawner.board/${spawnerBoardIntent}`
+      : null;
     const spawnerBoardAuthorization = spawnerBoardIntent
       ? telegramActionAuthorityDecision(turnIntentEnvelope, {
           route: 'spawner.board',
@@ -9986,6 +9989,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (spawnerBoardIntent && spawnerBoardAuthorization?.allow) {
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       if (!sparkAccessAllows(accessProfile, 'spawner_build')) {
+        recordNaturalRouteExecution(ctx, naturalRouteShadow, spawnerBoardRoute || 'spawner.board', 'spawner-ui', 'spawner.board_read', 'failed');
         recordTelegramHarnessCoreExecution(spawnerBoardAuthorization, {
           toolName: 'spawner.board',
           status: 'failure',
@@ -10024,6 +10028,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           result = await spawner.board();
           break;
       }
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, spawnerBoardRoute || 'spawner.board', 'spawner-ui', 'spawner.board_read', result.success ? 'selected' : 'failed');
       recordTelegramHarnessCoreExecution(spawnerBoardAuthorization, {
         toolName: 'spawner.board',
         status: result.success ? 'success' : 'failure',
@@ -10035,6 +10040,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
     if (spawnerBoardIntent && spawnerBoardAuthorization) {
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, spawnerBoardRoute || 'spawner.board', 'spawner-ui', 'spawner.board_read', 'failed');
       await ctx.reply('I did not read Mission Control because the fresh turn did not authorize that Spawner read.');
       return;
     }

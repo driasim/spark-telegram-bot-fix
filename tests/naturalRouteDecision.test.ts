@@ -528,6 +528,16 @@ test('routes user memory recall questions away from build-context recall', () =>
   assert.equal(route.context_source, 'cold_memory');
 });
 
+test('routes Spawner board reads through canonical board consumer paths', () => {
+  const route = decideNaturalRoute('Which LLM took the latest Spawner job?');
+
+  assert.equal(route.route, 'spawner.board/latest_provider');
+  assert.equal(route.owner_system, 'spawner-ui');
+  assert.equal(route.action, 'spawner.board_read');
+  assert.deepEqual(route.payload, { intent: 'latest_provider' });
+  assert.equal(route.requires_confirmation, false);
+});
+
 test('keeps casual current-plan mentions conversational', () => {
   const route = decideNaturalRoute('Actually, my current plan is run a fresh diagnostics scan.');
 

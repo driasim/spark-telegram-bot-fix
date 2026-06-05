@@ -4342,8 +4342,11 @@ async function run(): Promise<void> {
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-board-read-ledger-'));
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
 		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+		delete process.env.SPARK_NATURAL_ROUTE_LEDGER;
 
 		const capturedGets: string[] = [];
 		(axios as any).post = async () => ({ data: { success: true } });
@@ -4400,6 +4403,26 @@ async function run(): Promise<void> {
 				/Natural Spawner board latest_provider read completed/.test(record.result.summary)
 			)),
 			'natural board read must record the final Harness Core read outcome'
+		);
+		const naturalRouteRecords = await waitForJsonlRecord(
+			naturalRouteLedgerPath,
+			(record) => (
+				record.shadow_route === 'spawner.board/latest_provider' &&
+				record.executed_route === 'spawner.board/latest_provider' &&
+				record.executed_action === 'spawner.board_read' &&
+				record.outcome === 'matched' &&
+				record.delivery === 'selected'
+			)
+		);
+		assert.ok(
+			naturalRouteRecords.some((record) => (
+				record.shadow_route === 'spawner.board/latest_provider' &&
+				record.executed_route === 'spawner.board/latest_provider' &&
+				record.executed_action === 'spawner.board_read' &&
+				record.outcome === 'matched' &&
+				record.delivery === 'selected'
+			)),
+			'natural board read must bind selected and executed consumer routes exactly'
 		);
 
 		rmSync(tempRoot, { recursive: true, force: true });

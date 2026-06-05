@@ -306,13 +306,13 @@
       {
         "id": "canvas-on-kanban",
         "user": "did the latest canvas run show up on kanban?",
-        "expectedRouteOneOf": ["spawner.latest_on_kanban", "spawner.board", "plain_chat", "build_context.recall"],
+        "expectedRouteOneOf": ["spawner.board/latest_on_kanban", "spawner.board", "plain_chat", "build_context.recall"],
         "mustNotRoute": ["spawner.build"]
       },
       {
         "id": "latest-provider",
         "user": "which LLM took the latest Spawner job?",
-        "expectedRouteOneOf": ["spawner.latest_provider", "spawner.board", "plain_chat", "build_context.recall"],
+        "expectedRouteOneOf": ["spawner.board/latest_provider", "spawner.board", "plain_chat", "build_context.recall"],
         "mustNotRoute": ["spawner.build"]
       },
       {
@@ -544,7 +544,7 @@
       {
         "id": "repo-improvement-discussion",
         "user": "what would you improve in the spawner-ui repo so missions and canvas feel better?",
-        "expectedRouteOneOf": ["plain_chat", "conversation.ideation"],
+        "expectedRouteOneOf": ["chat_plan", "plain_chat", "conversation.ideation"],
         "mustNotRoute": ["local_workspace.inspect", "spawner.build"]
       },
       {

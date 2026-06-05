@@ -799,7 +799,7 @@ export function decideNaturalRoute(
   const spawnerBoard = parseSpawnerBoardNaturalIntent(normalized);
   if (spawnerBoard) {
     return decision({
-      route: `spawner.${spawnerBoard}`,
+      route: spawnerBoard === 'board' ? 'spawner.board' : `spawner.board/${spawnerBoard}`,
       owner_system: 'spawner-ui',
       confidence: spawnerBoard === 'latest_project_preview' ? 'contextual' : 'explicit',
       action: 'spawner.board_read',

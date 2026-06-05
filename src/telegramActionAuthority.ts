@@ -42,6 +42,13 @@ export interface TelegramActionAuthorityResult {
 const ROUTE_ALIASES: Record<string, string[]> = {
   'recursive.proposal': ['recursive.propose'],
   'spawner.board': [
+    'spawner.board/active_missions',
+    'spawner.board/latest_failure',
+    'spawner.board/latest_failed_provider',
+    'spawner.board/latest_mission',
+    'spawner.board/latest_on_kanban',
+    'spawner.board/latest_project_preview',
+    'spawner.board/latest_provider',
     'spawner.active_missions',
     'spawner.latest_failure',
     'spawner.latest_failed_provider',
@@ -56,6 +63,7 @@ const ROUTE_ALIASES: Record<string, string[]> = {
 
 function routeMatchesCandidate(inputRoute: string, candidateRoute: string): boolean {
   if (inputRoute === candidateRoute) return true;
+  if (inputRoute === 'spawner.board' && candidateRoute.startsWith('spawner.board/')) return true;
   return (ROUTE_ALIASES[inputRoute] || []).includes(candidateRoute);
 }
 
