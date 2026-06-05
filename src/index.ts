@@ -4136,6 +4136,33 @@ function routeProbeBatchLedgerStatus(statuses: Array<'success' | 'failure' | 'pa
   return 'partial';
 }
 
+function routeProbeCommandNaturalRouteDecision(routeKeys: string[]): NaturalRouteDecision {
+  return {
+    schema_version: 'spark.nlp.route_decision.v1',
+    route: 'route_probe.no_edit',
+    owner_system: 'spark-intelligence-builder',
+    confidence: 'explicit',
+    action: `route.probe.${routeKeys.join('+')}`,
+    payload: {
+      route_keys: routeKeys,
+      mutation_class: 'writes_memory',
+      no_edit: true
+    },
+    context_source: 'slash_command',
+    matched_signals: [
+      'fresh_user_intent',
+      'route_probe_command',
+      'harness_core_authorized',
+      'no_edit_probe'
+    ],
+    blocked_by: [],
+    requires_confirmation: false,
+    trace: {
+      selected_by: 'telegram_command_route_probe_authority'
+    }
+  };
+}
+
 function authorizeRouteProbeCommand(
   ctx: any,
   text: string,
@@ -4180,6 +4207,13 @@ async function runAocProbeBatch(
     status: routeProbeBatchLedgerStatus(statuses),
     summary: `Route probe batch completed for ${routeKeys.join(', ')}.`
   });
+  recordNaturalRouteExecution(
+    ctx,
+    routeProbeCommandNaturalRouteDecision(routeKeys),
+    'route_probe.no_edit',
+    'spark-intelligence-builder',
+    'harness_core.route_probe'
+  );
   lines.push('', 'Run /aoc to see the refreshed Agent Operating Context.');
   await ctx.reply(lines.join('\n'));
 }
@@ -4239,6 +4273,13 @@ async function handleAgentRouteProbeCommand(ctx: any): Promise<void> {
       status: routeProbeLedgerStatus(result.payload),
       summary: `Route probe completed for ${routeKey}.`
     });
+    recordNaturalRouteExecution(
+      ctx,
+      routeProbeCommandNaturalRouteDecision([routeKey]),
+      'route_probe.no_edit',
+      'spark-intelligence-builder',
+      'harness_core.route_probe'
+    );
     await ctx.reply(result.replyText);
   } catch (err: any) {
     await ctx.reply(renderSparkErrorReply(err, 'builder', conversation.isAdmin(ctx.from)));
