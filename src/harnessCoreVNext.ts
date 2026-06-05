@@ -125,7 +125,7 @@ function moveForEnvelope(
     (action.mutationClass === 'none' || action.mutationClass === 'read_only') &&
     !action.publishes &&
     !action.externalNetwork;
-  if (safeReadOnlyAction && legacyAllowed) return 'read_current_state';
+  if (safeReadOnlyAction && legacyAllowed && envelope.directive.mode !== 'deny') return 'read_current_state';
   if (!action || envelope.directive.noExecution || !legacyAllowed) {
     if (envelope.directive.mode === 'plan') return 'chat_plan';
     if (envelope.directive.mode === 'inspect') return 'read_current_state';

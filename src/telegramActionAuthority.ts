@@ -135,10 +135,11 @@ export function authorizeTelegramActionFromEnvelope(
       })
     : null;
   const allow = governorVerification?.allowed === true;
-  const reasonCodes = [
+  const reasonCodes = Array.from(new Set([
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
     ...(routeAuthorizedByTurn ? [] : ['route_not_selected_by_turn_envelope']),
     ...toolAuthorization.reasonCodes,
+    ...(!allow && envelope?.directive.noExecution ? ['no_execution_boundary'] : []),
     ...(harnessCore && harnessCore.authorization.verdict !== 'allow'
       ? harnessCore.authorization.reasons.map((reason) => `harness_core:${reason}`)
       : []),
@@ -146,7 +147,7 @@ export function authorizeTelegramActionFromEnvelope(
       ? governorVerification.reason_codes.map((reason) => `governor:${reason}`)
       : []),
     ...(harnessCore ? [] : ['harness_core:missing_or_invalid_envelope'])
-  ];
+  ]));
 
   return {
     allow,

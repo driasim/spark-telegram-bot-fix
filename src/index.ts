@@ -2249,8 +2249,10 @@ function telegramActionEnvelope(
     action: string;
     kind?: TelegramIntentDecisionV2['kind'];
     confidence?: TelegramIntentDecisionV2['confidence'];
+    mutationClass?: SparkHarnessMutationClass;
   }
 ): TurnIntentEnvelopeV1 {
+  const readOnlyBranch = input.mutationClass === 'none' || input.mutationClass === 'read_only';
   const decision: TelegramIntentDecisionV2 = {
     schema_version: 'spark.telegram.intent_decision.v2',
     kind: input.kind || 'runtime_truth_or_operator',
@@ -2270,7 +2272,7 @@ function telegramActionEnvelope(
     matched_signals: ['fresh_telegram_action_branch'],
     blocked_candidates: [],
     supporting_routes: [baseEnvelope.selectedIntent.action || baseEnvelope.selectedIntent.kind].filter(Boolean) as string[],
-    enforcement: baseEnvelope.directive.noExecution ? 'blocked' : 'observe',
+    enforcement: baseEnvelope.directive.noExecution && !readOnlyBranch ? 'blocked' : 'observe',
     natural_route: null
   };
 
@@ -2308,7 +2310,8 @@ function telegramBranchActionAuthorityDecision(
     ownerSystem: input.ownerSystem,
     action: input.action || input.route,
     kind: input.kind,
-    confidence: input.confidence
+    confidence: input.confidence,
+    mutationClass: input.mutationClass
   });
   return telegramActionAuthorityDecision(actionEnvelope, input);
 }
@@ -3298,18 +3301,15 @@ async function handlePlainChatMemoryDirective(
   directive: string,
   authorization?: TelegramActionAuthorityResult
 ): Promise<void> {
-  let localSaved = false;
-  try {
-    await conversation.remember(user, text);
-    await conversation.learnAboutUser(user, `User asked Spark to remember: ${directive}`);
-    localSaved = true;
-  } catch (error) {
-    console.warn('[MemoryDirective] local memory save failed:', error);
-  }
+  await conversation.remember(user, text).catch((error) => {
+    console.warn('[MemoryDirective] transcript capture failed:', error);
+  });
 
   await safeSendChatAction(ctx, 'typing');
   try {
-    const builderReply = await builderBridgeRunner(ctx.update as unknown as Record<string, unknown>);
+    const builderReply = await builderBridgeRunner(
+      buildUpdateWithText(ctx.update as unknown as Record<string, unknown>, text, authorization?.legacyEnvelope)
+    );
     console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length}`);
     if (
       builderReply.used &&
@@ -3329,17 +3329,13 @@ async function handlePlainChatMemoryDirective(
     console.warn('[MemoryDirective] Builder memory confirmation unavailable:', error);
   }
 
-  const reply = localSaved
-    ? formatLocalMemoryDirectiveAcknowledgement(directive)
-    : buildMemoryBridgeUnavailableReply('remember');
+  const reply = buildMemoryBridgeUnavailableReply('remember');
   await ctx.reply(reply);
   await conversation.rememberAssistantReply(user, reply).catch(() => {});
   recordTelegramHarnessCoreExecution(authorization, {
-    toolName: localSaved ? TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME : 'memory.write',
-    status: localSaved ? 'success' : 'failure',
-    summary: localSaved
-      ? 'Natural Telegram memory directive was buffered in Telegram-local notes; durable Builder/domain-chip memory was not confirmed.'
-      : 'Natural Telegram memory directive could not persist locally or through Builder.'
+    toolName: 'memory.write',
+    status: 'failure',
+    summary: 'Natural Telegram memory directive was not persisted because Builder/domain-chip memory confirmation was unavailable; no Telegram-local memory note was materialized.'
   });
 }
 
@@ -3381,7 +3377,7 @@ function extractNaturalLocalMemoryRecallQuery(text: string): string | null {
 async function buildNaturalLocalMemoryRecallReply(user: any, text: string): Promise<string | null> {
   const query = extractNaturalLocalMemoryRecallQuery(text);
   if (!query) return null;
-  return buildLocalRecallReply(user, query);
+  return await buildLocalRecallReply(user, query) || buildMemoryBridgeUnavailableReply('recall');
 }
 
 function authorizeMemoryWriteCommand(
@@ -5672,7 +5668,32 @@ async function handlePendingCreatorMissionControl(ctx: any, text: string, envelo
   await safeSendChatAction(ctx, 'typing');
 
   if (action === 'status') {
-    const result = await spawner.creatorMissionStatus({ missionId: pending.missionId });
+    const statusAuthorization = envelope
+      ? telegramBranchActionAuthorityDecision(envelope, {
+          route: 'creator.mission',
+          text,
+          toolName: 'spawner.creator_mission.status',
+          ownerSystem: 'spawner-ui',
+          mutationClass: 'read_only',
+          action: 'creator.mission.status',
+          kind: 'creator_or_domain_chip',
+          confidence: 'contextual'
+        })
+      : null;
+    if (!statusAuthorization || !statusAuthorization.allow) {
+      return false;
+    }
+    const result = await spawner.creatorMissionStatus({
+      missionId: pending.missionId,
+      executionAuthority: statusAuthorization.governorDecision
+    });
+    recordTelegramHarnessCoreExecution(statusAuthorization, {
+      toolName: 'spawner.creator_mission.status',
+      status: creatorExecutionStatus(result.success),
+      summary: result.success
+        ? `Creator mission ${result.missionId || pending.missionId} status was read from pending control.`
+        : `Creator mission pending status failed: ${result.error || 'unknown error'}`
+    });
     await ctx.reply(formatCreatorMissionStatusSummary(result));
     return true;
   }
@@ -6842,6 +6863,25 @@ bot.command('model', async (ctx) => {
 
   const raw = ctx.message.text.replace('/model', '').trim();
   if (!raw || raw.toLowerCase() === 'status') {
+    const authorization = telegramCommandActionAuthorityDecision(ctx, {
+      commandName: 'model',
+      route: 'model.switch',
+      text: ctx.message.text,
+      toolName: 'model.status',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'read_only',
+      action: 'model.status',
+      kind: 'runtime_truth_or_operator'
+    });
+    if (!authorization.allow) {
+      await replyTelegramCommandAuthorityBlocked(ctx);
+      return;
+    }
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'model.status',
+      status: 'success',
+      summary: 'Telegram /model status read model routing through Harness Core read-only authority.'
+    });
     await ctx.reply(renderModelStatus());
     return;
   }
@@ -6976,7 +7016,10 @@ bot.command('creator', async (ctx) => {
     }
 
     if (control.action === 'status') {
-      const result = await spawner.creatorMissionStatus({ missionId });
+      const result = await spawner.creatorMissionStatus({
+        missionId,
+        executionAuthority: authorization.governorDecision
+      });
       recordTelegramHarnessCoreExecution(authorization, {
         toolName: 'spawner.creator_mission.status',
         status: creatorExecutionStatus(result.success),
@@ -8094,37 +8137,9 @@ async function handleAccessChangeRequest(
   return true;
 }
 
-function answerFromRememberTurns(text: string, turns: ReadonlyArray<{ role: string; text: string }>): string | null {
-  if (extractPlainChatMemoryDirective(text)) {
-    return null;
-  }
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  const asksRememberedPreference =
-    /\bwhat\b.*\bremember\b.*\b(?:prefer|preferred|preference|like|mission updates?|updates?)\b/.test(normalized) ||
-    /\bwhat\b.*\b(?:prefer|preferred|preference)\b.*\bremember\b/.test(normalized);
-  if (!asksRememberedPreference && !/\b(?:asked you to remember|told you to remember|session test code word|code word)\b/.test(normalized)) {
-    return null;
-  }
-
-  for (const turn of [...turns].reverse()) {
-    if (turn.role !== 'user') continue;
-    const directive = extractPlainChatMemoryDirective(turn.text);
-    if (!directive) continue;
-    const cleaned = directive.replace(/^this\s+/i, '').replace(/[.!?]+$/g, '').trim();
-    if (!cleaned) continue;
-    const codeWord = cleaned.match(/\b(?:session\s+test\s+)?code\s+word\s*[:\-]\s*(.+)$/i);
-    if (codeWord?.[1]?.trim()) {
-      return codeWord[1].trim().replace(/^["']|["']$/g, '');
-    }
-    if (asksRememberedPreference) {
-      const userFacing = cleaned
-        .replace(/^my\b/i, 'your')
-        .replace(/^i\b/i, 'you');
-      return `You told me ${userFacing}.`;
-    }
-    return cleaned;
-  }
-
+function answerFromRememberTurns(_text: string, _turns: ReadonlyArray<{ role: string; text: string }>): string | null {
+  // Raw "remember/save/store this" transcript turns are not memory authority.
+  // Explicit recall must use governed durable memory or the /remember local-note lane.
   return null;
 }
 
@@ -8442,7 +8457,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ownerSystem: 'spark-telegram-bot',
           action: `spark.read_only_state.${readOnlyStateQuestion}`,
           kind: 'runtime_truth_or_operator',
-          confidence: 'explicit'
+          confidence: 'explicit',
+          mutationClass: 'read_only'
         }),
         {
           route: 'spark.read_only_state',
@@ -8507,7 +8523,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ownerSystem: 'spark-telegram-bot',
           action: 'pending_task.recovery',
           kind: 'runtime_truth_or_operator',
-          confidence: 'explicit'
+          confidence: 'explicit',
+          mutationClass: 'read_only'
         }),
         {
           route: 'pending_task.recovery',
@@ -8787,7 +8804,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         ownerSystem: 'spark-telegram-bot',
         action: `spark.read_only_state.${runtimeStatusKind}`,
         kind: 'runtime_truth_or_operator',
-        confidence: 'explicit'
+        confidence: 'explicit',
+        mutationClass: 'read_only'
       }),
       {
         route: 'spark.read_only_state',
@@ -8843,7 +8861,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ownerSystem: 'spark-telegram-bot',
           action: 'answer',
           kind: 'access_status',
-          confidence: 'explicit'
+          confidence: 'explicit',
+          mutationClass: 'read_only'
         }),
         'access.status',
         text
@@ -8882,7 +8901,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ownerSystem: 'spark-telegram-bot',
           action: 'answer',
           kind: 'access_help',
-          confidence: 'explicit'
+          confidence: 'explicit',
+          mutationClass: 'read_only'
         }),
         'access.help',
         text
@@ -8912,7 +8932,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
           ownerSystem: 'spark-telegram-bot',
           action: 'answer',
           kind: 'access_help',
-          confidence: 'explicit'
+          confidence: 'explicit',
+          mutationClass: 'read_only'
         }),
         'access.help',
         text
@@ -9657,7 +9678,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
             ownerSystem: 'spark-telegram-bot',
             action: 'local_workspace.inspect',
             kind: 'runtime_truth_or_operator',
-            confidence: 'explicit'
+            confidence: 'explicit',
+            mutationClass: 'read_only'
           }),
           {
             route: 'local_workspace.inspect',
@@ -10062,7 +10084,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
             ownerSystem: 'spark-intelligence-builder',
             action: 'diagnostics.followup_test',
             kind: 'diagnostic_or_self_awareness',
-            confidence: 'contextual'
+            confidence: 'contextual',
+            mutationClass: 'read_only'
           }),
           {
             route: 'diagnostics.followup_test',

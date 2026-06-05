@@ -41,6 +41,7 @@ export function harnessExecutionAuthorityFailureReason(
       owner_system: expectation.ownerSystem,
       action_type: expectation.actionType,
       action_id: expectation.actionId,
+      allow_read_only: expectation.actionType === 'read',
       require_pre_execution_ledger: true
     });
     if (verification.allowed) return null;

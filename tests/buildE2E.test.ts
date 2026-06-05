@@ -837,7 +837,7 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('explicit memory preference save and recall beats stale project context', async () => {
+	await test('natural memory directive with Builder off does not materialize durable recall', async () => {
 		restoreAxios();
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'off';
 		process.env.SPARK_BOT_TEST_MODE = '1';
@@ -850,20 +850,24 @@ async function run(): Promise<void> {
 
 		try {
 			const indexModule: any = await import('../src/index');
+			const testUserId = 8319079123;
 
 			const saveReplies: string[] = [];
-			const saveCtx = makeFakeCtx(8319079055, 8319079055, 562, saveReplies);
+			const saveCtx = makeFakeCtx(testUserId, testUserId, 562, saveReplies);
 			saveCtx.message.text = 'remember this: my preferred mission updates are concise and outcome-focused';
+			(saveCtx as any).update = { update_id: 562, message: saveCtx.message };
 			await indexModule.handleTextMessage(saveCtx);
 
 			const recallReplies: string[] = [];
-			const recallCtx = makeFakeCtx(8319079055, 8319079055, 563, recallReplies);
+			const recallCtx = makeFakeCtx(testUserId, testUserId, 563, recallReplies);
 			recallCtx.message.text = 'what do you remember about how I like mission updates?';
+			(recallCtx as any).update = { update_id: 563, message: recallCtx.message };
 			await indexModule.handleTextMessage(recallCtx);
 
-			assert.match(saveReplies.join('\n'), /Saved in Telegram memory/i);
+			assert.match(saveReplies.join('\n'), /could not confirm|Memory is degraded/i);
 			assert.doesNotMatch(saveReplies.join('\n'), /passive Spark bug recognition/i);
-			assert.match(recallReplies.join('\n'), /concise and outcome-focused/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /concise and outcome-focused/i);
+			assert.match(recallReplies.join('\n'), /could not confirm|Memory is degraded|do not currently have saved entity state/i);
 			assert.doesNotMatch(recallReplies.join('\n'), /passive Spark bug recognition/i);
 			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
 			assert.ok(
@@ -872,15 +876,15 @@ async function run(): Promise<void> {
 					record.authorization.verdict === 'allow' &&
 					record.result.status === 'not_started'
 				)),
-				'natural memory directive must record Harness Core authorization before local memory write'
+				'natural memory directive must record Harness Core authorization before attempting Builder memory'
 			);
-			assert.ok(
+			assert.equal(
 				ledgerRecords.some((record) => (
 					record.tool_name === 'telegram.local_memory_note' &&
-					record.result.status === 'success' &&
-					/durable Builder\/domain-chip memory was not confirmed/.test(record.result.summary)
+					record.result.status === 'success'
 				)),
-				'natural memory directive fallback must record a Telegram-local execution result'
+				false,
+				'natural memory directive fallback must not materialize a Telegram-local memory note'
 			);
 			assert.equal(
 				ledgerRecords.some((record) => (
@@ -889,6 +893,14 @@ async function run(): Promise<void> {
 				)),
 				false,
 				'natural memory directive must not claim durable memory.write success when Builder is off'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'memory.write' &&
+					record.result.status === 'failure' &&
+					/no Telegram-local memory note was materialized/.test(record.result.summary)
+				)),
+				'natural memory directive must record failed durable write when Builder is off'
 			);
 		} finally {
 			rmSync(tempRoot, { recursive: true, force: true });

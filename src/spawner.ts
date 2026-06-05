@@ -121,6 +121,7 @@ function executionAuthorityError(
 interface CreatorMissionLookupInput {
   missionId?: string;
   requestId?: string;
+  executionAuthority?: unknown;
 }
 
 interface CreatorMissionStatusResult {
@@ -1274,6 +1275,15 @@ export const spawner = {
   },
 
   async creatorMissionStatus(input: CreatorMissionLookupInput): Promise<CreatorMissionStatusResult> {
+    const authorityError = executionAuthorityError(input.executionAuthority, {
+      toolName: 'spawner.creator_mission.status',
+      ownerSystem: 'spawner-ui',
+      actionType: 'read'
+    });
+    if (authorityError) {
+      return { success: false, error: authorityError };
+    }
+
     try {
       const params = new URLSearchParams();
       if (input.missionId) params.set('missionId', input.missionId);

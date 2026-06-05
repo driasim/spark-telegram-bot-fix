@@ -49,6 +49,7 @@ function restoreEnv(): void {
 }
 
 function mutationClassForTool(toolName: string): SparkHarnessMutationClass {
+  if (toolName === 'spawner.creator_mission.status') return 'read_only';
   if (toolName === 'creator.mission.create' || toolName === 'spawner.creator_mission') return 'creates_chip';
   return 'launches_mission';
 }
@@ -593,13 +594,50 @@ async function run(): Promise<void> {
       };
     };
 
-    const result = await spawner.creatorMissionStatus({ missionId: 'mission-creator-1' });
+    const executionAuthority = fakeExecutionAuthority('spawner.creator_mission.status');
+    const result = await spawner.creatorMissionStatus({
+      missionId: 'mission-creator-1',
+      executionAuthority
+    });
 
     assert.equal(result.success, true);
     assert.equal(result.missionId, 'mission-creator-1');
     assert.equal(result.requestId, 'tg-creator-1');
     assert.match(capturedUrl, /\/api\/creator\/mission\?missionId=mission-creator-1$/);
     assert.equal(capturedOptions.timeout, 30000);
+  });
+
+  await test('creatorMissionStatus fails closed before network when authority is missing', async () => {
+    restoreAxios();
+    let getCalled = false;
+    (axios as any).get = async () => {
+      getCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.creatorMissionStatus({ missionId: 'mission-creator-1' });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /Harness Core execution authority is required/);
+    assert.equal(getCalled, false);
+  });
+
+  await test('creatorMissionStatus rejects non-read creator authority before network', async () => {
+    restoreAxios();
+    let getCalled = false;
+    (axios as any).get = async () => {
+      getCalled = true;
+      return { data: { ok: true } };
+    };
+
+    const result = await spawner.creatorMissionStatus({
+      missionId: 'mission-creator-1',
+      executionAuthority: fakeExecutionAuthority('spawner.creator_mission.validate')
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error || '', /governor_missing_matching_authorization|governor_outcome_not_allowed/);
+    assert.equal(getCalled, false);
   });
 
   await test('formatCreatorMissionStatusSummary renders readiness and latest validation state', async () => {

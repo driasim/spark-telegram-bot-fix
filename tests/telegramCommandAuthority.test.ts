@@ -384,9 +384,23 @@ test('self improvement and model switch commands authorize through command envel
     action: 'model.switch',
     kind: 'runtime_truth_or_operator'
   });
+  const modelStatus = commandAuth({
+    text: '/model status',
+    commandName: 'model',
+    route: 'model.switch',
+    toolName: 'model.status',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only',
+    action: 'model.status',
+    kind: 'runtime_truth_or_operator'
+  });
 
   assert.equal(selfImprove.allow, true);
   assert.equal(modelSwitch.allow, true);
+  assert.equal(modelStatus.allow, true);
+  assert.equal(modelStatus.harnessCore?.envelope.selected_move, 'read_current_state');
+  assert.equal(modelStatus.harnessCore?.authorization.restrictions.write_allowed, false);
+  assert.equal(modelStatus.governorDecision?.tool_ledgers[0]?.tool_name, 'model.status');
 });
 
 test('voice commands authorize exact status, speak, and setup hook tools through command envelopes', () => {
@@ -534,11 +548,24 @@ test('self improvement and model switch commands block contradictory no-action l
     action: 'model.switch',
     kind: 'runtime_truth_or_operator'
   });
+  const modelStatus = commandAuth({
+    text: '/model status but do not check settings',
+    commandName: 'model',
+    route: 'model.switch',
+    toolName: 'model.status',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'read_only',
+    action: 'model.status',
+    kind: 'runtime_truth_or_operator'
+  });
 
   assert.equal(selfImprove.allow, false);
   assert.equal(modelSwitch.allow, false);
+  assert.equal(modelStatus.allow, false);
   assert.ok(selfImprove.reasonCodes.includes('no_execution_boundary'));
   assert.ok(modelSwitch.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(modelStatus.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(modelStatus.reasonCodes.includes('harness_core:authority_state_chat_only'));
 });
 
 test('voice setup commands block contradictory no-setup language', () => {

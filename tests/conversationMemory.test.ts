@@ -81,6 +81,32 @@ async function main(): Promise<void> {
   });
   });
 
+  await test('keeps raw natural memory directives out of context until promoted', async () => {
+  await withTempState(async () => {
+    const memory = new ConversationMemory();
+
+    await memory.remember(user, 'remember this: my preferred mission updates are concise and outcome-focused');
+    await memory.rememberAssistantReply(user, 'You told me your preferred mission updates are concise and outcome-focused.');
+    await memory.rememberAssistantReply(user, 'Memory is degraded, so I could not confirm that write.');
+
+    const context = await memory.getContext(user, 'what do you remember about mission updates?');
+    const recentMessages = await memory.getRecentMessages(user, 4);
+    const recentTurns = await memory.getRecentTurns(user, 4);
+    const frame = await memory.getConversationFrame(user, 'what do you remember about mission updates?');
+    const recalled = await memory.recall(user, 'mission updates', 1);
+
+    assert.doesNotMatch(context, /concise and outcome-focused/i);
+    assert.deepEqual(recentMessages, []);
+    assert.deepEqual(recentTurns.map((turn) => turn.text), [
+      'Memory is degraded, so I could not confirm that write.'
+    ]);
+    assert.deepEqual(frame.hotTurns.map((turn) => turn.text), [
+      'Memory is degraded, so I could not confirm that write.'
+    ]);
+    assert.deepEqual(recalled, []);
+  });
+  });
+
   await test('does not leak one user session context to another user', async () => {
   await withTempState(async () => {
     const memory = new ConversationMemory();

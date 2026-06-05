@@ -299,7 +299,7 @@ function allowedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spa
   if (decision.route === 'spark.process') tools.push('spark.process_queue');
   if (decision.route === 'spark.reflect') tools.push('spark.reflect');
   if (decision.route === 'mission_updates.preference') tools.push('mission_updates.preference');
-  if (decision.route === 'model.switch') tools.push('model.switch');
+  if (decision.route === 'model.switch') tools.push('model.switch', 'model.status');
   if (decision.route === 'media.image') tools.push('telegram.media.image', 'builder.telegram_bridge');
   if (decision.route === 'media.voice') tools.push('telegram.media.voice', 'builder.telegram_bridge');
   if (decision.route === 'voice.command') {
