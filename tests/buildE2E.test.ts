@@ -4626,6 +4626,7 @@ async function run(): Promise<void> {
 		const oldPath = process.env.PATH || '';
 		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
 		writeSparkLiveStatusTextShim(binDir);
+		process.env.SPARK_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'spark.ps1' : 'spark');
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
@@ -4663,9 +4664,16 @@ async function run(): Promise<void> {
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-repair-status-no-action-'));
 		const binDir = path.join(tempRoot, 'bin');
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		const oldPath = process.env.PATH || '';
 		await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir, { recursive: true }));
 		writeSparkLiveStatusTextShim(binDir);
+		process.env.SPARK_CLI_PATH = path.join(binDir, process.platform === 'win32' ? 'spark.ps1' : 'spark');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 		process.env.PATH = `${binDir}${path.delimiter}${oldPath}`;
 
 		try {
@@ -4686,6 +4694,33 @@ async function run(): Promise<void> {
 			assert.match(reply, /No repair action needed right now/);
 			assert.doesNotMatch(reply, /I will run|Mission:/i);
 			assert.equal(captured.length, 0, 'repair-needed status question must not launch or post work');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'spark.read_only_state' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'not_started'
+				)),
+				'repair-needed live-status question must record Harness Core authorization before reading state'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'spark.read_only_state' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/Natural runtime status read completed for repair_status/.test(record.result.summary)
+				)),
+				'repair-needed live-status question must record final Harness Core read outcome'
+			);
+			const repairStatusNaturalRoute = (record: any) => (
+				record.executed_route === 'spark.read_only_state.repair_status' &&
+				record.executed_action === 'harness_core.read_only_state'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, repairStatusNaturalRoute);
+			const repairStatusRecord = naturalRouteRecords.find(repairStatusNaturalRoute);
+			assert.ok(repairStatusRecord, 'repair-needed live-status question must write natural route execution evidence');
+			assert.equal(repairStatusRecord?.shadow_route, 'spark.read_only_state.repair_status');
+			assert.equal(repairStatusRecord?.outcome, 'matched');
 		} finally {
 			process.env.PATH = oldPath;
 			restoreAxios();

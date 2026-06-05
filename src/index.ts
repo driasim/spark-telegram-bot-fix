@@ -906,6 +906,33 @@ function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion): Na
   };
 }
 
+function runtimeStatusNaturalRouteDecision(kind: 'live_status' | 'repair_status'): NaturalRouteDecision {
+  const route = `spark.read_only_state.${kind}`;
+  return {
+    schema_version: 'spark.nlp.route_decision.v1',
+    route,
+    owner_system: 'spark-telegram-bot',
+    confidence: 'explicit',
+    action: 'harness_core.read_only_state',
+    payload: {
+      question: kind,
+      mutation_class: 'read_only'
+    },
+    context_source: 'latest_message',
+    matched_signals: [
+      'fresh_user_intent',
+      'runtime_status_question',
+      'harness_core_authorized',
+      `read_only_state:${kind}`
+    ],
+    blocked_by: [],
+    requires_confirmation: false,
+    trace: {
+      selected_by: 'telegram_runtime_status_authority'
+    }
+  };
+}
+
 async function readSparkLiveStatusJson(): Promise<Record<string, unknown>> {
   const raw = await runSparkCli(['live', 'status', '--json'], 25_000);
   return JSON.parse(raw) as Record<string, unknown>;
@@ -8707,8 +8734,48 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
 
   if (!earlyBuildIntent && shouldAnswerAuthoritativeRuntimeStatus(text)) {
+    const runtimeStatusKind = isRepairNeededStatusQuestion(text.toLowerCase().replace(/\s+/g, ' ').trim())
+      ? 'repair_status'
+      : 'live_status';
+    const runtimeStatusAuthorization = telegramActionAuthorityDecision(
+      telegramActionEnvelope(turnIntentEnvelope, {
+        route: 'spark.read_only_state',
+        ownerSystem: 'spark-telegram-bot',
+        action: `spark.read_only_state.${runtimeStatusKind}`,
+        kind: 'runtime_truth_or_operator',
+        confidence: 'explicit'
+      }),
+      {
+        route: 'spark.read_only_state',
+        text,
+        toolName: 'spark.read_only_state',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'read_only'
+      }
+    );
+    if (!runtimeStatusAuthorization.allow) {
+      recordTelegramHarnessCoreExecution(runtimeStatusAuthorization, {
+        toolName: 'spark.read_only_state',
+        status: 'not_started',
+        summary: `Natural runtime status read was blocked for ${runtimeStatusKind}.`
+      });
+      await ctx.reply('I did not read Spark live state because the fresh turn did not authorize that read-only check.');
+      return;
+    }
     await conversation.remember(user, text).catch(() => {});
     const reply = await renderAuthoritativeSparkLiveStateAnswer({ rawDetails: shouldShowRawSparkLiveDetails(text) });
+    recordNaturalRouteExecution(
+      ctx,
+      runtimeStatusNaturalRouteDecision(runtimeStatusKind),
+      `spark.read_only_state.${runtimeStatusKind}`,
+      'spark-telegram-bot',
+      'harness_core.read_only_state'
+    );
+    recordTelegramHarnessCoreExecution(runtimeStatusAuthorization, {
+      toolName: 'spark.read_only_state',
+      status: 'success',
+      summary: `Natural runtime status read completed for ${runtimeStatusKind}.`
+    });
     await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_live_state_answer', runtimeTruthSourceEvidence(text));
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
