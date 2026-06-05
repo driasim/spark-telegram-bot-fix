@@ -208,6 +208,30 @@ function isPendingBuildClarificationFollowup(text: string): boolean {
   return contextualObject && action && (startsWithConfirmation || /\b(?:create|build|make|ship|start|run|do)\s+(?:it|this|that)\b/.test(normalized));
 }
 
+function hasRecentProductPlanningContext(recentMessages: string[]): boolean {
+  return recentMessages.some((message) => {
+    const normalized = message.toLowerCase().replace(/\s+/g, ' ').trim();
+    return /\b(?:sketch(?:ing)?|scope|scoping|shape|plan|planning|first\s+(?:screen|view|version)|mvp|v1|dashboard|app|tool|product|interface|ui)\b/.test(normalized) &&
+      /\b(?:dashboard|app|tool|product|interface|ui|screen|view|memory|stale[-\s]*context|freshness|quality)\b/.test(normalized);
+  });
+}
+
+function isCanonicalChatPlanTurn(text: string, recentMessages: string[]): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.startsWith('/')) return false;
+  if (/\b(?:build|create|make|ship|scaffold|generate|start|run|launch|execute)\b.{0,80}\b(?:at|in|into|now|please|for me)\b/.test(normalized)) {
+    return false;
+  }
+  const productSurface = /\b(?:dashboard|app|tool|product|interface|ui|screen|view|workflow|panel|board|memory|stale[-\s]*context|freshness|quality)\b/.test(normalized);
+  const planningLanguage =
+    /\b(?:sketch(?:ing)?|scope|scoping|shape|plan|planning|what\s+should|what\s+would|first\s+(?:screen|view|version)|mvp|v1|include|layout|sections?|evaluation cases?)\b/.test(normalized);
+  const contextualFollowup =
+    /^(?:yes|yeah|yep|ok|okay|sure|sounds good|perfect|nice|cool)\b/.test(normalized) &&
+    /\b(?:what\s+should|what\s+would|first\s+(?:screen|view|version)|include|layout|sections?|evaluation cases?)\b/.test(normalized) &&
+    hasRecentProductPlanningContext(recentMessages);
+  return (productSurface && planningLanguage) || contextualFollowup;
+}
+
 function buildIntentPayload(buildIntent: BuildIntent): Record<string, unknown> {
   return {
     projectName: buildIntent.projectName,
@@ -919,6 +943,20 @@ export function decideNaturalRoute(
       matched_signals: ['default_build_from_recent_scoping'],
       blocked_by: [],
       requires_confirmation: true
+    });
+  }
+
+  if (isCanonicalChatPlanTurn(normalized, recentMessages)) {
+    return decision({
+      route: 'chat_plan',
+      owner_system: 'spark-intelligence-builder',
+      confidence: hasRecentProductPlanningContext(recentMessages) ? 'contextual' : 'explicit',
+      action: 'plain_chat.plan',
+      payload: {},
+      context_source: hasRecentProductPlanningContext(recentMessages) ? 'hot_recent_turns' : 'latest_message',
+      matched_signals: ['canonical_chat_plan'],
+      blocked_by: [],
+      requires_confirmation: false
     });
   }
 

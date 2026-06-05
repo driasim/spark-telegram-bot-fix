@@ -344,6 +344,7 @@ import { renderNaturalRouteDecisionReply } from './naturalRouteTelemetry';
 import {
   appendNaturalRouteExecutionRecord,
   createNaturalRouteExecutionRecord,
+  type NaturalRouteExecutionDelivery,
   shouldWriteNaturalRouteLedger
 } from './naturalRouteLedger';
 import { getLatestShippedProjectContext } from './shippedProjectContext';
@@ -1931,7 +1932,8 @@ function recordNaturalRouteExecution(
   decision: NaturalRouteDecision | null,
   executedRoute: string,
   executedOwner: NaturalRouteOwnerSystem,
-  executedAction: string
+  executedAction: string,
+  delivery?: NaturalRouteExecutionDelivery
 ): void {
   if (!decision || !shouldWriteNaturalRouteLedger()) return;
   const record = createNaturalRouteExecutionRecord({
@@ -1943,7 +1945,8 @@ function recordNaturalRouteExecution(
     admin: conversation.isAdmin(ctx.from),
     executedRoute,
     executedOwner,
-    executedAction
+    executedAction,
+    delivery
   });
   void appendNaturalRouteExecutionRecord(record).catch((error) => {
     console.warn('[NaturalRoute] execution ledger write failed:', error);
@@ -3022,6 +3025,17 @@ function recordBuilderChatReplyExecution(
   routingDecision: string
 ): void {
   const normalized = routingDecision.trim();
+  if (normalized === 'provider_fallback_chat' && naturalRouteShadow?.route) {
+    recordNaturalRouteExecution(
+      ctx,
+      naturalRouteShadow,
+      naturalRouteShadow.route === 'plain_chat' ? 'plain_chat' : naturalRouteShadow.route,
+      'spark-intelligence-builder',
+      'plain_chat.provider_fallback',
+      'delivered'
+    );
+    return;
+  }
   if (normalized === 'provider_fallback_chat') {
     recordNaturalRouteExecution(
       ctx,

@@ -76,6 +76,17 @@ test('converts meta action-word turns into chat-only Harness Core envelopes', ()
   assert.ok(vnext.evidence.some((item) => item.kind === 'negative_intent'));
 });
 
+test('converts product planning turns into chat_plan Harness Core envelopes', () => {
+  const text = 'HC-02 installer proof turn 1: I am sketching a memory quality dashboard with stale-context labels.';
+  const legacyEnvelope = envelopeFor(text);
+  const vnext = buildTurnIntentEnvelopeVNextFromTelegram(legacyEnvelope);
+
+  assert.equal(legacyEnvelope.selectedIntent.action, 'plain_chat.plan');
+  assert.equal(vnext.selected_move, 'chat_plan');
+  assert.equal(vnext.action_authority.state, 'chat_only');
+  assert.equal(vnext.proposed_actions.length, 0);
+});
+
 test('Telegram action authority now requires Harness Core allow verdict', () => {
   const text = 'Build a private local-first dashboard for memory reports with stale context labels.';
   const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {

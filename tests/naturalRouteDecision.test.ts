@@ -116,6 +116,29 @@ test('does not route generic planning text into recursive systems', () => {
   assert.deepEqual(route.blocked_by, ['no_matching_route']);
 });
 
+test('routes product planning turns to canonical chat_plan without execution authority', () => {
+  const firstTurn = decideNaturalRoute(
+    'HC-02 installer proof turn 1: I am sketching a memory quality dashboard with stale-context labels.'
+  );
+
+  assert.equal(firstTurn.route, 'chat_plan');
+  assert.equal(firstTurn.owner_system, 'spark-intelligence-builder');
+  assert.equal(firstTurn.action, 'plain_chat.plan');
+  assert.equal(firstTurn.requires_confirmation, false);
+
+  const followup = decideNaturalRoute('HC-02 installer proof turn 2: sounds good, what should the first screen include?', {
+    recentMessages: [
+      'User: HC-02 installer proof turn 1: I am sketching a memory quality dashboard with stale-context labels.',
+      'Spark: Memory quality dashboard with stale-context labels is the right surface.'
+    ]
+  });
+
+  assert.equal(followup.route, 'chat_plan');
+  assert.equal(followup.owner_system, 'spark-intelligence-builder');
+  assert.equal(followup.context_source, 'hot_recent_turns');
+  assert.equal(followup.requires_confirmation, false);
+});
+
 test('routes contextual creator-system follow-ups to Spawner creator missions', () => {
   const route = decideNaturalRoute('make this better with benchmarks, specialization path, and autoloops', {
     recentMessages: [

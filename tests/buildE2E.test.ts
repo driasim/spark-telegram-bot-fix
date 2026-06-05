@@ -3804,7 +3804,7 @@ async function run(): Promise<void> {
 			assert.equal(captured.length, 0, 'provider fallback chat must not call Spawner or PRD bridge');
 
 			const fallbackNaturalRoute = (record: any) => (
-				record.executed_route === 'conversation.provider_fallback_chat' &&
+				record.executed_route === 'plain_chat' &&
 				record.executed_action === 'plain_chat.provider_fallback'
 			);
 			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, fallbackNaturalRoute);
@@ -3812,7 +3812,68 @@ async function run(): Promise<void> {
 			assert.ok(routeRecord, 'provider fallback chat must write route execution evidence');
 			assert.equal(routeRecord?.shadow_route, 'plain_chat');
 			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
-			assert.equal(routeRecord?.delivery, 'selected');
+			assert.equal(routeRecord?.delivery, 'delivered');
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
+	await test('provider fallback preserves canonical chat_plan route evidence', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-provider-fallback-chat-plan-ledger-'));
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: 'First screen: show active context freshness, stale-context labels, coverage gaps, and source conflicts.',
+			decision: 'chat',
+			bridgeMode: 'external_configured',
+			routingDecision: 'provider_fallback_chat'
+		});
+
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079087, 8319079055, 637, replies);
+			ctx.message.text = 'HC-02 installer proof turn 1: I am sketching a memory quality dashboard with stale-context labels.';
+			await indexModule.handleTextMessage(ctx);
+
+			assert.equal(replies.length, 1);
+			assert.match(replies[0], /active context freshness/i);
+			assert.equal(captured.length, 0, 'planning chat must not call Spawner or PRD bridge');
+
+			const chatPlanRoute = (record: any) => (
+				record.shadow_route === 'chat_plan' &&
+				record.executed_route === 'chat_plan' &&
+				record.executed_action === 'plain_chat.provider_fallback'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, chatPlanRoute);
+			const routeRecord = naturalRouteRecords.find(chatPlanRoute);
+			assert.ok(routeRecord, 'chat_plan fallback must preserve canonical Harness Core route evidence');
+			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
+			assert.equal(routeRecord?.delivery, 'delivered');
 		} finally {
 			const indexModule: any = await import('../src/index');
 			indexModule.__setBuilderBridgeRunnerForTest(null);
