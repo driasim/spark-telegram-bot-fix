@@ -25,6 +25,7 @@ import {
   isLocalSparkServiceRequest,
   isMemoryDoctorRequest,
   isNoExecutionExplanationPrompt,
+  isPublicationApprovalBoundaryQuestion,
   isProjectImprovementRequest,
   isSparkChipStatusOverclaimQuestion,
   isSparkSelfMemoryDiagnosticQuestion,
@@ -284,6 +285,20 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['no_execution_explanation'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  if (isPublicationApprovalBoundaryQuestion(normalized)) {
+    return decision({
+      route: 'conversation.publication_approval_boundary',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'plain_chat.qa_boundary',
+      payload: {},
+      context_source: 'latest_message',
+      matched_signals: ['publication_approval_boundary'],
       blocked_by: [],
       requires_confirmation: false
     });

@@ -269,6 +269,7 @@ import {
   isNoExecutionExplanationPrompt,
   isNoExecutionBoundary,
   isPlainChatAnswerEditingRequest,
+  isPublicationApprovalBoundaryQuestion,
   isProtectedMissionCancelPronounIntent,
   isProtectedMissionPausePronounIntent,
   isProtectedMissionResumePronounIntent,
@@ -297,6 +298,7 @@ import {
   renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
+  renderPublicationApprovalBoundaryReply,
   renderSparkThreadQaGoldenCaseReply,
   renderSparkWorkflowBugHuntReply,
   renderXContentCredentialBoundaryReply,
@@ -8896,6 +8898,15 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderSparkThreadQaGoldenCaseReply(text);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.thread_qa_golden_case', 'spark-telegram-bot', 'plain_chat.qa_fixture');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  if (!earlyBuildIntent && isPublicationApprovalBoundaryQuestion(text)) {
+    const reply = renderPublicationApprovalBoundaryReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.publication_approval_boundary', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

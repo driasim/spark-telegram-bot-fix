@@ -53,6 +53,7 @@ import {
   renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
+  renderPublicationApprovalBoundaryReply,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isXContentCredentialBoundaryQuestion,
@@ -67,6 +68,7 @@ import {
   isMemoryDoctorRequest,
   isNoExecutionBoundary,
   isNoExecutionExplanationPrompt,
+  isPublicationApprovalBoundaryQuestion,
   isLowInformationLlmReply,
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
@@ -1798,6 +1800,19 @@ test('no-execution boundary catches negated ongoing action wording', () => {
     ]),
     null
   );
+});
+
+test('publication approval-list questions stay chat-only', () => {
+  const rowPrompt = 'I might ask you to publish later, but right now just list what would need approval.';
+  assert.equal(isPublicationApprovalBoundaryQuestion(rowPrompt), true);
+  assert.equal(isNoExecutionBoundary(rowPrompt), true);
+
+  const reply = renderPublicationApprovalBoundaryReply(rowPrompt);
+  assert.match(reply, /approval-list question only/i);
+  assert.match(reply, /publication_allowed=true/);
+  assert.match(reply, /No publish, deploy, PR, merge, registry, or production action/i);
+
+  assert.equal(isPublicationApprovalBoundaryQuestion('Approve and publish the release now.'), false);
 });
 
 test('no-execution replies answer the actual product question', () => {

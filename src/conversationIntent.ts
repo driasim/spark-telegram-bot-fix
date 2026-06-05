@@ -1600,6 +1600,47 @@ export function isMissionRoutingFailureClassQuestion(text: string): boolean {
 	return asksFailureClass && mentionsRouting && noExecution;
 }
 
+export function isPublicationApprovalBoundaryQuestion(text: string): boolean {
+	const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+	if (!normalized) {
+		return false;
+	}
+	const mentionsPublicationSurface =
+		/\b(?:publish|publication|deploy|deployment|release|ship|shipping|merge|open\s+(?:a\s+)?pr|pull\s+request|push\s+to\s+main|production|go\s+live)\b/.test(normalized);
+	if (!mentionsPublicationSurface) {
+		return false;
+	}
+	const asksForApprovalList =
+		/\b(?:approval|approve|permission|authorize|authorization|gates?|checks?|requirements?|receipts?|evidence|proof|preflight)\b/.test(normalized) ||
+		/\b(?:what\s+(?:would\s+)?need|what\s+needs|what\s+would\s+be\s+needed|what\s+would\s+be\s+required|list|show|tell|explain|outline)\b.{0,80}\b(?:approval|gates?|checks?|requirements?|receipts?|evidence|proof|before)\b/.test(normalized);
+	if (!asksForApprovalList) {
+		return false;
+	}
+	const scopedToAdviceOnly =
+		isNoExecutionBoundary(normalized) ||
+		/\b(?:right\s+now|for\s+now|currently|here)\b.{0,50}\b(?:just|only|list|show|tell|explain|outline)\b/.test(normalized) ||
+		/\b(?:just|only)\b.{0,40}\b(?:list|show|tell|explain|outline)\b/.test(normalized) ||
+		/\b(?:might|may|could|would)\s+(?:ask|need|want)\b.{0,80}\b(?:later|after|eventually|next)\b/.test(normalized) ||
+		/\b(?:before|prior\s+to)\b.{0,80}\b(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized);
+	const immediatePublicationCommand =
+		/^(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized) ||
+		/\b(?:go\s+ahead|do\s+it|approved?|yes|okay|ok|now)\b.{0,40}\b(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized) ||
+		/\b(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\s+(?:now|today|this|it|the\s+release)\b/.test(normalized);
+	return scopedToAdviceOnly && !immediatePublicationCommand;
+}
+
+export function renderPublicationApprovalBoundaryReply(_text: string): string {
+	return [
+		'I should treat this as an approval-list question only. No publish, deploy, PR, merge, registry, or production action is authorized by this turn.',
+		'Needed before any publication action:',
+		'- fresh explicit release intent with the exact target, environment, and action',
+		'- Harness Core envelope, Governor decision, authorization, and tool ledger for that action',
+		'- generated gates green, including publication_allowed=true, release_ready=true, and completion_allowed=true',
+		'- current PR heads/checks, registry/runtime/provenance, Spark live status, and duplicate-truth reports agreeing',
+		'- final evidence packet with live proof, rollback path, and any required owner/admin receipts'
+	].join('\n');
+}
+
 function renderContextualHarnessBoundaryReply(_text: string, normalized: string): string {
 	if (
 		/\bvoice\s+transcript\s+example\b/.test(normalized) ||

@@ -193,6 +193,17 @@ test('selects no-execution explanation route for quoted startup operator example
   assert.equal(route.requires_confirmation, false);
 });
 
+test('selects publication approval boundary route for future publish approval lists', () => {
+  const route = decideNaturalRoute('I might ask you to publish later, but right now just list what would need approval.');
+
+  assert.equal(route.route, 'conversation.publication_approval_boundary');
+  assert.equal(route.owner_system, 'spark-telegram-bot');
+  assert.equal(route.action, 'plain_chat.qa_boundary');
+  assert.equal(route.context_source, 'latest_message');
+  assert.deepEqual(route.matched_signals, ['publication_approval_boundary']);
+  assert.equal(route.requires_confirmation, false);
+});
+
 test('routes contextual access changes only after access-focused turns', () => {
   const recentMessages = [
     'User: Change my access level to three please',
