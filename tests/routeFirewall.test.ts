@@ -178,6 +178,17 @@ test('blocks broad do-not action-word phrasings from self-improvement execution'
   assert.equal(verdict.confidence, 'blocked');
 });
 
+test('no-execution boundary outranks explicit domain-chip wording', () => {
+  const verdict = evaluateDeterministicRoute(
+    'domain_chip.create',
+    'Please do not build, do not save, and do not create a chip. I only want to understand the design.'
+  );
+
+  assert.equal(verdict.allow, false);
+  assert.equal(verdict.reason, 'no_execution_boundary');
+  assert.equal(verdict.confidence, 'blocked');
+});
+
 test('allows explicit no-edit Mission Control diagnostics through Spawner', () => {
   const verdict = evaluateDeterministicRoute(
     'spawner.build',

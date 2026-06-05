@@ -439,24 +439,23 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   if (route === 'schedule.delete' && isExplicitScheduleDelete(normalized)) {
     return { allow: true, reason: 'explicit_schedule_delete', confidence: 'explicit' };
   }
+  if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
+    return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
+  }
+  if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
+    return { allow: false, reason: 'no_execution_boundary', confidence: 'blocked' };
+  }
   if (route === 'domain_chip.create' && isExplicitDomainChipCreate(normalized)) {
     return { allow: true, reason: 'explicit_domain_chip_create', confidence: 'explicit' };
   }
   if (route === 'domain_chip.pending' && isPendingDomainChipDirection(normalized)) {
     return { allow: true, reason: 'pending_domain_chip_direction', confidence: 'contextual' };
   }
-  if (route === 'sparkqa.pause' && isExplicitSparkQaPause(normalized)) {
-    return { allow: true, reason: 'explicit_sparkqa_pause', confidence: 'explicit' };
-  }
   if (route === 'recursive.start' && /\b(?:run|start|launch|kick\s+off|do)\b.*\b(?:recursive|recursion|loop|round|autoloop)\b/.test(normalized)) {
     return { allow: true, reason: 'explicit_recursive_start', confidence: 'explicit' };
   }
   if (route === 'recursive.proposal' && isExplicitRecursiveProposal(normalized)) {
     return { allow: true, reason: 'explicit_recursive_proposal', confidence: 'explicit' };
-  }
-
-  if (isNoExecutionBoundary(normalized) && INTERRUPTIVE_ROUTES.has(route)) {
-    return { allow: false, reason: 'no_execution_boundary', confidence: 'blocked' };
   }
 
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {

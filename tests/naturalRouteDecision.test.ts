@@ -173,6 +173,15 @@ test('routes explicit domain-chip creation before creator or build routes', () =
   assert.equal(route.requires_confirmation, true);
 });
 
+test('keeps negated domain-chip design talk in chat', () => {
+  const route = decideNaturalRoute('Please do not build, do not save, and do not create a chip. I only want to understand the design.');
+
+  assert.equal(route.route, 'plain_chat');
+  assert.equal(route.owner_system, 'none');
+  assert.equal(route.context_source, 'latest_message');
+  assert.ok(route.blocked_by.includes('no_matching_route'));
+});
+
 test('routes contextual access changes only after access-focused turns', () => {
   const recentMessages = [
     'User: Change my access level to three please',

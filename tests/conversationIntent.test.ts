@@ -802,6 +802,10 @@ test('extracts natural domain chip create requests without slash-command handoff
     parseNaturalChipCreateIntent('do not build yet, help me think through a domain chip for route confidence'),
     null
   );
+  assert.equal(
+    parseNaturalChipCreateIntent('Please do not build, do not save, and do not create a chip. I only want to understand the design.'),
+    null
+  );
   assert.equal(parseNaturalChipCreateIntent('which chips are active?'), null);
 });
 

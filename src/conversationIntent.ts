@@ -445,6 +445,18 @@ export function parseNaturalChipCreateIntent(text: string): string | null {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
 
+  const mentionsChip = /\b(?:domain[-\s]*chip|chip)\b/i.test(normalized);
+  const negatesChipCreation =
+    /\b(?:do\s+not|don't|dont|please\s+don't|please\s+dont|no\s+need\s+to)\s+(?:build|create|make|scaffold|generate|save)\b[^.\n]{0,80}\b(?:domain[-\s]*chip|chip)\b/i.test(normalized) ||
+    (
+      mentionsChip &&
+      /\b(?:do\s+not|don't|dont|please\s+don't|please\s+dont|no\s+need\s+to)\s+(?:build|create|make|scaffold|generate|save)\b/i.test(normalized) &&
+      /\b(?:only|just)\s+(?:want|need)\s+(?:to\s+)?(?:understand|discuss|design|explain|reason|talk|think)\b/i.test(normalized)
+    );
+  if (negatesChipCreation) {
+    return null;
+  }
+
   if (
     /\b(?:use|load|activate|pin|unpin|disable|delete|remove|cancel|kill)\s+(?:the\s+)?[\w-]+\s*chip\b/i.test(normalized) ||
     /\b(?:which|what)\s+chips?\b/i.test(normalized) ||
