@@ -181,6 +181,36 @@ test('treats quoted drafted high-agency text as evidence only', () => {
   assert.equal(isQuotedDraftedExampleBoundary('Schedule a run tomorrow.'), false);
   assert.equal(
     isQuotedDraftedExampleBoundary(
+      'Score this startup answer pair in chat only. Baseline: "keep nurturing." Candidate: "ask for paid commitment this week." Which is better and why? Do not run a loop.'
+    ),
+    false
+  );
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
+      'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.'
+    ),
+    false
+  );
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
+      'In this bug report, the word schedule appears as an example: schedule the launch. Do not schedule anything. What should Spark do?'
+    ),
+    false
+  );
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
+      'A customer wrote "schedule the founder review" in a quote. How should Spark classify it?'
+    ),
+    false
+  );
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
+      'Bug report: the words publish and deploy are examples here, not commands. Do not publish or deploy. What should Spark do?'
+    ),
+    false
+  );
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
       'Do not build anything. Turn the H70 Orbit Proof interruption into a golden Thread QA test case. Keep it natural and short.'
     ),
     false
@@ -2082,6 +2112,12 @@ test('PR release-note wording with no-action language is blocked from local serv
 test('plain chat answer editing does not become access or mission execution', () => {
   const prompt = 'Improve this startup answer in chat only: "Keep nurturing the pilots." Make it more operator-grade.';
   assert.equal(isPlainChatAnswerEditingRequest(prompt), true);
+  assert.equal(
+    isPlainChatAnswerEditingRequest(
+      'Run a tiny startup answer canary in chat only: give one better answer to "12 pilots, 0 paid." Do not launch tools.'
+    ),
+    false
+  );
   assert.equal(isExplicitContextualBuildRequest(prompt), false);
   assert.equal(parseContextualAccessChangeIntent(prompt, [
     'User: Change my access level to three please',

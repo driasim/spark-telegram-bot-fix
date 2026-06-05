@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 type AsyncTest = () => Promise<void> | void;
 const tests: Array<{ name: string; fn: AsyncTest }> = [];
@@ -46,6 +49,33 @@ function fakeCtx(
       mediaReplies.audio.push({ inputFile, options });
     }
   };
+}
+
+function readJsonl(filePath: string): any[] {
+  return readFileSync(filePath, 'utf-8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+async function waitForJsonlRecord(filePath: string, predicate: (record: any) => boolean): Promise<any[]> {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const records = (() => {
+      try {
+        return readJsonl(filePath);
+      } catch {
+        return [];
+      }
+    })();
+    if (records.some(predicate)) return records;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  try {
+    return readJsonl(filePath);
+  } catch {
+    return [];
+  }
 }
 
 test('no-execution meta action words bypass Builder bridge detours', async () => {
@@ -134,6 +164,69 @@ test('quoted drafted high-agency examples compose answers without Builder bridge
   } finally {
     llmModule.llm.chat = originalChat;
     indexModule.__setBuilderBridgeRunnerForTest(null);
+  }
+});
+
+test('quoted publish wording preserves governed quoted-boundary route execution', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+  process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-quoted-boundary-route-'));
+  const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+  process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+
+  const indexModule: any = await import('../src/index');
+  const llmModule = await import('../src/llm');
+  const originalChat = llmModule.llm.chat;
+  let bridgeCalls = 0;
+
+  indexModule.__setBuilderBridgeRunnerForTest(async () => {
+    bridgeCalls += 1;
+    return {
+      used: true,
+      responseText: 'I will publish the PR now.',
+      decision: 'publish',
+      bridgeMode: 'test',
+      routingDecision: 'publish'
+    };
+  });
+  llmModule.llm.chat = async () => (
+    'Treat those action words as language evidence, not as the action itself. Execution still needs fresh intent and Governor authorization.'
+  );
+
+  try {
+    const text = 'If a user says "publish the PR" inside a quote, what should Spark do?';
+    const replies: string[] = [];
+    await indexModule.handleTextMessage(fakeCtx(text, replies));
+
+    assert.equal(bridgeCalls, 0);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /language evidence|fresh intent/i);
+    assert.doesNotMatch(replies[0], /publish the PR now/i);
+
+    const quotedBoundaryExecution = (record: any) => (
+      record.shadow_route === 'conversation.quoted_drafted_example_boundary' &&
+      record.executed_route === 'conversation.quoted_drafted_example_boundary'
+    );
+    const routeRecords = await waitForJsonlRecord(naturalRouteLedgerPath, quotedBoundaryExecution);
+    const quotedRecord = routeRecords.find(quotedBoundaryExecution);
+    assert.ok(
+      quotedRecord,
+      `quoted PR wording must bind selected and executed route to the governed quoted-boundary route; records=${JSON.stringify(routeRecords)}`
+    );
+    assert.equal(quotedRecord.executed_owner, 'spark-telegram-bot');
+    assert.equal(quotedRecord.executed_action, 'plain_chat.quoted_example_boundary');
+    assert.equal(quotedRecord.outcome, 'matched');
+  } finally {
+    llmModule.llm.chat = originalChat;
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+    delete process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH;
+    delete process.env.SPARK_NATURAL_ROUTE_LEDGER;
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 

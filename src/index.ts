@@ -8450,7 +8450,10 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   })
     ? parsedEarlyBuildIntent
     : null;
-  if (isMetaNoActionTriggerDiscussion(text)) {
+  if (
+    telegramIntentGateV2.route !== 'conversation.quoted_drafted_example_boundary' &&
+    isMetaNoActionTriggerDiscussion(text)
+  ) {
     const reply = renderMissionRoutingFailureClassReply(text);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'chat_explain', 'spark-telegram-bot', 'plain_chat.qa_boundary');
@@ -9173,7 +9176,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
-  if (!earlyBuildIntent && isNoExecutionExplanationPrompt(text)) {
+  if (
+    !earlyBuildIntent &&
+    telegramIntentGateV2.route !== 'conversation.quoted_drafted_example_boundary' &&
+    isNoExecutionExplanationPrompt(text)
+  ) {
     const reply = renderMissionRoutingFailureClassReply(text);
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'chat_explain', 'spark-telegram-bot', 'plain_chat.qa_boundary');

@@ -303,6 +303,7 @@ export function isStartupSelfImprovementCanaryRequest(text: string): boolean {
   }
   return (
     /\b(?:run|start|perform|execute)\b.{0,80}\b(?:startup\s+)?self[-\s]*improvement\s+canary\b/i.test(normalized) ||
+    /\b(?:run|start|perform|execute)\b.{0,80}\b(?:startup\s+)?answer\s+canary\b/i.test(normalized) ||
     (
       /\b(?:startup\s+)?self[-\s]*improvement\s+loop\b/i.test(normalized) &&
       /\b(?:baseline|improved\s+answer|before\s*\/\s*after|before\s+and\s+after|jury\s+verdict|blind\s+jury|critique|proof\s+boundary)\b/i.test(normalized)
@@ -1642,6 +1643,26 @@ export function isQuotedDraftedExampleBoundary(text: string): boolean {
 	if (isSparkThreadQaGoldenCaseRequest(normalized)) {
 		return false;
 	}
+	if (isStartupSelfImprovementCanaryRequest(normalized)) {
+		return false;
+	}
+	if (
+		/\bscore\b/.test(normalized) &&
+		/\b(?:startup\s+)?answer\s+pair\b/.test(normalized) &&
+		/\b(?:baseline|candidate)\b/.test(normalized)
+	) {
+		return false;
+	}
+	if (/\bbug\s+report\b/.test(normalized)) {
+		return false;
+	}
+	if (
+		/\bschedule\b/.test(normalized) &&
+		/\b(?:customer\s+wrote|quoted?|inside\s+(?:a\s+)?quote)\b/.test(normalized) &&
+		!/\b(?:write|draft|wording|policy\s+doc|docs?|documentation)\b/.test(normalized)
+	) {
+		return false;
+	}
 
 	const mentionsHighAgencyText =
 		/\b(?:build|create|make|scaffold|generate|start|run|launch|execute|dispatch|mission|spawner|codex|provider|schedule|loop|chip|memory|remember|save|publish|deploy|ship|release|merge|open\s+(?:a\s+)?pr|pull\s+request|delete|remove|repair|browser|computer[-\s]*use|inspect|spark\s+start)\b/.test(normalized);
@@ -2741,6 +2762,7 @@ export function isStartupReleaseBoundaryQuestion(text: string): boolean {
 export function isPlainChatAnswerEditingRequest(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized || extractPlainChatMemoryDirective(text)) return false;
+  if (isStartupSelfImprovementCanaryRequest(normalized)) return false;
   const asksToEditAnswer =
     /\b(?:improve|rewrite|tighten|sharpen|make|turn)\b.{0,80}\b(?:answer|reply|response)\b/.test(normalized) ||
     /\b(?:answer|reply|response)\b.{0,80}\b(?:more\s+operator[-\s]*grade|sharper|better|stronger|more\s+specific)\b/.test(normalized);
