@@ -1697,7 +1697,14 @@ export function isBrowserComputerUseAuthorizationBoundaryQuestion(text: string):
 	return (asksBoundary || (blocksUseNow && asksToExplain)) && !(explicitUseCommand && !blocksUseNow);
 }
 
-export function renderBrowserComputerUseAuthorizationBoundaryReply(_text: string): string {
+export function renderBrowserComputerUseAuthorizationBoundaryReply(text: string): string {
+	const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+	const blocksUseNow =
+		/\b(?:do\s+not|don't|dont|without|not)\s+(?:use|open|call|run|click|browse|drive)\b.{0,80}\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b/.test(normalized) ||
+		/\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b.{0,80}\b(?:do\s+not|don't|dont|without|not)\s+(?:use|open|call|run|click|browse|drive)\b/.test(normalized);
+	const boundaryReason = blocksUseNow
+		? 'This turn stays chat-only because it explicitly withholds browser/computer-use authority. No browser or computer-use tool is invoked.'
+		: 'This turn stays chat-only because it asks about authorization policy, not tool execution. No browser or computer-use tool is invoked.';
 	return [
 		'Browser and computer-use should be authorized as tools, not triggered by capability names.',
 		'Allowed only after:',
@@ -1706,7 +1713,7 @@ export function renderBrowserComputerUseAuthorizationBoundaryReply(_text: string
 		'- authorization with policy/access restrictions',
 		'- tool-call ledger before execution',
 		'- visible result or side-effect proof after execution',
-		'This turn stays chat-only because it says not to use browser/computer-use. No browser or computer-use tool is invoked.'
+		boundaryReason
 	].join('\n');
 }
 

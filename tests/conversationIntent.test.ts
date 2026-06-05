@@ -2039,6 +2039,19 @@ test('computer-use authorization boundary is not treated as doctrine preference'
   assert.match(reply, /No browser or computer-use tool is invoked/i);
 });
 
+test('browser computer-use authorization boundary does not require no-use wording', () => {
+  const prompt = 'When Spark talks about browser and computer-use in a build conversation, how should those capabilities be authorized?';
+
+  assert.equal(isBrowserComputerUseAuthorizationBoundaryQuestion(prompt), true);
+  assert.equal(extractAgentDoctrinePreference(prompt), null);
+
+  const reply = renderBrowserComputerUseAuthorizationBoundaryReply(prompt);
+  assert.match(reply, /Browser and computer-use should be authorized as tools/i);
+  assert.match(reply, /authorization policy, not tool execution/i);
+  assert.match(reply, /No browser or computer-use tool is invoked/i);
+  assert.doesNotMatch(reply, /explicitly withholds/i);
+});
+
 test('old mission route bug descriptions stay chat-only', () => {
   const prompt = 'I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.';
 

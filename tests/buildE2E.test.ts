@@ -2108,7 +2108,7 @@ async function run(): Promise<void> {
 
 		const replies: string[] = [];
 		const ctx = makeFakeCtx(8319079055, 8319079055, 614, replies);
-		ctx.message.text = 'Do not use browser or computer-use. How should those capabilities be authorized?';
+		ctx.message.text = 'When Spark talks about browser and computer-use in a build conversation, how should those capabilities be authorized?';
 		const indexModule: any = await import('../src/index');
 		await indexModule.handleTextMessage(ctx);
 
@@ -2117,6 +2117,7 @@ async function run(): Promise<void> {
 		assert.match(reply, /Governor-selected capability and scope/i);
 		assert.match(reply, /tool-call ledger/i);
 		assert.match(reply, /stays chat-only/i);
+		assert.match(reply, /authorization policy, not tool execution/i);
 		assert.doesNotMatch(reply, /Run `\/probe browser`/i);
 		assert.equal(captured.length, 0, 'tool authorization discussion must not call Spawner or PRD bridge');
 
