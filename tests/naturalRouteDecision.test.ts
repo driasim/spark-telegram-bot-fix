@@ -215,6 +215,17 @@ test('selects browser/computer-use authorization boundary before doctrine prefer
   assert.equal(route.requires_confirmation, false);
 });
 
+test('selects mission routing failure boundary for old route bug descriptions', () => {
+  const route = decideNaturalRoute('I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.');
+
+  assert.equal(route.route, 'conversation.mission_routing_failure_class');
+  assert.equal(route.owner_system, 'spark-telegram-bot');
+  assert.equal(route.action, 'plain_chat.qa_boundary');
+  assert.equal(route.context_source, 'latest_message');
+  assert.deepEqual(route.matched_signals, ['mission_routing_failure_class']);
+  assert.equal(route.requires_confirmation, false);
+});
+
 test('routes contextual access changes only after access-focused turns', () => {
   const recentMessages = [
     'User: Change my access level to three please',

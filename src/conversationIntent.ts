@@ -1589,15 +1589,20 @@ export function isMissionRoutingFailureClassQuestion(text: string): boolean {
 		return false;
 	}
 	const asksFailureClass = /\b(?:failure\s+class|likely\s+failure|classify|classification|what\s+kind\s+of\s+bug)\b/.test(normalized);
+	const describesOldRouteBug =
+		/\b(?:old|previous|prior|stale)\s+bug\b/.test(normalized) &&
+		/\b(?:saw|matched|treated|read)\b.{0,80}\b(?:mission|build|run|launch|keyword|word|route)\b.{0,80}\b(?:launched|started|ran|executed|triggered|routed)\b/.test(normalized) &&
+		/\b(?:do\s+not|don't|dont|must\s+not|should\s+not)\s+(?:reproduce|repeat|do)\b/.test(normalized);
 	const mentionsRouting = (
 		/\b(?:mission\s+routing|route\s+hijack|routing\s+bug|mission\s+route|spawner\s+route)\b/.test(normalized) ||
+		describesOldRouteBug ||
 		(
 			/\b(?:keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|quoted text|not a request|not an instruction|not a command)\b/.test(normalized) &&
 			/\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|codex|provider|schedule|loop|chip|route)\b/.test(normalized)
 		)
 	);
-	const noExecution = isNoExecutionBoundary(normalized);
-	return asksFailureClass && mentionsRouting && noExecution;
+	const noExecution = isNoExecutionBoundary(normalized) || describesOldRouteBug;
+	return (asksFailureClass || describesOldRouteBug) && mentionsRouting && noExecution;
 }
 
 export function isPublicationApprovalBoundaryQuestion(text: string): boolean {
@@ -1733,6 +1738,15 @@ function renderContextualHarnessBoundaryReply(_text: string, normalized: string)
 	if (/\b(?:mission\s+routing|route\s+hijack|routing\s+bug|mission\s+route|spawner\s+route)\b/.test(normalized)) {
 		return [
 			'Likely failure class: route hijack from a local mission/build helper outranking the current turn.',
+			'The durable fix is to keep this in chat and require the canonical Governor decision before anything can launch.'
+		].join('\n');
+	}
+	if (
+		/\b(?:old|previous|prior|stale)\s+bug\b/.test(normalized) &&
+		/\b(?:saw|matched|treated|read)\b.{0,80}\bmission\b.{0,80}\b(?:launched|started|ran|executed|triggered|routed)\b/.test(normalized)
+	) {
+		return [
+			'Likely failure class: route hijack from a stale mission/build helper treating the word "mission" as authority.',
 			'The durable fix is to keep this in chat and require the canonical Governor decision before anything can launch.'
 		].join('\n');
 	}

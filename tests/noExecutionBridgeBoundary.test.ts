@@ -150,6 +150,42 @@ test('browser/computer-use authorization boundary bypasses Builder bridge detour
   }
 });
 
+test('old mission route bug boundary bypasses Builder bridge detours', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+
+  const indexModule: any = await import('../src/index');
+  let bridgeCalls = 0;
+
+  indexModule.__setBuilderBridgeRunnerForTest(async () => {
+    bridgeCalls += 1;
+    return {
+      used: true,
+      responseText: 'I will launch a mission now.',
+      decision: 'plain_chat',
+      bridgeMode: 'test',
+      routingDecision: 'plain_chat'
+    };
+  });
+
+  try {
+    const text = 'I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.';
+    const replies: string[] = [];
+    await indexModule.handleTextMessage(fakeCtx(text, replies));
+
+    assert.equal(bridgeCalls, 0);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /route hijack/i);
+    assert.match(replies[0], /Governor decision/i);
+    assert.doesNotMatch(replies[0], /launch a mission now/i);
+  } finally {
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+  }
+});
+
 test('plain Builder replies drop voice media without delivery authorization', async () => {
   process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
   process.env.ADMIN_TELEGRAM_IDS = '8319079055';

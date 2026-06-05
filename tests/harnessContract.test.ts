@@ -148,6 +148,29 @@ test('keeps browser/computer-use authorization boundaries answer-only', () => {
   assert.ok(computerUseAuthorization.reasonCodes.includes('tool_denied_by_policy'));
 });
 
+test('keeps old mission route bug descriptions answer-only', () => {
+  const envelope = envelopeFor('I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.');
+
+  assert.equal(validateTurnIntentEnvelopeV1(envelope), true);
+  assert.equal(envelope.selectedIntent.kind, 'plain_conversation');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spark-telegram-bot');
+  assert.equal(envelope.selectedIntent.action, 'plain_chat.qa_boundary');
+  assert.equal(envelope.directive.mode, 'answer');
+  assert.equal(envelope.directive.noExecution, true);
+  assert.equal(envelope.executionPolicy.canLaunchMission, false);
+  assert.deepEqual(envelope.toolPolicy.allowedTools, ['answer.compose']);
+
+  const missionAuthorization = authorizeToolCallFromEnvelope(envelope, {
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+  assert.equal(missionAuthorization.verdict, 'blocked');
+  assert.ok(missionAuthorization.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(missionAuthorization.reasonCodes.includes('tool_denied_by_policy'));
+  assert.ok(missionAuthorization.reasonCodes.includes('mutation_class_not_authorized'));
+});
+
 test('blocks tool execution without a valid envelope', () => {
   const authorization = authorizeToolCallFromEnvelope(null, {
     toolName: 'spawner.run',

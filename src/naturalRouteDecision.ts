@@ -25,6 +25,7 @@ import {
   isGlobalAgentDoctrineRequest,
   isLocalSparkServiceRequest,
   isMemoryDoctorRequest,
+  isMissionRoutingFailureClassQuestion,
   isNoExecutionExplanationPrompt,
   isPublicationApprovalBoundaryQuestion,
   isProjectImprovementRequest,
@@ -314,6 +315,20 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['browser_computer_use_authorization_boundary'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  if (isMissionRoutingFailureClassQuestion(normalized)) {
+    return decision({
+      route: 'conversation.mission_routing_failure_class',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'plain_chat.qa_boundary',
+      payload: {},
+      context_source: 'latest_message',
+      matched_signals: ['mission_routing_failure_class'],
       blocked_by: [],
       requires_confirmation: false
     });

@@ -75,6 +75,7 @@ import {
   isAgentDoctrinePreferenceStatusQuestion,
   isGlobalAgentDoctrineRequest,
   isStandaloneAgentDoctrinePreference,
+  isMissionRoutingFailureClassQuestion,
   isUserMemoryRecallQuestion,
   parseContextualAccessChangeIntent,
   parseNaturalAccessChangeIntent,
@@ -2009,6 +2010,19 @@ test('computer-use authorization boundary is not treated as doctrine preference'
   assert.match(reply, /tool-call ledger/i);
   assert.match(reply, /stays chat-only/i);
   assert.match(reply, /No browser or computer-use tool is invoked/i);
+});
+
+test('old mission route bug descriptions stay chat-only', () => {
+  const prompt = 'I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.';
+
+  assert.equal(isMissionRoutingFailureClassQuestion(prompt), true);
+  assert.equal(extractAgentDoctrinePreference(prompt), null);
+
+  const reply = renderMissionRoutingFailureClassReply(prompt);
+  assert.match(reply, /route hijack/i);
+  assert.match(reply, /word "mission" as authority/i);
+  assert.match(reply, /Governor decision/i);
+  assert.doesNotMatch(reply, /Mission board|Canvas|Kanban|started|launched/i);
 });
 
 test('PR release-note wording with no-action language is blocked from local service routes', () => {
