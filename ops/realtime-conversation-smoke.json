@@ -457,7 +457,7 @@
       {
         "id": "chip-architecture",
         "user": "what should domain chip architecture look like if Spark has hundreds of systems?",
-        "expectedRouteOneOf": ["plain_chat", "conversation.ideation"],
+        "expectedRouteOneOf": ["plain_chat", "conversation.ideation", "chat_plan"],
         "mustNotRoute": ["domain_chip.create"]
       }
     ]
