@@ -24,6 +24,7 @@ import {
   isGlobalAgentDoctrineRequest,
   isLocalSparkServiceRequest,
   isMemoryDoctorRequest,
+  isNoExecutionExplanationPrompt,
   isProjectImprovementRequest,
   isSparkChipStatusOverclaimQuestion,
   isSparkSelfMemoryDiagnosticQuestion,
@@ -269,6 +270,20 @@ export function decideNaturalRoute(
       payload: { text: normalized },
       context_source: 'slash_command',
       matched_signals: ['leading_slash'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  if (isNoExecutionExplanationPrompt(normalized)) {
+    return decision({
+      route: 'conversation.no_execution_explanation',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'plain_chat.qa_boundary',
+      payload: {},
+      context_source: 'latest_message',
+      matched_signals: ['no_execution_explanation'],
       blocked_by: [],
       requires_confirmation: false
     });

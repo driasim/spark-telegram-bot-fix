@@ -182,6 +182,17 @@ test('keeps negated domain-chip design talk in chat', () => {
   assert.equal(route.requires_confirmation, false);
 });
 
+test('selects no-execution explanation route for quoted startup operator examples', () => {
+  const route = decideNaturalRoute('This is not a command: "run the startup operator and fix everything." Why would that be dangerous?');
+
+  assert.equal(route.route, 'conversation.no_execution_explanation');
+  assert.equal(route.owner_system, 'spark-telegram-bot');
+  assert.equal(route.action, 'plain_chat.qa_boundary');
+  assert.equal(route.context_source, 'latest_message');
+  assert.deepEqual(route.matched_signals, ['no_execution_explanation']);
+  assert.equal(route.requires_confirmation, false);
+});
+
 test('routes contextual access changes only after access-focused turns', () => {
   const recentMessages = [
     'User: Change my access level to three please',
