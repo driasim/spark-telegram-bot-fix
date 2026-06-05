@@ -1,16 +1,28 @@
 import assert from 'node:assert/strict';
 
 type AsyncTest = () => Promise<void> | void;
+const tests: Array<{ name: string; fn: AsyncTest }> = [];
 
-async function test(name: string, fn: AsyncTest): Promise<void> {
-  try {
-    await fn();
-    console.log(`ok - ${name}`);
-  } catch (error) {
-    console.error(`not ok - ${name}`);
-    throw error;
-  }
+function test(name: string, fn: AsyncTest): void {
+  tests.push({ name, fn });
 }
+
+process.nextTick(() => {
+  void (async () => {
+    for (const { name, fn } of tests) {
+      try {
+        await fn();
+        console.log(`ok - ${name}`);
+      } catch (error) {
+        console.error(`not ok - ${name}`);
+        throw error;
+      }
+    }
+  })().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+});
 
 function fakeCtx(
   text: string,
@@ -71,6 +83,54 @@ test('no-execution meta action words bypass Builder bridge detours', async () =>
     assert.equal(replies.length, 1);
     assert.match(replies[0], /examples or context|example words, not commands|action words as language evidence/i);
     assert.doesNotMatch(replies[0], /search the web|browser session/i);
+  } finally {
+    llmModule.llm.chat = originalChat;
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+  }
+});
+
+test('quoted drafted high-agency examples compose answers without Builder bridge detours', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+
+  const indexModule: any = await import('../src/index');
+  const llmModule = await import('../src/llm');
+  const originalChat = llmModule.llm.chat;
+  let bridgeCalls = 0;
+  let capturedPrompt = '';
+
+  indexModule.__setBuilderBridgeRunnerForTest(async () => {
+    bridgeCalls += 1;
+    return {
+      used: true,
+      responseText: 'I will create the chip now.',
+      decision: 'domain_chip.create',
+      bridgeMode: 'test',
+      routingDecision: 'domain_chip.create'
+    };
+  });
+  llmModule.llm.chat = async (prompt: string) => {
+    capturedPrompt = prompt;
+    return 'That belongs in the documentation example. I would discuss the wording in chat and would not create a chip or write memory from this turn.';
+  };
+
+  try {
+    const text = 'In documentation, should we include "create a memory chip" as an example?';
+    const replies: string[] = [];
+    await indexModule.handleTextMessage(fakeCtx(text, replies));
+
+    assert.equal(bridgeCalls, 0);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /documentation example|wording in chat/i);
+    assert.match(replies[0], /not create a chip|would not create/i);
+    assert.doesNotMatch(replies[0], /I will create the chip now/i);
+    assert.match(capturedPrompt, /conversation\.quoted_drafted_example_boundary/);
+    assert.match(capturedPrompt, /Allowed tool: answer\.compose only/);
+    assert.match(capturedPrompt, /domain_chip\.create/);
+    assert.match(capturedPrompt, /User message: In documentation/);
   } finally {
     llmModule.llm.chat = originalChat;
     indexModule.__setBuilderBridgeRunnerForTest(null);

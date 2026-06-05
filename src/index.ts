@@ -2506,6 +2506,13 @@ function toolAuthorizationForTelegramIntent(decision: TelegramIntentDecisionV2):
       mutationClass: 'read_only'
     };
   }
+  if (decision.route === 'conversation.quoted_drafted_example_boundary') {
+    return {
+      toolName: 'answer.compose',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'read_only'
+    };
+  }
   if (decision.route === 'startup.founder_advice') {
     return {
       toolName: 'answer.compose',
@@ -3039,6 +3046,31 @@ function recordLocalChatReplyExecution(ctx: any, naturalRouteShadow: NaturalRout
     'spark-telegram-bot',
     'plain_chat.local_llm'
   );
+}
+
+async function renderGovernedQuotedExampleBoundaryReply(
+  text: string,
+  decision: TelegramIntentDecisionV2,
+  envelope: TurnIntentEnvelopeV1
+): Promise<string> {
+  const deniedTools = envelope.toolPolicy.deniedTools
+    .filter((tool) => tool !== 'answer.compose')
+    .slice(0, 12)
+    .join(', ');
+  const prompt = [
+    'You are Spark replying in Telegram.',
+    'Harness Core has already classified the latest turn as quoted, drafted, or example high-agency text, not action authority.',
+    'Answer the user naturally from the fresh message. Do not use canned wording.',
+    'Do not claim any tool, mission, memory write, schedule, chip creation, browser/computer-use, publish, deploy, delete, repair, or runtime mutation happened.',
+    'If the user asks for wording, draft wording. If they ask for classification or risk, classify or explain the risk. Keep it brief.',
+    '',
+    `Selected route: ${decision.route}`,
+    'Allowed tool: answer.compose only',
+    `Denied high-agency tools: ${deniedTools || 'none listed'}`,
+    '',
+    `User message: ${text}`
+  ].join('\n');
+  return llm.chat(prompt);
 }
 
 async function replyViaBuilder(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
@@ -8936,6 +8968,36 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_execution_explanation', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
+  const quotedExampleAuthorization = !earlyBuildIntent && telegramIntentGateV2.route === 'conversation.quoted_drafted_example_boundary'
+    ? telegramActionAuthorityDecision(turnIntentEnvelope, {
+        route: 'conversation.quoted_drafted_example_boundary',
+        text,
+        toolName: 'answer.compose',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'read_only'
+      })
+    : null;
+  if (quotedExampleAuthorization?.allow) {
+    await conversation.remember(user, text).catch(() => {});
+    await safeSendChatAction(ctx, 'typing');
+    const reply = await renderGovernedQuotedExampleBoundaryReply(text, telegramIntentGateV2, turnIntentEnvelope);
+    recordTelegramHarnessCoreExecution(quotedExampleAuthorization, {
+      toolName: 'answer.compose',
+      status: 'success',
+      summary: 'Quoted/drafted/example high-agency text answered without executing side-effect tools.'
+    });
+    await ctx.reply(reply);
+    recordNaturalRouteExecution(
+      ctx,
+      naturalRouteShadow,
+      telegramIntentGateV2.route,
+      telegramIntentGateV2.owner_system,
+      telegramIntentGateV2.action
+    );
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
   }

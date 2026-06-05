@@ -171,6 +171,48 @@ test('keeps old mission route bug descriptions answer-only', () => {
   assert.ok(missionAuthorization.reasonCodes.includes('mutation_class_not_authorized'));
 });
 
+test('keeps quoted drafted high-agency examples answer-only', () => {
+  const envelope = envelopeFor('In documentation, should we include "create a memory chip" as an example?');
+
+  assert.equal(validateTurnIntentEnvelopeV1(envelope), true);
+  assert.equal(envelope.selectedIntent.kind, 'plain_conversation');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spark-telegram-bot');
+  assert.equal(envelope.selectedIntent.action, 'plain_chat.quoted_example_boundary');
+  assert.equal(envelope.directive.mode, 'answer');
+  assert.equal(envelope.directive.noExecution, true);
+  assert.equal(envelope.directive.localOnly, true);
+  assert.equal(envelope.directive.quotedOrMetaLanguage, true);
+  assert.equal(envelope.executionPolicy.canLaunchMission, false);
+  assert.equal(envelope.executionPolicy.canWriteMemory, false);
+  assert.equal(envelope.executionPolicy.canCreateChip, false);
+  assert.equal(envelope.executionPolicy.canCreateSchedule, false);
+  assert.equal(envelope.executionPolicy.canPublish, false);
+  assert.deepEqual(envelope.toolPolicy.allowedTools, ['answer.compose']);
+  assert.ok(envelope.toolPolicy.deniedTools.includes('domain_chip.create'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('memory.write'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('schedule.create'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('publish.run'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('browser.use'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('computer.use'));
+  assert.ok(envelope.threatDefense.reasonCodes.includes('fresh_user_turn_is_authority'));
+  assert.ok(envelope.threatDefense.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(envelope.threatDefense.reasonCodes.includes('meta_language_boundary'));
+
+  for (const tool of [
+    { toolName: 'domain_chip.create', ownerSystem: 'domain-chip', mutationClass: 'creates_chip' as const },
+    { toolName: 'memory.write', ownerSystem: 'domain-chip-memory', mutationClass: 'writes_memory' as const },
+    { toolName: 'schedule.create', ownerSystem: 'spark-intelligence-builder', mutationClass: 'creates_schedule' as const },
+    { toolName: 'publish.run', ownerSystem: 'spark-telegram-bot', mutationClass: 'publishes' as const },
+    { toolName: 'browser.use', ownerSystem: 'spark-telegram-bot', mutationClass: 'external_network' as const, externalNetwork: true }
+  ]) {
+    const authorization = authorizeToolCallFromEnvelope(envelope, tool);
+    assert.equal(authorization.verdict, 'blocked', tool.toolName);
+    assert.ok(authorization.reasonCodes.includes('no_execution_boundary'), tool.toolName);
+    assert.ok(authorization.reasonCodes.includes('tool_denied_by_policy'), tool.toolName);
+    assert.ok(authorization.reasonCodes.includes('mutation_class_not_authorized'), tool.toolName);
+  }
+});
+
 test('blocks tool execution without a valid envelope', () => {
   const authorization = authorizeToolCallFromEnvelope(null, {
     toolName: 'spawner.run',

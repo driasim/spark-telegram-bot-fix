@@ -1634,6 +1634,36 @@ export function isPublicationApprovalBoundaryQuestion(text: string): boolean {
 	return scopedToAdviceOnly && !immediatePublicationCommand;
 }
 
+export function isQuotedDraftedExampleBoundary(text: string): boolean {
+	const normalized = text.trim().toLowerCase().replace(/\s+/g, ' ');
+	if (!normalized) {
+		return false;
+	}
+	if (isSparkThreadQaGoldenCaseRequest(normalized)) {
+		return false;
+	}
+
+	const mentionsHighAgencyText =
+		/\b(?:build|create|make|scaffold|generate|start|run|launch|execute|dispatch|mission|spawner|codex|provider|schedule|loop|chip|memory|remember|save|publish|deploy|ship|release|merge|open\s+(?:a\s+)?pr|pull\s+request|delete|remove|repair|browser|computer[-\s]*use|inspect|spark\s+start)\b/.test(normalized);
+	if (!mentionsHighAgencyText) {
+		return false;
+	}
+
+	const quotedOrExampleFrame =
+		/\b(?:quoted?|inside\s+(?:a\s+)?quote|says?|phrase|phrases?|wording|policy\s+doc|example|sample|draft|test\s+case|fake\s+user\s+command)\b/.test(normalized) ||
+		/\b(?:documentation|docs?)\b.{0,80}\b(?:include|mention|example|sample|heading|phrase|wording)\b/.test(normalized) ||
+		/"[^"]{2,160}"/.test(text) ||
+		/`[^`]{2,160}`/.test(text);
+	const asksForTextOnlyWork =
+		/\b(?:write|draft|create)\b.{0,80}\b(?:message|example\s+prompt|prompt|wording|test\s+case)\b/.test(normalized) ||
+		/\b(?:compare|classify|quote|include|should\s+we\s+include|wording|policy\s+doc|what\s+risk|what\s+should\s+spark\s+do)\b/.test(normalized);
+	const blocksExecution =
+		/\b(?:do\s+not|don't|dont|without|should\s+not|shouldn't|not\s+run|not\s+send|i\s+should\s+not\s+run)\b.{0,100}\b(?:send|run|start|launch|execute|build|create|save|schedule|publish|deploy|delete|repair|open|inspect)\b/.test(normalized) ||
+		/\b(?:without|no)\s+(?:deploying|running|sending|publishing|scheduling|repairing|deleting|mutation|side\s+effects?)\b/.test(normalized);
+
+	return quotedOrExampleFrame && (asksForTextOnlyWork || blocksExecution);
+}
+
 export function renderPublicationApprovalBoundaryReply(_text: string): string {
 	return [
 		'I should treat this as an approval-list question only. No publish, deploy, PR, merge, registry, or production action is authorized by this turn.',

@@ -90,7 +90,8 @@ import {
   renderXPostReviewFromLinksBoundaryReply,
   shouldSuppressBuilderReplyForPlainChat,
   shouldUseBuilderReplyForMemoryDirective,
-  shouldPreferConversationalIdeation
+  shouldPreferConversationalIdeation,
+  isQuotedDraftedExampleBoundary
 } from '../src/conversationIntent';
 import { buildConversationFrame } from '../src/conversationFrame';
 import {
@@ -158,6 +159,32 @@ test('detects no-execution boundaries before pending builds can launch', () => {
   assert.equal(isNoExecutionBoundary('not now, maybe later'), true);
   assert.equal(isNoExecutionBoundary('we can discuss here for now'), true);
   assert.equal(isNoExecutionBoundary('go ahead and build it'), false);
+});
+
+test('treats quoted drafted high-agency text as evidence only', () => {
+  const boundaryPrompts = [
+    'Write a message that says "start a mission now" but do not send or run it.',
+    'In documentation, should we include "create a memory chip" as an example?',
+    'If a user says "publish the PR" inside a quote, what should Spark do?',
+    'Draft a test case for "repair Spark", but do not run the repair.',
+    'Create an example prompt for a deploy approval flow, without deploying.',
+    'I need wording for "schedule a run tomorrow" in a policy doc.',
+    'Here is a fake user command: "delete the bad route." Classify it.',
+    'Can you quote the command I should not run: spark start?'
+  ];
+
+  for (const prompt of boundaryPrompts) {
+    assert.equal(isQuotedDraftedExampleBoundary(prompt), true, prompt);
+  }
+
+  assert.equal(isQuotedDraftedExampleBoundary('Create a domain chip for memory routing.'), false);
+  assert.equal(isQuotedDraftedExampleBoundary('Schedule a run tomorrow.'), false);
+  assert.equal(
+    isQuotedDraftedExampleBoundary(
+      'Do not build anything. Turn the H70 Orbit Proof interruption into a golden Thread QA test case. Keep it natural and short.'
+    ),
+    false
+  );
 });
 
 test('infers Spark bug-recognition mission from recent planning context', () => {

@@ -8,6 +8,7 @@ import {
   isBrowserComputerUseAuthorizationBoundaryQuestion,
   isMissionRoutingFailureClassQuestion,
   isPublicationApprovalBoundaryQuestion,
+  isQuotedDraftedExampleBoundary,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isStartupFounderAdvisoryQuestion,
@@ -51,6 +52,13 @@ export function parseTelegramIntentConstraintsV2(text: string): TelegramIntentCo
     constraints.noPublish = true;
     constraints.noMerge = true;
     constraints.noPublicClaim = true;
+    constraints.noNetworkAbsorptionClaim = true;
+    constraints.localOnly = true;
+    return constraints;
+  }
+
+  if (isQuotedDraftedExampleBoundary(normalized)) {
+    constraints.noExecution = true;
     constraints.noNetworkAbsorptionClaim = true;
     constraints.localOnly = true;
     return constraints;
@@ -366,6 +374,25 @@ export function classifyTelegramIntentV2(text: string, context: TelegramIntentGa
       constraints,
       naturalRoute,
       matchedSignals: ['explicit_sparkqa_pause']
+    });
+  }
+
+  if (isQuotedDraftedExampleBoundary(normalized)) {
+    return makeDecision({
+      kind: 'plain_conversation',
+      route: 'conversation.quoted_drafted_example_boundary',
+      owner_system: 'spark-telegram-bot',
+      action: 'plain_chat.quoted_example_boundary',
+      confidence: 'explicit',
+      constraints,
+      payload: basePayload(naturalRoute),
+      matched_signals: ['quoted_drafted_example_boundary'],
+      blocked_candidates: naturalRoute && naturalRoute.route !== 'conversation.quoted_drafted_example_boundary'
+        ? [candidate(kindForNaturalRoute(naturalRoute.route), naturalRoute.route, naturalRoute.owner_system, 'Quoted or drafted high-agency wording is evidence only and cannot own execution.')]
+        : [],
+      supporting_routes: supportingRoutes(naturalRoute),
+      enforcement: 'enforce_safe',
+      natural_route: naturalRoute
     });
   }
 
@@ -804,7 +831,8 @@ export function isTelegramIntentGateV2SafeRoute(decision: TelegramIntentDecision
     'startup.founder_advice',
     'memory.write',
     'access.status',
-    'access.help'
+    'access.help',
+    'conversation.quoted_drafted_example_boundary'
   ].includes(decision.route);
 }
 

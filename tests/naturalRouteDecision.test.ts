@@ -193,6 +193,29 @@ test('selects no-execution explanation route for quoted startup operator example
   assert.equal(route.requires_confirmation, false);
 });
 
+test('routes quoted drafted high-agency examples to answer-only boundary', () => {
+  const prompts = [
+    'Write a message that says "start a mission now" but do not send or run it.',
+    'In documentation, should we include "create a memory chip" as an example?',
+    'I need wording for "schedule a run tomorrow" in a policy doc.',
+    'Here is a fake user command: "delete the bad route." Classify it.'
+  ];
+
+  for (const prompt of prompts) {
+    const route = decideNaturalRoute(prompt);
+    assert.equal(route.route, 'conversation.quoted_drafted_example_boundary', prompt);
+    assert.equal(route.owner_system, 'spark-telegram-bot', prompt);
+    assert.equal(route.action, 'plain_chat.quoted_example_boundary', prompt);
+    assert.equal(route.context_source, 'latest_message', prompt);
+    assert.deepEqual(route.matched_signals, ['quoted_drafted_example_boundary'], prompt);
+    assert.equal(route.requires_confirmation, false, prompt);
+  }
+
+  const explicitChip = decideNaturalRoute('build a domain-chip for Telegram memory routing');
+  assert.equal(explicitChip.route, 'domain_chip.create');
+  assert.equal(explicitChip.requires_confirmation, true);
+});
+
 test('selects publication approval boundary route for future publish approval lists', () => {
   const route = decideNaturalRoute('I might ask you to publish later, but right now just list what would need approval.');
 

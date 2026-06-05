@@ -28,6 +28,7 @@ import {
   isMissionRoutingFailureClassQuestion,
   isNoExecutionExplanationPrompt,
   isPublicationApprovalBoundaryQuestion,
+  isQuotedDraftedExampleBoundary,
   isProjectImprovementRequest,
   isSparkChipStatusOverclaimQuestion,
   isSparkSelfMemoryDiagnosticQuestion,
@@ -301,6 +302,20 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['publication_approval_boundary'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  if (isQuotedDraftedExampleBoundary(normalized)) {
+    return decision({
+      route: 'conversation.quoted_drafted_example_boundary',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'plain_chat.quoted_example_boundary',
+      payload: {},
+      context_source: 'latest_message',
+      matched_signals: ['quoted_drafted_example_boundary'],
       blocked_by: [],
       requires_confirmation: false
     });
