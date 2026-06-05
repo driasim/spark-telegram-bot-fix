@@ -938,6 +938,33 @@ function runtimeStatusNaturalRouteDecision(kind: 'live_status' | 'repair_status'
   };
 }
 
+function runtimeTruthPriorityNaturalRouteDecision(): NaturalRouteDecision {
+  const route = 'spark.read_only_state.runtime_truth_priority';
+  return {
+    schema_version: 'spark.nlp.route_decision.v1',
+    route,
+    owner_system: 'spark-telegram-bot',
+    confidence: 'explicit',
+    action: 'harness_core.read_only_state',
+    payload: {
+      question: 'runtime_truth_priority',
+      mutation_class: 'read_only'
+    },
+    context_source: 'latest_message',
+    matched_signals: [
+      'fresh_user_intent',
+      'stale_memory_context',
+      'current_state_priority',
+      'harness_core_authorized'
+    ],
+    blocked_by: [],
+    requires_confirmation: false,
+    trace: {
+      selected_by: 'telegram_runtime_truth_priority_authority'
+    }
+  };
+}
+
 async function readSparkLiveStatusJson(): Promise<Record<string, unknown>> {
   const raw = await runSparkCli(['live', 'status', '--json'], 25_000);
   return JSON.parse(raw) as Record<string, unknown>;
@@ -8661,8 +8688,46 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	  }
 
 	  if (!earlyBuildIntent && shouldAnswerRuntimeTruthPriority(text)) {
+	    const runtimeTruthPriorityAuthorization = telegramActionAuthorityDecision(
+	      telegramActionEnvelope(turnIntentEnvelope, {
+	        route: 'spark.read_only_state',
+	        ownerSystem: 'spark-telegram-bot',
+	        action: 'spark.read_only_state.runtime_truth_priority',
+	        kind: 'runtime_truth_or_operator',
+	        confidence: 'explicit',
+	        mutationClass: 'read_only'
+	      }),
+	      {
+	        route: 'spark.read_only_state',
+	        text,
+	        toolName: 'spark.read_only_state',
+	        ownerSystem: 'spark-telegram-bot',
+	        mutationClass: 'read_only'
+	      }
+	    );
+	    if (!runtimeTruthPriorityAuthorization.allow) {
+	      recordTelegramHarnessCoreExecution(runtimeTruthPriorityAuthorization, {
+	        toolName: 'spark.read_only_state',
+	        status: 'not_started',
+	        summary: 'Natural runtime truth priority answer was blocked.'
+	      });
+	      await ctx.reply('I did not answer from current-state hierarchy because the fresh turn did not authorize that read-only check.');
+	      return;
+	    }
 	    await conversation.remember(user, text).catch(() => {});
 	    const reply = renderRuntimeTruthPriorityAnswer();
+	    recordNaturalRouteExecution(
+	      ctx,
+	      runtimeTruthPriorityNaturalRouteDecision(),
+	      'spark.read_only_state.runtime_truth_priority',
+	      'spark-telegram-bot',
+	      'harness_core.read_only_state'
+	    );
+	    recordTelegramHarnessCoreExecution(runtimeTruthPriorityAuthorization, {
+	      toolName: 'spark.read_only_state',
+	      status: 'success',
+	      summary: 'Natural runtime truth priority answer completed.'
+	    });
 	    await ctx.reply(reply);
     recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_runtime_truth_priority', [
       {

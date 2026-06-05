@@ -2698,6 +2698,12 @@ async function run(): Promise<void> {
 		process.env.SPARK_BOT_TEST_MODE = '1';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-runtime-truth-priority-'));
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -2719,6 +2725,33 @@ async function run(): Promise<void> {
 		assert.doesNotMatch(reply, /provider checks|direct smoke probes/);
 		assert.ok(reply.split(/\n/).filter((line) => line.trim()).length <= 2, `expected short reply, got: ${reply}`);
 		assert.equal(captured.length, 0, 'source-priority question must not call Spawner or PRD bridge');
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spark.read_only_state' &&
+				record.authorization.verdict === 'allow' &&
+				record.result.status === 'not_started'
+			)),
+			'runtime truth priority must record Harness Core authorization before answering'
+		);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spark.read_only_state' &&
+				record.authorization.verdict === 'allow' &&
+				record.result.status === 'success' &&
+				/Natural runtime truth priority answer completed/.test(record.result.summary)
+			)),
+			'runtime truth priority must record final Harness Core read outcome'
+		);
+		const runtimeTruthPriorityRoute = (record: any) => (
+			record.executed_route === 'spark.read_only_state.runtime_truth_priority' &&
+			record.executed_action === 'harness_core.read_only_state'
+		);
+		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, runtimeTruthPriorityRoute);
+		assert.ok(
+			naturalRouteRecords.some(runtimeTruthPriorityRoute),
+			'runtime truth priority must record natural route execution through Harness Core'
+		);
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreAxios();
