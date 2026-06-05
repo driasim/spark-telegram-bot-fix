@@ -4152,8 +4152,13 @@ async function run(): Promise<void> {
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
 		process.env.BOT_DEFAULT_TIER = 'base';
 		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-chat-only-chip-proposal-'));
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -4161,22 +4166,49 @@ async function run(): Promise<void> {
 			return { data: { success: true } };
 		};
 
-		const replies: string[] = [];
-		const ctx = makeFakeCtx(8319079071, 8319079055, 624, replies);
-		ctx.message.text = 'Create a tiny domain chip proposal in chat only for startup pricing objections. Do not create files or launch a mission.';
-		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: 'Startup Pricing Objection Coach: compare one trigger, one response playbook, and one proof check before chip activation.',
+			decision: 'chat',
+			bridgeMode: 'external_configured',
+			routingDecision: 'provider_fallback_chat'
+		});
 
-		const reply = replies[0] || '';
-		assert.match(reply, /Startup Pricing Objection Coach/i);
-		assert.match(reply, /Trigger:/i);
-		assert.match(reply, /Proof:/i);
-		assert.doesNotMatch(reply, /Mission:|I will run|permission to run tools/i);
-		assert.equal(captured.length, 0, 'chat-only chip proposal must not call Spawner or PRD bridge');
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079071, 8319079055, 624, replies);
+			ctx.message.text = 'HC-09 installer proof: We are comparing domain-chip options for startup pricing objections; what proposal should we discuss first?';
+			await indexModule.handleTextMessage(ctx);
 
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreAxios();
-		restoreEnv();
+			const reply = replies[0] || '';
+			assert.match(reply, /Startup Pricing Objection Coach/i);
+			assert.match(reply, /trigger/i);
+			assert.match(reply, /proof/i);
+			assert.doesNotMatch(reply, /Mission:|I will run|permission to run tools/i);
+			assert.equal(captured.length, 0, 'chat-only chip proposal must not call Spawner or PRD bridge');
+
+			const chatPlanRoute = (record: any) => (
+				record.shadow_route === 'chat_plan' &&
+				record.executed_route === 'chat_plan' &&
+				record.executed_action === 'plain_chat.provider_fallback'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, chatPlanRoute);
+			const routeRecord = naturalRouteRecords.find(chatPlanRoute);
+			assert.ok(routeRecord, 'domain-chip proposal must preserve canonical chat_plan route evidence');
+			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
+			assert.equal(routeRecord?.delivery, 'delivered');
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
 	});
 
 	await test('schedule word in bug report stays schedule-specific chat', async () => {

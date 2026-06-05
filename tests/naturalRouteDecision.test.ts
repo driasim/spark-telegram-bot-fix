@@ -196,6 +196,23 @@ test('routes explicit domain-chip creation before creator or build routes', () =
   assert.equal(route.requires_confirmation, true);
 });
 
+test('routes domain-chip option proposals to chat_plan without chip creation', () => {
+  const route = decideNaturalRoute(
+    'HC-09 installer proof: We are comparing domain-chip options for startup pricing objections; what proposal should we discuss first?'
+  );
+
+  assert.equal(route.route, 'chat_plan');
+  assert.equal(route.owner_system, 'spark-intelligence-builder');
+  assert.equal(route.action, 'plain_chat.plan');
+  assert.equal(route.context_source, 'latest_message');
+  assert.deepEqual(route.matched_signals, ['canonical_chat_plan']);
+  assert.equal(route.requires_confirmation, false);
+
+  const explicitChip = decideNaturalRoute('build a domain-chip for Telegram memory routing');
+  assert.equal(explicitChip.route, 'domain_chip.create');
+  assert.equal(explicitChip.requires_confirmation, true);
+});
+
 test('keeps negated domain-chip design talk in chat', () => {
   const route = decideNaturalRoute('Please do not build, do not save, and do not create a chip. I only want to understand the design.');
 

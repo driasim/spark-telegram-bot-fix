@@ -9371,7 +9371,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     await ctx.reply(formatDomainChipBuildPreview(earlyNaturalChipBrief));
     return;
   }
-  if (!earlyBuildIntent && shouldPreferConversationalIdeation(text)) {
+  if (!earlyBuildIntent && naturalRouteShadow?.route !== 'chat_plan' && shouldPreferConversationalIdeation(text)) {
     console.log(`[ConversationIntent] early ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
     if (isPendingClarificationAlternativeRequest(text)) {
       deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));
@@ -10400,7 +10400,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     await conversation.remember(user, text).catch(() => {});
 
-    if (shouldPreferConversationalIdeation(text)) {
+    if (naturalRouteShadow?.route !== 'chat_plan' && shouldPreferConversationalIdeation(text)) {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
       if (isPendingClarificationAlternativeRequest(text)) {
         deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));

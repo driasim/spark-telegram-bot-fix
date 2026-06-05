@@ -216,12 +216,25 @@ function hasRecentProductPlanningContext(recentMessages: string[]): boolean {
   });
 }
 
+function isDomainChipChatPlanTurn(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!/\bdomain[-\s]*chip\b/.test(normalized)) return false;
+  if (/\b(?:build|create|make|ship|scaffold|generate|start|run|launch|execute|spin\s+up)\b.{0,80}\bdomain[-\s]*chip\b/.test(normalized)) {
+    return false;
+  }
+  if (/\bdomain[-\s]*chip\b.{0,80}\b(?:build|create|make|ship|scaffold|generate|start|run|launch|execute|spin\s+up)\b/.test(normalized)) {
+    return false;
+  }
+  return /\b(?:proposal|option|options|compare|comparing|discuss|discussion|what\s+should|what\s+would|how\s+should|which\s+(?:proposal|option|direction)|shape|scope|plan|planning|design|first\s+version|v1|trigger|proof|playbook|activation|boundary)\b/.test(normalized);
+}
+
 function isCanonicalChatPlanTurn(text: string, recentMessages: string[]): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!normalized || normalized.startsWith('/')) return false;
   if (/\b(?:build|create|make|ship|scaffold|generate|start|run|launch|execute)\b.{0,80}\b(?:at|in|into|now|please|for me)\b/.test(normalized)) {
     return false;
   }
+  if (isDomainChipChatPlanTurn(normalized)) return true;
   const productSurface = /\b(?:dashboard|app|tool|product|interface|ui|screen|view|workflow|panel|board|memory|stale[-\s]*context|freshness|quality)\b/.test(normalized);
   const planningLanguage =
     /\b(?:sketch(?:ing)?|scope|scoping|shape|plan|planning|what\s+should|what\s+would|first\s+(?:screen|view|version)|mvp|v1|include|layout|sections?|evaluation cases?)\b/.test(normalized);
