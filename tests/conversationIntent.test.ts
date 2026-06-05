@@ -679,6 +679,16 @@ test('keeps explicit design-only project prompts in conversation', () => {
   assert.match(hint, /Do not scold the user/);
 });
 
+test('keeps negated high-agency design prompts on deterministic ideation replies', () => {
+  const prompt = 'Please do not build, do not save, and do not create a chip. I only want to understand the design.';
+  assert.equal(shouldPreferConversationalIdeation(prompt), true);
+
+  const reply = buildNoExecutionIdeationReply(prompt);
+  assert.match(reply, /I won't create one here/i);
+  assert.match(reply, /what should activate the chip/i);
+  assert.doesNotMatch(reply, /scaffold/i);
+});
+
 test('keeps access and build bug reports out of deterministic route menus', () => {
   const keywordAudit = 'words like build access and other things hijack chat instantly, can you check whether we fixed that';
   assert.equal(isAccessStatusQuestion(keywordAudit), false);

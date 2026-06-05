@@ -58,9 +58,14 @@ export function shouldPreferConversationalIdeation(text: string): boolean {
     return false;
   }
   const mentionsDomainChipArtifact = /\bdomain[-\s]*chip[-\w]*\b/i.test(trimmed);
+  const designOnlyNoExecution =
+    isNoExecutionBoundary(trimmed) &&
+    /\b(?:build|create|make|scaffold|generate|start|run|launch|execute|mission|spawner|schedule|loop|chip|route|memory|wiki|access|publish|deploy|remember|draft|canvas|browser|computer-use|computer\s+use|restart)\b/i.test(trimmed) &&
+    /\b(?:only\s+(?:want|need)\s+(?:to\s+)?understand|understand\s+the\s+design|understand|design|explain|reason|think\s+through|discuss)\b/i.test(trimmed);
   return (
     hasLocalOptionReference(trimmed) ||
     mentionsDomainChipArtifact ||
+    designOnlyNoExecution ||
     isAccessSandboxRouteDesignDiscussion(trimmed) ||
     COLLABORATIVE_IDEA_PATTERNS.some((pattern) => pattern.test(trimmed))
   );
@@ -2969,7 +2974,7 @@ export function buildIdeationFallbackReply(text: string): string {
     ].join('\n');
   }
 
-  if (/\bdomain[-\s]*chip[-\w]*\b/i.test(text)) {
+  if (/\b(?:domain[-\s]*chip[-\w]*|chip)\b/i.test(text)) {
     return [
       'Yes. I would shape this as a real domain chip first, not jump straight into files.',
       '',
@@ -3046,7 +3051,7 @@ export function buildNoExecutionIdeationReply(text: string): string {
     ].join('\n');
   }
 
-  if (/\bdomain[-\s]*chip[-\w]*\b/i.test(text)) {
+  if (/\b(?:domain[-\s]*chip[-\w]*|chip)\b/i.test(text)) {
     return [
       "I won't create one here.",
       '',
