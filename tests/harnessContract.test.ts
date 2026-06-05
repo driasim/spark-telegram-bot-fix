@@ -120,6 +120,34 @@ test('keeps publication approval-list boundaries answer-only', () => {
   assert.ok(networkAuthorization.reasonCodes.includes('tool_denied_by_policy'));
 });
 
+test('keeps browser/computer-use authorization boundaries answer-only', () => {
+  const envelope = envelopeFor('Do not use computer use. Tell me when computer use would be allowed.');
+
+  assert.equal(validateTurnIntentEnvelopeV1(envelope), true);
+  assert.equal(envelope.selectedIntent.kind, 'plain_conversation');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spark-telegram-bot');
+  assert.equal(envelope.selectedIntent.action, 'plain_chat.qa_boundary');
+  assert.equal(envelope.directive.mode, 'answer');
+  assert.equal(envelope.directive.noExecution, true);
+  assert.equal(envelope.directive.localOnly, true);
+  assert.equal(envelope.executionPolicy.canLaunchMission, false);
+  assert.equal(envelope.executionPolicy.canUseExternalNetwork, false);
+  assert.deepEqual(envelope.toolPolicy.allowedTools, ['answer.compose']);
+  assert.ok(envelope.toolPolicy.deniedTools.includes('browser.use'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('computer.use'));
+
+  const computerUseAuthorization = authorizeToolCallFromEnvelope(envelope, {
+    toolName: 'computer.use',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'external_network',
+    externalNetwork: true
+  });
+  assert.equal(computerUseAuthorization.verdict, 'blocked');
+  assert.ok(computerUseAuthorization.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(computerUseAuthorization.reasonCodes.includes('external_network_not_authorized'));
+  assert.ok(computerUseAuthorization.reasonCodes.includes('tool_denied_by_policy'));
+});
+
 test('blocks tool execution without a valid envelope', () => {
   const authorization = authorizeToolCallFromEnvelope(null, {
     toolName: 'spawner.run',

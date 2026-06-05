@@ -113,6 +113,43 @@ test('publication approval-list boundary bypasses Builder bridge detours', async
   }
 });
 
+test('browser/computer-use authorization boundary bypasses Builder bridge detours', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+
+  const indexModule: any = await import('../src/index');
+  let bridgeCalls = 0;
+
+  indexModule.__setBuilderBridgeRunnerForTest(async () => {
+    bridgeCalls += 1;
+    return {
+      used: true,
+      responseText: 'I will use computer-use now.',
+      decision: 'plain_chat',
+      bridgeMode: 'test',
+      routingDecision: 'plain_chat'
+    };
+  });
+
+  try {
+    const text = 'Do not use computer use. Tell me when computer use would be allowed.';
+    const replies: string[] = [];
+    await indexModule.handleTextMessage(fakeCtx(text, replies));
+
+    assert.equal(bridgeCalls, 0);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /Browser and computer-use should be authorized as tools/i);
+    assert.match(replies[0], /stays chat-only/i);
+    assert.match(replies[0], /No browser or computer-use tool is invoked/i);
+    assert.doesNotMatch(replies[0], /use computer-use now/i);
+  } finally {
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+  }
+});
+
 test('plain Builder replies drop voice media without delivery authorization', async () => {
   process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
   process.env.ADMIN_TELEGRAM_IDS = '8319079055';

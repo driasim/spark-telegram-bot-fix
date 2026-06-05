@@ -379,6 +379,8 @@ function deniedToolsForDecision(decision: TelegramIntentDecisionV2, policy: Spar
       'access.change',
       'operator.safe_action',
       'route.probe',
+      'browser.use',
+      'computer.use',
       'diagnostics.scan',
       'spark.self_improvement',
       'spark.process_queue',

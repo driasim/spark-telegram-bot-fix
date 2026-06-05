@@ -5,6 +5,7 @@ import {
   extractSparkWikiQuery,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
+  isBrowserComputerUseAuthorizationBoundaryQuestion,
   isPublicationApprovalBoundaryQuestion,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
@@ -49,6 +50,13 @@ export function parseTelegramIntentConstraintsV2(text: string): TelegramIntentCo
     constraints.noPublish = true;
     constraints.noMerge = true;
     constraints.noPublicClaim = true;
+    constraints.noNetworkAbsorptionClaim = true;
+    constraints.localOnly = true;
+    return constraints;
+  }
+
+  if (isBrowserComputerUseAuthorizationBoundaryQuestion(normalized)) {
+    constraints.noExecution = true;
     constraints.noNetworkAbsorptionClaim = true;
     constraints.localOnly = true;
     return constraints;

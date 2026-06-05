@@ -263,6 +263,7 @@ import {
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
+  isBrowserComputerUseAuthorizationBoundaryQuestion,
   isMissionRoutingFailureClassQuestion,
   isModelSwitchGateExplanationRequest,
   isNoEditSpawnerProbeExplanationRequest,
@@ -295,6 +296,7 @@ import {
   renderChatRuntimeFailureReply,
   renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
+  renderBrowserComputerUseAuthorizationBoundaryReply,
   renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
@@ -8278,6 +8280,14 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const reply = renderModelSwitchGateExplanationReply();
     await conversation.remember(user, text).catch(() => {});
     recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.model_switch_gate_explanation', 'spark-telegram-bot', 'plain_chat.model_switch_gate');
+    await ctx.reply(reply);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+  if (!earlyBuildIntent && isBrowserComputerUseAuthorizationBoundaryQuestion(text)) {
+    const reply = renderBrowserComputerUseAuthorizationBoundaryReply(text);
+    await conversation.remember(user, text).catch(() => {});
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.browser_computer_use_authorization_boundary', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;

@@ -1641,6 +1641,40 @@ export function renderPublicationApprovalBoundaryReply(_text: string): string {
 	].join('\n');
 }
 
+export function isBrowserComputerUseAuthorizationBoundaryQuestion(text: string): boolean {
+	const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+	if (!normalized) return false;
+
+	const mentionsCapability = /\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b/.test(normalized);
+	if (!mentionsCapability) return false;
+
+	const blocksUseNow =
+		/\b(?:do\s+not|don't|dont|without|not)\s+(?:use|open|call|run|click|browse|drive)\b.{0,80}\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b/.test(normalized) ||
+		/\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b.{0,80}\b(?:do\s+not|don't|dont|without|not)\s+(?:use|open|call|run|click|browse|drive)\b/.test(normalized);
+	const asksBoundary =
+		/\b(?:when|how|what|which)\b.{0,120}\b(?:allowed?|authori[sz]ed?|authorization|permission|approval|approve|tool approval|gates?|criteria|boundary)\b/.test(normalized) ||
+		/\b(?:allowed?|authori[sz]ed?|authorization|permission|approval|approve|tool approval|governor|gates?|criteria|boundary)\b.{0,120}\b(?:when|how|what|which|tell|explain|list|describe)\b/.test(normalized);
+	const asksToExplain = /\b(?:tell|explain|list|describe|when|how|what)\b/.test(normalized);
+	const explicitUseCommand =
+		/^(?:please\s+)?(?:use|open|call|run|click|browse|drive)\b.{0,80}\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b/.test(normalized) ||
+		/\b(?:use|open|call|run|click|browse|drive)\s+(?:the\s+)?(?:browser|browser-use|computer[-\s]*use)\b/.test(normalized);
+
+	return (asksBoundary || (blocksUseNow && asksToExplain)) && !(explicitUseCommand && !blocksUseNow);
+}
+
+export function renderBrowserComputerUseAuthorizationBoundaryReply(_text: string): string {
+	return [
+		'Browser and computer-use should be authorized as tools, not triggered by capability names.',
+		'Allowed only after:',
+		'- fresh explicit request with the exact target and action',
+		'- Harness Core envelope and Governor-selected capability and scope',
+		'- authorization with policy/access restrictions',
+		'- tool-call ledger before execution',
+		'- visible result or side-effect proof after execution',
+		'This turn stays chat-only because it says not to use browser/computer-use. No browser or computer-use tool is invoked.'
+	].join('\n');
+}
+
 function renderContextualHarnessBoundaryReply(_text: string, normalized: string): string {
 	if (
 		/\bvoice\s+transcript\s+example\b/.test(normalized) ||
@@ -2832,6 +2866,7 @@ function classifyAgentDoctrinePreference(text: string): string {
 export function extractAgentDoctrinePreference(text: string): string | null {
   const trimmed = text.replace(/\s+/g, ' ').trim();
   if (!trimmed) return null;
+  if (isBrowserComputerUseAuthorizationBoundaryQuestion(trimmed)) return null;
 
   const lower = trimmed.toLowerCase();
   if (

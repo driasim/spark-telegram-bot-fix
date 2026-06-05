@@ -44,12 +44,14 @@ import {
   isActionWordMetaDiscussion,
   isExternalResearchRequest,
   isExplicitContextualBuildRequest,
+  isBrowserComputerUseAuthorizationBoundaryQuestion,
   isSparkChipStatusOverclaimQuestion,
   isSparkWorkflowBugHuntRequest,
   isSparkThreadQaGoldenCaseRequest,
   renderSparkThreadQaGoldenCaseReply,
   renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
+  renderBrowserComputerUseAuthorizationBoundaryReply,
   renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
@@ -1992,6 +1994,21 @@ test('release evidence questions with no-action language stay conversational', (
     ),
     false
   );
+});
+
+test('computer-use authorization boundary is not treated as doctrine preference', () => {
+  const prompt = 'Do not use computer use. Tell me when computer use would be allowed.';
+
+  assert.equal(isBrowserComputerUseAuthorizationBoundaryQuestion(prompt), true);
+  assert.equal(isStandaloneAgentDoctrinePreference(prompt), false);
+  assert.equal(extractAgentDoctrinePreference(prompt), null);
+
+  const reply = renderBrowserComputerUseAuthorizationBoundaryReply(prompt);
+  assert.match(reply, /Browser and computer-use should be authorized as tools/i);
+  assert.match(reply, /Governor-selected capability and scope/i);
+  assert.match(reply, /tool-call ledger/i);
+  assert.match(reply, /stays chat-only/i);
+  assert.match(reply, /No browser or computer-use tool is invoked/i);
 });
 
 test('PR release-note wording with no-action language is blocked from local service routes', () => {
