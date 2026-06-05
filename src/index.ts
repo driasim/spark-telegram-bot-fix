@@ -396,6 +396,7 @@ export {
 export { isDomainChipPendingDirection } from './telegramPendingDomainChipEvidence';
 
 const TELEGRAM_SMOKE_MODE = process.env.TELEGRAM_SMOKE_MODE === '1';
+const TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME = 'telegram.local_memory_note';
 const execFileAsync = promisify(execFile);
 
 installConsoleRedaction();
@@ -3482,11 +3483,15 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: builderRouted
         ? 'memory.write'
-        : 'memory.write',
-      status: builderRouted ? 'success' : 'failure',
+        : localSaved
+          ? TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME
+          : 'memory.write',
+      status: builderRouted || localSaved ? 'success' : 'failure',
       summary: builderRouted
         ? 'Telegram /remember routed the memory write through Builder/domain-chip memory; Telegram local notes were not materialized.'
-        : 'Telegram /remember could not persist because Builder/domain-chip memory was unavailable; Telegram local notes were not materialized.'
+        : localSaved
+          ? 'Telegram /remember stored only a Telegram-local note; durable Builder/domain-chip memory was not confirmed.'
+          : 'Telegram /remember could not persist because Builder/domain-chip memory was unavailable; Telegram local notes were not materialized.'
     });
     if (builderRouted) {
       return;

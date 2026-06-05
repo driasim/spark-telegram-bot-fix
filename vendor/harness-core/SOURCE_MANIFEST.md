@@ -5,7 +5,7 @@ standalone Telegram bot checkouts can resolve the canonical Harness Core
 contracts without relying on an adjacent local Spark module checkout.
 
 - Source repo: `vibeforge1111/spark-harness-core`
-- Source commit: `0f893a2c70ada9b7d9fb4f25b4c686eed7ff7539`
+- Source commit: `55d1c464a7ea9090395aa36615c1647feebb81a3`
 - Package: `@spark/harness-core@0.1.0`
 - Rule: this is the canonical Harness Core contract/Governor package artifact,
   not a fallback authority plane. Old Telegram detectors remain evidence
