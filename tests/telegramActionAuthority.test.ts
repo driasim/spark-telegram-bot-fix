@@ -9,6 +9,7 @@ import {
   governorOutcomeAllowsTelegramAction
 } from '../src/telegramActionAuthority';
 import { classifyTelegramIntentV2 } from '../src/telegramIntentGate';
+import { decideNaturalRoute } from '../src/naturalRouteDecision';
 
 function test(name: string, fn: () => void): void {
   try {
@@ -24,6 +25,19 @@ function envelopeFor(text: string) {
   return buildTelegramTurnIntentEnvelope({
     text,
     decision: classifyTelegramIntentV2(text),
+    userRef: 'user:qa',
+    chatRef: 'chat:qa',
+    accessProfile: 'admin',
+    conversationKind: 'dm',
+    turnId: 'turn:test',
+    traceId: 'trace:test'
+  });
+}
+
+function envelopeForDecision(text: string, decision: ReturnType<typeof classifyTelegramIntentV2>) {
+  return buildTelegramTurnIntentEnvelope({
+    text,
+    decision,
     userRef: 'user:qa',
     chatRef: 'chat:qa',
     accessProfile: 'admin',
@@ -63,6 +77,25 @@ test('allows explicit project build only when route and envelope both authorize 
   assert.equal(result.allow, true);
   assert.equal(result.routeVerdict.allow, true);
   assert.equal(result.toolAuthorization.verdict, 'allowed');
+});
+
+test('explicit route evidence cannot substitute for envelope-selected mutating route', () => {
+  const staleEnvelopeText = 'Build a private local-first dashboard for memory reports with stale context and source labels.';
+  const freshText = 'Iterate on the current project by tightening the stale-context labels and report layout.';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(staleEnvelopeText), {
+    route: 'spawner.project_iteration',
+    text: freshText,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.routeVerdict.allow, true);
+  assert.equal(result.routeVerdict.confidence, 'explicit');
+  assert.equal(result.toolAuthorization.verdict, 'allowed');
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.notEqual(result.governorDecision?.outcome, 'execute');
 });
 
 test('final Telegram action boundary never treats prepare as execution authority', () => {
@@ -219,14 +252,38 @@ test('lets benchmark-pack creation own stale score wording', () => {
   const result = authorizeTelegramActionFromEnvelope(envelope, {
     route: 'creator.mission',
     text,
-    toolName: 'domain_chip.create',
-    ownerSystem: 'domain-chip',
+    toolName: 'creator.mission.create',
+    ownerSystem: 'spawner-ui',
     mutationClass: 'creates_chip'
   });
 
-  assert.equal(envelope.selectedIntent.ownerSystem, 'domain-chip');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spawner-ui');
   assert.equal(result.allow, true);
   assert.equal(result.routeVerdict.reason, 'explicit_creator_artifact');
+  assert.equal(result.toolAuthorization.verdict, 'allowed');
+});
+
+test('contextual creator-loop chip follow-up must be selected by the turn envelope', () => {
+  const text = 'create or update the domain chip';
+  const naturalRoute = decideNaturalRoute(text, {
+    recentMessages: [
+      'We are shaping a Startup YC specialization path with domain chip, benchmark pack, autoloop, and shareable insight packet.'
+    ]
+  });
+  const decision = classifyTelegramIntentV2(text, { naturalRouteDecision: naturalRoute });
+  const envelope = envelopeForDecision(text, decision);
+  const result = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'creator.mission',
+    text,
+    toolName: 'creator.mission.create',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'creates_chip'
+  });
+
+  assert.equal(naturalRoute.route, 'creator.mission');
+  assert.equal(decision.route, 'creator.mission');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spawner-ui');
+  assert.equal(result.allow, true);
   assert.equal(result.toolAuthorization.verdict, 'allowed');
 });
 

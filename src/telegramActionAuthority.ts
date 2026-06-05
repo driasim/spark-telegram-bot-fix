@@ -58,6 +58,7 @@ const ROUTE_ALIASES: Record<string, string[]> = {
     'spawner.latest_provider'
   ],
   'spawner.local_service': ['local_service.clarify', 'local_service.open'],
+  'spawner.external_research': ['external_research.inspect'],
   'spark.wiki': ['spark_wiki.promote', 'spark_wiki.query', 'spark_wiki.answer'],
 };
 
@@ -97,7 +98,7 @@ export function authorizeTelegramActionFromEnvelope(
   const routeVerdict = evaluateDeterministicRoute(input.route, input.text);
   const routeSelectedByEnvelope = envelopeSelectedRoute(envelope, input.route);
   const explicitRouteEvidence = routeVerdict.confidence === 'explicit';
-  const routeAuthorizedByTurn = routeSelectedByEnvelope || explicitRouteEvidence;
+  const routeAuthorizedByTurn = routeSelectedByEnvelope || (input.mutationClass === 'read_only' && explicitRouteEvidence);
   const toolAuthorization = authorizeToolCallFromEnvelope(envelope, {
     toolName: input.toolName,
     ownerSystem: input.ownerSystem,

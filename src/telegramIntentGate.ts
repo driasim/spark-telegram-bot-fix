@@ -224,6 +224,16 @@ function isCreatorBenchmarkPackRequest(text: string): boolean {
   );
 }
 
+function isFreshCreatorMissionNaturalSelection(text: string, naturalRoute: NaturalRouteDecision | null): boolean {
+  if (!naturalRoute || naturalRoute.route !== 'creator.mission') return false;
+  if (naturalRoute.confidence !== 'explicit' && naturalRoute.confidence !== 'contextual') return false;
+  if (!['latest_message', 'hot_recent_turns', 'visible_exact_artifact'].includes(naturalRoute.context_source)) return false;
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  const hasFreshMutationVerb = /\b(?:create|build|make|plan|stage|scaffold|generate|set up|spin up|prepare|add|attach|update|package|link|turn)\b/.test(normalized);
+  const hasCreatorArtifact = /\b(?:creator mission|creator system|creator run|domain[-\s]*chip|benchmark pack|eval pack|evaluation pack|test suite|speciali[sz]ation path|autoloop|auto loop|shareable insight packet|insight packet|review packet|swarm contribution packet|reusable template|loop template|speciali[sz]ation template)\b/.test(normalized);
+  return hasFreshMutationVerb && hasCreatorArtifact;
+}
+
 function plainDecision(
   text: string,
   constraints: TelegramIntentConstraintsV2,
@@ -396,11 +406,15 @@ export function classifyTelegramIntentV2(text: string, context: TelegramIntentGa
     });
   }
 
+  if (naturalRoute && isFreshCreatorMissionNaturalSelection(normalized, naturalRoute)) {
+    return observedNaturalRouteDecision(constraints, naturalRoute);
+  }
+
   if (isCreatorBenchmarkPackRequest(normalized)) {
     return makeDecision({
       kind: 'creator_or_domain_chip',
       route: 'creator.mission',
-      owner_system: 'domain-chip',
+      owner_system: 'spawner-ui',
       action: 'creator.mission',
       confidence: constraints.noExecution ? 'blocked' : 'explicit',
       constraints,

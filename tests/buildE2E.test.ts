@@ -964,7 +964,7 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
-	await test('slash remember creates a local fresh note that slash recall can answer before vague Builder recall', async () => {
+	await test('slash remember does not create Telegram-local durable recall when Builder is unavailable', async () => {
 		restoreAxios();
 		const testUserId = 8319079588;
 		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
@@ -1015,10 +1015,10 @@ async function run(): Promise<void> {
 			(recallCtx as any).update = { update_id: 5655, message: recallCtx.message };
 			await indexModule.handleRecallCommand(recallCtx);
 
-			assert.match(saveReplies.join('\n'), /(?:Saved in Telegram memory|Noted:)/i);
-			assert.equal(recallBridgeCalls, 0);
-			assert.match(recallReplies.join('\n'), /I remember this: audit marker: Spark E2E fresh-state phase on 2026-05-17\./i);
-			assert.doesNotMatch(recallReplies.join('\n'), /saved entity state/i);
+			assert.match(saveReplies.join('\n'), /Memory is degraded|could not confirm/i);
+			assert.equal(recallBridgeCalls, 1);
+			assert.match(recallReplies.join('\n'), /do not currently have saved entity state|Memory is degraded|could not confirm/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /I remember this: audit marker/i);
 			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
 			assert.ok(
 				ledgerRecords.some((record) => (
@@ -1028,12 +1028,8 @@ async function run(): Promise<void> {
 				'/remember must record the authorized memory.write attempt before execution'
 			);
 			assert.ok(
-				ledgerRecords.some((record) => (
-					record.tool_name === 'telegram.local_memory_note' &&
-					record.result.status === 'success' &&
-					/durable Builder\/domain-chip memory was not confirmed/.test(record.result.summary)
-				)),
-				'/remember local fallback must record a Telegram-local execution result'
+				!ledgerRecords.some((record) => record.tool_name === 'telegram.local_memory_note'),
+				'/remember local fallback must not materialize a Telegram-local memory note'
 			);
 			assert.equal(
 				ledgerRecords.some((record) => (
@@ -1051,7 +1047,7 @@ async function run(): Promise<void> {
 		}
 	});
 
-	await test('natural memory-only recall uses fresh local notes before Builder fallback', async () => {
+	await test('natural memory-only recall does not use Telegram-local notes before Builder fallback', async () => {
 		restoreAxios();
 		const testUserId = 8319079589;
 		process.env.ADMIN_TELEGRAM_IDS = String(testUserId);
@@ -1098,9 +1094,9 @@ async function run(): Promise<void> {
 			await indexModule.handleTextMessage(recallCtx);
 
 			assert.equal(recallBridgeCalls, 0);
-			assert.match(recallReplies.join('\n'), /use Railway for disposable cloud sandbox checks/i);
-			assert.match(recallReplies.join('\n'), /keep local Telegram proof separate from Railway proof/i);
-			assert.doesNotMatch(recallReplies.join('\n'), /don't currently have that saved/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /use Railway for disposable cloud sandbox checks/i);
+			assert.doesNotMatch(recallReplies.join('\n'), /keep local Telegram proof separate from Railway proof/i);
+			assert.match(recallReplies.join('\n'), /don't currently have that saved|Memory is degraded|could not confirm/i);
 		} finally {
 			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
 			restoreAxios();

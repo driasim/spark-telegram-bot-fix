@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     assert.deepEqual(parseTelegramUserIds('0, -1, NaN, 12abc, 1.5, 9007199254740992'), []);
   });
 
-  await test('keeps explicit session notes available to the next chat turn', async () => {
+  await test('does not promote explicit session notes into Telegram-local memory', async () => {
   await withTempState(async () => {
     const memory = new ConversationMemory();
 
@@ -56,13 +56,13 @@ async function main(): Promise<void> {
 
     const context = await memory.getContext(user, 'what are you');
 
-    assert.match(context, /Session notes from this chat/);
-    assert.match(context, /you are a QA agent/);
+    assert.doesNotMatch(context, /Session notes from this chat/);
     assert.match(context, /Recent Telegram turns/);
+    assert.match(context, /can you remember that you are a QA agent/);
   });
   });
 
-  await test('recalls a freshly saved Telegram note by topic words', async () => {
+  await test('does not recall Telegram-local notes as durable memory', async () => {
   await withTempState(async () => {
     const memory = new ConversationMemory();
 
@@ -73,10 +73,7 @@ async function main(): Promise<void> {
 
     const recalled = await memory.recall(user, 'Spark E2E fresh-state phase', 1);
 
-    assert.equal(recalled.length, 1);
-    assert.match(recalled[0].content, /audit marker: Spark E2E fresh-state phase on 2026-05-17/);
-    assert.doesNotMatch(recalled[0].content, /User asked Spark to remember/i);
-    assert.doesNotMatch(recalled[0].content, /^Noted/i);
+    assert.deepEqual(recalled, []);
     assert.deepEqual(await memory.recall(user, 'me', 1), []);
   });
   });
@@ -107,14 +104,16 @@ async function main(): Promise<void> {
   });
   });
 
-  await test('does not leak one user session context to another user', async () => {
+  await test('does not persist generic local memory notes across users', async () => {
   await withTempState(async () => {
     const memory = new ConversationMemory();
 
     await memory.learnAboutUser(user, 'User asked Spark to remember: you are a QA agent');
 
+    const sameContext = await memory.getContext(user, 'what are you');
     const otherContext = await memory.getContext({ id: 67890 }, 'what are you');
 
+    assert.equal(sameContext, 'No prior memories.');
     assert.equal(otherContext, 'No prior memories.');
   });
   });

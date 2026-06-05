@@ -1853,7 +1853,7 @@ void (async () => {
     }
   });
 
-  await asyncTest('mission lesson approval writes only the approved lesson', async () => {
+  await asyncTest('mission lesson approval does not write Telegram-local memory', async () => {
     resetJsonStateForTests();
     process.env.SPARK_GATEWAY_STATE_DIR = await mkdtemp(path.join(os.tmpdir(), 'spark-mission-lesson-test-'));
     resetMissionRelayDeliveryStateForTests();
@@ -1889,10 +1889,11 @@ void (async () => {
     const reply = await approvePendingMissionLesson(subscription.userId, '2');
 
     assert.ok(reply);
-    assert.match(reply || '', /Saved mission lesson/);
+    assert.match(reply || '', /did not save that mission lesson into Telegram-local memory/i);
+    assert.match(reply || '', /Durable mission lessons need the Builder\/domain-chip memory route/);
     assert.match(reply || '', /Source: mission spark-lesson-approval/);
     assert.doesNotMatch(reply || '', /Completed Spawner mission/);
     const secondReply = await approvePendingMissionLesson(subscription.userId, '1');
-    assert.equal(secondReply, null);
+    assert.match(secondReply || '', /did not save that mission lesson into Telegram-local memory/i);
   });
 })();

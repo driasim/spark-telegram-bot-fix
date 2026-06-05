@@ -204,6 +204,17 @@ test('bug hunt: pending creator and cancel state live behind evidence adapters',
   assert.match(cancelAdapter, /export function isMissionCancelConfirmationText/);
 });
 
+test('bug hunt: branch promotion cannot mint mutating route authority', () => {
+  const indexSource = readFileSync(resolve(__dirname, '../src/index.ts'), 'utf8');
+  const branchPromotion = indexSource.match(/function branchActionCanPromoteFromEvidence[\s\S]*?\n}/);
+
+  assert.ok(branchPromotion, 'expected branchActionCanPromoteFromEvidence to exist');
+  assert.match(
+    branchPromotion[0],
+    /input\.mutationClass !== 'none' && input\.mutationClass !== 'read_only'\) return false/
+  );
+});
+
 test('bug hunt: Spark workflow QA prompts get a local plan, not invented execution claims', () => {
   const prompt = 'prepare a huge unit test and let us become bug hunters for Mission Control and Spawner workflow';
   assert.equal(isSparkWorkflowBugHuntRequest(prompt), true);

@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { existsSync } from 'node:fs';
 import type { Telegraf } from 'telegraf';
-import { conversation } from './conversation';
 import { readJsonFile, resolveStatePath, writeJsonAtomic } from './jsonState';
 import { relaySecretMatches, requireRelaySecret } from './launchMode';
 import { telegramRelayIdentityFromEnv } from './relayIdentity';
@@ -2246,21 +2245,11 @@ export async function approvePendingMissionLesson(userId: string | number, remem
   const lesson = selection ? approval.candidates[selectedIndex] : text.replace(/^lesson:\s*/i, '').trim();
   if (!lesson) return null;
 
-  const numericUserId = Number(normalizedUserId);
-  if (!Number.isFinite(numericUserId)) return null;
-  const note = [
-    `Approved mission lesson from Spawner mission ${approval.missionId} via ${humanizeProviderLabel(approval.providerLabel)}.`,
-    `Lesson: ${clipText(lesson, 700)}`,
-    `Source refs: ${approval.sourceRefs.join(', ')}.`,
-    `Goal: ${clipText(approval.goal, 220)}`
-  ].join(' ');
-  await conversation.learnAboutUser({ id: numericUserId }, note);
-
-  delete pendingByUserId[normalizedUserId];
-  await writeMissionLessonApprovalState({ pendingByUserId });
   return [
-    `Saved mission lesson: ${clipText(lesson, 700)}`,
-    `Source: mission ${approval.missionId}`
+    'I did not save that mission lesson into Telegram-local memory.',
+    `Lesson still pending: ${clipText(lesson, 700)}`,
+    `Source: mission ${approval.missionId}`,
+    'Durable mission lessons need the Builder/domain-chip memory route.'
   ].join('\n');
 }
 

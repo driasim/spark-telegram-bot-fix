@@ -437,7 +437,8 @@ export class ConversationMemory {
   }
 
   async learnAboutUser(user: TelegramUser, insight: string): Promise<Memory | null> {
-    await this.pushBounded(this.notesByUser, this.userKey(user), insight, this.maxNotes);
+    void user;
+    void insight;
     return null;
   }
 
@@ -489,54 +490,16 @@ export class ConversationMemory {
   }
 
   async storePreference(user: TelegramUser, preference: string): Promise<Memory | null> {
-    await this.pushBounded(this.notesByUser, this.userKey(user), `Preference: ${preference}`, this.maxNotes);
+    void user;
+    void preference;
     return null;
   }
 
   async recall(user: TelegramUser, query: string, limit: number = 5): Promise<Memory[]> {
-    await this.ensureLoaded();
-    const key = this.userKey(user);
-    const queryText = normalizeMemorySearchText(query);
-    const queryTokens = memorySearchTokens(query);
-    if (!queryText && queryTokens.length === 0) return [];
-
-    const recallNoise = (text: string): boolean => {
-      const lower = text.toLowerCase();
-      return (
-        /^user:\s*\/recall\b/.test(lower) ||
-        /^user:\s*what do you remember about\b/.test(lower) ||
-        isMemoryWriteTranscriptResidueLine(text) ||
-        lower.includes("don't currently have saved entity state") ||
-        lower.includes('do not currently have saved entity state')
-      );
-    };
-
-    const candidates = [
-      ...(this.notesByUser.get(key) || []).map((content, index) => ({ content, source: 'note', index })),
-      ...(this.recentByUser.get(key) || []).filter((content) => !recallNoise(content)).map((content, index) => ({ content, source: 'recent', index }))
-    ];
-    const minTokenMatches = queryTokens.length <= 2 ? queryTokens.length : Math.max(2, Math.ceil(queryTokens.length * 0.5));
-
-    return candidates
-      .map((candidate) => {
-        const normalized = normalizeMemorySearchText(candidate.content);
-        const tokenMatches = queryTokens.filter((token) => normalized.includes(token)).length;
-        const exactMatch = Boolean(queryTokens.length > 0 && queryText && normalized.includes(queryText));
-        const score = (exactMatch ? queryTokens.length + 3 : 0) + tokenMatches + (candidate.source === 'note' ? 1 : 0);
-        return { ...candidate, tokenMatches, exactMatch, score };
-      })
-      .filter((candidate) => candidate.exactMatch || (queryTokens.length > 0 && candidate.tokenMatches >= minTokenMatches))
-      .sort((a, b) => b.score - a.score || b.index - a.index)
-      .slice(0, Math.max(1, limit))
-      .map((candidate, index) => ({
-        memory_id: `telegram-${candidate.source}-${candidate.index}`,
-        content: userFacingMemoryContent(candidate.content),
-        temporal_level: 0,
-        salience: Math.max(1, candidate.score - index),
-        content_type: candidate.source,
-        created_at: undefined
-      }))
-      .filter((memory) => memory.content.length > 0);
+    void user;
+    void query;
+    void limit;
+    return [];
   }
 
   async recallRecent(_user: TelegramUser, _limit: number = 5): Promise<Memory[]> {
@@ -546,7 +509,7 @@ export class ConversationMemory {
   async getContext(user: TelegramUser, _currentMessage: string): Promise<string> {
     await this.ensureLoaded();
     const key = this.userKey(user);
-    const notes = this.notesByUser.get(key) || [];
+    const notes = (this.notesByUser.get(key) || []).filter((note) => /^Agent interaction preference \[[a-z_]+\]:/i.test(note));
     const recent = this.recentByUser.get(key) || [];
     const lines: string[] = [];
 

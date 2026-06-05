@@ -2186,8 +2186,6 @@ function recordTelegramHarnessCoreExecution(
   }
 }
 
-const TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME = 'telegram.local_memory_note';
-
 type AccessReadRoute = 'access.status' | 'access.help';
 
 function telegramAccessReadAuthorityDecision(
@@ -2280,6 +2278,8 @@ function telegramActionEnvelope(
     kind?: TelegramIntentDecisionV2['kind'];
     confidence?: TelegramIntentDecisionV2['confidence'];
     mutationClass?: SparkHarnessMutationClass;
+    selectedBy?: string;
+    matchedSignal?: string;
   }
 ): TurnIntentEnvelopeV1 {
   const readOnlyBranch = input.mutationClass === 'none' || input.mutationClass === 'read_only';
@@ -2298,8 +2298,8 @@ function telegramActionEnvelope(
       noNetworkAbsorptionClaim: false,
       localOnly: baseEnvelope.directive.localOnly
     },
-    payload: { selectedBy: 'telegram_action_branch' },
-    matched_signals: ['fresh_telegram_action_branch'],
+    payload: { selectedBy: input.selectedBy || 'telegram_action_branch' },
+    matched_signals: [input.matchedSignal || 'fresh_telegram_action_branch'],
     blocked_candidates: [],
     supporting_routes: [baseEnvelope.selectedIntent.action || baseEnvelope.selectedIntent.kind].filter(Boolean) as string[],
     enforcement: baseEnvelope.directive.noExecution && !readOnlyBranch ? 'blocked' : 'observe',
@@ -2356,6 +2356,7 @@ function branchActionCanPromoteFromEvidence(
   authorization: TelegramActionAuthorityResult,
   input: TelegramActionAuthorityInput & { confidence?: TelegramIntentDecisionV2['confidence'] }
 ): boolean {
+  if (input.mutationClass !== 'none' && input.mutationClass !== 'read_only') return false;
   if (!authorization.routeVerdict.allow) return false;
   if (authorization.routeVerdict.confidence === 'explicit') return true;
   if (input.confidence !== 'contextual') return false;
@@ -3392,26 +3393,15 @@ async function handlePlainChatMemoryDirective(
 }
 
 async function saveSlashRememberLocally(user: any, text: string): Promise<boolean> {
-  try {
-    await conversation.remember(user, `remember this: ${text}`);
-    await conversation.learnAboutUser(user, `User asked Spark to remember: ${text}`);
-    return true;
-  } catch (error) {
-    console.warn('[SlashRemember] local memory save failed:', error);
-    return false;
-  }
+  void user;
+  void text;
+  return false;
 }
 
 async function buildLocalRecallReply(user: any, query: string): Promise<string | null> {
-  try {
-    const memories = await conversation.recall(user, query, 1);
-    const memory = memories[0];
-    if (!memory?.content) return null;
-    return `I remember this: ${memory.content.replace(/[.!?]+$/g, '').trim()}.`;
-  } catch (error) {
-    console.warn('[SlashRecall] local recall failed:', error);
-    return null;
-  }
+  void user;
+  void query;
+  return null;
 }
 
 function extractNaturalLocalMemoryRecallQuery(text: string): string | null {
@@ -3480,9 +3470,9 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     const missionLessonReply = await approvePendingMissionLesson(ctx.from.id, text);
     if (missionLessonReply) {
       recordTelegramHarnessCoreExecution(authorization, {
-        toolName: TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME,
-        status: 'success',
-        summary: 'Pending mission lesson was approved into Telegram-local notes; durable Builder/domain-chip memory was not confirmed.'
+        toolName: 'memory.write',
+        status: 'failure',
+        summary: 'Pending mission lesson was not saved because Telegram-local memory is quarantined and Builder/domain-chip memory was not confirmed.'
       });
       await ctx.reply(missionLessonReply);
       return;
@@ -3492,20 +3482,16 @@ export async function handleRememberCommand(ctx: any): Promise<void> {
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: builderRouted
         ? 'memory.write'
-        : localSaved
-          ? TELEGRAM_LOCAL_MEMORY_NOTE_TOOL_NAME
-          : 'memory.write',
-      status: localSaved || builderRouted ? 'success' : 'failure',
+        : 'memory.write',
+      status: builderRouted ? 'success' : 'failure',
       summary: builderRouted
-        ? 'Telegram /remember routed the memory write through Builder; Telegram local notes are auxiliary.'
-        : localSaved
-          ? 'Telegram /remember buffered a Telegram-local note; durable Builder/domain-chip memory was not confirmed.'
-        : 'Telegram /remember could not persist through local memory or Builder.'
+        ? 'Telegram /remember routed the memory write through Builder/domain-chip memory; Telegram local notes were not materialized.'
+        : 'Telegram /remember could not persist because Builder/domain-chip memory was unavailable; Telegram local notes were not materialized.'
     });
     if (builderRouted) {
       return;
     }
-    await ctx.reply(localSaved ? formatLocalMemoryDirectiveAcknowledgement(text) : buildMemoryBridgeUnavailableReply('remember'));
+    await ctx.reply(buildMemoryBridgeUnavailableReply('remember'));
   } catch (err) {
     recordTelegramHarnessCoreExecution(authorization, {
       toolName: 'memory.write',
@@ -5701,17 +5687,26 @@ async function handlePendingDomainChipBuild(ctx: any, text: string, envelope?: T
     return false;
   }
 
+  const authorityInput: TelegramActionAuthorityInput & {
+    action: string;
+    kind: TelegramIntentDecisionV2['kind'];
+    confidence: TelegramIntentDecisionV2['confidence'];
+    selectedBy: string;
+    matchedSignal: string;
+  } = {
+    route: 'domain_chip.pending',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission',
+    action: 'spawner.pending_domain_chip_build',
+    kind: 'creator_or_domain_chip',
+    confidence: 'contextual',
+    selectedBy: 'telegram_pending_domain_chip',
+    matchedSignal: 'fresh_pending_domain_chip_direction'
+  };
   const authorization = envelope
-    ? telegramBranchActionAuthorityDecision(envelope, {
-        route: 'domain_chip.pending',
-        text,
-        toolName: 'spawner.run',
-        ownerSystem: 'spawner-ui',
-        mutationClass: 'launches_mission',
-        action: 'spawner.pending_domain_chip_build',
-        kind: 'creator_or_domain_chip',
-        confidence: 'contextual'
-      })
+    ? telegramActionAuthorityDecision(telegramActionEnvelope(envelope, authorityInput), authorityInput)
     : null;
   if (authorization && !authorization.allow) {
     return false;
