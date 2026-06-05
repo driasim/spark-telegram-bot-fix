@@ -230,6 +230,74 @@ test('quoted publish wording preserves governed quoted-boundary route execution'
   }
 });
 
+test('quoted browser computer-use notes preserve governed quoted-boundary route execution', async () => {
+  process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
+  process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+  process.env.SPARK_BOT_TEST_MODE = '1';
+  process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+  process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+  process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-browser-note-boundary-route-'));
+  const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+  process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+
+  const indexModule: any = await import('../src/index');
+  const llmModule = await import('../src/llm');
+  const originalChat = llmModule.llm.chat;
+  let bridgeCalls = 0;
+  let capturedPrompt = '';
+
+  indexModule.__setBuilderBridgeRunnerForTest(async () => {
+    bridgeCalls += 1;
+    return {
+      used: true,
+      responseText: 'I will open the browser and inspect localhost now.',
+      decision: 'browser.open',
+      bridgeMode: 'test',
+      routingDecision: 'browser.open'
+    };
+  });
+  llmModule.llm.chat = async (prompt: string) => {
+    capturedPrompt = prompt;
+    return 'That phrase is note text, not fresh browser authority. I would answer the risk and not open browser or inspect localhost from this turn.';
+  };
+
+  try {
+    const text = 'The phrase "open browser and inspect localhost" appears in my notes. What risk does that create?';
+    const replies: string[] = [];
+    await indexModule.handleTextMessage(fakeCtx(text, replies));
+
+    assert.equal(bridgeCalls, 0);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /note text|not fresh browser authority|answer the risk/i);
+    assert.match(replies[0], /not open browser|not .*inspect localhost/i);
+    assert.doesNotMatch(replies[0], /inspect localhost now/i);
+    assert.match(capturedPrompt, /conversation\.quoted_drafted_example_boundary/);
+    assert.match(capturedPrompt, /Allowed tool: answer\.compose only/);
+
+    const quotedBoundaryExecution = (record: any) => (
+      record.shadow_route === 'conversation.quoted_drafted_example_boundary' &&
+      record.executed_route === 'conversation.quoted_drafted_example_boundary'
+    );
+    const routeRecords = await waitForJsonlRecord(naturalRouteLedgerPath, quotedBoundaryExecution);
+    const quotedRecord = routeRecords.find(quotedBoundaryExecution);
+    assert.ok(
+      quotedRecord,
+      `quoted browser note must bind selected and executed route to the governed quoted-boundary route; records=${JSON.stringify(routeRecords)}`
+    );
+    assert.equal(quotedRecord.executed_owner, 'spark-telegram-bot');
+    assert.equal(quotedRecord.executed_action, 'plain_chat.quoted_example_boundary');
+    assert.equal(quotedRecord.outcome, 'matched');
+  } finally {
+    llmModule.llm.chat = originalChat;
+    indexModule.__setBuilderBridgeRunnerForTest(null);
+    delete process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH;
+    delete process.env.SPARK_NATURAL_ROUTE_LEDGER;
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('publication approval-list boundary bypasses Builder bridge detours', async () => {
   process.env.BOT_TOKEN = process.env.BOT_TOKEN || '123:test';
   process.env.ADMIN_TELEGRAM_IDS = '8319079055';

@@ -167,6 +167,7 @@ test('treats quoted drafted high-agency text as evidence only', () => {
     'In documentation, should we include "create a memory chip" as an example?',
     'If a user says "publish the PR" inside a quote, what should Spark do?',
     'Draft a test case for "repair Spark", but do not run the repair.',
+    'The phrase "open browser and inspect localhost" appears in my notes. What risk does that create?',
     'Create an example prompt for a deploy approval flow, without deploying.',
     'I need wording for "schedule a run tomorrow" in a policy doc.',
     'Here is a fake user command: "delete the bad route." Classify it.',

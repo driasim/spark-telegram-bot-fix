@@ -248,6 +248,7 @@ test('routes quoted drafted high-agency examples to answer-only boundary', () =>
   const prompts = [
     'Write a message that says "start a mission now" but do not send or run it.',
     'In documentation, should we include "create a memory chip" as an example?',
+    'The phrase "open browser and inspect localhost" appears in my notes. What risk does that create?',
     'I need wording for "schedule a run tomorrow" in a policy doc.',
     'Here is a fake user command: "delete the bad route." Classify it.'
   ];
