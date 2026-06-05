@@ -305,7 +305,7 @@ export function decideNaturalRoute(
 
   if (isNoExecutionExplanationPrompt(normalized)) {
     return decision({
-      route: 'conversation.no_execution_explanation',
+      route: 'chat_explain',
       owner_system: 'spark-telegram-bot',
       confidence: 'explicit',
       action: 'plain_chat.qa_boundary',

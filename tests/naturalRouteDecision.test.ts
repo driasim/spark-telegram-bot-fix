@@ -208,7 +208,18 @@ test('keeps negated domain-chip design talk in chat', () => {
 test('selects no-execution explanation route for quoted startup operator examples', () => {
   const route = decideNaturalRoute('This is not a command: "run the startup operator and fix everything." Why would that be dangerous?');
 
-  assert.equal(route.route, 'conversation.no_execution_explanation');
+  assert.equal(route.route, 'chat_explain');
+  assert.equal(route.owner_system, 'spark-telegram-bot');
+  assert.equal(route.action, 'plain_chat.qa_boundary');
+  assert.equal(route.context_source, 'latest_message');
+  assert.deepEqual(route.matched_signals, ['no_execution_explanation']);
+  assert.equal(route.requires_confirmation, false);
+});
+
+test('routes mission wording UX questions to canonical chat_explain', () => {
+  const route = decideNaturalRoute('HC-03 installer proof: When the interface says mission, what should that term mean to a user who is just exploring an idea?');
+
+  assert.equal(route.route, 'chat_explain');
   assert.equal(route.owner_system, 'spark-telegram-bot');
   assert.equal(route.action, 'plain_chat.qa_boundary');
   assert.equal(route.context_source, 'latest_message');

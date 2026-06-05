@@ -9001,7 +9001,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   if (!earlyBuildIntent && isNoExecutionExplanationPrompt(text)) {
     const reply = renderMissionRoutingFailureClassReply(text);
     await conversation.remember(user, text).catch(() => {});
-    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.no_execution_explanation', 'spark-telegram-bot', 'plain_chat.qa_boundary');
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'chat_explain', 'spark-telegram-bot', 'plain_chat.qa_boundary');
     await ctx.reply(reply);
     await conversation.rememberAssistantReply(user, reply).catch(() => {});
     return;
