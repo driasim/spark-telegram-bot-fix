@@ -4211,6 +4211,75 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('suppressed domain chip disambiguation preserves chat_plan route evidence', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-chat-plan-local-fallback-'));
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const llmModule = await import('../src/llm');
+		const originalChat = llmModule.llm.chat;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: "I caught 'chip' in there but I'm not sure what you want. Options I can actually do: loop <chip-key>, list active chips, or show which chips are active.",
+			decision: 'chat',
+			bridgeMode: 'disambiguation_shortcircuit',
+			routingDecision: 'disambiguation_shortcircuit'
+		});
+		llmModule.llm.chat = async () => (
+			'Start with the objection diagnosis chip. It should classify the pricing objection before advising on response, proof, or activation.'
+		);
+
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079071, 8319079055, 625, replies);
+			ctx.message.text = 'HC-09 installer proof: We are comparing domain-chip options for startup pricing objections; what proposal should we discuss first?';
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.match(reply, /objection diagnosis chip/i);
+			assert.doesNotMatch(reply, /loop <chip-key>|which chips are active|Mission:|I will run/i);
+			assert.equal(captured.length, 0, 'suppressed chip disambiguation fallback must not call Spawner or PRD bridge');
+
+			const chatPlanRoute = (record: any) => (
+				record.shadow_route === 'chat_plan' &&
+				record.executed_route === 'chat_plan' &&
+				record.executed_action === 'plain_chat.local_llm'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, chatPlanRoute);
+			const routeRecord = naturalRouteRecords.find(chatPlanRoute);
+			assert.ok(routeRecord, 'local fallback must preserve canonical chat_plan route evidence');
+			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
+			assert.equal(routeRecord?.outcome, 'matched');
+			assert.equal(routeRecord?.delivery, 'delivered');
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			llmModule.llm.chat = originalChat;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('schedule word in bug report stays schedule-specific chat', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

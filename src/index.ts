@@ -3083,6 +3083,17 @@ function recordBuilderChatReplyExecution(
 }
 
 function recordLocalChatReplyExecution(ctx: any, naturalRouteShadow: NaturalRouteDecision | null): void {
+  if (naturalRouteShadow?.route === 'chat_plan') {
+    recordNaturalRouteExecution(
+      ctx,
+      naturalRouteShadow,
+      'chat_plan',
+      'spark-intelligence-builder',
+      'plain_chat.local_llm',
+      'delivered'
+    );
+    return;
+  }
   recordNaturalRouteExecution(
     ctx,
     naturalRouteShadow,
