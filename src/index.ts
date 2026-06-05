@@ -2975,6 +2975,41 @@ function shouldBypassBuilderBridgeForTurnIntent(
   );
 }
 
+function recordBuilderChatReplyExecution(
+  ctx: any,
+  naturalRouteShadow: NaturalRouteDecision | null,
+  routingDecision: string
+): void {
+  const normalized = routingDecision.trim();
+  if (normalized === 'provider_fallback_chat') {
+    recordNaturalRouteExecution(
+      ctx,
+      naturalRouteShadow,
+      'conversation.provider_fallback_chat',
+      'spark-intelligence-builder',
+      'plain_chat.provider_fallback'
+    );
+    return;
+  }
+  recordNaturalRouteExecution(
+    ctx,
+    naturalRouteShadow,
+    normalized === 'plain_chat' ? 'plain_chat' : 'conversation.builder_chat',
+    'spark-intelligence-builder',
+    'plain_chat.builder_reply'
+  );
+}
+
+function recordLocalChatReplyExecution(ctx: any, naturalRouteShadow: NaturalRouteDecision | null): void {
+  recordNaturalRouteExecution(
+    ctx,
+    naturalRouteShadow,
+    'conversation.local_chat',
+    'spark-telegram-bot',
+    'plain_chat.local_llm'
+  );
+}
+
 async function replyViaBuilder(ctx: any, text: string, envelope?: TurnIntentEnvelopeV1): Promise<boolean> {
   const user = ctx.from;
   if (user) {
@@ -10181,6 +10216,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         : builderReplySuppressionReason(builderReply.responseText, builderReply.routingDecision);
       if (!suppressionReason && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
         const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
+        recordBuilderChatReplyExecution(ctx, naturalRouteShadow, builderReply.routingDecision);
         await deliverBuilderReply(ctx, { ...builderReply, responseText });
         if (responseText) {
           await conversation.rememberAssistantReply(user, responseText).catch(() => {});
@@ -10234,6 +10270,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     }
 
     await ctx.reply(response);
+    recordLocalChatReplyExecution(ctx, naturalRouteShadow);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
 
     // Learn preferences from patterns

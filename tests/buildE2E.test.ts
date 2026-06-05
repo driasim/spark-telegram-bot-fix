@@ -3750,6 +3750,67 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('provider fallback chat writes natural route execution evidence', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-provider-fallback-route-ledger-'));
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		(builderBridge as any).runBuilderTelegramBridge = async () => ({
+			used: true,
+			responseText: "Sounds good. We'll keep it here.",
+			decision: 'chat',
+			bridgeMode: 'external_configured',
+			routingDecision: 'provider_fallback_chat'
+		});
+
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079087, 8319079055, 637, replies);
+			ctx.message.text = 'no need we can talk here';
+			await indexModule.handleTextMessage(ctx);
+
+			assert.equal(replies.length, 1);
+			assert.match(replies[0], /keep it here/i);
+			assert.equal(captured.length, 0, 'provider fallback chat must not call Spawner or PRD bridge');
+
+			const fallbackNaturalRoute = (record: any) => (
+				record.executed_route === 'conversation.provider_fallback_chat' &&
+				record.executed_action === 'plain_chat.provider_fallback'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, fallbackNaturalRoute);
+			const routeRecord = naturalRouteRecords.find(fallbackNaturalRoute);
+			assert.ok(routeRecord, 'provider fallback chat must write route execution evidence');
+			assert.equal(routeRecord?.shadow_route, 'plain_chat');
+			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
+			assert.equal(routeRecord?.delivery, 'selected');
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('mission-id product concept does not become Mission Control status', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
