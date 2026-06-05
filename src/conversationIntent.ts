@@ -1621,7 +1621,7 @@ export function isPublicationApprovalBoundaryQuestion(text: string): boolean {
 		/\b(?:right\s+now|for\s+now|currently|here)\b.{0,50}\b(?:just|only|list|show|tell|explain|outline)\b/.test(normalized) ||
 		/\b(?:just|only)\b.{0,40}\b(?:list|show|tell|explain|outline)\b/.test(normalized) ||
 		/\b(?:might|may|could|would)\s+(?:ask|need|want)\b.{0,80}\b(?:later|after|eventually|next)\b/.test(normalized) ||
-		/\b(?:before|prior\s+to)\b.{0,80}\b(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized);
+		/\b(?:before|prior\s+to)\s+(?:we\s+|you\s+|spark\s+|any\s+)?(?:publish(?:ing)?|deploy(?:ing)?|releas(?:e|ing)|ship(?:ping)?|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized);
 	const immediatePublicationCommand =
 		/^(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized) ||
 		/\b(?:go\s+ahead|do\s+it|approved?|yes|okay|ok|now)\b.{0,40}\b(?:publish|deploy|release|ship|merge|open\s+(?:a\s+)?pr|push\s+to\s+main)\b/.test(normalized) ||

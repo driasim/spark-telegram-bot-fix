@@ -5,6 +5,7 @@ import {
   extractSparkWikiQuery,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
+  isPublicationApprovalBoundaryQuestion,
   isSparkWikiInventoryQuestion,
   isSparkWikiStatusQuestion,
   isStartupFounderAdvisoryQuestion,
@@ -42,6 +43,16 @@ export function parseTelegramIntentConstraintsV2(text: string): TelegramIntentCo
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
   const constraints = emptyConstraints();
   if (!normalized) return constraints;
+
+  if (isPublicationApprovalBoundaryQuestion(normalized)) {
+    constraints.noExecution = true;
+    constraints.noPublish = true;
+    constraints.noMerge = true;
+    constraints.noPublicClaim = true;
+    constraints.noNetworkAbsorptionClaim = true;
+    constraints.localOnly = true;
+    return constraints;
+  }
 
   const hasMetaLanguageBoundary =
     /\b(?:mentioning|just mentioning|only mentioning|keyword|keywords|word here|words here|word alone|words alone|phrase|phrases|term|terms|example|quoted example|quoted text|quoted bug[-\s]*report term|bug\s+report|qa\s+case|meta[-\s]*language|just quoted|only quoted|not a request|not an instruction|not a command|not asking for|does not mean|doesn't mean|not mean|talking about the (?:word|phrase)|discussing the (?:word|phrase))\b/.test(normalized);

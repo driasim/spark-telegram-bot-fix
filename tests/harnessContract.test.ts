@@ -78,6 +78,48 @@ test('blocks tool execution when the envelope does not authorize mutation', () =
   assert.ok(authorization.reasonCodes.includes('mutation_class_not_authorized'));
 });
 
+test('keeps publication approval-list boundaries answer-only', () => {
+  const envelope = envelopeFor('I might ask you to publish later, but right now just list what would need approval.');
+
+  assert.equal(validateTurnIntentEnvelopeV1(envelope), true);
+  assert.equal(envelope.selectedIntent.kind, 'plain_conversation');
+  assert.equal(envelope.selectedIntent.ownerSystem, 'spark-telegram-bot');
+  assert.equal(envelope.selectedIntent.action, 'plain_chat.qa_boundary');
+  assert.equal(envelope.directive.mode, 'answer');
+  assert.equal(envelope.directive.noExecution, true);
+  assert.equal(envelope.directive.noPublish, true);
+  assert.equal(envelope.directive.localOnly, true);
+  assert.equal(envelope.executionPolicy.canPublish, false);
+  assert.equal(envelope.executionPolicy.canUseExternalNetwork, false);
+  assert.equal(envelope.executionPolicy.canLaunchMission, false);
+  assert.deepEqual(envelope.toolPolicy.mutationClassesAllowed, ['none', 'read_only']);
+  assert.deepEqual(envelope.toolPolicy.allowedTools, ['answer.compose']);
+  assert.ok(envelope.toolPolicy.deniedTools.includes('publish.run'));
+  assert.ok(envelope.toolPolicy.deniedTools.includes('external.fetch'));
+
+  const publishAuthorization = authorizeToolCallFromEnvelope(envelope, {
+    toolName: 'publish.run',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'publishes',
+    publishes: true
+  });
+  assert.equal(publishAuthorization.verdict, 'blocked');
+  assert.ok(publishAuthorization.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(publishAuthorization.reasonCodes.includes('no_publish_boundary'));
+  assert.ok(publishAuthorization.reasonCodes.includes('tool_denied_by_policy'));
+  assert.ok(publishAuthorization.reasonCodes.includes('mutation_class_not_authorized'));
+
+  const networkAuthorization = authorizeToolCallFromEnvelope(envelope, {
+    toolName: 'external.fetch',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'external_network',
+    externalNetwork: true
+  });
+  assert.equal(networkAuthorization.verdict, 'blocked');
+  assert.ok(networkAuthorization.reasonCodes.includes('external_network_not_authorized'));
+  assert.ok(networkAuthorization.reasonCodes.includes('tool_denied_by_policy'));
+});
+
 test('blocks tool execution without a valid envelope', () => {
   const authorization = authorizeToolCallFromEnvelope(null, {
     toolName: 'spawner.run',
