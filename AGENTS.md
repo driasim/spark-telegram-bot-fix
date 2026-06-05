@@ -78,6 +78,11 @@ Use allowlisted serializers for route context, audits, final-answer metadata, an
 - `npm run build`.
 - Relevant direct tests such as `tests/buildE2E.test.ts`, `tests/builderBridge.test.ts`, `tests/accessPolicy.test.ts`, `tests/conversationIntent.test.ts`, or route/firewall tests.
 - Privacy scan for bridge serializers, audit rows, final-answer metadata, and docs.
-- Live Telegram proof only when explicitly requested and safe.
+- Live Telegram proof only when explicitly requested and safe. Prefer native
+  Telegram Desktop through CUA for app-behavior proof; use
+  `C:\Users\USER\.cua-driver\packages\current\cua-driver.exe` when available.
+  Capture the visible reply, route decision, Governor/authorization result,
+  Harness Core ledger, natural route ledger, outbound audit, side effects, and
+  timing metrics. Use Telegram Web only for browser-specific checks.
 - `git diff --check`.
 - `git status --short --branch`.
