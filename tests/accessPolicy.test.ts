@@ -323,7 +323,9 @@ async function main(): Promise<void> {
     const liveSummaryFn = indexSource.match(/function renderSparkLiveSummary[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldShowRawSparkLiveDetails/);
     assert.ok(liveSummaryFn, 'expected live summary formatter to exist');
     assert.doesNotMatch(liveSummaryFn[0], /Fresh check:/);
-    assert.match(indexSource, /const reply = await renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\);[\s\S]*?await ctx\.reply\(reply\);/);
+    assert.match(indexSource, /replyWithGovernedReadOnlyState\(ctx, user, text, turnIntentEnvelope, \{[\s\S]*?kind: 'access_capability'[\s\S]*?render: \(\) => renderAuthoritativeSparkEditCapabilityAnswer\(ctx\.chat\.id\)/);
+    assert.match(indexSource, /action = `spark\.read_only_state\.\$\{input\.kind\}`/);
+    assert.match(indexSource, /telegramActionAuthorityDecision\([\s\S]*?telegramActionEnvelope\(turnIntentEnvelope/);
     assert.match(indexSource, /fresh `spark live status` says Spawner is up/);
     assert.match(indexSource, /Current Spark risk profile:/);
     assert.match(indexSource, /No restart needed\. Restarting now would mostly add churn\./);
