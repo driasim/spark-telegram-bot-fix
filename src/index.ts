@@ -1029,7 +1029,7 @@ function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQue
   return null;
 }
 
-function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion | 'browser_use_availability'): NaturalRouteDecision {
+function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion | 'browser_use_availability' | string): NaturalRouteDecision {
   const route = `spark.read_only_state.${kind}`;
   return {
     schema_version: 'spark.nlp.route_decision.v1',
@@ -1054,6 +1054,70 @@ function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion | 'b
       selected_by: 'telegram_read_only_state_authority'
     }
   };
+}
+
+async function replyWithGovernedReadOnlyState(
+  ctx: any,
+  user: any,
+  text: string,
+  turnIntentEnvelope: TurnIntentEnvelopeV1,
+  input: {
+    kind: string;
+    render: () => Promise<string> | string;
+    sourceId: string;
+    evidence: TelegramSourceUsedEvidence[];
+    denialReply?: string;
+    summary?: string;
+  }
+): Promise<boolean> {
+  const action = `spark.read_only_state.${input.kind}`;
+  const authorization = telegramActionAuthorityDecision(
+    telegramActionEnvelope(turnIntentEnvelope, {
+      route: 'spark.read_only_state',
+      ownerSystem: 'spark-telegram-bot',
+      action,
+      kind: 'runtime_truth_or_operator',
+      confidence: 'explicit',
+      mutationClass: 'read_only',
+      selectedBy: 'telegram_governed_read_only_state',
+      matchedSignal: input.kind
+    }),
+    {
+      route: 'spark.read_only_state',
+      text,
+      toolName: 'spark.read_only_state',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'read_only'
+    }
+  );
+  if (!authorization.allow) {
+    recordTelegramHarnessCoreExecution(authorization, {
+      toolName: 'spark.read_only_state',
+      status: 'not_started',
+      summary: `Natural read-only Spark state answer was blocked for ${input.kind}.`
+    });
+    await ctx.reply(input.denialReply || 'I did not read Spark state because the fresh turn did not authorize that read-only check.');
+    return true;
+  }
+
+  await conversation.remember(user, text).catch(() => {});
+  const reply = await input.render();
+  recordNaturalRouteExecution(
+    ctx,
+    readOnlyStateNaturalRouteDecision(input.kind),
+    action,
+    'spark-telegram-bot',
+    'harness_core.read_only_state'
+  );
+  recordTelegramHarnessCoreExecution(authorization, {
+    toolName: 'spark.read_only_state',
+    status: 'success',
+    summary: input.summary || `Natural read-only Spark state answer completed for ${input.kind}.`
+  });
+  await ctx.reply(reply);
+  recordTelegramSourceUsedEvidence(ctx, user, text, input.sourceId, input.evidence);
+  await conversation.rememberAssistantReply(user, reply).catch(() => {});
+  return true;
 }
 
 function runtimeStatusNaturalRouteDecision(kind: 'live_status' | 'repair_status'): NaturalRouteDecision {
@@ -9330,11 +9394,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
 	  const recentAccessMessages = await conversation.getRecentMessages(user, 6);
 	  if (!earlyBuildIntent && isAccessCapabilityRepairRequest(text, recentAccessMessages)) {
-	    await conversation.remember(user, text).catch(() => {});
-	    const reply = await renderAccessCapabilityRepairAnswer(ctx.chat.id);
-	    await ctx.reply(reply);
-	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_repair', runtimeTruthSourceEvidence(text));
-	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+	      kind: 'access_repair',
+	      render: () => renderAccessCapabilityRepairAnswer(ctx.chat.id),
+	      sourceId: 'telegram_access_repair',
+	      evidence: runtimeTruthSourceEvidence(text),
+	      summary: 'Natural access repair answer completed from governed read-only Spark state.'
+	    });
 	    return;
 	  }
 	  const contextualAccessChange = earlyBuildIntent || conversationFrame.referenceResolution.kind === 'list_item'
@@ -9361,11 +9427,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	    !earlyBuildIntent &&
 	    (isAccessCapabilityMismatchQuestion(text) || isContextualAccessCapabilityMismatchQuestion(text, recentAccessMessages))
 	  ) {
-	    await conversation.remember(user, text).catch(() => {});
-	    const reply = renderAccessCapabilityMismatchAnswer();
-	    await ctx.reply(reply);
-	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_boundary', runtimeTruthSourceEvidence(text));
-	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+	      kind: 'access_capability_boundary',
+	      render: () => renderAccessCapabilityMismatchAnswer(),
+	      sourceId: 'telegram_access_capability_boundary',
+	      evidence: runtimeTruthSourceEvidence(text),
+	      summary: 'Natural access capability boundary answer completed from governed read-only Spark state.'
+	    });
 	    return;
 	  }
 
@@ -9432,73 +9500,87 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 	  }
 
 	  if (!earlyBuildIntent && shouldAnswerWorkspaceWikiFreshnessBoundary(text)) {
-	    await conversation.remember(user, text).catch(() => {});
-	    const reply = renderWorkspaceWikiFreshnessBoundaryAnswer();
-	    await ctx.reply(reply);
-	    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_workspace_wiki_freshness_boundary', runtimeTruthSourceEvidence(text));
-	    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+	    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+	      kind: 'workspace_wiki_freshness_boundary',
+	      render: () => renderWorkspaceWikiFreshnessBoundaryAnswer(),
+	      sourceId: 'telegram_workspace_wiki_freshness_boundary',
+	      evidence: runtimeTruthSourceEvidence(text),
+	      summary: 'Natural workspace/wiki freshness boundary answer completed from governed read-only Spark state.'
+	    });
 	    return;
 	  }
 
 	  if (!earlyBuildIntent && shouldAnswerAuthoritativeAccessCapability(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id);
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_access_capability_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'access_capability',
+      render: () => renderAuthoritativeSparkEditCapabilityAnswer(ctx.chat.id),
+      sourceId: 'telegram_access_capability_answer',
+      evidence: runtimeTruthSourceEvidence(text),
+      summary: 'Natural access capability answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerSparkRiskProfile(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderAuthoritativeSparkRiskProfileAnswer();
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_spark_risk_profile_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'risk_profile',
+      render: () => renderAuthoritativeSparkRiskProfileAnswer(),
+      sourceId: 'telegram_spark_risk_profile_answer',
+      evidence: runtimeTruthSourceEvidence(text),
+      summary: 'Natural Spark risk profile answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerMemoryRuntimeSeparation(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderMemoryRuntimeSeparationAnswer();
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_memory_runtime_boundary_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'memory_runtime_boundary',
+      render: () => renderMemoryRuntimeSeparationAnswer(),
+      sourceId: 'telegram_memory_runtime_boundary_answer',
+      evidence: runtimeTruthSourceEvidence(text),
+      summary: 'Natural memory/runtime separation answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerRestartSurvivalQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderRestartSurvivalAnswer(ctx.chat.id);
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_survival_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'restart_survival',
+      render: () => renderRestartSurvivalAnswer(ctx.chat.id),
+      sourceId: 'telegram_restart_survival_answer',
+      evidence: runtimeTruthSourceEvidence(text),
+      summary: 'Natural restart-survival answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerRestartNeededQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderRestartNeededAnswer();
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_restart_needed_answer', runtimeTruthSourceEvidence(text));
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'restart_needed',
+      render: () => renderRestartNeededAnswer(),
+      sourceId: 'telegram_restart_needed_answer',
+      evidence: runtimeTruthSourceEvidence(text),
+      summary: 'Natural restart-needed answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
   if (!earlyBuildIntent && shouldAnswerMissionProvenanceQuestion(text)) {
-    await conversation.remember(user, text).catch(() => {});
-    const reply = await renderMissionProvenanceAnswer(ctx, user);
-    await ctx.reply(reply);
-    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_mission_provenance_answer', [
-      {
-        source: 'mission_trace',
-        role: 'spawner_mission_provenance',
-        freshness: 'fresh',
-        sourceRef: 'telegram no-edit probe mission record',
-        summary: 'Telegram answered from no-edit Spawner probe mission evidence when available.'
-      }
-    ]);
-    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    await replyWithGovernedReadOnlyState(ctx, user, text, turnIntentEnvelope, {
+      kind: 'mission_provenance',
+      render: () => renderMissionProvenanceAnswer(ctx, user),
+      sourceId: 'telegram_mission_provenance_answer',
+      evidence: [
+        {
+          source: 'mission_trace',
+          role: 'spawner_mission_provenance',
+          freshness: 'fresh',
+          sourceRef: 'telegram no-edit probe mission record',
+          summary: 'Telegram answered from no-edit Spawner probe mission evidence when available.'
+        }
+      ],
+      summary: 'Natural mission provenance answer completed from governed read-only Spark state.'
+    });
     return;
   }
 
