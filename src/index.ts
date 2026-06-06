@@ -1814,6 +1814,31 @@ function shouldAttachFreshRuntimeTruthContext(text: string): boolean {
   return signals.access || signals.live || signals.providers || signals.memory;
 }
 
+function isHarnessCoreArchitectureQuestion(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const mentionsHarness =
+    /\bharness(?:\s+core)?\b/.test(normalized) ||
+    /\bgovernor\b/.test(normalized) && /\b(?:envelope|ledger|authority|authorization)\b/.test(normalized);
+  const asksArchitecture =
+    /\b(?:architecture|authority\s+path|canonical\s+path|what\s+changed|changed|how\s+(?:does|should|is)|explain|difference)\b/.test(normalized);
+  return mentionsHarness && asksArchitecture;
+}
+
+function harnessCoreArchitectureContextHint(): string {
+  return [
+    'Current Harness Core architecture context for this answer:',
+    '- Fresh user intent in the current turn is the only authority for action.',
+    '- Telegram, CLI, Builder, Spawner, memory, chips, browser/computer-use, voice, Researcher, and future adapters must submit actions through a Harness Core envelope.',
+    '- The Governor authorizes the exact capability, owner, risk, and restrictions before any tool executes.',
+    '- Tool ledgers prove authorization and final execution or denial; stale route evidence may be recorded but cannot execute by itself.',
+    '- Memory, pending state, route history, provider names, chip output, and helper output are evidence only until promoted by fresh intent and Governor authority.',
+    '- Chat answers use the read-only answer boundary; builds, missions, memory writes, chip creation, browser/computer-use, registry/runtime changes, publish, and release claims require their own governed tool authority.',
+    '- Release and installer readiness require generated gates to reconcile source, registry pins, installed runtime truth, live proof, performance, provenance, duplicate-truth blockers, rollback, and clean repos.',
+    'Answer naturally from this context. Do not claim any action, mission, memory write, registry move, browser/computer-use, publish, or release happened.'
+  ].join('\n');
+}
+
 function isMetaNoActionTriggerDiscussion(text: string): boolean {
   if (isActionWordMetaDiscussion(text)) return true;
   const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -3076,12 +3101,20 @@ function buildUpdateWithText(
 function shouldBypassBuilderBridgeForTurnIntent(
   envelope: TurnIntentEnvelopeV1,
   decision: TelegramIntentDecisionV2,
-  naturalRoute: NaturalRouteDecision | null
+  naturalRoute: NaturalRouteDecision | null,
+  text: string
 ): boolean {
+  const selectedPlainChat = decision.kind === 'plain_conversation' && decision.route === 'plain_chat';
   return Boolean(
-    envelope.directive.noExecution &&
-    decision.route === 'plain_chat' &&
-    naturalRoute?.blocked_by?.some((reason) => reason === 'route_firewall:no_execution_boundary')
+    (
+      envelope.directive.noExecution &&
+      decision.route === 'plain_chat' &&
+      naturalRoute?.blocked_by?.some((reason) => reason === 'route_firewall:no_execution_boundary')
+    ) ||
+    (
+      selectedPlainChat &&
+      isHarnessCoreArchitectureQuestion(text)
+    )
   );
 }
 
@@ -10823,7 +10856,8 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const bypassBuilderBridge = shouldBypassBuilderBridgeForTurnIntent(
       turnIntentEnvelope,
       telegramIntentGateV2,
-      naturalRouteShadow
+      naturalRouteShadow,
+      text
     );
     if (!hasFreshRuntimeTruth && !bypassBuilderBridge) {
       try {
@@ -10841,7 +10875,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       }
     } else if (bypassBuilderBridge) {
       console.log(
-        `[Bridge] bypassed for no-execution plain chat user=${userRef(ctx.from?.id)} textLen=${text.length}`
+        `[Bridge] bypassed for governed plain chat user=${userRef(ctx.from?.id)} textLen=${text.length}`
       );
     }
     console.log(`[Bridge] user=${userRef(ctx.from?.id)} used=${builderReply.used} mode=${builderReply.bridgeMode} routing=${builderReply.routingDecision} textLen=${(builderReply.responseText || '').length} hasVoice=${Boolean(builderReply.voiceMedia)}`);
@@ -10938,6 +10972,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
     const systemContext = [
       renderSparkAccessRuntimeHint(accessProfile),
+      isHarnessCoreArchitectureQuestion(text) ? harnessCoreArchitectureContextHint() : '',
       freshRuntimeTruthContext
         ? [
             'Authoritative current-state context for this answer:',

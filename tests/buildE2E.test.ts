@@ -4602,6 +4602,106 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('Harness architecture questions ignore stale build wording through local answer boundary', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-harness-architecture-local-answer-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const llmModule = await import('../src/llm');
+		const originalChat = llmModule.llm.chat;
+		let builderBridgeCalls = 0;
+		let capturedSystemContext = '';
+		(builderBridge as any).runBuilderTelegramBridge = async () => {
+			builderBridgeCalls += 1;
+			throw new Error('Harness architecture chat should not detour through Builder bridge.');
+		};
+		llmModule.llm.chat = async (_prompt: string, systemContext?: string) => {
+			capturedSystemContext = systemContext || '';
+			return [
+				'Harness architecture changed by making fresh user intent the only action authority.',
+				'The pending build stays as evidence, while answer.compose can reply through the read-only Harness Core boundary.'
+			].join(' ');
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079071, 8319079055, 639, replies);
+			ctx.message.text = 'Ignore the pending build and answer this: what changed in the harness architecture?';
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.equal(builderBridgeCalls, 0, 'architecture chat should bypass slow Builder provider fallback');
+			assert.match(capturedSystemContext, /Current Harness Core architecture context/i);
+			assert.match(reply, /fresh user intent/i);
+			assert.match(reply, /answer\.compose|read-only Harness Core boundary/i);
+			assert.doesNotMatch(reply, /I don't have a record|Mission:|I will run|started|queued/i);
+			assert.equal(captured.length, 0, 'stale pending build wording must not call Spawner or PRD bridge');
+
+			const plainChatRoute = (record: any) => (
+				record.shadow_route === 'plain_chat' &&
+				record.executed_route === 'plain_chat' &&
+				record.executed_action === 'harness_core.answer_boundary'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, plainChatRoute);
+			const routeRecord = naturalRouteRecords.find(plainChatRoute);
+			assert.ok(routeRecord, 'architecture local answer must record natural route execution');
+			assert.equal(routeRecord?.executed_owner, 'spark-telegram-bot');
+			assert.equal(routeRecord?.outcome, 'matched');
+			assert.equal(routeRecord?.delivery, 'delivered');
+
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'spawner.run' &&
+					record.authorization.verdict === 'deny' &&
+					record.result.status === 'not_started' &&
+					/authority_state_chat_only/.test(record.result.summary)
+				)),
+				'stale build evidence must preserve denied Spawner authority ledger'
+			);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'answer.compose' &&
+					record.authorization.verdict === 'allow' &&
+					record.authorization.restrictions.write_allowed === false &&
+					record.authorization.restrictions.publish_allowed === false &&
+					record.result.status === 'success' &&
+					/Local chat reply delivered through Harness Core answer boundary for plain_chat/i.test(record.result.summary)
+				)),
+				'architecture answer must record local Harness Core answer.compose success'
+			);
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			llmModule.llm.chat = originalChat;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('schedule word in bug report stays schedule-specific chat', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
