@@ -1825,6 +1825,15 @@ function isHarnessCoreArchitectureQuestion(text: string): boolean {
   return mentionsHarness && asksArchitecture;
 }
 
+function isPreviousRouteNeutralSummaryRequest(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  return (
+    /\b(?:do not|don't|dont|stop|avoid|cancel)\b.{0,80}\b(?:continue|resume|use|follow)\b.{0,80}\b(?:previous|prior|last|old)\s+(?:route|path|thread|mode)\b/.test(normalized) &&
+    (/\bneutral\s+summary\b/.test(normalized) || /\bsummary\b/.test(normalized))
+  );
+}
+
 function harnessCoreArchitectureContextHint(): string {
   return [
     'Current Harness Core architecture context for this answer:',
@@ -1836,6 +1845,16 @@ function harnessCoreArchitectureContextHint(): string {
     '- Chat answers use the read-only answer boundary; builds, missions, memory writes, chip creation, browser/computer-use, registry/runtime changes, publish, and release claims require their own governed tool authority.',
     '- Release and installer readiness require generated gates to reconcile source, registry pins, installed runtime truth, live proof, performance, provenance, duplicate-truth blockers, rollback, and clean repos.',
     'Answer naturally from this context. Do not claim any action, mission, memory write, registry move, browser/computer-use, publish, or release happened.'
+  ].join('\n');
+}
+
+function previousRouteNeutralSummaryContextHint(): string {
+  return [
+    'Current route-interruption context for this answer:',
+    '- The fresh user asked not to continue the previous route and asked for a neutral summary.',
+    '- Prior route state, Memory Doctor output, Builder diagnostics, mission state, chip output, and helper text are evidence only.',
+    '- Do not continue a previous diagnostic, memory, Builder, Spawner, chip, mission, browser/computer-use, provider, repair, publish, or runtime lane.',
+    '- Answer as a concise neutral chat summary unless the fresh turn explicitly authorizes a tool.'
   ].join('\n');
 }
 
@@ -3114,6 +3133,10 @@ function shouldBypassBuilderBridgeForTurnIntent(
     (
       selectedPlainChat &&
       isHarnessCoreArchitectureQuestion(text)
+    ) ||
+    (
+      selectedPlainChat &&
+      isPreviousRouteNeutralSummaryRequest(text)
     )
   );
 }
@@ -10973,6 +10996,7 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const systemContext = [
       renderSparkAccessRuntimeHint(accessProfile),
       isHarnessCoreArchitectureQuestion(text) ? harnessCoreArchitectureContextHint() : '',
+      isPreviousRouteNeutralSummaryRequest(text) ? previousRouteNeutralSummaryContextHint() : '',
       freshRuntimeTruthContext
         ? [
             'Authoritative current-state context for this answer:',

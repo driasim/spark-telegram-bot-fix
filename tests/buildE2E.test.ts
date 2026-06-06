@@ -4702,6 +4702,99 @@ async function run(): Promise<void> {
 		}
 	});
 
+	await test('previous route neutral summary bypasses Builder route residue through local answer boundary', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-previous-route-neutral-summary-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const builderBridge = require('../src/builderBridge') as typeof import('../src/builderBridge');
+		const originalBridge = builderBridge.runBuilderTelegramBridge;
+		const llmModule = await import('../src/llm');
+		const originalChat = llmModule.llm.chat;
+		let builderBridgeCalls = 0;
+		let capturedSystemContext = '';
+		(builderBridge as any).runBuilderTelegramBridge = async () => {
+			builderBridgeCalls += 1;
+			return {
+				used: true,
+				responseText: 'Memory Doctor: healthy.\nTrigger: identity correction complaint.\nCurrent-state scan: 0 record(s).',
+				decision: 'builder_chat',
+				bridgeMode: 'external_configured',
+				routingDecision: 'builder_chat'
+			};
+		};
+		llmModule.llm.chat = async (_prompt: string, systemContext?: string) => {
+			capturedSystemContext = systemContext || '';
+			return 'Neutral summary: you asked me to stop route continuation and stay in chat-only summary mode; no tools or diagnostics are running.';
+		};
+
+		try {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest((builderBridge as any).runBuilderTelegramBridge);
+			const replies: string[] = [];
+			const ctx = makeFakeCtx(8319079071, 8319079055, 640, replies);
+			ctx.message.text = 'Do not continue the previous route. Give me a neutral summary.';
+			await indexModule.handleTextMessage(ctx);
+
+			const reply = replies[0] || '';
+			assert.equal(builderBridgeCalls, 0, 'neutral previous-route interruption should bypass Builder residue');
+			assert.match(capturedSystemContext, /route-interruption context/i);
+			assert.match(reply, /neutral summary/i);
+			assert.doesNotMatch(reply, /Memory Doctor|identity correction|current-state scan|Mission:|started|queued/i);
+			assert.equal(captured.length, 0, 'previous-route neutral summary must not call Spawner or PRD bridge');
+
+			const plainChatRoute = (record: any) => (
+				record.shadow_route === 'plain_chat' &&
+				record.executed_route === 'plain_chat' &&
+				record.executed_action === 'harness_core.answer_boundary'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, plainChatRoute);
+			const routeRecord = naturalRouteRecords.find(plainChatRoute);
+			assert.ok(routeRecord, 'neutral previous-route answer must record natural route execution');
+			assert.equal(routeRecord?.executed_owner, 'spark-telegram-bot');
+			assert.equal(routeRecord?.outcome, 'matched');
+			assert.equal(routeRecord?.delivery, 'delivered');
+
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'answer.compose' &&
+					record.authorization.verdict === 'allow' &&
+					record.authorization.restrictions.write_allowed === false &&
+					record.authorization.restrictions.publish_allowed === false &&
+					record.result.status === 'success' &&
+					/Local chat reply delivered through Harness Core answer boundary for plain_chat/i.test(record.result.summary)
+				)),
+				'neutral previous-route answer must record local Harness Core answer.compose success'
+			);
+		} finally {
+			const indexModule: any = await import('../src/index');
+			indexModule.__setBuilderBridgeRunnerForTest(null);
+			(builderBridge as any).runBuilderTelegramBridge = originalBridge;
+			llmModule.llm.chat = originalChat;
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreAxios();
+			restoreEnv();
+		}
+	});
+
 	await test('schedule word in bug report stays schedule-specific chat', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

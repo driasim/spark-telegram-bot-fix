@@ -2763,7 +2763,7 @@ export type BuilderReplySuppressionReason =
   | 'low_information';
 
 export function builderReplySuppressionReason(reply: string, routingDecision: string = ''): BuilderReplySuppressionReason | null {
-  if (/^memory(?:_|$)/i.test(routingDecision.trim())) {
+  if (/^memory(?:[_.]|$)/i.test(routingDecision.trim())) {
     return null;
   }
   const normalized = reply.trim().toLowerCase();
@@ -2775,7 +2775,8 @@ export function builderReplySuppressionReason(reply: string, routingDecision: st
   }
   if (
     normalized.includes('spark could not reach the builder memory path right now') ||
-    normalized.includes('operator fix: spark fix telegram')
+    normalized.includes('operator fix: spark fix telegram') ||
+    /^memory doctor\s*:/i.test(reply.trim())
   ) {
     return 'diagnostic_wall';
   }

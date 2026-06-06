@@ -1426,6 +1426,27 @@ test('suppresses memory acknowledgements for normal chat replies', () => {
   );
   assert.equal(
     shouldSuppressBuilderReplyForPlainChat(
+      'Memory Doctor: healthy.\nTrigger: identity correction complaint.\nCurrent-state scan: 0 record(s).',
+      'builder_chat'
+    ),
+    true
+  );
+  assert.equal(
+    builderReplySuppressionReason(
+      'Memory Doctor: healthy.\nTrigger: identity correction complaint.\nCurrent-state scan: 0 record(s).',
+      'builder_chat'
+    ),
+    'diagnostic_wall'
+  );
+  assert.equal(
+    builderReplySuppressionReason(
+      'Memory Doctor: healthy.\nTrigger: explicit memory diagnostic.',
+      'memory_doctor'
+    ),
+    null
+  );
+  assert.equal(
+    shouldSuppressBuilderReplyForPlainChat(
       'Spark could not reach the Builder memory path right now.\n\nCheck now: Run /diagnose so Spark can check Builder, memory, and the selected memory model.\n\nOperator fix: spark fix telegram, then spark verify --onboarding.',
       'plain_chat'
     ),
