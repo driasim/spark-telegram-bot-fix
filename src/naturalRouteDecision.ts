@@ -16,6 +16,7 @@ import {
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBrowserComputerUseAuthorizationBoundaryQuestion,
+  classifyStaleContextAuthorityBoundary,
   isAgentDoctrinePreferenceStatusQuestion,
   isAmbiguousLocalSparkServiceRequest,
   isBuildContextRecallQuestion,
@@ -367,6 +368,21 @@ export function decideNaturalRoute(
       payload: {},
       context_source: 'latest_message',
       matched_signals: ['browser_computer_use_authorization_boundary'],
+      blocked_by: [],
+      requires_confirmation: false
+    });
+  }
+
+  const staleContextAuthorityBoundary = classifyStaleContextAuthorityBoundary(normalized);
+  if (staleContextAuthorityBoundary) {
+    return decision({
+      route: 'conversation.stale_context_authority_boundary',
+      owner_system: 'spark-telegram-bot',
+      confidence: 'explicit',
+      action: 'plain_chat.stale_context_authority_boundary',
+      payload: { kind: staleContextAuthorityBoundary },
+      context_source: 'latest_message',
+      matched_signals: ['stale_context_authority_boundary', staleContextAuthorityBoundary],
       blocked_by: [],
       requires_confirmation: false
     });

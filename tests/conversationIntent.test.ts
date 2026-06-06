@@ -2083,6 +2083,12 @@ test('browser computer-use authorization boundary does not require no-use wordin
   assert.doesNotMatch(reply, /explicitly withholds/i);
 });
 
+test('browser-use availability status is not swallowed by authorization-policy boundary', () => {
+  const prompt = 'Tell me whether browser-use is currently available, but do not open a browser.';
+
+  assert.equal(isBrowserComputerUseAuthorizationBoundaryQuestion(prompt), false);
+});
+
 test('old mission route bug descriptions stay chat-only', () => {
   const prompt = 'I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.';
 

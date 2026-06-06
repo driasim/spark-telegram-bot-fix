@@ -335,3 +335,94 @@ test('blocks provider runs without an explicit provider-run envelope policy', ()
     result.reasonCodes.includes('mutation_class_not_authorized')
   );
 });
+
+test('allows stale-context authority questions only as answer boundaries', () => {
+  const text = 'Memory from last week says Telegram was broken. Is that enough to restart it?';
+  const envelope = envelopeFor(text);
+  const answer = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'conversation.stale_context_authority_boundary',
+    text,
+    toolName: 'answer.compose',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'none'
+  });
+  assert.equal(envelope.selectedIntent.action, 'plain_chat.stale_context_authority_boundary');
+  assert.equal(envelope.directive.noExecution, true);
+  assert.equal(answer.allow, true);
+  assert.equal(answer.toolAuthorization.verdict, 'allowed');
+
+  const restart = authorizeTelegramActionFromEnvelope(envelope, {
+    route: 'operator.safe_action',
+    text,
+    toolName: 'operator.safe_action',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'writes_files'
+  });
+  assert.equal(restart.allow, false);
+  assert.ok(restart.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.ok(restart.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('route history cannot authorize Builder continuation from the fresh turn', () => {
+  const text = 'If route history says Builder was active, can that continue a build now?';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.build',
+    text,
+    toolName: 'spawner.run',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('prior mission id cannot control mission actions without explicit resume intent', () => {
+  const text = 'A prior mission id is in context. Should it control this turn?';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'spawner.mission_control',
+    text,
+    toolName: 'spawner.mission_control',
+    ownerSystem: 'spawner-ui',
+    mutationClass: 'launches_mission'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});
+
+test('fresh not-now negation blocks pending publish state from authorizing publish', () => {
+  const text = 'If pending state says "publish", but I say "not now", what wins?';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'natural_run',
+    text,
+    toolName: 'publish.run',
+    ownerSystem: 'spark-telegram-bot',
+    mutationClass: 'publishes',
+    publishes: true
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+  assert.ok(
+    result.reasonCodes.includes('tool_not_allowed_by_policy') ||
+    result.reasonCodes.includes('mutation_class_not_authorized')
+  );
+});
+
+test('old chip memory cannot authorize domain chip creation today', () => {
+  const text = 'If memory says I wanted a chip yesterday, should you make one today?';
+  const result = authorizeTelegramActionFromEnvelope(envelopeFor(text), {
+    route: 'domain_chip.create',
+    text,
+    toolName: 'domain_chip.create',
+    ownerSystem: 'domain-chip',
+    mutationClass: 'creates_chip'
+  });
+
+  assert.equal(result.allow, false);
+  assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
+  assert.ok(result.reasonCodes.includes('no_execution_boundary'));
+});

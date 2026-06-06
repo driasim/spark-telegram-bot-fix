@@ -2122,6 +2122,137 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('browser-use availability question is Harness Core read-only and does not open a browser', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-browser-use-availability-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true } };
+		};
+
+		const replies: string[] = [];
+		const ctx = makeFakeCtx(8319079055, 8319079055, 615, replies);
+		ctx.message.text = 'Tell me whether browser-use is currently available, but do not open a browser.';
+		const indexModule: any = await import('../src/index');
+		await indexModule.handleTextMessage(ctx);
+
+		const reply = replies[0] || '';
+		assert.match(reply, /browser/i);
+		assert.match(reply, /\/probe browser|browser probe/i);
+		assert.doesNotMatch(reply, /(?:opened\s+(?:a\s+)?browser|browser\s+opened|clicked\s+|screenshot\s+captured)/i);
+		assert.equal(captured.length, 0, 'browser-use availability answer must not call Spawner or browser tooling');
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		assert.ok(
+			ledgerRecords.some((record) => (
+				record.tool_name === 'spark.read_only_state' &&
+				record.authorization.verdict === 'allow' &&
+				record.result.status === 'success' &&
+				/browser-use availability answer completed without opening a browser/i.test(record.result.summary)
+			)),
+			'browser-use availability answer must record Harness Core read-only execution'
+		);
+		const browserRoute = (record: any) => (
+			record.executed_route === 'spark.read_only_state.browser_use_availability' &&
+			record.executed_action === 'harness_core.read_only_state'
+		);
+		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, browserRoute);
+		assert.ok(naturalRouteRecords.some(browserRoute), 'browser-use availability answer must record natural route execution');
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreEnv();
+	});
+
+	await test('stale context authority questions answer without mutating or resuming work', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-stale-context-authority-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+
+		const prompts = [
+			{
+				text: 'Memory from last week says Telegram was broken. Is that enough to restart it?',
+				match: /Old memory.*not enough to restart|restart needs fresh live status/i
+			},
+			{
+				text: 'If route history says Builder was active, can that continue a build now?',
+				match: /Route history.*cannot continue a Builder run/i
+			},
+			{
+				text: 'A prior mission id is in context. Should it control this turn?',
+				match: /prior mission id is a reference, not control authority/i
+			},
+			{
+				text: 'If pending state says "publish", but I say "not now", what wins?',
+				match: /Fresh "not now" wins/i
+			},
+			{
+				text: 'If memory says I wanted a chip yesterday, should you make one today?',
+				match: /Yesterday's chip memory.*cannot create a chip today/i
+			},
+			{
+				text: 'What evidence should override old memory when deciding whether to act?',
+				match: /Fresh user intent comes first/i
+			}
+		];
+
+		const replies: string[] = [];
+		const indexModule: any = await import('../src/index');
+		for (const [index, prompt] of prompts.entries()) {
+			const ctx = makeFakeCtx(8319079055, 8319079055, 616 + index, replies);
+			ctx.message.text = prompt.text;
+			await indexModule.handleTextMessage(ctx);
+			assert.match(replies[replies.length - 1] || '', prompt.match, prompt.text);
+		}
+
+		assert.equal(captured.length, 0, 'stale context authority answers must not call Spawner or mutation bridges');
+		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+		const successRecords = ledgerRecords.filter((record) => (
+			record.tool_name === 'answer.compose' &&
+			record.authorization.verdict === 'allow' &&
+			record.result.status === 'success' &&
+			/Stale context authority boundary answer completed/i.test(record.result.summary)
+		));
+		assert.equal(successRecords.length, prompts.length);
+		const staleContextRoute = (record: any) => (
+			record.executed_route === 'conversation.stale_context_authority_boundary' &&
+			record.executed_action === 'harness_core.answer_boundary'
+		);
+		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, staleContextRoute);
+		assert.ok(
+			naturalRouteRecords.filter(staleContextRoute).length >= prompts.length,
+			'stale context authority answers must record natural route execution'
+		);
+
+		rmSync(tempRoot, { recursive: true, force: true });
+		restoreEnv();
+	});
+
 	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

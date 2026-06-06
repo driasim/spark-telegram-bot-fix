@@ -1,3 +1,5 @@
+import { isStaleContextAuthorityBoundaryQuestion } from './conversationIntent';
+
 export type DeterministicRouteId =
   | 'access.change'
   | 'access.status'
@@ -45,6 +47,7 @@ export type DeterministicRouteId =
   | 'sparkqa.benchmark'
   | 'sparkqa.pause'
   | 'conversation.quoted_drafted_example_boundary'
+  | 'conversation.stale_context_authority_boundary'
   | 'domain_chip.pending';
 
 export interface RouteFirewallVerdict {
@@ -457,6 +460,9 @@ export function evaluateDeterministicRoute(route: DeterministicRouteId, text: st
   }
   if (route === 'recursive.proposal' && isExplicitRecursiveProposal(normalized)) {
     return { allow: true, reason: 'explicit_recursive_proposal', confidence: 'explicit' };
+  }
+  if (route === 'conversation.stale_context_authority_boundary' && isStaleContextAuthorityBoundaryQuestion(normalized)) {
+    return { allow: true, reason: 'stale_context_authority_boundary', confidence: 'explicit' };
   }
 
   if (route === 'spawner.build' && isConcreteProjectBuild(normalized)) {

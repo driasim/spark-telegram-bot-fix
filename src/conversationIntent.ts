@@ -90,6 +90,102 @@ export function isActionWordMetaDiscussion(text: string): boolean {
   return framesAsLanguage && (asksBoundary || labelsOnly || explicitBoundary);
 }
 
+export type StaleContextAuthorityBoundaryKind =
+  | 'stale_memory_restart'
+  | 'route_history_builder'
+  | 'prior_mission_id'
+  | 'pending_publish_negation'
+  | 'old_chip_memory'
+  | 'evidence_priority';
+
+export function classifyStaleContextAuthorityBoundary(text: string): StaleContextAuthorityBoundaryKind | null {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalized || isExplicitMemoryWriteLikeRequest(normalized)) return null;
+
+  if (
+    /\bpending\s+state\b/.test(normalized) &&
+    /\bpublish\b/.test(normalized) &&
+    /\b(?:not\s+now|no|do\s+not|don't|dont|hold\s+off)\b/.test(normalized) &&
+    /\b(?:wins?|control|authority|what\s+happens)\b/.test(normalized)
+  ) {
+    return 'pending_publish_negation';
+  }
+
+  if (
+    /\broute\s+history\b/.test(normalized) &&
+    /\bbuilder\b/.test(normalized) &&
+    /\b(?:active|was\s+active|build)\b/.test(normalized) &&
+    /\b(?:continue|resume|control|authorize|authority|can|should)\b/.test(normalized)
+  ) {
+    return 'route_history_builder';
+  }
+
+  if (
+    /\bprior\s+mission\s+id\b/.test(normalized) &&
+    /\b(?:context|control|turn|resume|authority|authorize)\b/.test(normalized)
+  ) {
+    return 'prior_mission_id';
+  }
+
+  if (
+    /\bmemory\b/.test(normalized) &&
+    /\b(?:last\s+week|old|stale|earlier|previous)\b/.test(normalized) &&
+    /\b(?:telegram|bot|spark)\b/.test(normalized) &&
+    /\b(?:broken|down|offline)\b/.test(normalized) &&
+    /\b(?:restart|repair|fix|start)\b/.test(normalized) &&
+    /\b(?:enough|sufficient|authorize|authority|can|should)\b/.test(normalized)
+  ) {
+    return 'stale_memory_restart';
+  }
+
+  if (
+    /\bmemory\b/.test(normalized) &&
+    /\b(?:yesterday|old|stale|earlier|previous)\b/.test(normalized) &&
+    /\b(?:chip|domain[-\s]*chip)\b/.test(normalized) &&
+    /\b(?:make|create|build|scaffold|generate)\b/.test(normalized) &&
+    /\b(?:today|now|this\s+turn|should|can)\b/.test(normalized)
+  ) {
+    return 'old_chip_memory';
+  }
+
+  if (
+    /\b(?:what|which)\s+evidence\b/.test(normalized) &&
+    /\b(?:override|outrank|beat|win)\b/.test(normalized) &&
+    /\b(?:old|stale)\s+memory\b/.test(normalized) &&
+    /\b(?:act|action|execute|deciding)\b/.test(normalized)
+  ) {
+    return 'evidence_priority';
+  }
+
+  return null;
+}
+
+export function isStaleContextAuthorityBoundaryQuestion(text: string): boolean {
+  return classifyStaleContextAuthorityBoundary(text) !== null;
+}
+
+export function renderStaleContextAuthorityBoundaryReply(
+  text: string,
+  kind = classifyStaleContextAuthorityBoundary(text)
+): string {
+  switch (kind) {
+    case 'pending_publish_negation':
+      return 'Fresh "not now" wins. Pending publish state is evidence only; no publish should run without a new explicit request, Harness Core authority, Governor approval, and a tool ledger.';
+    case 'route_history_builder':
+      return 'No. Route history can explain what was active before, but it cannot continue a Builder run now. This turn needs fresh intent plus Harness Core and Governor authorization.';
+    case 'prior_mission_id':
+      return 'No. A prior mission id is a reference, not control authority. I can inspect or resume it only after you explicitly ask for that action in the fresh turn.';
+    case 'stale_memory_restart':
+      return 'No. Old memory that Telegram was broken is not enough to restart it. A restart needs fresh live status, explicit user intent, Harness Core authorization, Governor approval, and a tool ledger.';
+    case 'old_chip_memory':
+      return 'No. Yesterday\'s chip memory can remind us of context, but it cannot create a chip today. Chip creation needs fresh explicit intent and governed Harness Core authority.';
+    case 'evidence_priority':
+      return 'Fresh user intent comes first. For action decisions, live status or fresh probe evidence, the Harness Core envelope, Governor decision, tool ledger, and visible side-effect proof outrank old memory.';
+    default:
+      return 'Stale context is evidence only. It cannot authorize action without fresh user intent, Harness Core authority, a Governor decision, and a tool ledger.';
+  }
+}
+
 export function isSparkWikiStatusQuestion(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) {
@@ -1710,6 +1806,11 @@ export function isBrowserComputerUseAuthorizationBoundaryQuestion(text: string):
 	const asksBoundary =
 		/\b(?:when|how|what|which)\b.{0,120}\b(?:allowed?|authori[sz]ed?|authorization|permission|approval|approve|tool approval|gates?|criteria|boundary)\b/.test(normalized) ||
 		/\b(?:allowed?|authori[sz]ed?|authorization|permission|approval|approve|tool approval|governor|gates?|criteria|boundary)\b.{0,120}\b(?:when|how|what|which|tell|explain|list|describe)\b/.test(normalized);
+	const asksAvailabilityStatus =
+		/\b(?:available|availability|status|prove|proof|currently|right\s+now|can\s+you)\b/.test(normalized);
+	const asksPolicyWords =
+		/\b(?:allowed?|authori[sz]ed?|authorization|permission|approval|approve|tool approval|governor|gates?|criteria|boundary)\b/.test(normalized);
+	if (asksAvailabilityStatus && !asksPolicyWords) return false;
 	const asksToExplain = /\b(?:tell|explain|list|describe|when|how|what)\b/.test(normalized);
 	const explicitUseCommand =
 		/^(?:please\s+)?(?:use|open|call|run|click|browse|drive)\b.{0,80}\b(?:browser|browser-use|browse|browsing|computer[-\s]*use)\b/.test(normalized) ||

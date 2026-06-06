@@ -264,6 +264,7 @@ import {
   isExplicitContextualBuildRequest,
   isGlobalAgentDoctrineRequest,
   isBrowserComputerUseAuthorizationBoundaryQuestion,
+  classifyStaleContextAuthorityBoundary,
   isMissionRoutingFailureClassQuestion,
   isModelSwitchGateExplanationRequest,
   isNoEditSpawnerProbeExplanationRequest,
@@ -297,6 +298,7 @@ import {
   renderAccessProductRuleReply,
   renderMissionRoutingFailureClassReply,
   renderBrowserComputerUseAuthorizationBoundaryReply,
+  renderStaleContextAuthorityBoundaryReply,
   renderModelSwitchGateExplanationReply,
   renderNoEditSpawnerProbeExplanationReply,
   renderPlainChatAnswerEditingReply,
@@ -8594,11 +8596,118 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     return;
   }
 
+  const staleContextAuthorityKind = !earlyBuildIntent ? classifyStaleContextAuthorityBoundary(text) : null;
+  if (staleContextAuthorityKind) {
+    const staleContextAuthorityAuthorization = telegramActionAuthorityDecision(
+      telegramActionEnvelope(turnIntentEnvelope, {
+        route: 'conversation.stale_context_authority_boundary',
+        ownerSystem: 'spark-telegram-bot',
+        action: 'plain_chat.stale_context_authority_boundary',
+        kind: 'plain_conversation',
+        confidence: 'explicit',
+        mutationClass: 'none',
+        selectedBy: 'telegram_stale_context_authority_boundary',
+        matchedSignal: staleContextAuthorityKind
+      }),
+      {
+        route: 'conversation.stale_context_authority_boundary',
+        text,
+        toolName: 'answer.compose',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'none'
+      }
+    );
+    if (!staleContextAuthorityAuthorization.allow) {
+      recordTelegramHarnessCoreExecution(staleContextAuthorityAuthorization, {
+        toolName: 'answer.compose',
+        status: 'not_started',
+        summary: `Stale context authority boundary answer was blocked for ${staleContextAuthorityKind}.`
+      });
+      await ctx.reply('I did not answer from stale context because the fresh turn did not authorize even the answer boundary.');
+      return;
+    }
+    await conversation.remember(user, text).catch(() => {});
+    const reply = renderStaleContextAuthorityBoundaryReply(text, staleContextAuthorityKind);
+    recordNaturalRouteExecution(
+      ctx,
+      naturalRouteShadow,
+      'conversation.stale_context_authority_boundary',
+      'spark-telegram-bot',
+      'harness_core.answer_boundary'
+    );
+    recordTelegramHarnessCoreExecution(staleContextAuthorityAuthorization, {
+      toolName: 'answer.compose',
+      status: 'success',
+      summary: `Natural stale context authority boundary answer completed for ${staleContextAuthorityKind}.`
+    });
+    await ctx.reply(reply);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_stale_context_authority_boundary', [
+      {
+        source: 'current_user_message',
+        role: 'latest_turn_authority',
+        freshness: 'fresh',
+        sourceRef: 'telegram current turn',
+        summary: 'Telegram answered a stale-context authority question from the latest user turn without executing a stale action.'
+      },
+      {
+        source: 'harness_core_authority_policy',
+        role: 'authority_boundary',
+        freshness: 'fresh',
+        sourceRef: 'Harness Core authority rule',
+        summary: 'Memory, pending state, route history, and prior mission ids are evidence only until fresh intent and Governor authority permit action.'
+      }
+    ]);
+    await conversation.rememberAssistantReply(user, reply).catch(() => {});
+    return;
+  }
+
   const browserProofAnswer = !earlyBuildIntent ? await buildBrowserProofQuestionAnswer(text) : '';
   if (browserProofAnswer) {
+    const browserProofAuthorization = telegramActionAuthorityDecision(
+      telegramActionEnvelope(turnIntentEnvelope, {
+        route: 'spark.read_only_state',
+        ownerSystem: 'spark-telegram-bot',
+        action: 'spark.read_only_state.browser_use_availability',
+        kind: 'runtime_truth_or_operator',
+        confidence: 'explicit',
+        mutationClass: 'read_only',
+        selectedBy: 'telegram_browser_proof_boundary',
+        matchedSignal: 'browser_use_availability_read'
+      }),
+      {
+        route: 'spark.read_only_state',
+        text,
+        toolName: 'spark.read_only_state',
+        ownerSystem: 'spark-telegram-bot',
+        mutationClass: 'read_only'
+      }
+    );
+    if (!browserProofAuthorization.allow) {
+      recordTelegramHarnessCoreExecution(browserProofAuthorization, {
+        toolName: 'spark.read_only_state',
+        status: 'not_started',
+        summary: 'Browser-use availability answer was blocked before reading capability proof.'
+      });
+      await ctx.reply('I did not read browser-use capability state because the fresh turn did not authorize that read-only check.');
+      return;
+    }
     await conversation.remember(user, text).catch(() => {});
-    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.browser_proof_boundary', 'spark-telegram-bot', 'answer');
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spark.read_only_state.browser_use_availability', 'spark-telegram-bot', 'harness_core.read_only_state');
+    recordTelegramHarnessCoreExecution(browserProofAuthorization, {
+      toolName: 'spark.read_only_state',
+      status: 'success',
+      summary: 'Natural browser-use availability answer completed without opening a browser.'
+    });
     await ctx.reply(browserProofAnswer);
+    recordTelegramSourceUsedEvidence(ctx, user, text, 'telegram_browser_use_availability_boundary', [
+      {
+        source: 'capability_probe_receipt',
+        role: 'browser_use_availability_evidence',
+        freshness: 'live_probed',
+        sourceRef: 'spark_browser capability probe receipt when present',
+        summary: 'Telegram answered browser-use availability as a read-only status claim and did not open a browser.'
+      }
+    ]);
     await conversation.rememberAssistantReply(user, browserProofAnswer).catch(() => {});
     return;
   }

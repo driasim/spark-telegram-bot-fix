@@ -3,6 +3,7 @@ import {
   extractSparkWikiAnswerQuestion,
   extractSparkWikiPromotionIntent,
   extractSparkWikiQuery,
+  classifyStaleContextAuthorityBoundary,
   isAccessHelpQuestion,
   isAccessStatusQuestion,
   isBrowserComputerUseAuthorizationBoundaryQuestion,
@@ -72,6 +73,13 @@ export function parseTelegramIntentConstraintsV2(text: string): TelegramIntentCo
   }
 
   if (isMissionRoutingFailureClassQuestion(normalized)) {
+    constraints.noExecution = true;
+    constraints.noNetworkAbsorptionClaim = true;
+    constraints.localOnly = true;
+    return constraints;
+  }
+
+  if (classifyStaleContextAuthorityBoundary(normalized)) {
     constraints.noExecution = true;
     constraints.noNetworkAbsorptionClaim = true;
     constraints.localOnly = true;
@@ -399,6 +407,26 @@ export function classifyTelegramIntentV2(text: string, context: TelegramIntentGa
       matched_signals: ['quoted_drafted_example_boundary'],
       blocked_candidates: naturalRoute && naturalRoute.route !== 'conversation.quoted_drafted_example_boundary'
         ? [candidate(kindForNaturalRoute(naturalRoute.route), naturalRoute.route, naturalRoute.owner_system, 'Quoted or drafted high-agency wording is evidence only and cannot own execution.')]
+        : [],
+      supporting_routes: supportingRoutes(naturalRoute),
+      enforcement: 'enforce_safe',
+      natural_route: naturalRoute
+    });
+  }
+
+  const staleContextAuthorityBoundary = classifyStaleContextAuthorityBoundary(normalized);
+  if (staleContextAuthorityBoundary) {
+    return makeDecision({
+      kind: 'plain_conversation',
+      route: 'conversation.stale_context_authority_boundary',
+      owner_system: 'spark-telegram-bot',
+      action: 'plain_chat.stale_context_authority_boundary',
+      confidence: 'explicit',
+      constraints,
+      payload: { ...basePayload(naturalRoute), kind: staleContextAuthorityBoundary },
+      matched_signals: ['stale_context_authority_boundary', staleContextAuthorityBoundary],
+      blocked_candidates: naturalRoute && naturalRoute.route !== 'conversation.stale_context_authority_boundary'
+        ? [candidate(kindForNaturalRoute(naturalRoute.route), naturalRoute.route, naturalRoute.owner_system, 'Stale context is evidence only and cannot own execution.')]
         : [],
       supporting_routes: supportingRoutes(naturalRoute),
       enforcement: 'enforce_safe',

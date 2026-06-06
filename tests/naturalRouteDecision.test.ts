@@ -290,6 +290,28 @@ test('selects browser/computer-use authorization boundary before doctrine prefer
   assert.equal(route.requires_confirmation, false);
 });
 
+test('routes stale context authority questions to answer-only boundary', () => {
+  const prompts = [
+    ['Memory from last week says Telegram was broken. Is that enough to restart it?', 'stale_memory_restart'],
+    ['If route history says Builder was active, can that continue a build now?', 'route_history_builder'],
+    ['A prior mission id is in context. Should it control this turn?', 'prior_mission_id'],
+    ['If pending state says "publish", but I say "not now", what wins?', 'pending_publish_negation'],
+    ['If memory says I wanted a chip yesterday, should you make one today?', 'old_chip_memory'],
+    ['What evidence should override old memory when deciding whether to act?', 'evidence_priority']
+  ];
+
+  for (const [prompt, kind] of prompts) {
+    const route = decideNaturalRoute(prompt);
+    assert.equal(route.route, 'conversation.stale_context_authority_boundary', prompt);
+    assert.equal(route.owner_system, 'spark-telegram-bot', prompt);
+    assert.equal(route.action, 'plain_chat.stale_context_authority_boundary', prompt);
+    assert.equal(route.context_source, 'latest_message', prompt);
+    assert.deepEqual(route.matched_signals, ['stale_context_authority_boundary', kind], prompt);
+    assert.equal(route.payload.kind, kind, prompt);
+    assert.equal(route.requires_confirmation, false, prompt);
+  }
+});
+
 test('selects mission routing failure boundary for old route bug descriptions', () => {
   const route = decideNaturalRoute('I am describing the old bug: Spark saw "mission" and launched. Do not reproduce it.');
 
