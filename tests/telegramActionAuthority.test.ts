@@ -77,6 +77,11 @@ test('allows explicit project build only when route and envelope both authorize 
   assert.equal(result.allow, true);
   assert.equal(result.routeVerdict.allow, true);
   assert.equal(result.toolAuthorization.verdict, 'allowed');
+  assert.equal(result.consumerVerification?.schema_version, 'governor-consumer-verification-v1');
+  assert.equal(result.consumerVerification?.allowed, true);
+  assert.equal(result.consumerVerification?.decision_id, result.governorDecision?.decision_id);
+  assert.equal(result.consumerVerification?.ledger_id, result.harnessCoreLedger?.ledger_id);
+  assert.equal(result.consumerVerification?.tool_name, 'spawner.run');
 });
 
 test('explicit route evidence cannot substitute for envelope-selected mutating route', () => {
@@ -96,6 +101,8 @@ test('explicit route evidence cannot substitute for envelope-selected mutating r
   assert.equal(result.allow, false);
   assert.ok(result.reasonCodes.includes('route_not_selected_by_turn_envelope'));
   assert.notEqual(result.governorDecision?.outcome, 'execute');
+  assert.equal(result.consumerVerification?.allowed, false);
+  assert.ok(result.reasonCodes.includes('governor:governor_outcome_deny'));
 });
 
 test('final Telegram action boundary never treats prepare as execution authority', () => {

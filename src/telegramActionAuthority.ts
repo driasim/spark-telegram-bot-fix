@@ -14,6 +14,8 @@ import {
 } from './harnessCoreVNext';
 import {
   createHarnessCoreGovernorDecision,
+  verifyHarnessCoreGovernorToolAuthority,
+  type HarnessCoreGovernorConsumerVerification,
   verifyHarnessCoreGovernorExecutionAuthority
 } from '@spark/harness-core';
 import { recordHarnessCoreAuthorizationLedger } from './harnessCoreLedger';
@@ -36,6 +38,7 @@ export interface TelegramActionAuthorityResult {
   };
   harnessCoreLedger?: ToolCallLedgerV1;
   governorDecision?: GovernorDecisionV1;
+  consumerVerification?: HarnessCoreGovernorConsumerVerification;
   reasonCodes: string[];
 }
 
@@ -133,17 +136,18 @@ export function authorizeTelegramActionFromEnvelope(
         tool_ledgers: harnessCoreLedger ? [harnessCoreLedger] : []
       })
     : null;
-  const governorVerification = harnessCore?.action
-    ? verifyHarnessCoreGovernorExecutionAuthority({
+  const consumerVerification = harnessCore?.action
+    ? verifyHarnessCoreGovernorToolAuthority({
         governor_decision: governorDecision,
-        expected_capability_id: harnessCore.action.capability_id,
-        expected_action_type: harnessCore.action.action_type,
+        owner_system: input.ownerSystem,
         tool_name: input.toolName,
+        action_type: harnessCore.action.action_type,
         action_id: harnessCore.action.action_id,
-        allow_read_only: harnessCore.action.action_type === 'read'
+        allow_read_only: harnessCore.action.action_type === 'read',
+        require_pre_execution_ledger: true
       })
     : null;
-  const allow = governorVerification?.allowed === true;
+  const allow = consumerVerification?.allowed === true;
   const reasonCodes = Array.from(new Set([
     ...(routeVerdict.allow ? [] : [`route_firewall:${routeVerdict.reason}`]),
     ...(routeAuthorizedByTurn ? [] : ['route_not_selected_by_turn_envelope']),
@@ -152,8 +156,8 @@ export function authorizeTelegramActionFromEnvelope(
     ...(harnessCore && harnessCore.authorization.verdict !== 'allow'
       ? harnessCore.authorization.reasons.map((reason) => `harness_core:${reason}`)
       : []),
-    ...(governorVerification && !governorVerification.allowed
-      ? governorVerification.reason_codes.map((reason) => `governor:${reason}`)
+    ...(consumerVerification && !consumerVerification.allowed
+      ? consumerVerification.reason_codes.map((reason) => `governor:${reason}`)
       : []),
     ...(harnessCore ? [] : ['harness_core:missing_or_invalid_envelope'])
   ]));
@@ -166,6 +170,7 @@ export function authorizeTelegramActionFromEnvelope(
     ...(harnessCore ? { harnessCore } : {}),
     ...(harnessCoreLedger ? { harnessCoreLedger } : {}),
     ...(governorDecision ? { governorDecision } : {}),
+    ...(consumerVerification ? { consumerVerification } : {}),
     reasonCodes
   };
 }
