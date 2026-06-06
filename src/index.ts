@@ -966,7 +966,7 @@ function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQue
   return null;
 }
 
-function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion): NaturalRouteDecision {
+function readOnlyStateNaturalRouteDecision(kind: SparkReadOnlyStateQuestion | 'browser_use_availability'): NaturalRouteDecision {
   const route = `spark.read_only_state.${kind}`;
   return {
     schema_version: 'spark.nlp.route_decision.v1',
@@ -8973,7 +8973,13 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
     await conversation.remember(user, text).catch(() => {});
-    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'spark.read_only_state.browser_use_availability', 'spark-telegram-bot', 'harness_core.read_only_state');
+    recordNaturalRouteExecution(
+      ctx,
+      readOnlyStateNaturalRouteDecision('browser_use_availability'),
+      'spark.read_only_state.browser_use_availability',
+      'spark-telegram-bot',
+      'harness_core.read_only_state'
+    );
     recordTelegramHarnessCoreExecution(browserProofAuthorization, {
       toolName: 'spark.read_only_state',
       status: 'success',

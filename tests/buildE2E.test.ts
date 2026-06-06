@@ -2172,6 +2172,17 @@ async function run(): Promise<void> {
 		);
 		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, browserRoute);
 		assert.ok(naturalRouteRecords.some(browserRoute), 'browser-use availability answer must record natural route execution');
+		const browserRouteRecord = naturalRouteRecords.find(browserRoute);
+		assert.equal(
+			browserRouteRecord?.shadow_route,
+			'spark.read_only_state.browser_use_availability',
+			'browser-use read-only selected route must match the executed route'
+		);
+		assert.equal(
+			browserRouteRecord?.outcome,
+			'matched',
+			'browser-use read-only natural route ledger must not report a selected/executed mismatch'
+		);
 
 		rmSync(tempRoot, { recursive: true, force: true });
 		restoreEnv();
