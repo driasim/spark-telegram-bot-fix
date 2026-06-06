@@ -3167,24 +3167,35 @@ function recordBuilderChatReplyExecution(
   );
 }
 
-function recordLocalChatReplyExecution(ctx: any, naturalRouteShadow: NaturalRouteDecision | null): void {
-  if (naturalRouteShadow?.route === 'chat_plan') {
-    recordNaturalRouteExecution(
-      ctx,
-      naturalRouteShadow,
-      'chat_plan',
-      'spark-intelligence-builder',
-      'plain_chat.local_llm',
-      'delivered'
-    );
-    return;
+function localChatReplyRoute(naturalRouteShadow: NaturalRouteDecision | null): TelegramActionAuthorityInput['route'] {
+  const route = naturalRouteShadow?.route;
+  if (
+    route === 'plain_chat' ||
+    route === 'chat_plan' ||
+    route === 'conversation.ideation' ||
+    route === 'conversation.quoted_drafted_example_boundary' ||
+    route === 'conversation.stale_context_authority_boundary'
+  ) {
+    return route;
   }
+  return 'conversation.local_chat';
+}
+
+function localChatReplyOwner(route: TelegramActionAuthorityInput['route']): NaturalRouteOwnerSystem {
+  return route === 'chat_plan' || route === 'conversation.ideation'
+    ? 'spark-intelligence-builder'
+    : 'spark-telegram-bot';
+}
+
+function recordLocalChatReplyExecution(ctx: any, naturalRouteShadow: NaturalRouteDecision | null): void {
+  const route = localChatReplyRoute(naturalRouteShadow);
   recordNaturalRouteExecution(
     ctx,
     naturalRouteShadow,
-    'conversation.local_chat',
-    'spark-telegram-bot',
-    'plain_chat.local_llm'
+    route,
+    localChatReplyOwner(route),
+    'harness_core.answer_boundary',
+    'delivered'
   );
 }
 
@@ -10904,6 +10915,25 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       ? [freshRuntimeTruthContext, conversationFrameContext, storedMemoryContext].filter(Boolean).join('\n\n')
       : [storedMemoryContext, conversationFrameContext].filter(Boolean).join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
+    const localAnswerRoute = localChatReplyRoute(naturalRouteShadow);
+    const localAnswerAuthorization = telegramAnswerComposeAuthorityDecision(turnIntentEnvelope, {
+      route: localAnswerRoute,
+      text,
+      ownerSystem: localChatReplyOwner(localAnswerRoute),
+      action: 'plain_chat.local_llm',
+      selectedBy: bridgeFailed ? 'builder_bridge_local_fallback' : 'telegram_local_chat_fallback',
+      matchedSignal: localAnswerRoute,
+      confidence: naturalRouteShadow?.confidence || 'contextual'
+    });
+    if (!localAnswerAuthorization.allow) {
+      recordTelegramHarnessCoreExecution(localAnswerAuthorization, {
+        toolName: 'answer.compose',
+        status: 'not_started',
+        summary: `Local chat reply was blocked before delivery: ${localAnswerAuthorization.reasonCodes.join(',') || 'not_authorized'}.`
+      });
+      await ctx.reply('I did not continue that chat reply because the fresh turn did not authorize the answer boundary.');
+      return;
+    }
 
     const chatPrompt = buildSelectedListReferencePrompt(conversationFrame) || text;
     const systemContext = [
@@ -10918,9 +10948,24 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     ].filter(Boolean).join('\n\n');
 
     // Get LLM response with Spark context
-    const response = applyPlainWordsSurfaceRequest(text, await llm.chat(chatPrompt, systemContext, memories));
+    let response: string;
+    try {
+      response = applyPlainWordsSurfaceRequest(text, await llm.chat(chatPrompt, systemContext, memories));
+    } catch (error) {
+      recordTelegramHarnessCoreExecution(localAnswerAuthorization, {
+        toolName: 'answer.compose',
+        status: 'failure',
+        summary: `Local chat answer composition failed after Harness Core authorization: ${redactText(error instanceof Error ? error.message : String(error))}.`
+      });
+      throw error;
+    }
 
     if (isLowInformationLlmReply(response)) {
+      recordTelegramHarnessCoreExecution(localAnswerAuthorization, {
+        toolName: 'answer.compose',
+        status: 'failure',
+        summary: 'Local chat answer composition returned a low-information reply after Harness Core authorization.'
+      });
       await conversation.recordInterruptedTask(user, {
         message: text,
         failure: bridgeFailed ? 'Builder bridge failed and chat fallback returned a low-information reply.' : 'Chat runtime returned a low-information reply.',
@@ -10930,8 +10975,22 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       return;
     }
 
-    await ctx.reply(response);
-    recordLocalChatReplyExecution(ctx, naturalRouteShadow);
+    try {
+      await ctx.reply(response);
+      recordLocalChatReplyExecution(ctx, naturalRouteShadow);
+      recordTelegramHarnessCoreExecution(localAnswerAuthorization, {
+        toolName: 'answer.compose',
+        status: 'success',
+        summary: `Local chat reply delivered through Harness Core answer boundary for ${localAnswerRoute}.`
+      });
+    } catch (error) {
+      recordTelegramHarnessCoreExecution(localAnswerAuthorization, {
+        toolName: 'answer.compose',
+        status: 'failure',
+        summary: `Local chat reply delivery failed after Harness Core authorization: ${redactText(error instanceof Error ? error.message : String(error))}.`
+      });
+      throw error;
+    }
     await conversation.rememberAssistantReply(user, response).catch(() => {});
 
     // Learn preferences from patterns

@@ -50,6 +50,7 @@ export type DeterministicRouteId =
   | 'chat_plan'
   | 'conversation.provider_fallback_chat'
   | 'conversation.builder_chat'
+  | 'conversation.local_chat'
   | 'conversation.quoted_drafted_example_boundary'
   | 'conversation.stale_context_authority_boundary'
   | 'conversation.ideation'
