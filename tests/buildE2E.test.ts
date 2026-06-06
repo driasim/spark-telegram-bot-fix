@@ -3990,10 +3990,13 @@ async function run(): Promise<void> {
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-provider-fallback-route-ledger-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
 		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -4025,7 +4028,7 @@ async function run(): Promise<void> {
 
 			const fallbackNaturalRoute = (record: any) => (
 				record.executed_route === 'plain_chat' &&
-				record.executed_action === 'plain_chat.provider_fallback'
+				record.executed_action === 'harness_core.answer_boundary'
 			);
 			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, fallbackNaturalRoute);
 			const routeRecord = naturalRouteRecords.find(fallbackNaturalRoute);
@@ -4033,6 +4036,16 @@ async function run(): Promise<void> {
 			assert.equal(routeRecord?.shadow_route, 'plain_chat');
 			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
 			assert.equal(routeRecord?.delivery, 'delivered');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'answer.compose' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/Builder chat reply delivered through Harness Core answer boundary/i.test(record.result.summary)
+				)),
+				'provider fallback chat must record Harness Core answer.compose success'
+			);
 		} finally {
 			const indexModule: any = await import('../src/index');
 			indexModule.__setBuilderBridgeRunnerForTest(null);
@@ -4051,10 +4064,13 @@ async function run(): Promise<void> {
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-provider-fallback-chat-plan-ledger-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
 		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -4087,13 +4103,23 @@ async function run(): Promise<void> {
 			const chatPlanRoute = (record: any) => (
 				record.shadow_route === 'chat_plan' &&
 				record.executed_route === 'chat_plan' &&
-				record.executed_action === 'plain_chat.provider_fallback'
+				record.executed_action === 'harness_core.answer_boundary'
 			);
 			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, chatPlanRoute);
 			const routeRecord = naturalRouteRecords.find(chatPlanRoute);
 			assert.ok(routeRecord, 'chat_plan fallback must preserve canonical Harness Core route evidence');
 			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
 			assert.equal(routeRecord?.delivery, 'delivered');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'answer.compose' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/Builder chat reply delivered through Harness Core answer boundary for chat_plan/i.test(record.result.summary)
+				)),
+				'chat_plan fallback must record Harness Core answer.compose success'
+			);
 		} finally {
 			const indexModule: any = await import('../src/index');
 			indexModule.__setBuilderBridgeRunnerForTest(null);
@@ -4341,10 +4367,13 @@ async function run(): Promise<void> {
 		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
 		process.env.SPARK_BUILDER_BRIDGE_MODE = 'auto';
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-chat-only-chip-proposal-'));
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
 		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
 		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -4380,13 +4409,23 @@ async function run(): Promise<void> {
 			const chatPlanRoute = (record: any) => (
 				record.shadow_route === 'chat_plan' &&
 				record.executed_route === 'chat_plan' &&
-				record.executed_action === 'plain_chat.provider_fallback'
+				record.executed_action === 'harness_core.answer_boundary'
 			);
 			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, chatPlanRoute);
 			const routeRecord = naturalRouteRecords.find(chatPlanRoute);
 			assert.ok(routeRecord, 'domain-chip proposal must preserve canonical chat_plan route evidence');
 			assert.equal(routeRecord?.executed_owner, 'spark-intelligence-builder');
 			assert.equal(routeRecord?.delivery, 'delivered');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'answer.compose' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/Builder chat reply delivered through Harness Core answer boundary for chat_plan/i.test(record.result.summary)
+				)),
+				'chat-only chip proposal must record Harness Core answer.compose success'
+			);
 		} finally {
 			const indexModule: any = await import('../src/index');
 			indexModule.__setBuilderBridgeRunnerForTest(null);

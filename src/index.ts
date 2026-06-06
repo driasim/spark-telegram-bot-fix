@@ -3085,6 +3085,50 @@ function shouldBypassBuilderBridgeForTurnIntent(
   );
 }
 
+function builderChatReplyRoute(
+  naturalRouteShadow: NaturalRouteDecision | null,
+  routingDecision: string
+): TelegramActionAuthorityInput['route'] {
+  const naturalRoute = naturalRouteShadow?.route;
+  if (
+    naturalRoute === 'plain_chat' ||
+    naturalRoute === 'chat_plan' ||
+    naturalRoute === 'conversation.ideation' ||
+    naturalRoute === 'conversation.quoted_drafted_example_boundary' ||
+    naturalRoute === 'conversation.stale_context_authority_boundary'
+  ) {
+    return naturalRoute;
+  }
+  const normalized = routingDecision.trim();
+  if (normalized === 'provider_fallback_chat') return 'conversation.provider_fallback_chat';
+  if (normalized === 'plain_chat') return 'plain_chat';
+  return 'conversation.builder_chat';
+}
+
+function builderChatReplyAction(routingDecision: string): string {
+  return routingDecision.trim() === 'provider_fallback_chat'
+    ? 'plain_chat.provider_fallback'
+    : 'plain_chat.builder_reply';
+}
+
+function telegramBuilderChatReplyAuthorityDecision(
+  baseEnvelope: TurnIntentEnvelopeV1,
+  naturalRouteShadow: NaturalRouteDecision | null,
+  routingDecision: string,
+  text: string
+): TelegramActionAuthorityResult {
+  const normalized = routingDecision.trim() || 'builder_chat';
+  return telegramAnswerComposeAuthorityDecision(baseEnvelope, {
+    route: builderChatReplyRoute(naturalRouteShadow, routingDecision),
+    text,
+    ownerSystem: 'spark-intelligence-builder',
+    action: builderChatReplyAction(routingDecision),
+    selectedBy: 'builder_bridge_reply',
+    matchedSignal: normalized,
+    confidence: naturalRouteShadow?.confidence || 'contextual'
+  });
+}
+
 function recordBuilderChatReplyExecution(
   ctx: any,
   naturalRouteShadow: NaturalRouteDecision | null,
@@ -3097,7 +3141,7 @@ function recordBuilderChatReplyExecution(
       naturalRouteShadow,
       naturalRouteShadow.route === 'plain_chat' ? 'plain_chat' : naturalRouteShadow.route,
       'spark-intelligence-builder',
-      'plain_chat.provider_fallback',
+      'harness_core.answer_boundary',
       'delivered'
     );
     return;
@@ -3108,7 +3152,8 @@ function recordBuilderChatReplyExecution(
       naturalRouteShadow,
       'conversation.provider_fallback_chat',
       'spark-intelligence-builder',
-      'plain_chat.provider_fallback'
+      'harness_core.answer_boundary',
+      'delivered'
     );
     return;
   }
@@ -3117,7 +3162,8 @@ function recordBuilderChatReplyExecution(
     naturalRouteShadow,
     normalized === 'plain_chat' ? 'plain_chat' : 'conversation.builder_chat',
     'spark-intelligence-builder',
-    'plain_chat.builder_reply'
+    'harness_core.answer_boundary',
+    'delivered'
   );
 }
 
@@ -10802,8 +10848,37 @@ export async function handleTextMessage(ctx: any): Promise<void> {
         : builderReplySuppressionReason(builderReply.responseText, builderReply.routingDecision);
       if (!suppressionReason && !shouldSuppressBuilderReplyForPlainChat(builderReply.responseText, builderReply.routingDecision)) {
         const responseText = applyPlainWordsSurfaceRequest(text, builderReply.responseText);
+        const answerAuthorization = telegramBuilderChatReplyAuthorityDecision(
+          turnIntentEnvelope,
+          naturalRouteShadow,
+          builderReply.routingDecision,
+          text
+        );
+        if (!answerAuthorization.allow) {
+          recordTelegramHarnessCoreExecution(answerAuthorization, {
+            toolName: 'answer.compose',
+            status: 'not_started',
+            summary: `Builder chat reply was blocked before delivery: ${answerAuthorization.reasonCodes.join(',') || 'not_authorized'}.`
+          });
+          await ctx.reply('I did not send that Builder reply because the fresh turn did not authorize the answer boundary.');
+          return;
+        }
         recordBuilderChatReplyExecution(ctx, naturalRouteShadow, builderReply.routingDecision);
-        await deliverBuilderReply(ctx, { ...builderReply, responseText });
+        try {
+          await deliverBuilderReply(ctx, { ...builderReply, responseText });
+          recordTelegramHarnessCoreExecution(answerAuthorization, {
+            toolName: 'answer.compose',
+            status: 'success',
+            summary: `Builder chat reply delivered through Harness Core answer boundary for ${builderChatReplyRoute(naturalRouteShadow, builderReply.routingDecision)}.`
+          });
+        } catch (error) {
+          recordTelegramHarnessCoreExecution(answerAuthorization, {
+            toolName: 'answer.compose',
+            status: 'failure',
+            summary: `Builder chat reply delivery failed after Harness Core authorization: ${redactText(error instanceof Error ? error.message : String(error))}.`
+          });
+          throw error;
+        }
         if (responseText) {
           await conversation.rememberAssistantReply(user, responseText).catch(() => {});
         }
