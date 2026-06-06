@@ -171,6 +171,19 @@ async function main(): Promise<void> {
     assert.match(replies[0], /Telegram: polling\./);
   });
 
+  await test('check whether Spark is healthy stays read-only and does not repair', async () => {
+    const { handleTextMessage } = await import('../src/index');
+    const replies: string[] = [];
+
+    await handleTextMessage(fakeCtx('Check whether Spark is healthy, but do not repair anything.', replies));
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /Spark is healthy right now\./);
+    assert.match(replies[0], /fresh runtime state here, not memory/);
+    assert.match(replies[0], /No repair action needed right now\./);
+    assert.doesNotMatch(replies[0], /setup conversation|\/access_setup|Owner setup/i);
+  });
+
   await test('healthy build ideation is not hijacked by runtime status', async () => {
     const { llm } = await import('../src/llm');
     const { handleTextMessage } = await import('../src/index');
