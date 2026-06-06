@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { config as loadEnv } from 'dotenv';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -686,6 +686,7 @@ type SparkReadOnlyStateQuestion =
   | 'harness_core_installed'
   | 'telegram_primary_polling'
   | 'contract_coverage_blockers'
+  | 'public_release_blockers'
   | 'registry_drift'
   | 'mission_update_preference'
   | 'pending_action'
@@ -843,10 +844,84 @@ function sparkSystemMapEvidencePath(fileName: string): string {
   return path.join(stateDir, fileName);
 }
 
+function sparkGenesisEvidenceCandidatePaths(fileName: string): string[] {
+  const direct = process.env.SPARK_RELEASE_READINESS_PACK_PATH?.trim();
+  const configuredRoots = [
+    process.env.SPARK_GENESIS_EVIDENCE_ROOT?.trim(),
+    process.env.SPARK_PUBLIC_RELEASE_EVIDENCE_ROOT?.trim()
+  ].filter((item): item is string => Boolean(item));
+  const localRoots = [
+    path.resolve(process.cwd(), '..', '..', 'spark-genesis-harness-evidence'),
+    path.resolve(process.cwd(), '..', 'spark-genesis-harness-evidence'),
+    path.resolve(process.cwd(), 'work', 'spark-genesis-harness-evidence'),
+    path.resolve(__dirname, '..', '..', 'spark-genesis-harness-evidence'),
+    path.resolve(__dirname, '..', '..', '..', 'spark-genesis-harness-evidence')
+  ];
+  const candidates = [
+    direct || '',
+    ...configuredRoots.flatMap((root) => [
+      path.join(root, 'outputs', fileName),
+      path.join(root, fileName)
+    ]),
+    ...localRoots.map((root) => path.join(root, 'outputs', fileName))
+  ].filter(Boolean);
+  return [...new Set(candidates)];
+}
+
+async function readStructuredEvidenceFile(candidates: string[]): Promise<Record<string, unknown> | null> {
+  for (const candidate of candidates) {
+    try {
+      const raw = await readFile(candidate, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Try the next candidate. Missing evidence should not become a mutation or a guessed answer.
+    }
+  }
+  return null;
+}
+
+async function readPublicReleaseReadinessPack(): Promise<Record<string, unknown> | null> {
+  return readStructuredEvidenceFile(
+    sparkGenesisEvidenceCandidatePaths('spark-genesis-public-release-readiness-pack-2026-06-06.json')
+  );
+}
+
 function objectArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
     : [];
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item)).filter(Boolean)
+    : [];
+}
+
+function gateValue(value: unknown): string {
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  if (value === null || value === undefined || value === '') return 'unknown';
+  return String(value);
+}
+
+function isPublicReleaseBlockerQuestion(normalized: string): boolean {
+  const asksBlocked =
+    /\b(?:what\s+remains\s+blocked|what(?:'s|\s+is)\s+still\s+blocked|remaining\s+blockers?|current\s+blockers?|blocker\s+status|red\s+lanes?|release\s+gates?)\b/.test(normalized) ||
+    /\b(?:what|which|show|tell|read|status|current|remaining|remains|still)\b.{0,80}\b(?:blocked|blockers?|red\s+lanes?|gates?)\b/.test(normalized);
+  const releaseContext =
+    /\b(?:public\s+release|release|installer|shipping|ship|publication|publish|prs?|pull\s+requests?|registry\s+pins?|duplicate\s+truth|red\s+lanes?|final\s+packet|gates?)\b/.test(normalized);
+  const suppressesMutation =
+    /\b(?:no|not|don't|do\s+not|dont|changed\s+my\s+mind|pause|cancel|without)\b.{0,80}\b(?:prs?|pull\s+requests?|merge|publish|ship|release|run|start|execute|write|create|update|move)\b/.test(normalized) ||
+    /\bno\s+(?:prs?|pull\s+requests?)\b/.test(normalized);
+  const directBlockerRead =
+    /\b(?:what\s+remains\s+blocked|what(?:'s|\s+is)\s+still\s+blocked|remaining\s+blockers?|current\s+blockers?|blocker\s+status|red\s+lanes?)\b/.test(normalized);
+  const mutationRequest =
+    /\b(?:install|repair|restart|start|run|launch|execute|write|save|change|set|create|update|merge|publish|ship|move)\b/.test(normalized);
+  return asksBlocked && releaseContext && (!mutationRequest || suppressesMutation || directBlockerRead);
 }
 
 function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQuestion | null {
@@ -858,6 +933,9 @@ function classifySparkReadOnlyStateQuestion(text: string): SparkReadOnlyStateQue
   if (!asksRead) return null;
   if (shouldAnswerSparkRiskProfile(text)) {
     return 'risk_profile';
+  }
+  if (isPublicReleaseBlockerQuestion(normalized)) {
+    return 'public_release_blockers';
   }
   if (/\b(?:install|repair|restart|start|run|launch|execute|write|save|change|set)\b/.test(normalized) &&
       !/\b(?:installed|install\s+state|last\s+install|running|run\s+compile|read-only|read\s+only)\b/.test(normalized)) {
@@ -1079,6 +1157,59 @@ async function renderContractCoverageBlockersAnswer(): Promise<string> {
   }
 }
 
+async function renderPublicReleaseBlockersAnswer(): Promise<string> {
+  try {
+    const pack = await readPublicReleaseReadinessPack();
+    if (!pack || Object.keys(pack).length === 0) {
+      return [
+        'I cannot prove the current public-release blocker list from this Telegram runtime.',
+        '',
+        'The generated public-release readiness pack is not readable here, so I will not guess from memory or prior chat residue.',
+        'No PR was created, updated, merged, or published; no registry pin, runtime truth, or installed state was moved.'
+      ].join('\n');
+    }
+    const live = objectRecord(pack.live_telegram_public_proof);
+    const performance = objectRecord(pack.live_performance);
+    const registry = objectRecord(pack.registry);
+    const duplicateTruth = objectRecord(pack.duplicate_truth);
+    const finalPacket = objectRecord(pack.final_packet);
+    const redLanes = stringArray(pack.red_lanes);
+    const failedModules = stringArray(registry.failed_modules);
+    const criticalItems = stringArray(duplicateTruth.critical_items);
+    const pass = Number(live.pass ?? performance.accepted_packet_count ?? 0);
+    const rows = Number(live.ledger_rows ?? 100);
+    const duplicateCount = Number(duplicateTruth.duplicate_truth_release_blocker_count ?? 0);
+    const registryState = registry.ok === true ? 'green' : 'red';
+    const registryDetail = failedModules.length
+      ? ` for ${failedModules.length} module${failedModules.length === 1 ? '' : 's'} (${failedModules.join(', ')})`
+      : '';
+    const duplicateDetail = criticalItems.length
+      ? `: ${criticalItems.slice(0, 4).join('; ')}`
+      : '.';
+    return [
+      'Public release is still blocked by the current generated gates.',
+      '',
+      `- release_claim_allowed=${gateValue(pack.release_claim_allowed)}; publication_allowed=${gateValue(pack.publication_allowed)}; release_ready=${gateValue(pack.release_ready)}; red_lane_count=${gateValue(pack.red_lane_count)}.`,
+      `- Live Telegram proof: ${pass}/${rows} accepted; ledger_complete=${gateValue(live.ledger_complete)}; next_batch=${gateValue(live.next_batch)}.`,
+      `- Live performance: performance_complete=${gateValue(performance.performance_complete)}; measured_pass_cases=${gateValue(performance.measured_pass_cases)}; positive_action_success_rate=${gateValue(performance.positive_action_success_rate)}.`,
+      `- Registry pins: ${registryState}${registryDetail}.`,
+      `- Duplicate truth: ${duplicateCount} release blocker${duplicateCount === 1 ? '' : 's'}${duplicateDetail}`,
+      `- Final packet: generation_allowed=${gateValue(finalPacket.generation_allowed)}; exists=${gateValue(finalPacket.exists)}.`,
+      redLanes.length ? `- Red lanes: ${redLanes.join(', ')}.` : '',
+      '',
+      'I did not create, update, merge, or publish PRs; no registry pin, runtime truth, or installed state was moved.'
+    ].filter(Boolean).join('\n');
+  } catch (error) {
+    const detail = redactText(error instanceof Error ? error.message : String(error));
+    return [
+      'I could not read public-release blocker evidence.',
+      '',
+      `Read failed: ${detail}`,
+      'No PR was created, updated, merged, or published; no registry pin, runtime truth, or installed state was moved.'
+    ].join('\n');
+  }
+}
+
 async function renderRegistryDriftAnswer(): Promise<string> {
   try {
     const board = await readJsonFile<Record<string, unknown>>(sparkSystemMapEvidencePath('repo-board.json'));
@@ -1171,6 +1302,8 @@ async function renderSparkReadOnlyStateAnswer(kind: SparkReadOnlyStateQuestion, 
       return renderTelegramPrimaryPollingAnswer();
     case 'contract_coverage_blockers':
       return renderContractCoverageBlockersAnswer();
+    case 'public_release_blockers':
+      return renderPublicReleaseBlockersAnswer();
     case 'registry_drift':
       return renderRegistryDriftAnswer();
     case 'mission_update_preference':

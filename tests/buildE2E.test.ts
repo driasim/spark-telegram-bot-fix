@@ -66,6 +66,9 @@ const originalEnv = {
 	SPARK_NATURAL_ROUTE_LEDGER: process.env.SPARK_NATURAL_ROUTE_LEDGER,
 	SPARK_NATURAL_ROUTE_LEDGER_PATH: process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH,
 	SPARK_LOCAL_WORKSPACE_ROOTS: process.env.SPARK_LOCAL_WORKSPACE_ROOTS,
+	SPARK_GENESIS_EVIDENCE_ROOT: process.env.SPARK_GENESIS_EVIDENCE_ROOT,
+	SPARK_PUBLIC_RELEASE_EVIDENCE_ROOT: process.env.SPARK_PUBLIC_RELEASE_EVIDENCE_ROOT,
+	SPARK_RELEASE_READINESS_PACK_PATH: process.env.SPARK_RELEASE_READINESS_PACK_PATH,
 	SPARK_SYSTEM_MAP_STATE_DIR: process.env.SPARK_SYSTEM_MAP_STATE_DIR,
 	SPARK_ALLOW_IMPLICIT_LLM_PROVIDER: process.env.SPARK_ALLOW_IMPLICIT_LLM_PROVIDER,
 	SPARK_SWARM_BRIDGE_PYTHON: process.env.SPARK_SWARM_BRIDGE_PYTHON,
@@ -3774,10 +3777,14 @@ async function run(): Promise<void> {
 		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-read-only-state-chat-'));
 		const binDir = path.join(tempRoot, 'bin');
 		const systemMapDir = path.join(tempRoot, 'system-map');
+		const evidenceRoot = path.join(tempRoot, 'spark-genesis-harness-evidence');
+		const evidenceOutputsDir = path.join(evidenceRoot, 'outputs');
 		mkdirSync(binDir, { recursive: true });
 		mkdirSync(systemMapDir, { recursive: true });
+		mkdirSync(evidenceOutputsDir, { recursive: true });
 		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
 		process.env.SPARK_SYSTEM_MAP_STATE_DIR = systemMapDir;
+		process.env.SPARK_GENESIS_EVIDENCE_ROOT = evidenceRoot;
 		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
 		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
 		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
@@ -3875,6 +3882,52 @@ async function run(): Promise<void> {
 				}
 			}, null, 2)
 		);
+		writeFileSync(
+			path.join(evidenceOutputsDir, 'spark-genesis-public-release-readiness-pack-2026-06-06.json'),
+			JSON.stringify({
+				release_claim_allowed: false,
+				publication_allowed: false,
+				release_ready: false,
+				red_lane_count: 9,
+				red_lanes: [
+					'Live Telegram ledger',
+					'Live performance metrics',
+					'Registry pins',
+					'Duplicate runtime truth',
+					'Final evidence packet'
+				],
+				live_telegram_public_proof: {
+					pass: 35,
+					ledger_rows: 100,
+					ledger_complete: false,
+					next_batch: '031-040'
+				},
+				live_performance: {
+					performance_complete: false,
+					measured_pass_cases: 35,
+					positive_action_success_rate: 'missing'
+				},
+				registry: {
+					ok: false,
+					failed_modules: [
+						'spark-telegram-bot',
+						'spark-intelligence-builder',
+						'spawner-ui'
+					]
+				},
+				duplicate_truth: {
+					duplicate_truth_release_blocker_count: 3,
+					critical_items: [
+						'spark-telegram-bot-dirty-owner-repo (spark-telegram-bot)',
+						'spawner-ui-dirty-owner-repo (spawner-ui)'
+					]
+				},
+				final_packet: {
+					generation_allowed: false,
+					exists: false
+				}
+			}, null, 2)
+		);
 
 		const captured: CapturedCall[] = [];
 		(axios as any).post = async (url: string, body: any) => {
@@ -3899,6 +3952,18 @@ async function run(): Promise<void> {
 					text: 'Read whether there are contract coverage blockers.',
 					matches: [/No contract coverage blockers/i, /Legacy cleanup queue: 0/i],
 					not: [/Mission:/i]
+				},
+				{
+					text: 'I changed my mind. No PRs today. What remains blocked?',
+					matches: [
+						/Public release is still blocked/i,
+						/release_claim_allowed=false/i,
+						/Live Telegram proof: 35\/100 accepted/i,
+						/Registry pins: red/i,
+						/Duplicate truth: 3 release blockers/i,
+						/did not create, update, merge, or publish PRs/i
+					],
+					not: [/System side: nothing blocked/i, /Mission:|created PR|updated PR|merged PR/i]
 				},
 				{
 					text: 'Show current registry drift if any.',
