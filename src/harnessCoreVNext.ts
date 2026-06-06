@@ -259,7 +259,7 @@ export function buildTurnIntentEnvelopeVNextFromTelegram(
       confidence: confidenceValue(envelope),
       requires_human_confirmation: authorityState === 'confirmation_required',
       reason: authorityState === 'executable'
-        ? 'Fresh Telegram intent and legacy route evidence authorize execution through Harness Core.'
+        ? 'Fresh Telegram intent, Harness Core authorization, and Governor consumer verification authorize execution.'
         : 'Telegram route evidence does not grant direct execution authority.'
     },
     proposed_actions: proposedAction ? [proposedAction] : [],

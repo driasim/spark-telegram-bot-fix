@@ -113,6 +113,8 @@ test('Telegram action authority now requires Harness Core allow verdict', () => 
   assert.equal(result.harnessCore?.envelope.schema_version, 'turn-intent-envelope-vnext');
   assert.equal(result.harnessCore?.envelope.selected_move, 'execute_action');
   assert.equal(result.harnessCore?.envelope.action_authority.state, 'executable');
+  assert.match(result.harnessCore?.envelope.action_authority.reason || '', /Governor consumer verification/);
+  assert.doesNotMatch(result.harnessCore?.envelope.action_authority.reason || '', /legacy route evidence authorize/i);
   assert.equal(result.harnessCore?.action.action_type, 'launch_mission');
   assert.equal(result.harnessCore?.authorization.schema_version, 'authorization-decision-v1');
   assert.equal(result.harnessCore?.authorization.verdict, 'allow');

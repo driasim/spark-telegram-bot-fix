@@ -142,7 +142,7 @@ export function buildTelegramLegacyAuthorityPlanes(): LegacyAuthorityPlaneV1[] {
       id: 'telegram-action-authority',
       plane_type: 'local_dispatcher',
       source_path: 'src/telegramActionAuthority.ts',
-      summary: 'Telegram action authority is the single consumer wrapper that converts legacy route evidence into VNext envelope, authorization, Governor decision, and ledger.',
+      summary: 'Telegram action authority is the single consumer wrapper that submits route evidence to the canonical Harness Core package, consumes Governor decisions, verifies the consumer binding, and records the ledger.',
       authority_risk: {
         can_execute: true,
         can_mutate_state: true,
