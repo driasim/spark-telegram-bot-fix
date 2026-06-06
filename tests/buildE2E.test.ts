@@ -2149,43 +2149,51 @@ async function run(): Promise<void> {
 		const ctx = makeFakeCtx(8319079055, 8319079055, 615, replies);
 		ctx.message.text = 'Tell me whether browser-use is currently available, but do not open a browser.';
 		const indexModule: any = await import('../src/index');
-		await indexModule.handleTextMessage(ctx);
+		try {
+			indexModule.__setEvidenceAnswerComposerForTest(async (input: any) => {
+				if (input.kind !== 'browser_use_availability') return '';
+				return 'Browser evidence read: browser-use is not proven from this turn. I did not open or call a browser; a probe result is the evidence needed for scope.';
+			});
+			await indexModule.handleTextMessage(ctx);
 
-		const reply = replies[0] || '';
-		assert.match(reply, /browser/i);
-		assert.match(reply, /\/probe browser|browser probe/i);
-		assert.doesNotMatch(reply, /(?:opened\s+(?:a\s+)?browser|browser\s+opened|clicked\s+|screenshot\s+captured)/i);
-		assert.equal(captured.length, 0, 'browser-use availability answer must not call Spawner or browser tooling');
-		const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
-		assert.ok(
-			ledgerRecords.some((record) => (
-				record.tool_name === 'spark.read_only_state' &&
-				record.authorization.verdict === 'allow' &&
-				record.result.status === 'success' &&
-				/browser-use availability answer completed without opening a browser/i.test(record.result.summary)
-			)),
-			'browser-use availability answer must record Harness Core read-only execution'
-		);
-		const browserRoute = (record: any) => (
-			record.executed_route === 'spark.read_only_state.browser_use_availability' &&
-			record.executed_action === 'harness_core.read_only_state'
-		);
-		const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, browserRoute);
-		assert.ok(naturalRouteRecords.some(browserRoute), 'browser-use availability answer must record natural route execution');
-		const browserRouteRecord = naturalRouteRecords.find(browserRoute);
-		assert.equal(
-			browserRouteRecord?.shadow_route,
-			'spark.read_only_state.browser_use_availability',
-			'browser-use read-only selected route must match the executed route'
-		);
-		assert.equal(
-			browserRouteRecord?.outcome,
-			'matched',
-			'browser-use read-only natural route ledger must not report a selected/executed mismatch'
-		);
-
-		rmSync(tempRoot, { recursive: true, force: true });
-		restoreEnv();
+			const reply = replies[0] || '';
+			assert.match(reply, /Browser evidence read/i);
+			assert.match(reply, /browser/i);
+			assert.match(reply, /probe|proof|evidence/i);
+			assert.doesNotMatch(reply, /(?:opened\s+(?:a\s+)?browser|browser\s+opened|clicked\s+|screenshot\s+captured)/i);
+			assert.equal(captured.length, 0, 'browser-use availability answer must not call Spawner or browser tooling');
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			assert.ok(
+				ledgerRecords.some((record) => (
+					record.tool_name === 'spark.read_only_state' &&
+					record.authorization.verdict === 'allow' &&
+					record.result.status === 'success' &&
+					/browser-use availability answer completed without opening a browser/i.test(record.result.summary)
+				)),
+				'browser-use availability answer must record Harness Core read-only execution'
+			);
+			const browserRoute = (record: any) => (
+				record.executed_route === 'spark.read_only_state.browser_use_availability' &&
+				record.executed_action === 'harness_core.read_only_state'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, browserRoute);
+			assert.ok(naturalRouteRecords.some(browserRoute), 'browser-use availability answer must record natural route execution');
+			const browserRouteRecord = naturalRouteRecords.find(browserRoute);
+			assert.equal(
+				browserRouteRecord?.shadow_route,
+				'spark.read_only_state.browser_use_availability',
+				'browser-use read-only selected route must match the executed route'
+			);
+			assert.equal(
+				browserRouteRecord?.outcome,
+				'matched',
+				'browser-use read-only natural route ledger must not report a selected/executed mismatch'
+			);
+		} finally {
+			indexModule.__setEvidenceAnswerComposerForTest(null);
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreEnv();
+		}
 	});
 
 	await test('stale context authority questions answer without mutating or resuming work', async () => {
@@ -3946,8 +3954,18 @@ async function run(): Promise<void> {
 			return { data: { success: true } };
 		};
 
+		let indexModule: any;
 		try {
-			const indexModule: any = await import('../src/index');
+			indexModule = await import('../src/index');
+			indexModule.__setEvidenceAnswerComposerForTest(async (input: any) => {
+				if (input.kind !== 'public_release_blockers') return '';
+				return [
+					'Generated-gate read: public release remains blocked.',
+					'Facts: release_claim_allowed=false, publication_allowed=false, release_ready=false, red_lane_count=9.',
+					'Live proof is 35/100 accepted. Registry pins are red. Duplicate truth has 3 release blockers. Final packet is still withheld.',
+					'I did not create, update, merge, or publish PRs; no registry pin, runtime truth, or installed state was moved.'
+				].join('\n');
+			});
 			const cases = [
 				{
 					text: 'Check whether the Harness Core module is installed.',
@@ -3967,11 +3985,12 @@ async function run(): Promise<void> {
 				{
 					text: 'I changed my mind. No PRs today. What remains blocked?',
 					matches: [
-						/Public release is still blocked/i,
+						/Generated-gate read: public release remains blocked/i,
 						/release_claim_allowed=false/i,
-						/Live Telegram proof: 35\/100 accepted/i,
-						/Registry pins: red/i,
-						/Duplicate truth: 3 release blockers/i,
+						/35\/100 accepted/i,
+						/Registry pins are red/i,
+						/Duplicate truth has 3 release blockers/i,
+						/Final packet is still withheld/i,
 						/did not create, update, merge, or publish PRs/i
 					],
 					not: [/System side: nothing blocked/i, /Mission:|created PR|updated PR|merged PR/i]
@@ -4051,6 +4070,7 @@ async function run(): Promise<void> {
 				'row 001 risk-profile canary selected route must match executed route'
 			);
 		} finally {
+			indexModule?.__setEvidenceAnswerComposerForTest?.(null);
 			process.env.PATH = oldPath;
 			restoreAxios();
 			restoreEnv();

@@ -414,6 +414,69 @@ function builderBridgeRunner(...args: Parameters<BuilderBridgeRunner>): ReturnTy
   return (builderBridgeRunnerForTest || runBuilderTelegramBridge)(...args);
 }
 
+type EvidenceAnswerKind = 'public_release_blockers' | 'browser_use_availability';
+type EvidenceAnswerComposerInput = {
+  kind: EvidenceAnswerKind;
+  userText: string;
+  evidence: Record<string, unknown>;
+  claimBoundary: string;
+};
+type EvidenceAnswerComposer = (input: EvidenceAnswerComposerInput) => Promise<string>;
+
+let evidenceAnswerComposerForTest: EvidenceAnswerComposer | null = null;
+
+export function __setEvidenceAnswerComposerForTest(composer: EvidenceAnswerComposer | null): void {
+  evidenceAnswerComposerForTest = composer;
+}
+
+async function defaultEvidenceAnswerComposer(input: EvidenceAnswerComposerInput): Promise<string> {
+  const prompt = [
+    'Compose a concise Telegram answer from the evidence only.',
+    'You are not deciding authority and you are not executing tools.',
+    'Do not use canned wording or a fixed status panel.',
+    'Do not claim a PR, registry pin, runtime refresh, browser open, click, screenshot, mission, memory write, or other side effect happened unless the evidence says it happened in this turn.',
+    'Preserve exact boolean and count facts that are present in the evidence.',
+    `Claim boundary: ${input.claimBoundary}`,
+    '',
+    `User message: ${input.userText}`,
+    '',
+    `Evidence JSON:\n${JSON.stringify(input.evidence, null, 2)}`
+  ].join('\n');
+  return llm.chat(prompt, '', '');
+}
+
+function hasUnprovenSideEffectClaim(reply: string): boolean {
+  return [
+    /\b(?:I|Spark)\s+(?:created|updated|merged|published)\s+(?:a\s+)?PR\b/i,
+    /\b(?:I|Spark)\s+(?:moved|changed|updated)\s+(?:a\s+)?registry\s+pin\b/i,
+    /\b(?:I|Spark)\s+(?:refreshed|changed|updated)\s+(?:the\s+)?runtime\s+truth\b/i,
+    /\b(?:I|Spark)\s+(?:edited|changed|updated)\s+installed\s+state\b/i,
+    /\b(?:I|Spark)\s+(?:opened|launched|used)\s+(?:a\s+)?browser\b/i,
+    /\b(?:I|Spark)\s+(?:clicked|captured\s+(?:a\s+)?screenshot|browsed)\b/i,
+    /\b(?:mission|memory|chip)\s+(?:started|launched|created|written|saved)\b/i
+  ].some((pattern) => pattern.test(reply));
+}
+
+async function composeGovernedEvidenceAnswer(
+  input: EvidenceAnswerComposerInput,
+  fallback: string,
+  isValid: (reply: string) => boolean
+): Promise<string> {
+  const composer = evidenceAnswerComposerForTest || defaultEvidenceAnswerComposer;
+  try {
+    const reply = (await composer(input)).trim();
+    if (reply && isValid(reply) && !hasUnprovenSideEffectClaim(reply)) {
+      return reply;
+    }
+    if (reply) {
+      console.warn(`[EvidenceAnswer] rejected ${input.kind} composition that failed claim-boundary validation.`);
+    }
+  } catch (error) {
+    console.warn(`[EvidenceAnswer] ${input.kind} composition failed:`, redactText(error instanceof Error ? error.message : String(error)));
+  }
+  return fallback;
+}
+
 type RecursiveStatusDeps = {
   resolve: typeof resolveRecursiveStartTarget;
   readStatus: typeof readSpecializationPathLoopStatus;
@@ -1157,7 +1220,7 @@ async function renderContractCoverageBlockersAnswer(): Promise<string> {
   }
 }
 
-async function renderPublicReleaseBlockersAnswer(): Promise<string> {
+async function renderPublicReleaseBlockersAnswer(userText = ''): Promise<string> {
   try {
     const pack = await readPublicReleaseReadinessPack();
     if (!pack || Object.keys(pack).length === 0) {
@@ -1186,8 +1249,14 @@ async function renderPublicReleaseBlockersAnswer(): Promise<string> {
     const duplicateDetail = criticalItems.length
       ? `: ${criticalItems.slice(0, 4).join('; ')}`
       : '.';
-    return [
-      'Public release is still blocked by the current generated gates.',
+    const releaseBlocked = pack.release_claim_allowed !== true ||
+      pack.publication_allowed !== true ||
+      pack.release_ready !== true ||
+      Number(pack.red_lane_count ?? 0) > 0;
+    const fallback = [
+      releaseBlocked
+        ? 'Public release is still blocked by the current generated gates.'
+        : 'The current generated gates do not report a public-release blocker.',
       '',
       `- release_claim_allowed=${gateValue(pack.release_claim_allowed)}; publication_allowed=${gateValue(pack.publication_allowed)}; release_ready=${gateValue(pack.release_ready)}; red_lane_count=${gateValue(pack.red_lane_count)}.`,
       `- Live Telegram proof: ${pass}/${rows} accepted; ledger_complete=${gateValue(live.ledger_complete)}; next_batch=${gateValue(live.next_batch)}.`,
@@ -1199,6 +1268,40 @@ async function renderPublicReleaseBlockersAnswer(): Promise<string> {
       '',
       'I did not create, update, merge, or publish PRs; no registry pin, runtime truth, or installed state was moved.'
     ].filter(Boolean).join('\n');
+    return composeGovernedEvidenceAnswer(
+      {
+        kind: 'public_release_blockers',
+        userText,
+        evidence: {
+          release_claim_allowed: pack.release_claim_allowed,
+          publication_allowed: pack.publication_allowed,
+          release_ready: pack.release_ready,
+          red_lane_count: pack.red_lane_count,
+          live_telegram: { pass, rows, ledger_complete: live.ledger_complete, next_batch: live.next_batch },
+          live_performance: {
+            performance_complete: performance.performance_complete,
+            measured_pass_cases: performance.measured_pass_cases,
+            positive_action_success_rate: performance.positive_action_success_rate
+          },
+          registry: { state: registryState, failed_modules: failedModules },
+          duplicate_truth: { duplicate_truth_release_blocker_count: duplicateCount, critical_items: criticalItems },
+          final_packet: { generation_allowed: finalPacket.generation_allowed, exists: finalPacket.exists },
+          red_lanes: redLanes
+        },
+        claimBoundary: 'Answer from generated public-release gates only. No PRs, registry pins, runtime truth, or installed state moved in this answer.'
+      },
+      fallback,
+      (reply) => {
+        const escapedProgress = `${pass}\\s*/\\s*${rows}`;
+        return new RegExp(escapedProgress).test(reply) &&
+          new RegExp(`release_claim_allowed\\s*=\\s*${gateValue(pack.release_claim_allowed)}`, 'i').test(reply) &&
+          new RegExp(`publication_allowed\\s*=\\s*${gateValue(pack.publication_allowed)}`, 'i').test(reply) &&
+          new RegExp(`release_ready\\s*=\\s*${gateValue(pack.release_ready)}`, 'i').test(reply) &&
+          /registry/i.test(reply) &&
+          /duplicate\s+truth/i.test(reply) &&
+          /final\s+packet/i.test(reply);
+      }
+    );
   } catch (error) {
     const detail = redactText(error instanceof Error ? error.message : String(error));
     return [
@@ -1303,7 +1406,7 @@ async function renderSparkReadOnlyStateAnswer(kind: SparkReadOnlyStateQuestion, 
     case 'contract_coverage_blockers':
       return renderContractCoverageBlockersAnswer();
     case 'public_release_blockers':
-      return renderPublicReleaseBlockersAnswer();
+      return renderPublicReleaseBlockersAnswer(String(ctx.message?.text || ''));
     case 'registry_drift':
       return renderRegistryDriftAnswer();
     case 'mission_update_preference':
@@ -4258,12 +4361,30 @@ async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
 
   try {
     const receipt = await readLatestCapabilityProbeReceipt('spark_browser');
-    if (!receipt) return fallback;
+    if (!receipt) {
+      return composeGovernedEvidenceAnswer(
+        {
+          kind: 'browser_use_availability',
+          userText: query,
+          evidence: {
+            latest_probe_receipt: null,
+            browser_opened_this_turn: false,
+            browser_tool_called_this_turn: false,
+            proof_scope: 'unproven_without_fresh_probe'
+          },
+          claimBoundary: 'Answer from current probe evidence only. This turn must not claim browser use, clicks, screenshots, cookies, or page access.'
+        },
+        fallback,
+        (reply) => /browser/i.test(reply) &&
+          /(?:probe|proof|prove|evidence)/i.test(reply) &&
+          /(?:not|no|without|unproven)/i.test(reply)
+      );
+    }
 
     const status = receipt.status.toLowerCase();
     if (status === 'success') {
       const proofNames = extractBrowserProofNames(receipt.probeSummary || '');
-      return [
+      const successFallback = [
         proofNames.length
           ? 'Yes, for the small browser check Spark just proved. Not for full browser automation yet.'
           : 'The browser probe succeeded, but I should still keep the claim narrow.',
@@ -4272,18 +4393,70 @@ async function buildBrowserProofQuestionAnswer(query: string): Promise<string> {
         '',
         'Still unproven: logged-in pages, cookies, sensitive clicks, arbitrary sites, and Spawner browser automation. Those need their own probe.'
       ].filter(Boolean).join('\n');
+      return composeGovernedEvidenceAnswer(
+        {
+          kind: 'browser_use_availability',
+          userText: query,
+          evidence: {
+            latest_probe_receipt: {
+              status: receipt.status,
+              probe_summary: receipt.probeSummary || '',
+              proof_names: proofNames
+            },
+            browser_opened_this_turn: false,
+            browser_tool_called_this_turn: false,
+            proof_scope: proofNames
+          },
+          claimBoundary: 'Answer only the scope proven by the latest browser probe receipt. Do not claim this Telegram turn opened a browser.'
+        },
+        successFallback,
+        (reply) => /browser/i.test(reply) && /(?:probe|proof|proved|evidence)/i.test(reply)
+      );
     }
 
-    return [
+    const failedFallback = [
       'No. The latest browser probe failed, so browser automation is unavailable right now.',
       '',
       receipt.failureReason ? `Reason: ${receipt.failureReason}` : '',
       '',
       'Once browser-use is fixed and `/probe browser` succeeds, I can claim only the scope that probe proves.'
     ].filter(Boolean).join('\n');
+    return composeGovernedEvidenceAnswer(
+      {
+        kind: 'browser_use_availability',
+        userText: query,
+        evidence: {
+          latest_probe_receipt: {
+            status: receipt.status,
+            failure_reason: receipt.failureReason || '',
+            probe_summary: receipt.probeSummary || ''
+          },
+          browser_opened_this_turn: false,
+          browser_tool_called_this_turn: false,
+          proof_scope: 'failed_probe'
+        },
+        claimBoundary: 'Answer from latest browser probe receipt only. Do not claim browser automation is available after a failed probe.'
+      },
+      failedFallback,
+      (reply) => /browser/i.test(reply) && /(?:failed|unavailable|not\s+available|not\s+proven)/i.test(reply)
+    );
   } catch (error) {
     console.warn('[BrowserProof] latest probe receipt read failed:', redactText(error instanceof Error ? error.message : String(error)));
-    return fallback;
+    return composeGovernedEvidenceAnswer(
+      {
+        kind: 'browser_use_availability',
+        userText: query,
+        evidence: {
+          latest_probe_receipt: 'read_failed',
+          browser_opened_this_turn: false,
+          browser_tool_called_this_turn: false,
+          read_error: redactText(error instanceof Error ? error.message : String(error))
+        },
+        claimBoundary: 'Probe evidence could not be read. Do not claim browser access.'
+      },
+      fallback,
+      (reply) => /browser/i.test(reply) && /(?:probe|proof|unproven|not)/i.test(reply)
+    );
   }
 }
 
