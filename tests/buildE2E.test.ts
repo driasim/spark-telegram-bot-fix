@@ -2253,6 +2253,65 @@ async function run(): Promise<void> {
 		restoreEnv();
 	});
 
+	await test('conversational ideation replies record Harness Core answer authority', async () => {
+		restoreAxios();
+		process.env.ADMIN_TELEGRAM_IDS = '8319079055';
+		process.env.BOT_DEFAULT_TIER = 'base';
+		process.env.SPAWNER_UI_URL = 'http://stub-spawner.test';
+		process.env.SPAWNER_UI_PUBLIC_URL = 'http://stub-spawner.test';
+		process.env.SPARK_AGENT_ACCESS_PROFILE = 'developer';
+		process.env.SPARK_BOT_TEST_MODE = '1';
+		const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spark-ideation-answer-authority-'));
+		process.env.SPARK_GATEWAY_STATE_DIR = tempRoot;
+		const ledgerPath = path.join(tempRoot, 'harness-core-ledger.jsonl');
+		const naturalRouteLedgerPath = path.join(tempRoot, 'natural-route-ledger.jsonl');
+		process.env.SPARK_HARNESS_CORE_LEDGER_PATH = ledgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER_PATH = naturalRouteLedgerPath;
+		process.env.SPARK_NATURAL_ROUTE_LEDGER = '1';
+		delete process.env.SPARK_HARNESS_CORE_LEDGER;
+
+		const captured: CapturedCall[] = [];
+		(axios as any).post = async (url: string, body: any) => {
+			captured.push({ url, body });
+			return { data: { success: true, requestId: body?.requestId } };
+		};
+
+		try {
+			const replies: string[] = [];
+			const indexModule: any = await import('../src/index');
+			const ctx = makeFakeCtx(8319079055, 8319079055, 631, replies);
+			ctx.message.text = 'Actually stop; I only want to talk about the previous plan.';
+			await indexModule.handleTextMessage(ctx);
+
+			assert.equal(captured.length, 0, 'ideation answer must not call Spawner or mutation bridges');
+			assert.ok((replies[0] || '').trim(), 'ideation answer should still produce a user-visible reply');
+
+			const ledgerRecords = readHarnessCoreToolLedger(ledgerPath);
+			const successRecord = ledgerRecords.find((record) => (
+				record.tool_name === 'answer.compose' &&
+				record.authorization.verdict === 'allow' &&
+				record.authorization.restrictions.write_allowed === false &&
+				record.authorization.restrictions.publish_allowed === false &&
+				record.result.status === 'success' &&
+				/Conversational ideation answer completed through Harness Core/i.test(record.result.summary)
+			));
+			assert.ok(successRecord, 'ideation answer must record Harness Core answer.compose success');
+
+			const ideationRoute = (record: any) => (
+				record.executed_route === 'conversation.ideation' &&
+				record.executed_action === 'harness_core.answer_boundary'
+			);
+			const naturalRouteRecords = await waitForJsonlRecord(naturalRouteLedgerPath, ideationRoute);
+			assert.ok(
+				naturalRouteRecords.some(ideationRoute),
+				'ideation answer must record natural route execution through Harness Core'
+			);
+		} finally {
+			rmSync(tempRoot, { recursive: true, force: true });
+			restoreEnv();
+		}
+	});
+
 	await test('domain chip pending state ignores unrelated QA bug-hunt turns', async () => {
 		restoreAxios();
 		process.env.ADMIN_TELEGRAM_IDS = '8319079055';

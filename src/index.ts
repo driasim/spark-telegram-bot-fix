@@ -2191,6 +2191,39 @@ function recordTelegramHarnessCoreExecution(
   }
 }
 
+function telegramAnswerComposeAuthorityDecision(
+  baseEnvelope: TurnIntentEnvelopeV1,
+  input: {
+    route: TelegramActionAuthorityInput['route'];
+    text: string;
+    ownerSystem: NaturalRouteOwnerSystem | string;
+    action: string;
+    selectedBy: string;
+    matchedSignal: string;
+    confidence?: TelegramIntentDecisionV2['confidence'];
+  }
+): TelegramActionAuthorityResult {
+  return telegramActionAuthorityDecision(
+    telegramActionEnvelope(baseEnvelope, {
+      route: input.route,
+      ownerSystem: input.ownerSystem,
+      action: input.action,
+      kind: 'plain_conversation',
+      confidence: input.confidence || 'explicit',
+      mutationClass: 'none',
+      selectedBy: input.selectedBy,
+      matchedSignal: input.matchedSignal
+    }),
+    {
+      route: input.route,
+      text: input.text,
+      toolName: 'answer.compose',
+      ownerSystem: 'spark-telegram-bot',
+      mutationClass: 'none'
+    }
+  );
+}
+
 type AccessReadRoute = 'access.status' | 'access.help';
 
 function telegramAccessReadAuthorityDecision(
@@ -9557,13 +9590,35 @@ export async function handleTextMessage(ctx: any): Promise<void> {
   }
   if (!earlyBuildIntent && naturalRouteShadow?.route !== 'chat_plan' && shouldPreferConversationalIdeation(text)) {
     console.log(`[ConversationIntent] early ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
+    const ideationAuthorization = telegramAnswerComposeAuthorityDecision(turnIntentEnvelope, {
+      route: 'conversation.ideation',
+      text,
+      ownerSystem: 'spark-intelligence-builder',
+      action: 'plain_chat.ideation',
+      selectedBy: 'telegram_conversational_ideation',
+      matchedSignal: 'conversational_ideation'
+    });
+    if (!ideationAuthorization.allow) {
+      recordTelegramHarnessCoreExecution(ideationAuthorization, {
+        toolName: 'answer.compose',
+        status: 'not_started',
+        summary: 'Conversational ideation answer was blocked by Harness Core authority.'
+      });
+      await ctx.reply('I did not continue that conversation path because the answer boundary was not authorized.');
+      return;
+    }
     if (isPendingClarificationAlternativeRequest(text)) {
       deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));
     }
     await conversation.remember(user, text).catch(() => {});
-    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'plain_chat.ideation');
+    recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'harness_core.answer_boundary');
     if (isNoExecutionBoundary(text)) {
       const response = buildNoExecutionIdeationReply(text);
+      recordTelegramHarnessCoreExecution(ideationAuthorization, {
+        toolName: 'answer.compose',
+        status: 'success',
+        summary: 'Conversational ideation answer completed through Harness Core for a no-execution boundary.'
+      });
       await ctx.reply(response);
       await conversation.rememberAssistantReply(user, response).catch(() => {});
       return;
@@ -9572,6 +9627,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     if (isShortResolvedListPick(text, conversationFrame)) {
       const fastReply = buildSelectedListFastReply(conversationFrame);
       if (fastReply) {
+        recordTelegramHarnessCoreExecution(ideationAuthorization, {
+          toolName: 'answer.compose',
+          status: 'success',
+          summary: 'Conversational ideation answer completed through Harness Core for a resolved list pick.'
+        });
         await ctx.reply(fastReply);
         await conversation.rememberAssistantReply(user, fastReply).catch(() => {});
         return;
@@ -9580,6 +9640,11 @@ export async function handleTextMessage(ctx: any): Promise<void> {
     const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
     const accessProfile = await getSparkAccessProfile(ctx.chat.id);
     const response = await renderConversationalIdeationResponse(text, conversationFrame, memories, accessProfile);
+    recordTelegramHarnessCoreExecution(ideationAuthorization, {
+      toolName: 'answer.compose',
+      status: 'success',
+      summary: 'Conversational ideation answer completed through Harness Core.'
+    });
     await ctx.reply(response);
     await conversation.rememberAssistantReply(user, response).catch(() => {});
     return;
@@ -10586,11 +10651,34 @@ export async function handleTextMessage(ctx: any): Promise<void> {
 
     if (naturalRouteShadow?.route !== 'chat_plan' && shouldPreferConversationalIdeation(text)) {
       console.log(`[ConversationIntent] ideation route user=${userRef(ctx.from?.id)} textLen=${text.length}`);
+      const ideationAuthorization = telegramAnswerComposeAuthorityDecision(turnIntentEnvelope, {
+        route: 'conversation.ideation',
+        text,
+        ownerSystem: 'spark-intelligence-builder',
+        action: 'plain_chat.ideation',
+        selectedBy: 'telegram_conversational_ideation',
+        matchedSignal: 'conversational_ideation'
+      });
+      if (!ideationAuthorization.allow) {
+        recordTelegramHarnessCoreExecution(ideationAuthorization, {
+          toolName: 'answer.compose',
+          status: 'not_started',
+          summary: 'Conversational ideation fallback answer was blocked by Harness Core authority.'
+        });
+        await ctx.reply('I did not continue that conversation path because the answer boundary was not authorized.');
+        return;
+      }
       if (isPendingClarificationAlternativeRequest(text)) {
         deletePendingBuildClarification(telegramPendingBuildKey(ctx.chat.id, ctx.from.id));
       }
       if (isNoExecutionBoundary(text)) {
         const response = buildNoExecutionIdeationReply(text);
+        recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'harness_core.answer_boundary');
+        recordTelegramHarnessCoreExecution(ideationAuthorization, {
+          toolName: 'answer.compose',
+          status: 'success',
+          summary: 'Conversational ideation fallback answer completed through Harness Core for a no-execution boundary.'
+        });
         await ctx.reply(response);
         await conversation.rememberAssistantReply(user, response).catch(() => {});
         return;
@@ -10599,6 +10687,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       if (isShortResolvedListPick(text, conversationFrame)) {
         const fastReply = buildSelectedListFastReply(conversationFrame);
         if (fastReply) {
+          recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'harness_core.answer_boundary');
+          recordTelegramHarnessCoreExecution(ideationAuthorization, {
+            toolName: 'answer.compose',
+            status: 'success',
+            summary: 'Conversational ideation fallback answer completed through Harness Core for a resolved list pick.'
+          });
           await ctx.reply(fastReply);
           await conversation.rememberAssistantReply(user, fastReply).catch(() => {});
           return;
@@ -10607,6 +10701,12 @@ export async function handleTextMessage(ctx: any): Promise<void> {
       const memories = [await conversation.getContext(user, text), conversationFrameContext].join('\n\n');
       const accessProfile = await getSparkAccessProfile(ctx.chat.id);
       const response = await renderConversationalIdeationResponse(text, conversationFrame, memories, accessProfile);
+      recordNaturalRouteExecution(ctx, naturalRouteShadow, 'conversation.ideation', 'spark-intelligence-builder', 'harness_core.answer_boundary');
+      recordTelegramHarnessCoreExecution(ideationAuthorization, {
+        toolName: 'answer.compose',
+        status: 'success',
+        summary: 'Conversational ideation fallback answer completed through Harness Core.'
+      });
       await ctx.reply(response);
       await conversation.rememberAssistantReply(user, response).catch(() => {});
       return;

@@ -48,6 +48,7 @@ export type DeterministicRouteId =
   | 'sparkqa.pause'
   | 'conversation.quoted_drafted_example_boundary'
   | 'conversation.stale_context_authority_boundary'
+  | 'conversation.ideation'
   | 'domain_chip.pending';
 
 export interface RouteFirewallVerdict {
